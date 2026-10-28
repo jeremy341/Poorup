@@ -12,6 +12,8 @@ const NIGHT_SHIFT_START_HEARTS = 3;
 const NIGHT_SHIFT_BEST_KEY = "poorup.night-shift.best.v1";
 const NIGHT_SHIFT_PENDING_KEY_PREFIX = "poorup.night-shift.pending.v1.";
 const NIGHT_SHIFT_PENDING_TTL_MS = 6 * 60_000;
+// One art root for every Night Shift sprite, so the asset paths stay grouped.
+const PATROL_ART = "/assets/parlor-patrol/";
 let nightShiftWaveTimer = null;
 let nightShiftTickTimer = null;
 let nightShiftStartTimer = null;
@@ -56,8 +58,7 @@ function pendingSettlementCreatedAt(saved) {
     : Math.max(0, Number(saved?.expiresAt) - NIGHT_SHIFT_PENDING_TTL_MS);
 }
 
-function readPendingSettlementRecord(accountId) {
-  const records = [];
+function eachPendingSettlementKey(accountId, visit) {
   for (const storageName of ["sessionStorage", "localStorage"]) {
     try {
       const storage = globalThis[storageName];
@@ -67,21 +68,32 @@ function readPendingSettlementRecord(accountId) {
       for (let index = storage.length - 1; index >= 0; index -= 1) {
         const key = storage.key(index);
         if (key !== legacyKey && !key?.startsWith(tokenKeyPrefix)) continue;
-        const raw = storage.getItem(key);
-        if (!raw) continue;
-        const saved = JSON.parse(raw);
-        if (saved?.accountId === accountId
-          && typeof saved.runToken === "string"
-          && saved.runToken.length > 0
-          && Number.isFinite(Number(saved.expiresAt))
-          && Number(saved.expiresAt) > Date.now()) {
-          records.push({ ...saved, createdAt: pendingSettlementCreatedAt(saved) });
-        } else {
-          storage.removeItem(key);
-        }
+        visit(storage, key);
       }
-    } catch { /* try the other storage area */ }
+    } catch { /* storage unavailable: try the other storage area */ }
   }
+}
+
+function isLivePendingSettlement(saved, accountId) {
+  return saved?.accountId === accountId
+    && typeof saved.runToken === "string"
+    && saved.runToken.length > 0
+    && Number.isFinite(Number(saved.expiresAt))
+    && Number(saved.expiresAt) > Date.now();
+}
+
+function readPendingSettlementRecord(accountId) {
+  const records = [];
+  eachPendingSettlementKey(accountId, (storage, key) => {
+    const raw = storage.getItem(key);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (isLivePendingSettlement(saved, accountId)) {
+      records.push({ ...saved, createdAt: pendingSettlementCreatedAt(saved) });
+    } else {
+      storage.removeItem(key);
+    }
+  });
   return records.sort((left, right) => right.createdAt - left.createdAt)[0] || null;
 }
 
@@ -105,21 +117,11 @@ function persistPendingSettlement(settlement) {
 
 function clearPersistedPendingSettlement(settlement) {
   if (!settlement?.token || !settlement.accountId) return;
-  const legacyKey = pendingSettlementAccountKey(settlement.accountId);
-  const tokenKeyPrefix = `${legacyKey}.`;
-  for (const storageName of ["sessionStorage", "localStorage"]) {
-    try {
-      const storage = globalThis[storageName];
-      if (!storage) continue;
-      for (let index = storage.length - 1; index >= 0; index -= 1) {
-        const key = storage.key(index);
-        if (key !== legacyKey && !key?.startsWith(tokenKeyPrefix)) continue;
-        const saved = JSON.parse(storage.getItem(key) || "null");
-        const olderThanSettlement = pendingSettlementCreatedAt(saved) <= Number(settlement.createdAt || 0);
-        if (saved?.runToken === settlement.token || olderThanSettlement) storage.removeItem(key);
-      }
-    } catch { /* storage unavailable */ }
-  }
+  eachPendingSettlementKey(settlement.accountId, (storage, key) => {
+    const saved = JSON.parse(storage.getItem(key) || "null");
+    const olderThanSettlement = pendingSettlementCreatedAt(saved) <= Number(settlement.createdAt || 0);
+    if (saved?.runToken === settlement.token || olderThanSettlement) storage.removeItem(key);
+  });
 }
 
 function restorePendingSettlement() {
@@ -177,7 +179,7 @@ function heartsLabel() {
 }
 
 function heartsMarkup() {
-  const cell = (i) => `<img class="night-heart${i >= nightShiftState.hearts ? " is-empty" : ""}" src="/assets/parlor-patrol/heart.svg" alt="">`;
+  const cell = (i) => `<img class="night-heart${i >= nightShiftState.hearts ? " is-empty" : ""}" src="${PATROL_ART}heart.svg" alt="">`;
   return Array.from({ length: NIGHT_SHIFT_START_HEARTS }, (_, i) => cell(i)).join("");
 }
 
@@ -290,21 +292,21 @@ function clearNightShiftTargetTimer(target) {
   nightShiftTargetTimers.delete(id);
 }
 
-function triggerNightShiftHomeEffect(x, y, kind) {
-  const effects = $("#night-effects");
-  if (!effects) return;
+function homeEffectElement(effects, kind) {
+  const existing = effects.querySelector(`[data-night-home-effect="${kind}"]`);
+  if (existing) return existing;
   const smoke = kind === "home-smoke";
-  const selector = `[data-night-home-effect="${kind}"]`;
-  let effect = effects.querySelector(selector);
-  if (!effect) {
-    effect = document.createElement("span");
-    effect.className = `night-shift-effect night-shift-home-${smoke ? "smoke" : "impact"}`;
-    effect.dataset.nightHomeEffect = kind;
-    effect.innerHTML = smoke
-      ? '<img src="/assets/parlor-patrol/smoke-6-frames.svg" alt="" width="80" height="64">'
-      : '<img src="/assets/parlor-patrol/impact-8-frames.svg" alt="" width="64" height="64">';
-    effects.appendChild(effect);
-  }
+  const effect = document.createElement("span");
+  effect.className = `night-shift-effect night-shift-home-${smoke ? "smoke" : "impact"}`;
+  effect.dataset.nightHomeEffect = kind;
+  effect.innerHTML = smoke
+    ? `<img src="${PATROL_ART}smoke-6-frames.svg" alt="" width="80" height="64">`
+    : `<img src="${PATROL_ART}impact-8-frames.svg" alt="" width="64" height="64">`;
+  effects.appendChild(effect);
+  return effect;
+}
+
+function placeHomeEffect(effects, effect, x, y, smoke) {
   const width = smoke ? 80 : 64;
   const height = 64;
   const maxX = Math.max(width / 2, effects.clientWidth - width / 2);
@@ -313,6 +315,14 @@ function triggerNightShiftHomeEffect(x, y, kind) {
   const visibleY = Math.max(height / 2, Math.min(maxY, y));
   effect.style.left = `${Math.round(visibleX - (smoke ? 40 : 32))}px`;
   effect.style.top = `${Math.round(visibleY - (smoke ? 30 : 32))}px`;
+}
+
+function triggerNightShiftHomeEffect(x, y, kind) {
+  const effects = $("#night-effects");
+  if (!effects) return;
+  const smoke = kind === "home-smoke";
+  const effect = homeEffectElement(effects, kind);
+  placeHomeEffect(effects, effect, x, y, smoke);
   effect.classList.remove("is-burst");
   // Match Home exactly: reset the class, force layout, then restart it.
   void effect.offsetWidth;
@@ -335,18 +345,22 @@ function settleFlightTarget(timers, target, id) {
   nightShiftTargetTimers.delete(id);
 }
 
+function setLiveTargetPointer(target, pointerEvents) {
+  if (target.isConnected && !target.dataset.hit) target.style.pointerEvents = pointerEvents;
+}
+
 function armTargetTimers(timers) {
   timers.startedAt = Date.now();
   if (timers.revealRemaining !== null) {
     timers.reveal = setTimeout(() => {
       timers.revealRemaining = null;
-      if (timers.target.isConnected && !timers.target.dataset.hit) timers.target.style.pointerEvents = "auto";
+      setLiveTargetPointer(timers.target, "auto");
     }, timers.revealRemaining);
   }
   if (timers.disableRemaining !== null) {
     timers.disable = setTimeout(() => {
       timers.disableRemaining = null;
-      if (timers.target.isConnected && !timers.target.dataset.hit) timers.target.style.pointerEvents = "none";
+      setLiveTargetPointer(timers.target, "none");
     }, timers.disableRemaining);
   }
   timers.miss = setTimeout(timers.settle, timers.missRemaining);
@@ -369,9 +383,9 @@ function scheduleNightShiftTarget(target, duration) {
 }
 
 function effectSrc(kind) {
-  if (kind === "airplane") return "/assets/parlor-patrol/airplane-explosion-10-frames.svg";
-  if (kind === "drone") return "/assets/parlor-patrol/drone-explosion-10-frames.svg";
-  return "/assets/parlor-patrol/impact-8-frames.svg";
+  if (kind === "airplane") return `${PATROL_ART}airplane-explosion-10-frames.svg`;
+  if (kind === "drone") return `${PATROL_ART}drone-explosion-10-frames.svg`;
+  return `${PATROL_ART}impact-8-frames.svg`;
 }
 
 function effectDimensions(kind, aircraft) {
@@ -420,11 +434,11 @@ function pickTargetDuration(kind, wave) {
 }
 
 function targetSrc(kind, direction) {
-  if (kind === "beacon") return "/assets/parlor-patrol/beacon-6-frames.svg";
-  if (kind === "drone") return "/assets/parlor-patrol/drone-8-frames.svg";
-  if (kind === "airplane") return "/assets/parlor-patrol/airplane-10-frames.svg";
-  if (direction === "left") return "/assets/parlor-patrol/helicopter-left-16-frames.svg";
-  return "/assets/parlor-patrol/helicopter-16-frames.svg";
+  if (kind === "beacon") return `${PATROL_ART}beacon-6-frames.svg`;
+  if (kind === "drone") return `${PATROL_ART}drone-8-frames.svg`;
+  if (kind === "airplane") return `${PATROL_ART}airplane-10-frames.svg`;
+  if (direction === "left") return `${PATROL_ART}helicopter-left-16-frames.svg`;
+  return `${PATROL_ART}helicopter-16-frames.svg`;
 }
 
 function targetSize(kind) {
@@ -452,14 +466,29 @@ function paintTargetArt(target, kind, direction) {
   if (kind === "airplane" && direction === "left") target.querySelector("img")?.style.setProperty("transform", "scaleX(-1)");
 }
 
+function targetDirection(serverTarget) {
+  // Alternate lanes so a short play session always exercises both edges.
+  return serverTarget?.direction || (nightShiftState.targetSeq % 2 === 0 ? "left" : "right");
+}
+
+function targetClassName(kind, direction, isDrop) {
+  if (isDrop) return "night-target night-target-drop night-target-beacon is-flight";
+  return `night-target night-target-${direction} night-target-${kind} is-flight`;
+}
+
+function markGuestTargetPending(wave) {
+  const outcome = nightShiftGuestWaves.get(wave) || { pending: 0, missed: false };
+  outcome.pending += 1;
+  nightShiftGuestWaves.set(wave, outcome);
+}
+
 function spawnNightShiftTarget(serverTarget = null, serverTime = 0) {
   if (!nightShiftState.active) return;
   if (state.phase !== "home") return;
   if (document.hidden) return; // frozen queue: the resume coordinator re-arms
   const layer = $("#night-targets");
   if (!layer) return;
-  // Alternate lanes so a short play session always exercises both edges.
-  const direction = serverTarget?.direction || (nightShiftState.targetSeq % 2 === 0 ? "left" : "right");
+  const direction = targetDirection(serverTarget);
   const spawnNumber = nightShiftState.targetSeq;
   const kind = serverTarget?.kind || pickTargetKind(nightShiftState.wave, spawnNumber, Math.random());
   const lane = serverTarget?.lane ?? [18, 25, 32, 39, 46, 53, 60][Math.floor(Math.random() * 7)];
@@ -467,9 +496,7 @@ function spawnNightShiftTarget(serverTarget = null, serverTime = 0) {
   const target = document.createElement("button");
   target.type = "button";
   const isDrop = kind === "beacon" || kind === "airplane";
-  target.className = isDrop
-    ? "night-target night-target-drop night-target-beacon is-flight"
-    : `night-target night-target-${direction} night-target-${kind} is-flight`;
+  target.className = targetClassName(kind, direction, isDrop);
   configureTargetPlacement(target, kind, isDrop, lane);
   target.style.setProperty("--night-flight-duration", `${duration}ms`);
   target.style.setProperty("--night-stage-width", `${layer.clientWidth}px`);
@@ -480,11 +507,7 @@ function spawnNightShiftTarget(serverTarget = null, serverTime = 0) {
   target.dataset.duration = String(duration);
   if (serverTarget) { target.dataset.actionable = "0"; target.style.pointerEvents = "none"; }
   target.dataset.wave = String(serverTarget?.wave || nightShiftState.wave);
-  if (!serverTarget) {
-    const outcome = nightShiftGuestWaves.get(nightShiftState.wave) || { pending: 0, missed: false };
-    outcome.pending += 1;
-    nightShiftGuestWaves.set(nightShiftState.wave, outcome);
-  }
+  if (!serverTarget) markGuestTargetPending(nightShiftState.wave);
   target.dataset.targetId = serverTarget ? String(serverTarget.id) : String(++nightShiftState.targetSeq);
   target.setAttribute("aria-label", `Tag Night Shift ${kind}, wave ${nightShiftState.wave}`);
   paintTargetArt(target, kind, direction);
@@ -639,6 +662,29 @@ function awaitSettlementReconnect(settlement, message = "Connection lost. Reconn
   host.parlorNotice("NIGHT SHIFT", message);
 }
 
+function settlementRequestIsStale(settlement, requestGeneration) {
+  return nightShiftSettlement !== settlement || settlement.requestGeneration !== requestGeneration;
+}
+
+function handleFinishAck(settlement, response, attempt, attempts, retrySend) {
+  if (!response?.success && attempt === 1 && attempts > 1) return;
+  if (!response?.success && response?.retryable && attempt === 1 && attempts === 1) {
+    clearTimeout(settlement.timer);
+    retrySend();
+    return;
+  }
+  if (!response?.success && response?.retryable && attempts > 1) {
+    const error = String(response.error || "Could not save this patrol.").slice(0, 63);
+    awaitSettlementReconnect(settlement, `${error} Press Shift+P or reconnect to retry.`);
+    return;
+  }
+  if (!response?.success && attempts > 1) {
+    finishSettlement(settlement, { success: false, error: "Could not confirm that the patrol score was saved." });
+    return;
+  }
+  finishSettlement(settlement, response);
+}
+
 function sendSettlement(settlement, token) {
   if (nightShiftSettlement !== settlement || settlement.sent || !token) return;
   settlement.token = token;
@@ -650,32 +696,17 @@ function sendSettlement(settlement, token) {
   const requestGeneration = ++settlement.requestGeneration;
   let attempts = 0;
   const send = () => {
-    if (nightShiftSettlement !== settlement || settlement.requestGeneration !== requestGeneration) return;
+    if (settlementRequestIsStale(settlement, requestGeneration)) return;
     attempts += 1;
     const attempt = attempts;
     settlement.timer = setTimeout(() => {
-      if (nightShiftSettlement !== settlement || settlement.requestGeneration !== requestGeneration) return;
+      if (settlementRequestIsStale(settlement, requestGeneration)) return;
       if (attempts === 1) { send(); return; }
       awaitSettlementReconnect(settlement, "Could not confirm the patrol score. Reconnect or press Shift+P to retry.");
     }, 4000);
     host.emitServer("finish-patrol-run", { runToken: token }, (response) => {
-      if (nightShiftSettlement !== settlement || settlement.requestGeneration !== requestGeneration) return;
-      if (!response?.success && attempt === 1 && attempts > 1) return;
-      if (!response?.success && response?.retryable && attempt === 1 && attempts === 1) {
-        clearTimeout(settlement.timer);
-        send();
-        return;
-      }
-      if (!response?.success && response?.retryable && attempts > 1) {
-        const error = String(response.error || "Could not save this patrol.").slice(0, 63);
-        awaitSettlementReconnect(settlement, `${error} Press Shift+P or reconnect to retry.`);
-        return;
-      }
-      if (!response?.success && attempts > 1) {
-        finishSettlement(settlement, { success: false, error: "Could not confirm that the patrol score was saved." });
-        return;
-      }
-      finishSettlement(settlement, response);
+      if (settlementRequestIsStale(settlement, requestGeneration)) return;
+      handleFinishAck(settlement, response, attempt, attempts, send);
     });
   };
   send();
@@ -796,62 +827,71 @@ function crashWreck(target, kind) {
   if (crashArt) crashArt.style.transform = crashTransform(kind, direction);
 }
 
-function hitNightShiftTarget(target, event) {
-  if (!hitGuard(target)) return;
-  // Measure the transformed, live position before clearing the flight class.
-  // This mirrors Home's hit path and prevents effects from snapping back to
-  // the left/right/top spawn edge.
-  if (nightShiftServerRun) {
-    if (target.dataset.pending) return;
-    target.dataset.pending = "1";
-    const generation = nightShiftGeneration;
-    const sentAt = Date.now();
-    host.emitServer("hit-patrol-target", { runToken: nightShiftState.serverRunToken, targetId: target.dataset.targetId }, (response) => {
-      if (generation !== nightShiftGeneration) return;
-      if (!response?.success) { delete target.dataset.pending; return; }
-      const offer = nightShiftServerOffers.get(target.dataset.targetId);
-      if (offer) { clearTimeout(offer.timer); clearTimeout(offer.watchdog); nightShiftServerOffers.delete(target.dataset.targetId); }
-      observePatrolClock(response, sentAt);
-      if (target.isConnected) {
-        const rect = target.getBoundingClientRect();
-        const area = $("#night-shift")?.getBoundingClientRect();
-        if (area) {
-          const point = hitPoint(rect, event, area);
-          target.dataset.hit = "1";
-          if (target.dataset.kind !== "helicopter") pinCrashPosition(target, rect);
-          target.classList.remove("is-flight");
-          if (target.dataset.kind === "helicopter") crashHelicopter(target, point.x, point.y);
-          else { crashWreck(target, target.dataset.kind); animateNonHelicopterCrash(target, point.x, point.y, target.dataset.kind); }
-          host.playPatrolHitSound();
-        }
-      }
-      applyPatrolState(response);
-    });
-    return;
-  }
+function measureHit(target, event) {
   const rect = target.getBoundingClientRect();
-  const atmosphere = $("#night-shift");
-  const area = atmosphere?.getBoundingClientRect();
-  if (!area) return;
-  const point = hitPoint(rect, event, area);
-  target.dataset.hit = "1";
-  resolveGuestTarget(target, false);
-  if (target.dataset.kind !== "helicopter") pinCrashPosition(target, rect);
-  clearNightShiftTargetTimer(target);
-  target.classList.remove("is-flight");
+  const area = $("#night-shift")?.getBoundingClientRect();
+  if (!area) return null;
+  return { rect, point: hitPoint(rect, event, area) };
+}
+
+function playTargetCrash(target, { rect, point }) {
   const kind = target.dataset.kind || "helicopter";
+  if (kind !== "helicopter") pinCrashPosition(target, rect);
+  target.classList.remove("is-flight");
   if (kind === "helicopter") {
     crashHelicopter(target, point.x, point.y);
-  } else {
-    crashWreck(target, kind);
-    animateNonHelicopterCrash(target, point.x, point.y, kind);
+    return;
   }
+  crashWreck(target, kind);
+  animateNonHelicopterCrash(target, point.x, point.y, kind);
+}
+
+function confirmServerHit(target, event) {
+  const hit = measureHit(target, event);
+  if (!hit) return;
+  target.dataset.hit = "1";
+  playTargetCrash(target, hit);
+  host.playPatrolHitSound();
+}
+
+function hitServerTarget(target, event) {
+  if (target.dataset.pending) return;
+  target.dataset.pending = "1";
+  const generation = nightShiftGeneration;
+  const sentAt = Date.now();
+  host.emitServer("hit-patrol-target", { runToken: nightShiftState.serverRunToken, targetId: target.dataset.targetId }, (response) => {
+    if (generation !== nightShiftGeneration) return;
+    if (!response?.success) { delete target.dataset.pending; return; }
+    releaseServerOffer(target.dataset.targetId);
+    observePatrolClock(response, sentAt);
+    if (target.isConnected) confirmServerHit(target, event);
+    applyPatrolState(response);
+  });
+}
+
+function hitGuestTarget(target, event) {
+  const hit = measureHit(target, event);
+  if (!hit) return;
+  target.dataset.hit = "1";
+  resolveGuestTarget(target, false);
+  clearNightShiftTargetTimer(target);
+  playTargetCrash(target, hit);
+  const kind = target.dataset.kind || "helicopter";
   const points = hitPoints(kind, Number(target.dataset.wave) || nightShiftState.wave);
   nightShiftState.score += points;
   nightShiftState.best = Math.max(nightShiftState.best, nightShiftState.score);
   saveNightShiftBest();
   host.playPatrolHitSound();
   renderNightShiftHud(`TAGGED +${points} · WAVE ${String(nightShiftState.wave).padStart(2, "0")}`);
+}
+
+function hitNightShiftTarget(target, event) {
+  if (!hitGuard(target)) return;
+  // Measure the transformed, live position before clearing the flight class.
+  // This mirrors Home's hit path and prevents effects from snapping back to
+  // the left/right/top spawn edge.
+  if (nightShiftServerRun) hitServerTarget(target, event);
+  else hitGuestTarget(target, event);
 }
 
 function resetNightShiftRun() {
@@ -912,14 +952,18 @@ function freezeServerOffers() {
   });
 }
 
+function serverOfferFor(target, id) {
+  const existing = nightShiftServerOffers.get(id);
+  if (existing) return existing;
+  const offer = { timer: null, watchdog: null, remaining: Math.round(target.duration * 0.16), startedAt: 0,
+    watchdogBudget: Math.floor(target.duration * 0.8), watchdogStartedAt: 0, readySent: false, attempts: 0 };
+  nightShiftServerOffers.set(id, offer);
+  return offer;
+}
+
 function armServerOffer(element, target, paused) {
   const id = String(target.id);
-  let offer = nightShiftServerOffers.get(id);
-  if (!offer) {
-    offer = { timer: null, watchdog: null, remaining: Math.round(target.duration * 0.16), startedAt: 0,
-      watchdogBudget: Math.floor(target.duration * 0.8), watchdogStartedAt: 0, readySent: false, attempts: 0 };
-    nightShiftServerOffers.set(id, offer);
-  }
+  const offer = serverOfferFor(target, id);
   if (paused || document.hidden || offer.timer !== null || offer.watchdog !== null) return;
   if (offer.readySent) {
     sendServerTargetReady(element, id, offer);
@@ -938,6 +982,36 @@ function armServerOffer(element, target, paused) {
   }, offer.remaining);
 }
 
+function readyWindowStillOpen(element, id, offer, generation, visibilityGeneration) {
+  return generation === nightShiftGeneration
+    && visibilityGeneration === nightShiftVisibilityGeneration
+    && !document.hidden
+    && nightShiftState.active
+    && element.isConnected
+    && nightShiftServerOffers.get(id) === offer;
+}
+
+function onReadyWatchdog(element, id, offer) {
+  offer.watchdogBudget = Math.max(0, offer.watchdogBudget - (Date.now() - offer.watchdogStartedAt));
+  offer.watchdog = null;
+  if (nightShiftServerOffers.get(id) !== offer || !nightShiftState.active || document.hidden) return;
+  if (offer.attempts < 2 && offer.watchdogBudget > 0) {
+    sendServerTargetReady(element, id, offer);
+    return;
+  }
+  endNightShift("NETWORK INTERRUPTION · SAVING SCORE");
+}
+
+function armReadyWatchdog(element, id, offer) {
+  // Socket.IO preserves event order, so the ready message precedes any hit.
+  // Spend at most 80% of the flight after readiness, excluding hidden time.
+  offer.watchdogStartedAt = Date.now();
+  const watchdogDelay = Math.max(1, offer.attempts < 2
+    ? Math.min(Math.floor(Number(element.dataset.duration) * 0.4), offer.watchdogBudget)
+    : offer.watchdogBudget);
+  offer.watchdog = setTimeout(() => onReadyWatchdog(element, id, offer), watchdogDelay);
+}
+
 function sendServerTargetReady(element, id, offer) {
   if (!nightShiftState.active || document.hidden || !element.isConnected) return;
   offer.readySent = true;
@@ -945,19 +1019,7 @@ function sendServerTargetReady(element, id, offer) {
   const generation = nightShiftGeneration;
   const visibilityGeneration = nightShiftVisibilityGeneration;
   const sentAt = Date.now();
-  // Socket.IO preserves event order, so the ready message precedes any hit.
-  // Spend at most 80% of the flight after readiness, excluding hidden time.
-  offer.watchdogStartedAt = Date.now();
-  const watchdogDelay = Math.max(1, offer.attempts < 2
-    ? Math.min(Math.floor(Number(element.dataset.duration) * 0.4), offer.watchdogBudget)
-    : offer.watchdogBudget);
-  offer.watchdog = setTimeout(() => {
-    offer.watchdogBudget = Math.max(0, offer.watchdogBudget - (Date.now() - offer.watchdogStartedAt));
-    offer.watchdog = null;
-    if (nightShiftServerOffers.get(id) !== offer || !nightShiftState.active || document.hidden) return;
-    if (offer.attempts < 2 && offer.watchdogBudget > 0) { sendServerTargetReady(element, id, offer); return; }
-    endNightShift("NETWORK INTERRUPTION · SAVING SCORE");
-  }, watchdogDelay);
+  armReadyWatchdog(element, id, offer);
   host.emitServer("ready-patrol-target", { runToken: nightShiftState.serverRunToken, targetId: id }, (response) => {
     if (generation !== nightShiftGeneration || !nightShiftState.active || nightShiftServerOffers.get(id) !== offer) return;
     if (!response?.success) {
@@ -968,7 +1030,7 @@ function sendServerTargetReady(element, id, offer) {
     observePatrolClock(response, sentAt);
     applyPatrolState(response);
   });
-  if (generation === nightShiftGeneration && visibilityGeneration === nightShiftVisibilityGeneration && !document.hidden && nightShiftState.active && element.isConnected && nightShiftServerOffers.get(id) === offer) {
+  if (readyWindowStillOpen(element, id, offer, generation, visibilityGeneration)) {
     element.dataset.actionable = "1";
     element.style.pointerEvents = "auto";
   }
@@ -1001,6 +1063,51 @@ function setServerTargetGate(element, target, serverTime, paused) {
   }, untilClose);
 }
 
+function releaseServerOffer(id) {
+  const offer = nightShiftServerOffers.get(id);
+  if (!offer) return;
+  clearTimeout(offer.timer);
+  clearTimeout(offer.watchdog);
+  nightShiftServerOffers.delete(id);
+}
+
+function releaseServerGate(id) {
+  const timers = nightShiftServerGates.get(id);
+  if (!timers) return;
+  clearTimeout(timers.open);
+  clearTimeout(timers.close);
+  nightShiftServerGates.delete(id);
+}
+
+function liveServerTargets(response, serverNow) {
+  if (!Array.isArray(response.targets)) return [];
+  return response.targets.filter((target) => target.deliveryPending || (Number.isFinite(target.expiresAt) && target.expiresAt > serverNow));
+}
+
+function pruneUnlistedServerTargets(layer, ids) {
+  layer?.querySelectorAll(".night-target:not([data-hit])").forEach((element) => {
+    const id = element.dataset.targetId;
+    if (ids.has(id)) return;
+    releaseServerGate(id);
+    releaseServerOffer(id);
+    element.remove();
+  });
+}
+
+function findTargetElement(layer, targetId) {
+  return [...layer.querySelectorAll(".night-target")].find((el) => el.dataset.targetId === String(targetId));
+}
+
+function syncServerTarget(element, target, serverNow, paused) {
+  if (target.deliveryPending) {
+    armServerOffer(element, target, paused);
+    return;
+  }
+  releaseServerOffer(String(target.id));
+  syncServerTargetAnimation(element, target, serverNow);
+  setServerTargetGate(element, target, serverNow, paused);
+}
+
 export function applyPatrolState(response) {
   if (!nightShiftState.active || !nightShiftServerRun || response?.runToken !== nightShiftState.serverRunToken) return;
   if (!Number.isFinite(response.revision) || response.revision <= nightShiftServerRevision) return;
@@ -1012,36 +1119,16 @@ export function applyPatrolState(response) {
   nightShiftState.misses = response.misses;
   nightShiftState.endsAt = Date.now() + Math.max(0, response.endsAt - serverNow);
   const layer = $("#night-targets");
-  const targets = Array.isArray(response.targets)
-    ? response.targets.filter((target) => target.deliveryPending || (Number.isFinite(target.expiresAt) && target.expiresAt > serverNow))
-    : [];
-  const ids = new Set(targets.map((target) => String(target.id)));
-  layer?.querySelectorAll(".night-target:not([data-hit])").forEach((element) => {
-    if (!ids.has(element.dataset.targetId)) {
-      const timers = nightShiftServerGates.get(element.dataset.targetId);
-      if (timers) { clearTimeout(timers.open); clearTimeout(timers.close); nightShiftServerGates.delete(element.dataset.targetId); }
-      const offer = nightShiftServerOffers.get(element.dataset.targetId);
-      if (offer) { clearTimeout(offer.timer); clearTimeout(offer.watchdog); nightShiftServerOffers.delete(element.dataset.targetId); }
-      element.remove();
-    }
-  });
+  const targets = liveServerTargets(response, serverNow);
+  pruneUnlistedServerTargets(layer, new Set(targets.map((target) => String(target.id))));
   for (const target of targets) {
     if (!layer?.querySelectorAll) break;
-    let element = [...layer.querySelectorAll(".night-target")].find((el) => el.dataset.targetId === String(target.id));
+    let element = findTargetElement(layer, target.id);
     if (!element) {
       spawnNightShiftTarget(target, serverNow);
-      element = [...layer.querySelectorAll(".night-target")].find((el) => el.dataset.targetId === String(target.id));
+      element = findTargetElement(layer, target.id);
     }
-    if (element && !element.dataset.hit) {
-      if (target.deliveryPending) {
-        armServerOffer(element, target, response.paused);
-      } else {
-        const offer = nightShiftServerOffers.get(String(target.id));
-        if (offer) { clearTimeout(offer.timer); clearTimeout(offer.watchdog); nightShiftServerOffers.delete(String(target.id)); }
-        syncServerTargetAnimation(element, target, serverNow);
-        setServerTargetGate(element, target, serverNow, response.paused);
-      }
-    }
+    if (element && !element.dataset.hit) syncServerTarget(element, target, serverNow, response.paused);
   }
   renderNightShiftHud(response.paused ? "NIGHT SHIFT PAUSED" : "TAG THE FLY-BYS BEFORE THEY REACH THE BORDER");
   if (response.ended) endNightShift(response.endReason === "delivery-timeout" ? "NETWORK INTERRUPTION · SAVING SCORE" : "SHIFT LOST · NO HEARTS LEFT");
@@ -1078,6 +1165,31 @@ export function handlePatrolDisconnect() {
   endNightShift("CONNECTION LOST · SCORE NOT SAVED");
 }
 
+function abortPatrolSync(error, endMessage) {
+  nightShiftState.serverRunError = error;
+  nightShiftState.serverRunToken = null;
+  host.parlorNotice("NIGHT SHIFT", error);
+  endNightShift(endMessage);
+}
+
+function syncPausedBodyClass() {
+  if (document.hidden) document.body.classList.add("night-shift-paused");
+  else document.body.classList.remove("night-shift-paused");
+}
+
+function failPatrolVisibility(response) {
+  const error = String(response?.error || "Score sync unavailable.").slice(0, 120);
+  abortPatrolSync(error, /expired/i.test(error) ? "PAUSED RUN EXPIRED · SCORE NOT SAVED" : "SCORE SYNC UNAVAILABLE · SCORE NOT SAVED");
+}
+
+function reconcilePatrolVisibility(visibilityGeneration, retry) {
+  if (retry === 0) {
+    sendPatrolVisibility(document.hidden ? "pause-patrol-run" : "resume-patrol-run", visibilityGeneration, 1);
+    return;
+  }
+  abortPatrolSync("Could not synchronize patrol visibility.", "SCORE SYNC UNAVAILABLE · SCORE NOT SAVED");
+}
+
 function sendPatrolVisibility(event, visibilityGeneration = nightShiftVisibilityGeneration, retry = 0) {
   if (!nightShiftState.serverRunToken) return;
   const generation = nightShiftGeneration;
@@ -1085,28 +1197,17 @@ function sendPatrolVisibility(event, visibilityGeneration = nightShiftVisibility
   host.emitServer(event, { runToken: nightShiftState.serverRunToken }, (response) => {
     if (generation !== nightShiftGeneration || !nightShiftState.active || visibilityGeneration !== nightShiftVisibilityGeneration) return;
     if (!response?.success) {
-      const error = String(response?.error || "Score sync unavailable.").slice(0, 120);
-      nightShiftState.serverRunError = error;
-      nightShiftState.serverRunToken = null;
-      host.parlorNotice("NIGHT SHIFT", error);
-      endNightShift(/expired/i.test(error) ? "PAUSED RUN EXPIRED · SCORE NOT SAVED" : "SCORE SYNC UNAVAILABLE · SCORE NOT SAVED");
+      failPatrolVisibility(response);
       return;
     }
     observePatrolClock(response, sentAt);
     applyPatrolState(response);
     if (!nightShiftState.active) return;
     if (Boolean(response.paused) !== document.hidden) {
-      if (retry === 0) sendPatrolVisibility(document.hidden ? "pause-patrol-run" : "resume-patrol-run", visibilityGeneration, 1);
-      else {
-        nightShiftState.serverRunError = "Could not synchronize patrol visibility.";
-        nightShiftState.serverRunToken = null;
-        host.parlorNotice("NIGHT SHIFT", nightShiftState.serverRunError);
-        endNightShift("SCORE SYNC UNAVAILABLE · SCORE NOT SAVED");
-      }
+      reconcilePatrolVisibility(visibilityGeneration, retry);
       return;
     }
-    if (document.hidden) document.body.classList.add("night-shift-paused");
-    else document.body.classList.remove("night-shift-paused");
+    syncPausedBodyClass();
   });
 }
 
@@ -1119,6 +1220,53 @@ function openNightShiftSurface() {
   $("#night-exit")?.focus({ preventScroll: true });
 }
 
+function holdForPendingSettlement() {
+  if (nightShiftSettlement.awaitingReconnect && nightShiftSettlement.token) {
+    host.parlorNotice("NIGHT SHIFT", "Retrying your previous patrol score. Please wait.");
+    host.retryPendingSettlement?.();
+    return;
+  }
+  host.parlorNotice("NIGHT SHIFT", "Finishing your previous patrol. Please wait.");
+}
+
+function armNightShiftStartTimeout(generation) {
+  nightShiftStartTimer = setTimeout(() => {
+    if (generation !== nightShiftGeneration || !nightShiftState.active) return;
+    nightShiftGeneration += 1;
+    nightShiftState.serverRunError = "Could not confirm that the patrol started.";
+    endNightShift("SCORE SYNC UNAVAILABLE · SCORE NOT SAVED");
+  }, 8000);
+}
+
+function releaseLateStartAck(generation, response) {
+  const pending = nightShiftSettlement;
+  if (pending?.generation === generation && !pending.sent) {
+    if (response?.success && response.runToken) sendSettlement(pending, response.runToken);
+    else finishSettlement(pending, { success: false, error: response?.error || "Could not start or save the patrol." });
+    return;
+  }
+  // The start acknowledgement arrived after the exit timeout. Release
+  // the old token without touching any newer run's local state.
+  if (response?.success && response.runToken) {
+    host.emitServer("finish-patrol-run", { runToken: response.runToken }, () => {});
+  }
+}
+
+function requestServerRunStart(generation) {
+  const sentAt = Date.now();
+  armNightShiftStartTimeout(generation);
+  host.emitServer("start-patrol-run", {}, (response) => {
+    if (generation !== nightShiftGeneration) {
+      releaseLateStartAck(generation, response);
+      return;
+    }
+    clearTimeout(nightShiftStartTimer);
+    nightShiftStartTimer = null;
+    observePatrolClock(response, sentAt);
+    nightShiftRunStartAck(response);
+  });
+}
+
 export function startNightShift() {
   if (!PARLOR_PATROL_ENABLED) return;
   if (state.phase !== "home") return;
@@ -1126,12 +1274,7 @@ export function startNightShift() {
   if (nightShiftSettlement && nightShiftSettlement.accountId !== patrolAccountId()) nightShiftSettlement = null;
   if (!nightShiftSettlement) restorePendingSettlement();
   if (nightShiftSettlement) {
-    if (nightShiftSettlement.awaitingReconnect && nightShiftSettlement.token) {
-      host.parlorNotice("NIGHT SHIFT", "Retrying your previous patrol score. Please wait.");
-      host.retryPendingSettlement?.();
-    } else {
-      host.parlorNotice("NIGHT SHIFT", "Finishing your previous patrol. Please wait.");
-    }
+    holdForPendingSettlement();
     return;
   }
   // A stale room session may still emit snapshots while the player is Home.
@@ -1145,33 +1288,7 @@ export function startNightShift() {
   const generation = ++nightShiftGeneration;
   host.renderPatrolHud("NIGHT SHIFT ACTIVE · CLEAR THE SKYLINE");
   openNightShiftSurface();
-  if (state.account?.account) {
-    const sentAt = Date.now();
-    nightShiftStartTimer = setTimeout(() => {
-      if (generation !== nightShiftGeneration || !nightShiftState.active) return;
-      nightShiftGeneration += 1;
-      nightShiftState.serverRunError = "Could not confirm that the patrol started.";
-      endNightShift("SCORE SYNC UNAVAILABLE · SCORE NOT SAVED");
-    }, 8000);
-    host.emitServer("start-patrol-run", {}, (response) => {
-      if (generation !== nightShiftGeneration) {
-        const pending = nightShiftSettlement;
-        if (pending?.generation === generation && !pending.sent) {
-          if (response?.success && response.runToken) sendSettlement(pending, response.runToken);
-          else finishSettlement(pending, { success: false, error: response?.error || "Could not start or save the patrol." });
-        } else if (response?.success && response.runToken) {
-          // The start acknowledgement arrived after the exit timeout. Release
-          // the old token without touching any newer run's local state.
-          host.emitServer("finish-patrol-run", { runToken: response.runToken }, () => {});
-        }
-        return;
-      }
-      clearTimeout(nightShiftStartTimer);
-      nightShiftStartTimer = null;
-      observePatrolClock(response, sentAt);
-      nightShiftRunStartAck(response);
-    });
-  }
+  if (state.account?.account) requestServerRunStart(generation);
   if (!nightShiftState.active) return;
   nightShiftTickTimer = setInterval(() => renderNightShiftHud(), 200);
   if (!nightShiftServerRun) beginNightShiftWave();

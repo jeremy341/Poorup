@@ -380,42 +380,43 @@ function ownerMatchRecord(matchRecord) {
   return ownerProjection;
 }
 
+// Maps a list, replacing each entry that isOwned() picks out with scrub(entry).
+// Returns the mapped list and whether any entry was replaced.
+function scrubOwnedEntries(list, isOwned, scrub) {
+  let changed = false;
+  const mapped = list.map((entry) => {
+    if (!isOwned(entry)) return entry;
+    changed = true;
+    return scrub(entry);
+  });
+  return { list: mapped, changed };
+}
+
+// Writes the scrubbed copy of record[key] onto next and reports whether it changed.
+function scrubMatchRecordList(next, record, key, isOwned, scrub) {
+  if (!Array.isArray(record[key])) return false;
+  const scrubbed = scrubOwnedEntries(record[key], isOwned, scrub);
+  next[key] = scrubbed.list;
+  return scrubbed.changed;
+}
+
 function anonymizeAccountInMatchRecord(record, accountId) {
   if (!record || typeof record !== 'object') return { record, changed: false };
-  let changed = false;
   const next = { ...record };
-  if (Array.isArray(record.participants)) {
-    let participantsChanged = false;
-    next.participants = record.participants.map((participant) => {
-      if (participant?.accountId !== accountId) return participant;
-      participantsChanged = true;
-      return { ...participant, accountId: null, displayNameAtMatch: 'ACCOUNT DEACTIVATED' };
-    });
-    changed ||= participantsChanged;
-  }
-  for (const key of ['casino', 'market']) {
-    if (!Array.isArray(record[key])) continue;
-    let rowsChanged = false;
-    next[key] = record[key].map((row) => {
-      if (row?.accountId !== accountId) return row;
-      rowsChanged = true;
-      return { ...row, accountId: null };
-    });
-    changed ||= rowsChanged;
-  }
-  if (Array.isArray(record.playerContracts)) {
-    let contractsChanged = false;
-    next.playerContracts = record.playerContracts.map((contract) => {
-      if (contract?.fromAccountId !== accountId && contract?.toAccountId !== accountId) return contract;
-      contractsChanged = true;
-      return {
+  const ownsAccountRow = row => row?.accountId === accountId;
+  const changes = [
+    scrubMatchRecordList(next, record, 'participants', ownsAccountRow, participant => ({ ...participant, accountId: null, displayNameAtMatch: 'ACCOUNT DEACTIVATED' })),
+    scrubMatchRecordList(next, record, 'casino', ownsAccountRow, row => ({ ...row, accountId: null })),
+    scrubMatchRecordList(next, record, 'market', ownsAccountRow, row => ({ ...row, accountId: null })),
+    scrubMatchRecordList(next, record, 'playerContracts',
+      contract => contract?.fromAccountId === accountId || contract?.toAccountId === accountId,
+      contract => ({
         ...contract,
         ...(contract.fromAccountId === accountId ? { fromAccountId: null } : {}),
         ...(contract.toAccountId === accountId ? { toAccountId: null } : {})
-      };
-    });
-    changed ||= contractsChanged;
-  }
+      }))
+  ];
+  const changed = changes.includes(true);
   return { record: changed ? next : record, changed };
 }
 
@@ -642,6 +643,68 @@ function normalizeLoadedAccount(handle, account) {
   const normalized = buildBaseNormalizedAccount(handle, account);
   applyOptionalAccountFields(normalized, account);
   return normalized;
+}
+
+function accountHoldsMatch(account, matchId) {
+  return (account.matchHistory || []).some(entry => entry?.matchId === matchId);
+}
+
+// Replaces this account's copy of a match record in place (copy-on-write for
+// the list). Returns true only when the stored record actually changed.
+function replaceOwnMatchRecord(account, sanitized) {
+  const entries = Array.isArray(account.matchHistory) ? account.matchHistory : [];
+  const index = entries.findIndex(entry => entry?.matchId === sanitized.matchId);
+  if (index < 0) return false;
+  const projected = ownerMatchRecord(sanitized);
+  if (JSON.stringify(entries[index]) === JSON.stringify(projected)) return false;
+  account.matchHistory = [...entries];
+  account.matchHistory[index] = projected;
+  return true;
+}
+
+function patrolReplayResult(account, prior, misses, settlementId) {
+  const stats = account.stats || {};
+  return { success: true, score: prior.score, misses, best: Math.max(0, Number(stats.patrolVerifiedBest) || 0), aceRuns: prior.aceRuns, settlementId, replayed: true };
+}
+
+// Only a finish that may unlock a Patrol achievement needs a durable journal entry.
+function patrolEarnsJournal(score, cleanRun, projectedAceRuns) {
+  return score >= 10 || (score > 0 && cleanRun === true) || projectedAceRuns >= 3;
+}
+
+function patrolAchievementIds(score, cleanRun, aceRuns) {
+  return [
+    ...(score >= 10 ? ['patrol-rookie'] : []),
+    ...(score >= 50 ? ['patrol-regular'] : []),
+    ...(score > 0 && cleanRun === true ? ['clean-run'] : []),
+    ...(aceRuns >= 3 ? ['patrol-ace'] : [])
+  ];
+}
+
+function applyPatrolScore(account, score, misses) {
+  const stats = account.stats || (account.stats = {});
+  const previousBest = Math.max(0, Number(stats.patrolVerifiedBest) || 0);
+  const beatBest = score > previousBest;
+  stats.patrolVerifiedBest = Math.max(previousBest, score);
+  stats.patrolVerifiedAceRuns = Math.max(0, Number(stats.patrolVerifiedAceRuns) || 0) + (beatBest && previousBest > 0 ? 1 : 0);
+  return { success: true, score, misses, best: stats.patrolVerifiedBest, aceRuns: stats.patrolVerifiedAceRuns };
+}
+
+function journalPatrolSettlement(account, settlementId, score, aceRuns, cleanRun) {
+  const pending = sanitizePendingPatrolAchievementSettlements(account.pendingPatrolAchievementSettlements);
+  account.pendingPatrolAchievementSettlements = [
+    ...pending.filter(entry => entry.id !== settlementId),
+    { id: settlementId, score, aceRuns, cleanRun: cleanRun === true }
+  ];
+}
+
+const isValidResetGeneration = generation => Number.isSafeInteger(generation) && generation >= 1;
+const canRecoverPassword = (password, generation) => validPasswordShape(password) && isValidResetGeneration(generation);
+
+function writeNewPassword(account, password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  account.passwordSalt = salt;
+  account.passwordHash = hashPassword(password, salt);
 }
 
 export class AccountStore {
@@ -969,9 +1032,7 @@ export class AccountStore {
     const account = this.getAccountById(accountId);
     if (!account || !validPasswordShape(password)) return false;
     const updated = commitMutation(this, () => {
-      const salt = crypto.randomBytes(16).toString('hex');
-      account.passwordSalt = salt;
-      account.passwordHash = hashPassword(password, salt);
+      writeNewPassword(account, password);
       this.revokeSessionsForAccount(account.id, false);
       return true;
     });
@@ -986,11 +1047,9 @@ export class AccountStore {
   updatePasswordForRecovery(accountId, password, consumedGeneration) {
     const account = this.getAccountById(accountId);
     const generation = Number(consumedGeneration);
-    if (!account || !validPasswordShape(password) || !Number.isSafeInteger(generation) || generation < 1) return false;
+    if (!account || !canRecoverPassword(password, generation)) return false;
     const updated = commitMutation(this, () => {
-      const salt = crypto.randomBytes(16).toString('hex');
-      account.passwordSalt = salt;
-      account.passwordHash = hashPassword(password, salt);
+      writeNewPassword(account, password);
       account.consumedPasswordResetGeneration = Math.max(Number(account.consumedPasswordResetGeneration) || 0, generation);
       this.revokeSessionsForAccount(account.id, false);
       return true;
@@ -1140,23 +1199,14 @@ export class AccountStore {
     // Same invariant as recordGameResults: the replaced record only counts as
     // applied once it reached the disk.
     const owners = [...this.accounts.values()].filter(account => (
-      participantAccountIds.has(account.id)
-      && (account.matchHistory || []).some(entry => entry?.matchId === sanitized.matchId)
+      participantAccountIds.has(account.id) && accountHoldsMatch(account, sanitized.matchId)
     ));
     if (!owners.length) return { updated: false, match: sanitized };
     const snapshot = snapshotStore(this);
     try {
       let updated = false;
       this.accounts.forEach(account => {
-        if (!participantAccountIds.has(account.id)) return;
-        const entries = Array.isArray(account.matchHistory) ? account.matchHistory : [];
-        const index = entries.findIndex(entry => entry?.matchId === sanitized.matchId);
-        if (index < 0) return;
-        const projected = ownerMatchRecord(sanitized);
-        if (JSON.stringify(entries[index]) === JSON.stringify(projected)) return;
-        account.matchHistory = [...entries];
-        account.matchHistory[index] = projected;
-        updated = true;
+        if (participantAccountIds.has(account.id) && replaceOwnMatchRecord(account, sanitized)) updated = true;
       });
       if (updated) this.persist();
       return { updated, match: sanitized };
@@ -1201,40 +1251,19 @@ export class AccountStore {
     const safeMisses = clampInt(misses, 999);
     const safeSettlementId = typeof settlementId === 'string' ? settlementId.trim().slice(0, 120) : '';
     const pendingSettlements = sanitizePendingPatrolAchievementSettlements(account.pendingPatrolAchievementSettlements);
-    const prior = safeSettlementId && pendingSettlements
-      .find(entry => entry.id === safeSettlementId);
-    if (prior) {
-      const stats = account.stats || {};
-      return { success: true, score: prior.score, misses: safeMisses, best: Math.max(0, Number(stats.patrolVerifiedBest) || 0), aceRuns: prior.aceRuns, settlementId: safeSettlementId, replayed: true };
-    }
+    const prior = safeSettlementId && pendingSettlements.find(entry => entry.id === safeSettlementId);
+    if (prior) return patrolReplayResult(account, prior, safeMisses, safeSettlementId);
     const priorBest = Math.max(0, Number(account.stats?.patrolVerifiedBest) || 0);
     const projectedAceRuns = Math.max(0, Number(account.stats?.patrolVerifiedAceRuns) || 0)
       + (safeScore > priorBest && priorBest > 0 ? 1 : 0);
-    const needsJournal = Boolean(safeSettlementId && (
-      safeScore >= 10 || safeScore >= 50 || (safeScore > 0 && cleanRun === true) || projectedAceRuns >= 3
-    ));
+    const needsJournal = Boolean(safeSettlementId) && patrolEarnsJournal(safeScore, cleanRun, projectedAceRuns);
     if (needsJournal && pendingSettlements.length >= PENDING_PATROL_ACHIEVEMENT_LIMIT) {
       return { success: false, retryable: true, error: 'Patrol achievement recovery is busy. Please retry this finish.' };
     }
     return commitMutation(this, () => {
-      const stats = account.stats || (account.stats = {});
-      const previousBest = Math.max(0, Number(stats.patrolVerifiedBest) || 0);
-      const beatBest = safeScore > previousBest;
-      stats.patrolVerifiedBest = Math.max(previousBest, safeScore);
-      stats.patrolVerifiedAceRuns = Math.max(0, Number(stats.patrolVerifiedAceRuns) || 0) + (beatBest && previousBest > 0 ? 1 : 0);
-      const result = { success: true, score: safeScore, misses: safeMisses, best: stats.patrolVerifiedBest, aceRuns: stats.patrolVerifiedAceRuns };
-      const achievementIds = [
-        ...(safeScore >= 10 ? ['patrol-rookie'] : []),
-        ...(safeScore >= 50 ? ['patrol-regular'] : []),
-        ...(safeScore > 0 && cleanRun === true ? ['clean-run'] : []),
-        ...(result.aceRuns >= 3 ? ['patrol-ace'] : [])
-      ];
-      if (safeSettlementId && achievementIds.length) {
-        const pending = sanitizePendingPatrolAchievementSettlements(account.pendingPatrolAchievementSettlements);
-        account.pendingPatrolAchievementSettlements = [
-          ...pending.filter(entry => entry.id !== safeSettlementId),
-          { id: safeSettlementId, score: safeScore, aceRuns: result.aceRuns, cleanRun: cleanRun === true }
-        ];
+      const result = applyPatrolScore(account, safeScore, safeMisses);
+      if (safeSettlementId && patrolAchievementIds(safeScore, cleanRun, result.aceRuns).length) {
+        journalPatrolSettlement(account, safeSettlementId, safeScore, result.aceRuns, cleanRun);
       }
       if (safeSettlementId) result.settlementId = safeSettlementId;
       return result;
@@ -1277,7 +1306,8 @@ export class AccountStore {
   getPublicPlayerCard(accountId, { includeAchievements = false, owner = false } = {}) {
     const account = this.getAccountById(accountId);
     if (!account) return null;
-    if (includeAchievements && !owner && account.privacy?.achievements === 'private') includeAchievements = false;
+    const achievementsPrivate = account.privacy?.achievements === 'private';
+    const revealAchievements = Boolean(includeAchievements) && (owner || !achievementsPrivate);
     const publicView = publicAccount(account, false);
     return {
       id: publicView.id,
@@ -1286,9 +1316,9 @@ export class AccountStore {
       color: publicView.color,
       avatarGrid: publicView.avatarGrid,
       stats: publicPlayerStats(account.stats),
-      achievements: includeAchievements ? publicAchievements(account, true) : publicView.achievements,
-      achievementsPrivate: account.privacy?.achievements === 'private',
-      achievementsFriendsOnly: account.privacy?.achievements === 'friends' && !includeAchievements,
+      achievements: revealAchievements ? publicAchievements(account, true) : publicView.achievements,
+      achievementsPrivate,
+      achievementsFriendsOnly: account.privacy?.achievements === 'friends' && !revealAchievements,
       historyPrivate: account.privacy?.history === 'private',
       historyFriendsOnly: account.privacy?.history === 'friends',
       // Match history is served through the authorized history endpoint so

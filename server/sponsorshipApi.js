@@ -249,12 +249,22 @@ function newSponsorshipRecord({ buyer, tile, terms, payload, roundNumber }) {
   };
 }
 
+function equityTermsAcceptanceError(ctx) {
+  if (ctx.sponsorship?.mode !== 'equity') return null;
+  const error = newContractTermsError({ ...ctx.sponsorship, kind: 'equity' });
+  if (error || ctx.sponsorship.rentShareVersion !== RENT_SHARE_VERSION) return { error: error || LEGACY_PENDING_ERROR };
+  return null;
+}
+
+function equityPricingAcceptanceError(game, ctx, contributions) {
+  if (ctx.sponsorship.mode !== 'equity') return null;
+  return equityAcceptanceError(game, ctx.tile, ctx.sponsorship, contributions);
+}
+
 function acceptanceCheck(game, buyer, ctx) {
   if (ctx.sponsorship && ctx.sponsorship.rulesVersion !== CONTRACT_RULES_VERSION) return { error: LEGACY_PENDING_ERROR };
-  if (ctx.sponsorship?.mode === 'equity') {
-    const error = newContractTermsError({ ...ctx.sponsorship, kind: 'equity' });
-    if (error || ctx.sponsorship.rentShareVersion !== RENT_SHARE_VERSION) return { error: error || LEGACY_PENDING_ERROR };
-  }
+  const termsError = equityTermsAcceptanceError(ctx);
+  if (termsError) return termsError;
   const offerError = acceptanceOfferError(game, buyer, ctx);
   if (offerError) return offerError;
   const contributions = ctx.sponsorship.contributions.slice();
@@ -265,10 +275,8 @@ function acceptanceCheck(game, buyer, ctx) {
   }
   const total = contributions.reduce((sum, entry) => sum + entry.amount, 0);
   if (buyer.cash + total < ctx.tile.price) return { error: 'The sponsorship is still short of the purchase price.' };
-  if (ctx.sponsorship.mode === 'equity') {
-    const equityError = equityAcceptanceError(game, ctx.tile, ctx.sponsorship, contributions);
-    if (equityError) return equityError;
-  }
+  const equityError = equityPricingAcceptanceError(game, ctx, contributions);
+  if (equityError) return equityError;
   return { contributions, total };
 }
 

@@ -228,28 +228,30 @@ function defaultPlayerLoanWithCredit(game, contract, { reason = 'loan-default', 
     if (plan.seizedTileIndices.length) borrower.collateralLost = true;
     recordCollateralCredit(contract, plan, game.roundNumber);
     contract.defaultReason = reason;
-    if (plan.remaining > 0) {
-      const claim = recordDefaultClaim(game, contract, plan.remaining);
-      if (!claim && !allowBankruptCollateral) throw new Error('The residual claim could not be recorded.');
-      if (claim) {
-        claim.collateralTileIndex = plan.seizedTileIndices[0] ?? null;
-        claim.collateralTileIndices = plan.seizedTileIndices.slice();
-        claim.collateralCreditApplied = plan.credit;
-        claim.defaultedPrincipal = plan.outstanding;
-        if (allowBankruptCollateral) {
-          claim.status = 'written-off';
-          claim.writtenOffRound = game.roundNumber;
-        }
-      }
-      if (allowBankruptCollateral) {
-        contract.residualWrittenOff = plan.remaining;
-        if (!claim) contract.unrecordedDefault = true;
-      }
-    }
+    if (plan.remaining > 0) recordResidualClaim(game, contract, plan, { allowBankruptCollateral });
     game.feedMessage(`${borrower?.nickname || 'PLAYER'} defaulted on a player loan. Collateral credit: $${plan.credit}; residual debt: $${plan.remaining}.`);
     if (allowBankruptCollateral && plan.remaining > 0) game.feedMessage(`The $${plan.remaining} residual player-loan debt was written off on exit.`);
     if (!allowBankruptCollateral) settleDefaultClaims(game);
   });
+}
+
+function recordResidualClaim(game, contract, plan, { allowBankruptCollateral }) {
+  const claim = recordDefaultClaim(game, contract, plan.remaining);
+  if (!claim && !allowBankruptCollateral) throw new Error('The residual claim could not be recorded.');
+  if (claim) stampResidualClaim(claim, plan, { allowBankruptCollateral }, game.roundNumber);
+  if (!allowBankruptCollateral) return;
+  contract.residualWrittenOff = plan.remaining;
+  if (!claim) contract.unrecordedDefault = true;
+}
+
+function stampResidualClaim(claim, plan, { allowBankruptCollateral }, roundNumber) {
+  claim.collateralTileIndex = plan.seizedTileIndices[0] ?? null;
+  claim.collateralTileIndices = plan.seizedTileIndices.slice();
+  claim.collateralCreditApplied = plan.credit;
+  claim.defaultedPrincipal = plan.outstanding;
+  if (!allowBankruptCollateral) return;
+  claim.status = 'written-off';
+  claim.writtenOffRound = roundNumber;
 }
 
 const DEFAULT_CLAIM_LIMIT = 200;

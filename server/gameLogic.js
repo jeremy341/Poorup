@@ -172,6 +172,22 @@ function endTurnRequiresExtraRoll(game) {
   return Boolean(game.turnAllowsExtraRoll);
 }
 
+function endGameMessage(winner, reason) {
+  if (reason === 'round-limit') {
+    return winner ? 'Round limit reached - the richest player wins.' : 'Round limit reached - the game has ended.';
+  }
+  if (winner) return `${winner.nickname} is the last player remaining and wins the game!`;
+  return 'The game has ended.';
+}
+
+function hasRecordedPurchasePrice(tile) {
+  return tile.purchasePricePaid != null && Number.isFinite(Number(tile.purchasePricePaid)) && Number(tile.purchasePricePaid) >= 0;
+}
+
+function isInReconnectGrace(player) {
+  return Boolean(player) && Boolean(player.disconnected) && !player.bankrupt && Number(player.disconnectDeadline) > Date.now();
+}
+
 class BoundedReplayMap extends Map {
   constructor(limit = 1_000, ttlMs = 15 * 60_000) {
     super();
@@ -629,7 +645,7 @@ class GameState {
     // A trade or claim has no reliably attributable per-deed cash price, so
     // the last bank/auction acquisition basis follows the deed unchanged.
     // Legacy deeds first transferred without a basis use their printed price.
-    if (toPlayer && !(tile.purchasePricePaid != null && Number.isFinite(Number(tile.purchasePricePaid)) && Number(tile.purchasePricePaid) >= 0)) {
+    if (toPlayer && !hasRecordedPurchasePrice(tile)) {
       tile.purchasePricePaid = Math.max(0, Math.floor(Number(tile.price) || 0));
     }
     if (!toPlayer) tile.purchasePricePaid = null;
@@ -1108,7 +1124,7 @@ class GameState {
     const start = order.indexOf(this.currentPlayerId);
     for (let step = 1; step <= order.length; step += 1) {
       const player = this.getPlayerById(order[(start + step + order.length) % order.length]);
-      if (player && player.disconnected && !player.bankrupt && Number(player.disconnectDeadline) > Date.now()) return player;
+      if (isInReconnectGrace(player)) return player;
     }
     return this.waitingSeat();
   }
@@ -1290,21 +1306,28 @@ class GameState {
   // skip it, as do bankrupt creditors: tile rent treats a bankrupt owner as vacant, so an in-flight debt never enriches one.
   // The payer still settles; the money simply has nowhere to go.
   creditRentTo(creditor, payer, amount) {
-    if (!creditor) return;
-    if (creditor.bankrupt) return;
+    if (!creditor || creditor.bankrupt) return;
     creditor.cash += amount;
+    this.recordRentReceipt(creditor, payer, amount);
+    if (this.pendingPaymentReadyFor(creditor)) {
+      this.trySettlePendingPayment();
+    }
+  }
+
+  recordRentReceipt(creditor, payer, amount) {
     creditor.rentCollected = (creditor.rentCollected || 0) + amount;
     creditor.rentPayerIds ||= new Set();
     creditor.rentPayerIds.add(payer.id);
     creditor.rentPayersThisRound ||= new Set();
     creditor.rentPayersThisRound.add(payer.id);
     creditor.maxRentPayersInRound = Math.max(creditor.maxRentPayersInRound || 0, creditor.rentPayersThisRound.size);
-    if (this.pendingPayment?.playerId === creditor.id
+  }
+
+  pendingPaymentReadyFor(creditor) {
+    return this.pendingPayment?.playerId === creditor.id
       && creditor.cash >= this.pendingPayment.amountRemaining
       && !this.collectingPendingPayment
-      && !this.collectingOwnedDebts) {
-      this.trySettlePendingPayment();
-    }
+      && !this.collectingOwnedDebts;
   }
 
   trySettlePendingPayment() {
@@ -1313,22 +1336,29 @@ class GameState {
     const player = this.getPlayerById(this.pendingPayment.playerId);
     // A debtor inside its reconnect grace that can cover the debt pays only the
     // debt; another seat's action must not hand over its whole estate.
-    if (player?.disconnected && !player.bankrupt && player.cash >= this.pendingPayment.amountRemaining) {
+    if (this.graceDebtorCanCoverPending(player)) {
       return this.collectOwnedDebts(player);
     }
     if (!this.pendingPayerCanSettle(player)) {
-      // Debts never evaporate: a present-but-unsettleable debtor goes
-      // through bankruptcy (assets to creditor); a removed seat simply
-      // clears like before, its deeds already forfeited on the way out.
-      const creditor = this.pendingPayment.creditorId ? this.getPlayerById(this.pendingPayment.creditorId) : null;
-      const debtor = player;
-      if (debtor && !debtor.bankrupt) {
-        const result = this.handleBankruptcy(debtor, creditor);
-        if (result?.success === false) return false;
-      } else this.clearPendingPayment();
+      this.resolveUnsettleablePendingPayment(player);
       return false;
     }
     return this.collectOwnedDebts(player);
+  }
+
+  graceDebtorCanCoverPending(player) {
+    return Boolean(player?.disconnected) && !player.bankrupt && player.cash >= this.pendingPayment.amountRemaining;
+  }
+
+  // Debts never evaporate: a present-but-unsettleable debtor goes
+  // through bankruptcy (assets to creditor); a removed seat simply
+  // clears like before, its deeds already forfeited on the way out.
+  resolveUnsettleablePendingPayment(debtor) {
+    const creditor = this.pendingPayment.creditorId ? this.getPlayerById(this.pendingPayment.creditorId) : null;
+    if (debtor && !debtor.bankrupt) {
+      const result = this.handleBankruptcy(debtor, creditor);
+      if (result?.success === false) return;
+    } else this.clearPendingPayment();
   }
 
   // Pays the head debt, then drains any promoted head already covered by its
@@ -1523,38 +1553,48 @@ class GameState {
     // Keep the score basis from the moment the winner is selected. In
     // particular, round-limit winners are chosen on net worth before the
     // end-of-game liquidation settles market positions.
-    this.finalNetWorthById = Object.fromEntries(this.players.map(player => [
-      player.id,
-      netWorthBreakdown(this, player)?.total ?? 0
-    ]));
-    if (this.globalEvent) {
-      const event = this.globalEvent;
-      if (!this.globalEventHistory.some(entry => entry.id === event.id && entry.startedRound === event.startedRound)) {
-        this.globalEventHistory.unshift({ id: event.id, title: event.title, comboId: event.comboId || null, startedRound: event.startedRound, endedRound: this.roundNumber });
-      }
-    }
+    this.captureFinalNetWorth();
+    this.recordEndedGlobalEvent();
     // Close the table's open obligations before the final snapshot: a cancelled
     // sponsorship refunds cash and a cleared claim does not subtract a debt
     // the ending table will never collect.
     this.cancelSponsoredPurchase();
     this.pendingPaymentQueue = [];
     this.clearPendingPayment(false);
-    // Margin, short and option equity is settled here, so no debt or
-    // collateral is left open on a table that does not run.
+    this.liquidateEndedGameAssets();
+    this.recordNetWorthSnapshot();
+    this.lastWinner = winner ? { id: winner.id, nickname: winner.nickname } : null;
+    this.lastEndReason = reason;
+    this.feedMessage(endGameMessage(winner, reason));
+    this.resetTableAfterGameEnd();
+    // The room owns the vote-kick, so it learns that the match is over here.
+    this.onGameEnded?.();
+  }
+
+  captureFinalNetWorth() {
+    this.finalNetWorthById = Object.fromEntries(this.players.map(player => [
+      player.id,
+      netWorthBreakdown(this, player)?.total ?? 0
+    ]));
+  }
+
+  recordEndedGlobalEvent() {
+    if (!this.globalEvent) return;
+    const event = this.globalEvent;
+    if (this.globalEventHistory.some(entry => entry.id === event.id && entry.startedRound === event.startedRound)) return;
+    this.globalEventHistory.unshift({ id: event.id, title: event.title, comboId: event.comboId || null, startedRound: event.startedRound, endedRound: this.roundNumber });
+  }
+
+  // Margin, short and option equity is settled here, so no debt or
+  // collateral is left open on a table that does not run.
+  liquidateEndedGameAssets() {
     this.players.forEach(player => {
       this.liquidateAllMarketPositions(player);
       this.liquidateItems(player);
     });
-    this.recordNetWorthSnapshot();
-    this.lastWinner = winner ? { id: winner.id, nickname: winner.nickname } : null;
-    this.lastEndReason = reason;
-    if (reason === 'round-limit') {
-      this.feedMessage(winner ? 'Round limit reached - the richest player wins.' : 'Round limit reached - the game has ended.');
-    } else if (winner) {
-      this.feedMessage(`${winner.nickname} is the last player remaining and wins the game!`);
-    } else {
-      this.feedMessage('The game has ended.');
-    }
+  }
+
+  resetTableAfterGameEnd() {
     this.started = false;
     this.currentPlayerId = null;
     this.hasRolled = false;
@@ -1566,8 +1606,6 @@ class GameState {
     this.turnAllowsExtraRoll = false;
     this.awaitingEndTurn = false;
     this.consecutiveDoubles = 0;
-    // The room owns the vote-kick, so it learns that the match is over here.
-    this.onGameEnded?.();
   }
 
 }

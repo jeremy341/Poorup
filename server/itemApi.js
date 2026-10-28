@@ -17,6 +17,49 @@ function newItem(game, catalogId, source) {
   };
 }
 
+const isItemPayloadObject = payload => Boolean(payload) && typeof payload === 'object' && !Array.isArray(payload);
+const isValidItemId = itemId => typeof itemId === 'string' && itemId.length > 0 && itemId.length <= 100;
+
+function parseItemRequest(payload) {
+  if (!isItemPayloadObject(payload)) return { error: 'Invalid item request.' };
+  const requestId = normalizeRequestId(payload.requestId);
+  if (!isValidItemId(payload.itemId) || !requestId) return { error: 'Item and request IDs are required.' };
+  return { itemId: payload.itemId, requestId };
+}
+
+function replayItemTransaction(prior, action, itemId) {
+  if (prior.action === action && prior.itemId === itemId) return { ...prior.result, duplicate: true };
+  return failure('This request ID was already used for another item action.');
+}
+
+function resolveItemAction(game, socketId, player, item, action) {
+  if (item.catalogId === 'prison-key' && action === 'use') {
+    const result = game.useJailFree(socketId, item.itemId);
+    return result.success ? { success: true, cashReceived: 0 } : result;
+  }
+  const cashReceived = action === 'sell' ? dollars(item.bankSellValue) : dollars(item.redeemValue);
+  if (item.catalogId === 'prison-key') game.consumePrisonItem(player, item.itemId);
+  else player.items = player.items.filter(entry => entry.itemId !== item.itemId);
+  return { success: true, cashReceived };
+}
+
+function creditItemCash(game, player, item, action, cashReceived) {
+  player.cash += cashReceived;
+  game.feedMessage(`${player.nickname} ${action === 'sell' ? 'sold' : 'redeemed'} ${ITEM_CATALOG[item.catalogId].name} for $${cashReceived}.`);
+  if (game.pendingPayment?.playerId === player.id) game.trySettlePendingPayment();
+}
+
+function canGrantItem(game, player, catalogId) {
+  if (!Object.hasOwn(ITEM_CATALOG, catalogId) || !player || player.bankrupt) return false;
+  return catalogId === 'prison-key' || Boolean(game.settings?.itemRewards);
+}
+
+function recordJailFreeGrant(player, source) {
+  player.jailFreeCards = dollars(player.jailFreeCards) + 1;
+  if (!['surprise', 'treasure'].includes(source)) return;
+  player.jailFreeOrigins = [...(player.jailFreeOrigins || []), source].slice(-player.jailFreeCards);
+}
+
 export function itemValue(game, item) {
   if (!item || !Object.hasOwn(ITEM_CATALOG, item.catalogId)) return 0;
   if (item.catalogId === 'parlor-bond' && Number(game?.roundNumber || 0) >= item.maturesRound) return dollars(item.redeemValue);
@@ -28,21 +71,27 @@ export function inventoryValue(game, player) {
   return inventory(player).reduce((total, item) => total + itemValue(game, item), 0);
 }
 
+const hasPlayerLeftPlay = player => player.bankrupt || player.disconnected || player.spectating;
+const isPlayerUnavailable = player => !player || hasPlayerLeftPlay(player);
+const isParlorBondMatured = (game, item) => Number(game.roundNumber || 0) >= item.maturesRound;
+
 function actionReason(game, player) {
   if (!game.started) return 'Game has not started.';
-  if (!player || player.bankrupt || player.spectating || player.disconnected) return 'Player is unavailable.';
+  if (isPlayerUnavailable(player)) return 'Player is unavailable.';
   return null;
 }
 
+function jailFreeUseReason(game, player) {
+  if (hasPlayerLeftPlay(player)) return 'Player is unavailable.';
+  return game.jailFreeRejection(player)?.error || null;
+}
+
 function useReason(game, player, item) {
-  if (item.catalogId === 'prison-key') {
-    if (player.bankrupt || player.disconnected || player.spectating) return 'Player is unavailable.';
-    return game.jailFreeRejection(player)?.error || null;
-  }
+  if (item.catalogId === 'prison-key') return jailFreeUseReason(game, player);
   const blocked = actionReason(game, player);
   if (blocked) return blocked;
   if (item.catalogId !== 'parlor-bond') return 'This item can be sold to the bank.';
-  return Number(game.roundNumber || 0) >= item.maturesRound ? null : `Matures in round ${item.maturesRound}.`;
+  return isParlorBondMatured(game, item) ? null : `Matures in round ${item.maturesRound}.`;
 }
 
 function sellReason(game, player, item) {
@@ -72,18 +121,12 @@ export function itemSummaryFor(game, player, viewerId) {
 
 export const itemApi = {
   grantItem(player, catalogId, source = null) {
-    if (!Object.hasOwn(ITEM_CATALOG, catalogId) || !player || player.bankrupt) return null;
-    if (catalogId !== 'prison-key' && !this.settings?.itemRewards) return null;
+    if (!canGrantItem(this, player, catalogId)) return null;
     if (catalogId === 'prison-key') this.ensurePrisonItems(player);
     const item = newItem(this, catalogId, source);
     player.items ||= [];
     player.items.push(item);
-    if (catalogId === 'prison-key') {
-      player.jailFreeCards = dollars(player.jailFreeCards) + 1;
-      if (['surprise', 'treasure'].includes(source)) {
-        player.jailFreeOrigins = [...(player.jailFreeOrigins || []), source].slice(-player.jailFreeCards);
-      }
-    }
+    if (catalogId === 'prison-key') recordJailFreeGrant(player, source);
     return item;
   },
 
@@ -124,37 +167,25 @@ export const itemApi = {
   performItemAction(socketId, payload, action) {
     const player = this.getPlayerBySocket(socketId);
     if (!player) return failure('Player not found.');
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return failure('Invalid item request.');
-    const { itemId } = payload;
-    const requestId = normalizeRequestId(payload.requestId);
-    if (typeof itemId !== 'string' || !itemId || itemId.length > 100 || !requestId) return failure('Item and request IDs are required.');
+    const request = parseItemRequest(payload);
+    if (request.error) return failure(request.error);
+    const { itemId, requestId } = request;
     this.itemTransactions ||= new Map();
     const replayKey = JSON.stringify([player.id, requestId]);
     const prior = this.itemTransactions.get(replayKey);
-    if (prior) return prior.action === action && prior.itemId === itemId
-      ? { ...prior.result, duplicate: true } : failure('This request ID was already used for another item action.');
+    if (prior) return replayItemTransaction(prior, action, itemId);
     this.ensurePrisonItems(player);
     const item = inventory(player).find(entry => entry.itemId === itemId);
     if (!item) return failure('You do not own this item.');
     const reason = action === 'use' ? useReason(this, player, item) : sellReason(this, player, item);
     if (reason) return failure(reason);
-    let cashReceived = 0;
-    if (item.catalogId === 'prison-key' && action === 'use') {
-      const result = this.useJailFree(socketId, itemId);
-      if (!result.success) return result;
-    } else {
-      cashReceived = action === 'sell' ? dollars(item.bankSellValue) : dollars(item.redeemValue);
-      if (item.catalogId === 'prison-key') this.consumePrisonItem(player, itemId);
-      else player.items = player.items.filter(entry => entry.itemId !== itemId);
-    }
+    const outcome = resolveItemAction(this, socketId, player, item, action);
+    if (!outcome.success) return outcome;
+    const { cashReceived } = outcome;
     const result = { success: true, action, itemId, cashReceived };
     // Remember and consume before crediting: collecting debt can reenter exit code.
     this.itemTransactions.set(replayKey, { action, itemId, result });
-    if (cashReceived > 0) {
-      player.cash += cashReceived;
-      this.feedMessage(`${player.nickname} ${action === 'sell' ? 'sold' : 'redeemed'} ${ITEM_CATALOG[item.catalogId].name} for $${cashReceived}.`);
-      if (this.pendingPayment?.playerId === player.id) this.trySettlePendingPayment();
-    }
+    if (cashReceived > 0) creditItemCash(this, player, item, action, cashReceived);
     return result;
   },
 

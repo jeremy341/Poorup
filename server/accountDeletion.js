@@ -145,23 +145,32 @@ export function createAccountDeletionCoordinator({ accountStore, sessionStore, r
     }
   }
 
+  // Erases the account from one linked store, using whichever erase hook it offers.
+  async function eraseFromStore(store, account) {
+    if (typeof store.purgeAccount === 'function') {
+      await store.purgeAccount(account.id, { displayName: account.displayName });
+      return;
+    }
+    if (typeof store.anonymizeAccount !== 'function') return;
+    const outcome = await store.anonymizeAccount(account.id);
+    // A copy that could not be reached still holds the account, so the
+    // purge stays pending and is retried.
+    if (Number(outcome?.skipped) > 0) throw Object.assign(new Error('Backup erasure is incomplete.'), { reason: 'erasure-incomplete' });
+  }
+
+  function deletionRequestIsCurrent(account, requestId) {
+    return Boolean(account.deletionRequestedAt) && account.deletionRequestId === requestId;
+  }
+
   async function purgeAccountData(account, requestId) {
     // Each store owns the atomicity of its purge. Do not restore whole-store snapshots
     // after an await: a rollback would erase concurrent writes to unrelated accounts or records.
     // Completed erasures stay, and this pending request retries the remaining stores.
     try {
-      for (const store of linkedStores) {
-        if (typeof store.purgeAccount === 'function') await store.purgeAccount(account.id, { displayName: account.displayName });
-        else if (typeof store.anonymizeAccount === 'function') {
-          const outcome = await store.anonymizeAccount(account.id);
-          // A copy that could not be reached still holds the account, so the
-          // purge stays pending and is retried.
-          if (Number(outcome?.skipped) > 0) throw Object.assign(new Error('Backup erasure is incomplete.'), { reason: 'erasure-incomplete' });
-        }
-      }
+      for (const store of linkedStores) await eraseFromStore(store, account);
       // Re-check before deleting the account. If the request changed, retain
       // completed erasures but do not delete the account under the stale request.
-      if (!account.deletionRequestedAt || account.deletionRequestId !== requestId) throw new Error('deletion request changed during purge');
+      if (!deletionRequestIsCurrent(account, requestId)) throw new Error('deletion request changed during purge');
       // The sessions are revoked last: the revocation cannot be undone, so it
       // only happens once every store is erased and the account is about to
       // go. A store that failed above leaves the account signed in.

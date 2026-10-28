@@ -54,6 +54,36 @@ function cleanEntry(input) {
   return { at, area: input.area, action: input.action, target: safeTarget(input.target), actor, outcome: input.outcome };
 }
 
+function clampCapacity(limit) {
+  return Math.max(1, Math.min(AUDIT_LIMIT, Math.floor(Number(limit) || AUDIT_LIMIT)));
+}
+
+function isAuditFile(value) {
+  return Boolean(value) && typeof value === 'object' && Array.isArray(value.entries);
+}
+
+/**
+ * Reads the audit file once and returns the state the log starts from. An unreadable file
+ * (a read error, not corruption) leaves the log empty with `readable` false.
+ */
+function loadAuditState(filePath, load, capacity) {
+  const state = { entries: [], readable: true, corruption: null };
+  if (!filePath) return state;
+  try {
+    const result = load(filePath, isAuditFile);
+    const loaded = result?.value;
+    if (loaded) state.entries = loaded.entries.map(cleanEntry).filter(Boolean).slice(-capacity);
+    if (result?.corrupt) console.error('Admin audit log file was corrupt: earlier entries are NOT in the active log. The corrupt bytes were preserved beside it.');
+    state.corruption = readQuarantineMarker(filePath);
+  } catch (error) {
+    // An unreadable audit file must not stop the server, and it must not be
+    // overwritten either: the log starts empty and stays unwritable.
+    state.readable = false;
+    console.error('Admin audit log could not be read:', error?.code || 'unknown error');
+  }
+  return state;
+}
+
 export function createAdminAuditLog({
   filePath = '',
   key = '',
@@ -62,30 +92,16 @@ export function createAdminAuditLog({
   load = loadJson,
   write = writeJson,
 } = {}) {
-  const capacity = Math.max(1, Math.min(AUDIT_LIMIT, Math.floor(Number(limit) || AUDIT_LIMIT)));
-  let entries = [];
+  const capacity = clampCapacity(limit);
+  const initial = loadAuditState(filePath, load, capacity);
+  let entries = initial.entries;
   // An audit file that could not be read holds the only copy of the log. The
   // log then refuses to write at all: the next record would otherwise replace
   // the bytes that were never read.
-  let readable = true;
+  let readable = initial.readable;
   // A corrupt audit file is quarantined by the loader (bytes kept in a .corrupt-* copy, a marker left beside
   // the file). The log restarts empty, but never silently: health() reports it until an operator acknowledges it.
-  let corruption = null;
-
-  if (filePath) {
-    try {
-      const result = load(filePath, value => Boolean(value) && typeof value === 'object' && Array.isArray(value.entries));
-      const loaded = result?.value;
-      if (loaded) entries = loaded.entries.map(cleanEntry).filter(Boolean).slice(-capacity);
-      if (result?.corrupt) console.error('Admin audit log file was corrupt: earlier entries are NOT in the active log. The corrupt bytes were preserved beside it.');
-      corruption = readQuarantineMarker(filePath);
-    } catch (error) {
-      // An unreadable audit file must not stop the server, and it must not be
-      // overwritten either: the log starts empty and stays unwritable.
-      readable = false;
-      console.error('Admin audit log could not be read:', error?.code || 'unknown error');
-    }
-  }
+  let corruption = initial.corruption;
 
   /** Writes the candidate list. Returns false when the entry did not become durable. */
   function persist(candidate) {

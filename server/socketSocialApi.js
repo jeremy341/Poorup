@@ -226,69 +226,79 @@ function createSocialApi(deps) {
     return [...viewerFriends].filter(id => targetFriends.has(id)).length;
   }
 
-  function recordVerifiedAchievementAttempt(candidate, gameId, { retry = false } = {}) {
-    if (!candidate?.accountId || !candidate.achievementId) return { retryable: false, created: false };
-    if (retry && typeof accountStore.getAccountById === 'function') {
-      let account;
-      try {
-        account = accountStore.getAccountById(candidate.accountId);
-      } catch (error) {
-        console.error('Achievement retry account lookup failed:', error?.message || 'unknown error');
-        return { retryable: true, created: false };
-      }
-      if (!account || account.accountDeactivated === true || account.deletionRequestedAt) return { retryable: false, created: false };
-    }
-    const unlockKey = `${gameId}:${candidate.achievementId}:${candidate.accountId}`;
-    const announcementKey = `${candidate.accountId}:${candidate.achievementId}`;
-    let unlock;
+  // A retry is abandoned once the account is gone, deactivated or pending deletion.
+  // Returns the final outcome to report, or null to keep retrying.
+  function retryStopOutcome(candidate) {
+    if (typeof accountStore.getAccountById !== 'function') return null;
+    let account;
     try {
-      unlock = achievementStore.unlock({
-        accountId: candidate.accountId,
-        achievementId: candidate.achievementId,
-        gameId,
-        eventSequence: unlockKey,
-        evidenceHash: crypto.createHash('sha256').update(unlockKey).digest('hex'),
-        ...(typeof candidate.unlockedAt === 'string' ? { unlockedAt: candidate.unlockedAt } : {})
-      });
+      account = accountStore.getAccountById(candidate.accountId);
+    } catch (error) {
+      console.error('Achievement retry account lookup failed:', error?.message || 'unknown error');
+      return { retryable: true, created: false };
+    }
+    if (!account || account.accountDeactivated === true || account.deletionRequestedAt) return { retryable: false, created: false };
+    return null;
+  }
+
+  // Wrapped in an object so a successful unlock is never confused with a failure.
+  function tryUnlockVerifiedAchievement(candidate, gameId, unlockKey) {
+    try {
+      return {
+        unlock: achievementStore.unlock({
+          accountId: candidate.accountId,
+          achievementId: candidate.achievementId,
+          gameId,
+          eventSequence: unlockKey,
+          evidenceHash: crypto.createHash('sha256').update(unlockKey).digest('hex'),
+          ...(typeof candidate.unlockedAt === 'string' ? { unlockedAt: candidate.unlockedAt } : {})
+        })
+      };
     } catch (error) {
       // A failed persist rolls the unlock back; it must not abort the settlement.
       console.error('Achievement unlock failed:', error?.message || 'unknown error');
-      return { retryable: true, created: false };
+      return null;
     }
-    if (!unlock.created) {
-      // The unlock is already on record. A settlement that lost its
-      // account mirror retries that write here; if it repairs the mirror, it
-      // also completes the announcement that could not happen before.
-      let stored = null;
-      if (unlock.record && typeof accountStore.recordAchievement === 'function') {
-        try {
-          stored = accountStore.recordAchievement(candidate.accountId, {
-            id: unlock.record.achievementId,
-            unlockedAt: unlock.record.unlockedAt
-          });
-        } catch (error) {
-          console.error('Achievement account mirror recovery failed:', error?.message || 'unknown error');
-          return { retryable: true, created: false };
-        }
+  }
+
+  function mirrorAchievementToAccount(candidate, unlock) {
+    return accountStore.recordAchievement(candidate.accountId, {
+      id: unlock.record.achievementId,
+      unlockedAt: unlock.record.unlockedAt
+    });
+  }
+
+  // The unlock is already on record. A settlement that lost its account mirror
+  // retries that write here; if it repairs the mirror, it also completes the
+  // announcement that could not happen before.
+  function recoverExistingUnlock(candidate, unlock, unlockKey) {
+    let stored = null;
+    if (unlock.record && typeof accountStore.recordAchievement === 'function') {
+      try {
+        stored = mirrorAchievementToAccount(candidate, unlock);
+      } catch (error) {
+        console.error('Achievement account mirror recovery failed:', error?.message || 'unknown error');
+        return { retryable: true, created: false };
       }
-      if (stored?.success && stored.created) {
-        announceAchievementBestEffort(candidate, unlock.record, unlockKey);
-        return { retryable: false, created: false };
-      }
-      if (stored?.success === false) return { retryable: true, created: false };
-      // A settlement that lost its announcement retries it here instead of
-      // dropping it for good.
-      if (unlock.record && undeliveredAnnouncements.has(announcementKey)) {
-        announceAchievementBestEffort(candidate, unlock.record, unlockKey);
-      }
+    }
+    if (stored?.success && stored.created) {
+      announceAchievementBestEffort(candidate, unlock.record, unlockKey);
       return { retryable: false, created: false };
     }
+    if (stored?.success === false) return { retryable: true, created: false };
+    // A settlement that lost its announcement retries it here instead of
+    // dropping it for good.
+    if (unlock.record && undeliveredAnnouncements.has(`${candidate.accountId}:${candidate.achievementId}`)) {
+      announceAchievementBestEffort(candidate, unlock.record, unlockKey);
+    }
+    return { retryable: false, created: false };
+  }
+
+  // A brand-new unlock must reach the account mirror; if it cannot, the unlock is rolled back.
+  function mirrorNewUnlock(candidate, unlock, unlockKey) {
     let stored;
     try {
-      stored = accountStore.recordAchievement(candidate.accountId, {
-        id: unlock.record.achievementId,
-        unlockedAt: unlock.record.unlockedAt
-      });
+      stored = mirrorAchievementToAccount(candidate, unlock);
     } catch (error) {
       console.error('Achievement account mirror write failed:', error?.message || 'unknown error');
       rollbackAchievementUnlock(candidate, unlock);
@@ -303,6 +313,20 @@ function createSocialApi(deps) {
     }
     announceAchievementBestEffort(candidate, unlock.record, unlockKey);
     return { retryable: false, created: true };
+  }
+
+  function recordVerifiedAchievementAttempt(candidate, gameId, { retry = false } = {}) {
+    if (!candidate?.accountId || !candidate.achievementId) return { retryable: false, created: false };
+    if (retry) {
+      const stop = retryStopOutcome(candidate);
+      if (stop) return stop;
+    }
+    const unlockKey = `${gameId}:${candidate.achievementId}:${candidate.accountId}`;
+    const attempt = tryUnlockVerifiedAchievement(candidate, gameId, unlockKey);
+    if (!attempt) return { retryable: true, created: false };
+    const { unlock } = attempt;
+    if (!unlock.created) return recoverExistingUnlock(candidate, unlock, unlockKey);
+    return mirrorNewUnlock(candidate, unlock, unlockKey);
   }
 
   function scheduleVerifiedAchievementRetry(candidate, gameId, attempt = 1) {

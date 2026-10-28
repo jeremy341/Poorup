@@ -148,18 +148,26 @@ export function applySettleShortDefault(state, candidate) {
 
 // Net worth carried by margin and short books at projected quotes: margin units + collateral - loan; short collateral
 // - units owed at the quote (plus the cover fee an exit must pay) - the borrow fee still to be charged.
+// Margin units at the projected quote (average cost when the quote is missing).
+function marginUnitsValue(quotes, margin) {
+  return Object.entries(margin.positions || {}).reduce((sum, [id, position]) => (
+    sum + nonNegative(position?.quantity) * quoteOf(quotes, id, position?.averageCost)
+  ), 0);
+}
+
+// One short's equity: its collateral, less the units owed at the quote plus the cover fee, less the borrow fee still to be charged.
+function shortPositionEquity(quotes, id, position) {
+  const owed = nonNegative(position?.quantity) * quoteOf(quotes, id, position?.entryQuote);
+  return nonNegative(position?.collateral) - Math.ceil(owed * (1 + MARKET_FEE_RATE)) - nonNegative(position?.borrowFee);
+}
+
 export function leveragedNetWorth(state) {
   const expansion = state.marketExpansion || {};
   const quotes = state.marketQuotes;
   const margin = expansion.margin || {};
-  const units = Object.entries(margin.positions || {}).reduce((sum, [id, position]) => (
-    sum + nonNegative(position?.quantity) * quoteOf(quotes, id, position?.averageCost)
-  ), 0);
-  const marginEquity = units + nonNegative(margin.collateral) - nonNegative(margin.balance);
-  const shortBook = Object.entries(expansion.shorts?.positions || {}).reduce((sum, [id, position]) => {
-    const owed = nonNegative(position?.quantity) * quoteOf(quotes, id, position?.entryQuote);
-    return sum + nonNegative(position?.collateral) - Math.ceil(owed * (1 + MARKET_FEE_RATE)) - nonNegative(position?.borrowFee);
-  }, 0);
+  const marginEquity = marginUnitsValue(quotes, margin) + nonNegative(margin.collateral) - nonNegative(margin.balance);
+  const shortBook = Object.entries(expansion.shorts?.positions || {})
+    .reduce((sum, [id, position]) => sum + shortPositionEquity(quotes, id, position), 0);
   return marginEquity + shortBook;
 }
 
@@ -181,23 +189,29 @@ function marginHoldingCost(state, reserveFor) {
   return cost;
 }
 
+// Adds one open short's holding cost to the running total. Every charge is added to `cost` in the original order, so the sum is unchanged.
+function addShortPositionCost(cost, state, reserveFor, id, position, quantity) {
+  const entry = number(position.entryQuote);
+  const quote = quoteOf(state.marketQuotes, id, entry);
+  const notional = quote * quantity;
+  let total = cost + reserveFor(id, quantity);
+  total += notional * (SHORT_TAIL_RESERVE_RATE + SHORT_HOLD_CHARGE_RATE);
+  if (entry > 0 && quote > entry) total += (quote - entry) * quantity * UNDERWATER_CHARGE_RATE;
+  if (entry > 0 && quote >= entry * NEAR_FORCED_RATIO) total += notional * 0.5;
+  // A forced buy-in that the seat cannot fund becomes shortDefaultDebt.
+  const needed = Math.ceil(entry * FORCED_BUY_IN_RATIO * quantity * (1 + MARKET_FEE_RATE)) + nonNegative(position.borrowFee);
+  const funded = nonNegative(state.cash) + nonNegative(position.collateral);
+  if (needed > funded) total += (needed - funded) * 0.5;
+  return total;
+}
+
 function shortHoldingCost(state, reserveFor) {
   const book = state.marketExpansion?.shorts?.positions || {};
   let cost = 0;
   Object.entries(book).forEach(([id, position]) => {
     const quantity = nonNegative(position?.quantity);
     if (!quantity) return;
-    const entry = number(position.entryQuote);
-    const quote = quoteOf(state.marketQuotes, id, entry);
-    const notional = quote * quantity;
-    cost += reserveFor(id, quantity);
-    cost += notional * (SHORT_TAIL_RESERVE_RATE + SHORT_HOLD_CHARGE_RATE);
-    if (entry > 0 && quote > entry) cost += (quote - entry) * quantity * UNDERWATER_CHARGE_RATE;
-    if (entry > 0 && quote >= entry * NEAR_FORCED_RATIO) cost += notional * 0.5;
-    // A forced buy-in that the seat cannot fund becomes shortDefaultDebt.
-    const needed = Math.ceil(entry * FORCED_BUY_IN_RATIO * quantity * (1 + MARKET_FEE_RATE)) + nonNegative(position.borrowFee);
-    const funded = nonNegative(state.cash) + nonNegative(position.collateral);
-    if (needed > funded) cost += (needed - funded) * 0.5;
+    cost = addShortPositionCost(cost, state, reserveFor, id, position, quantity);
   });
   return cost;
 }

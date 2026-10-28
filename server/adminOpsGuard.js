@@ -45,16 +45,27 @@ export function createAdminGuard({
   writeLimitMessage = 'Too many changes. Try again shortly.',
   now = () => Date.now(),
 } = {}) {
-  function requireAdmin(req, res, next) {
+  function sessionAccountFor(req) {
     const token = String(req.get?.('x-poorup-session-token') || '');
-    const account = accountResolver?.(req) || accountStore?.sessionAccount?.(token);
+    return accountResolver?.(req) || accountStore?.sessionAccount?.(token);
+  }
+
+  // The first refusal that applies to a signed-in account, or null when it may act as admin.
+  function accessRefusal(req, account) {
+    if (!isAdminAccount(account?.id, adminIds)) return { status: 403, error: 'Forbidden.' };
+    if (!sameOrigin(req, publicOrigin)) return { status: 403, error: 'Origin is not allowed.' };
+    return null;
+  }
+
+  function requireAdmin(req, res, next) {
+    const account = sessionAccountFor(req);
     if (!account?.id) return res.status(401).json({ success: false, error: 'Account session required.' });
     // A legacy bearer token was just traded for a cookie session (and revoked).
     // The cookie is handed over before every refusal: the operator must not be
     // left with neither the old token nor its replacement.
     if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);
-    if (!isAdminAccount(account?.id, adminIds)) return res.status(403).json({ success: false, error: 'Forbidden.' });
-    if (!sameOrigin(req, publicOrigin)) return res.status(403).json({ success: false, error: 'Origin is not allowed.' });
+    const refusal = accessRefusal(req, account);
+    if (refusal) return res.status(refusal.status).json({ success: false, error: refusal.error });
     req.adminAccountId = account.id;
     next();
   }

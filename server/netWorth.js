@@ -62,6 +62,13 @@ function houseSaleRate(game) {
   }
 }
 
+function houseValueOf(game, tile, rate) {
+  const count = Math.max(0, Math.min(5, whole(tile.houseCount)));
+  if (count <= 0) return 0;
+  const unit = typeof game?.getPropertyHouseCost === 'function' ? nonNegative(safeHouseCost(game, tile)) : 100;
+  return Math.floor(count * unit * rate);
+}
+
 function deedAndHouseValue(game, player) {
   let deeds = 0;
   let houses = 0;
@@ -75,11 +82,7 @@ function deedAndHouseValue(game, player) {
       continue;
     }
     deeds += face;
-    const count = Math.max(0, Math.min(5, whole(tile.houseCount)));
-    if (count > 0) {
-      const unit = typeof game?.getPropertyHouseCost === 'function' ? nonNegative(safeHouseCost(game, tile)) : 100;
-      houses += Math.floor(count * unit * rate);
-    }
+    houses += houseValueOf(game, tile, rate);
   }
   return { deeds, houses };
 }
@@ -138,15 +141,19 @@ function counterpartySolvent(game, id) {
   return !other.bankrupt && !other.inDebt && pendingDebtOf(game, other) === 0;
 }
 
+// A claim owed by the debtor is negative for them; the creditor holds it as a receivable only while the debtor is solvent.
+function claimValueFor(game, player, remaining, debtorId, creditorId) {
+  if (!remaining) return 0;
+  if (debtorId === player.id) return -remaining;
+  if (creditorId === player.id && counterpartySolvent(game, debtorId)) return remaining;
+  return 0;
+}
+
 function contractValue(game, player) {
   return (Array.isArray(game?.playerContracts) ? game.playerContracts : []).reduce((sum, contract) => {
     if (!contract || !['loan', 'hybrid'].includes(contract.kind)) return sum;
     if (!['active', 'due'].includes(contract.status)) return sum;
-    const remaining = nonNegative(contract.remaining);
-    if (!remaining) return sum;
-    if (contract.toPlayerId === player.id) return sum - remaining;
-    if (contract.fromPlayerId === player.id && counterpartySolvent(game, contract.toPlayerId)) return sum + remaining;
-    return sum;
+    return sum + claimValueFor(game, player, nonNegative(contract.remaining), contract.toPlayerId, contract.fromPlayerId);
   }, 0);
 }
 
@@ -163,11 +170,7 @@ function bankLoanDebt(player) {
 function defaultClaimValue(game, player) {
   return (Array.isArray(game?.defaultClaims) ? game.defaultClaims : []).reduce((sum, claim) => {
     if (!claim || claim.status !== 'open') return sum;
-    const remaining = nonNegative(claim.remaining);
-    if (!remaining) return sum;
-    if (claim.borrowerId === player.id) return sum - remaining;
-    if (claim.lenderId === player.id && counterpartySolvent(game, claim.borrowerId)) return sum + remaining;
-    return sum;
+    return sum + claimValueFor(game, player, nonNegative(claim.remaining), claim.borrowerId, claim.lenderId);
   }, 0);
 }
 

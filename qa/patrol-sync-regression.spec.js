@@ -1,9 +1,24 @@
 import { test, expect } from '@playwright/test';
 
 async function enable(page) {
+  await page.addInitScript(() => {
+    // The no-op collaborators configureNightShift needs; each scenario overrides only the callbacks it observes.
+    window.patrolNoopDeps = () => {
+      const noop = () => {};
+      return { stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop };
+    };
+  });
   await page.route('**/clientParlorPatrolFlag.js', async route => {
     const response = await route.fetch();
     await route.fulfill({ response, body: (await response.text()).replace('PARLOR_PATROL_ENABLED = false', 'PARLOR_PATROL_ENABLED = true') });
+  });
+}
+
+// Serves the night-shift module with extra named exports so a scenario can drive its internals.
+async function exposeNightShiftExports(page, names) {
+  await page.route('**/clientNightShift.js', async route => {
+    const response = await route.fetch();
+    await route.fulfill({ response, body: `${await response.text()}\nexport { ${names} };` });
   });
 }
 
@@ -15,8 +30,7 @@ test('a delayed server push uses estimated current server time for target positi
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) { if (event === 'start-patrol-run') { const now = Date.now(); callback({ success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [], ended: false, paused: false }); } } });
     patrol.startNightShift();
     const sent = Date.now() - 1000;
@@ -32,18 +46,14 @@ test('a delayed server push uses estimated current server time for target positi
 
 test('guest targets survive a wave boundary and resolve only once', async ({ page }) => {
   await enable(page);
-  await page.route('**/clientNightShift.js', async route => {
-    const response = await route.fetch();
-    await route.fulfill({ response, body: `${await response.text()}\nexport { spawnNightShiftTarget, advanceNightShiftWave, missNightShiftTarget };` });
-  });
+  await exposeNightShiftExports(page, 'spawnNightShiftTarget, advanceNightShiftWave, missNightShiftTarget');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/');
   const result = await page.evaluate(async () => {
     const patrol = await import('/clientNightShift.js');
     const { state } = await import('/clientState.js');
     state.account = null;
-    const noop = () => {};
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop });
+    patrol.configureNightShift({ ...window.patrolNoopDeps() });
     patrol.startNightShift();
     patrol.spawnNightShiftTarget();
     const first = document.querySelector('.night-target');
@@ -65,10 +75,7 @@ test('guest targets survive a wave boundary and resolve only once', async ({ pag
 
 test('guest clean-run unlock requires a resolved clean wave followed by game over', async ({ page }) => {
   await enable(page);
-  await page.route('**/clientNightShift.js', async route => {
-    const response = await route.fetch();
-    await route.fulfill({ response, body: `${await response.text()}\nexport { spawnNightShiftTarget, advanceNightShiftWave, missNightShiftTarget };` });
-  });
+  await exposeNightShiftExports(page, 'spawnNightShiftTarget, advanceNightShiftWave, missNightShiftTarget');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/');
   const unlocked = await page.evaluate(async () => {
@@ -99,13 +106,12 @@ test('unequal pause and resume latency reconciles the existing target to server 
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
     const now = Date.now();
     const target = { id: 'paused', kind: 'drone', direction: 'right', lane: 32, duration: 10000, spawnedAt: now, actionableAt: now + 500, expiresAt: now + 10000, wave: 1 };
     const snapshot = { runToken: 'run', revision: 1, serverTime: now, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [target], ended: false, paused: false };
     let pausedAt;
     window.patrolResumeDone = false;
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) {
         if (event === 'start-patrol-run') callback({ success: true, ...snapshot });
         if (event === 'pause-patrol-run') {
@@ -135,10 +141,7 @@ test('unequal pause and resume latency reconciles the existing target to server 
 
 test('guest clean-run is not awarded on early exit or a wave with an escaped beacon', async ({ page }) => {
   await enable(page);
-  await page.route('**/clientNightShift.js', async route => {
-    const response = await route.fetch();
-    await route.fulfill({ response, body: `${await response.text()}\nexport { spawnNightShiftTarget, advanceNightShiftWave, missNightShiftTarget };` });
-  });
+  await exposeNightShiftExports(page, 'spawnNightShiftTarget, advanceNightShiftWave, missNightShiftTarget');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/');
   const result = await page.evaluate(async () => {
@@ -182,8 +185,7 @@ test('an already expired target is not displayed after a delayed snapshot', asyn
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) { if (event === 'start-patrol-run') { const now = Date.now(); callback({ success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [], ended: false, paused: false }); } } });
     patrol.startNightShift();
     const sent = Date.now() - 1000;
@@ -200,8 +202,7 @@ test('visible play resumes when start acknowledgement follows hide and show', as
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) { if (event === 'start-patrol-run') window.delayedStart = callback; } });
     patrol.startNightShift();
     Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange'));
@@ -223,11 +224,10 @@ test('reordered visibility acknowledgements cannot unpause targets while hidden'
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
     const now = Date.now();
     const snapshot = { success: true, runToken: 'run', revision: 1, serverTime: now, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [{ id: 'aircraft', kind: 'drone', direction: 'right', lane: 32, duration: 10000, spawnedAt: now, actionableAt: now + 500, expiresAt: now + 10000, wave: 1 }], ended: false, paused: false };
     const calls = [];
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) { if (event === 'start-patrol-run') callback(snapshot); else calls.push({ event, callback }); } });
     patrol.startNightShift();
     Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange'));
@@ -250,10 +250,9 @@ test('a start-paused run stays safe while hidden and begins only when visible', 
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
     window.patrolStartCalls = [];
     let start;
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) {
         window.patrolStartCalls.push(event);
         if (event === 'start-patrol-run') { start = callback; return; }
@@ -280,17 +279,13 @@ test('aircraft are visible by the earliest accepted hit and until near escape at
   for (const viewport of [{ width: 944, height: 656 }, { width: 1024, height: 768 }, { width: 1920, height: 1080 }]) {
     const page = await browser.newPage({ viewport, reducedMotion: 'no-preference' });
     await enable(page);
-    await page.route('**/clientNightShift.js', async route => {
-      const response = await route.fetch();
-      await route.fulfill({ response, body: `${await response.text()}\nexport { spawnNightShiftTarget };` });
-    });
+    await exposeNightShiftExports(page, 'spawnNightShiftTarget');
     await page.goto('/');
     const measurements = await page.evaluate(async () => {
       const patrol = await import('/clientNightShift.js');
       const { state } = await import('/clientState.js');
       state.account = null;
-      const noop = () => {};
-      patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop });
+      patrol.configureNightShift({ ...window.patrolNoopDeps() });
       patrol.startNightShift();
       const layer = document.querySelector('#night-targets');
       const result = [];
@@ -333,12 +328,11 @@ test('a server offer becomes actionable only after the client announces readines
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
     const now = Date.now();
     const offer = { id: 'offer', kind: 'drone', direction: 'right', lane: 32, duration: 3400, wave: 1, deliveryPending: true, offeredAt: now, readyBy: now + 10000, spawnedAt: null, actionableAt: null, expiresAt: null };
     window.readyCalls = [];
     const base = { success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [offer], ended: false, paused: false };
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) {
         window.readyCalls.push({ event, payload });
         if (event === 'start-patrol-run') callback(base);
@@ -362,11 +356,10 @@ test('an offer delayed longer than a target flight still starts on receipt witho
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
     const now = Date.now();
     const base = { success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [], ended: false, paused: false };
     window.readyCalls = [];
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) {
         window.readyCalls.push(event);
         if (event === 'start-patrol-run') callback(base);
@@ -428,12 +421,11 @@ test('unconfirmed target readiness retries once then ends without deducting hear
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
     const now = Date.now();
     const offer = { id: 'lost', kind: 'drone', direction: 'right', lane: 32, duration: 2800, wave: 1, deliveryPending: true, offeredAt: now, readyBy: now + 10000, spawnedAt: null, actionableAt: null, expiresAt: null };
     const base = { success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 125, hearts: 3, misses: 0, targets: [offer], ended: false, paused: false };
     window.timeoutEvents = [];
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) {
         window.timeoutEvents.push({ event, payload });
         if (event === 'start-patrol-run') callback(base);
@@ -456,12 +448,11 @@ test('a late ready acknowledgement cannot undo hidden pause or resurrect a hit t
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
     const now = Date.now();
     const offer = { id: 'reorder', kind: 'drone', direction: 'right', lane: 32, duration: 3400, wave: 1, deliveryPending: true, offeredAt: now, readyBy: now + 10000, spawnedAt: null, actionableAt: null, expiresAt: null };
     const base = { success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [offer], ended: false, paused: false };
     window.reorderEvents = [];
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) {
         window.reorderEvents.push(event);
         if (event === 'start-patrol-run') callback(base);
@@ -494,11 +485,10 @@ test('server delivery timeout reports network interruption and settles earned sc
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
     const now = Date.now();
     const base = { success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 125, hearts: 3, misses: 0, targets: [], ended: false, paused: false };
     window.deliveryEvents = [];
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) { window.deliveryEvents.push({ event, payload }); if (event === 'start-patrol-run') callback(base); if (event === 'finish-patrol-run') callback({ success: true, score: 125, best: 125, misses: 0 }); } });
     patrol.startNightShift();
     patrol.applyPatrolState({ ...base, revision: 2, ended: true, endReason: 'delivery-timeout' });
@@ -518,12 +508,11 @@ test('a lost ready acknowledgement is recovered by one idempotent retry', async 
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
     const now = Date.now();
     const offer = { id: 'retry', kind: 'drone', direction: 'right', lane: 32, duration: 3400, wave: 1, deliveryPending: true, offeredAt: now, readyBy: now + 10000, spawnedAt: null, actionableAt: null, expiresAt: null };
     const base = { success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [offer], ended: false, paused: false };
     window.readyRetries = 0; window.finishCount = 0;
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) {
         if (event === 'start-patrol-run') callback(base);
         if (event === 'finish-patrol-run') window.finishCount++;
@@ -547,12 +536,11 @@ test('an offer paused before readiness sends no ready event until visible again'
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
     const now = Date.now();
     const offer = { id: 'paused-offer', kind: 'drone', direction: 'right', lane: 32, duration: 3400, wave: 1, deliveryPending: true, offeredAt: now, readyBy: now + 10000, spawnedAt: null, actionableAt: null, expiresAt: null };
     const base = { success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [offer], ended: false, paused: false };
     window.offerEvents = [];
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) {
         window.offerEvents.push(event);
         if (event === 'start-patrol-run') callback(base);
@@ -578,12 +566,11 @@ test('disconnect during a pending ready request ignores the late acknowledgement
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
     const now = Date.now();
     const offer = { id: 'disconnect', kind: 'drone', direction: 'right', lane: 32, duration: 3400, wave: 1, deliveryPending: true, offeredAt: now, readyBy: now + 10000, spawnedAt: null, actionableAt: null, expiresAt: null };
     const base = { success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [offer], ended: false, paused: false };
     window.disconnectEvents = [];
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) { window.disconnectEvents.push(event); if (event === 'start-patrol-run') callback(base); if (event === 'ready-patrol-target') window.lateReadyDisconnect = callback; } });
     window.disconnectPatrol = patrol;
     patrol.startNightShift();
@@ -607,12 +594,11 @@ test('a ready acknowledgement delayed 2.1 seconds does not interrupt a playable 
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
     const now = Date.now();
     const offer = { id: 'slow-ready', kind: 'helicopter', direction: 'right', lane: 32, duration: 7340, wave: 1, deliveryPending: true, offeredAt: now, readyBy: now + 10000, spawnedAt: null, actionableAt: null, expiresAt: null };
     const base = { success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [offer], ended: false, paused: false };
     window.delayedReadyDelivered = false; window.delayedReadyFinishes = 0; window.readyRequests = 0;
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) {
         if (event === 'start-patrol-run') callback(base);
         if (event === 'finish-patrol-run') { window.delayedReadyFinishes++; callback({ success: true, score: 0, best: 0 }); }
@@ -638,12 +624,11 @@ test('missing ready acknowledgements time out near but before each target flight
       const { state } = await import('/clientState.js');
       const patrol = await import('/clientNightShift.js');
       state.account = { account: { id: 'test' } };
-      const noop = () => {};
       const now = Date.now();
       const offer = { id: 'no-ack', kind, direction: 'right', lane: 32, duration, wave: 1, deliveryPending: true, offeredAt: now, readyBy: now + 10000, spawnedAt: null, actionableAt: null, expiresAt: null };
       const base = { success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [offer], ended: false, paused: false };
       window.watchdogStart = null; window.watchdogFinish = null; window.watchdogAttempts = 0;
-      patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+      patrol.configureNightShift({ ...window.patrolNoopDeps(),
         emitServer(event, payload, callback) {
           if (event === 'start-patrol-run') callback(base);
           if (event === 'ready-patrol-target') { window.watchdogAttempts++; if (!window.watchdogStart) window.watchdogStart = performance.now(); }
@@ -668,12 +653,11 @@ test('pausing after readiness preserves the unconfirmed target flight budget', a
     const { state } = await import('/clientState.js');
     const patrol = await import('/clientNightShift.js');
     state.account = { account: { id: 'test' } };
-    const noop = () => {};
     const now = Date.now();
     const offer = { id: 'ready-paused', kind: 'airplane', direction: 'right', lane: 32, duration: 2800, wave: 1, deliveryPending: true, offeredAt: now, readyBy: now + 10000, spawnedAt: null, actionableAt: null, expiresAt: null };
     const base = { success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [offer], ended: false, paused: false };
     window.pausedReadyAt = null; window.pausedFinishAt = null; window.pauseLength = 0;
-    patrol.configureNightShift({ stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, playPatrolHitSound: noop,
+    patrol.configureNightShift({ ...window.patrolNoopDeps(),
       emitServer(event, payload, callback) {
         if (event === 'start-patrol-run') callback(base);
         if (event === 'ready-patrol-target' && !window.pausedReadyAt) window.pausedReadyAt = performance.now();

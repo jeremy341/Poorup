@@ -23,16 +23,26 @@ function clientErrorMessage(status) {
 // Terminal error middleware. A 4xx the framework raised (bad JSON, oversized or wrongly encoded body, undecodable URL) is the
 // caller's fault: it answers with that status and is not counted as a server error, so an anonymous client cannot raise the
 // admin error counter. Everything else is a 500.
+function isClientStatus(status) {
+  return status >= 400 && status < 500;
+}
+
+function answerClientError(req, res, status, errorPage) {
+  if (API_PREFIX.test(req.path || '')) return res.status(status).json({ success: false, error: clientErrorMessage(status) });
+  return res.status(status).type('html').send(errorPage(`${status} · Bad request`, clientErrorMessage(status)));
+}
+
+function answerServerError(metrics, log, error, res, errorPage) {
+  metrics?.incrementMetric('error-count', { source: 'http' });
+  log('HTTP request failed:', error?.message || 'unknown error');
+  return res.status(500).type('html').send(errorPage('500 · Parlor unavailable', 'The table is temporarily offline. Try again shortly.'));
+}
+
 export function createHttpErrorHandler({ metrics = null, errorPage, log = console.error } = {}) {
   return function httpErrorHandler(error, req, res, next) {
     if (res.headersSent) return next(error);
     const status = Number(error?.status || error?.statusCode);
-    if (status >= 400 && status < 500) {
-      if (API_PREFIX.test(req.path || '')) return res.status(status).json({ success: false, error: clientErrorMessage(status) });
-      return res.status(status).type('html').send(errorPage(`${status} · Bad request`, clientErrorMessage(status)));
-    }
-    metrics?.incrementMetric('error-count', { source: 'http' });
-    log('HTTP request failed:', error?.message || 'unknown error');
-    return res.status(500).type('html').send(errorPage('500 · Parlor unavailable', 'The table is temporarily offline. Try again shortly.'));
+    if (isClientStatus(status)) return answerClientError(req, res, status, errorPage);
+    return answerServerError(metrics, log, error, res, errorPage);
   };
 }

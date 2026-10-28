@@ -206,14 +206,12 @@ function snapshotBoardCounts(board, group, ownerSeat) {
   for (let index = 0; index < board.length; index += 1) {
     const entry = board[index];
     const ownedByOwner = entry.ownerSeat === ownerSeat;
-    if (group && entry.group === group) {
-      groupSize += 1;
-      if (ownedByOwner) groupOwned += 1;
-    }
-    if (countsOwnedAssets && ownedByOwner && !entry.mortgaged) {
-      if (entry.type === 'railroad') railroads += 1;
-      else if (entry.type === 'utility') utilities += 1;
-    }
+    const inGroup = Boolean(group) && entry.group === group;
+    const ownedAsset = countsOwnedAssets && ownedByOwner && !entry.mortgaged;
+    if (inGroup) groupSize += 1;
+    if (inGroup && ownedByOwner) groupOwned += 1;
+    if (ownedAsset && entry.type === 'railroad') railroads += 1;
+    if (ownedAsset && entry.type === 'utility') utilities += 1;
   }
   return { hasFullSet: groupSize > 0 && groupSize === groupOwned, railroads, utilities };
 }

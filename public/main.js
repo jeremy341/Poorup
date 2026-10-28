@@ -297,13 +297,14 @@ syncLocalAppearance();
 // The ZIP remains the complete UI source; this small boundary maps its
 // renderer state to the existing server-authoritative game protocol.
 const socket = typeof window.io === "function" ? window.io() : null;
+function isPatrolRetryCurrent(ready, accountId) {
+  return Boolean(ready && socket?.connected && state.account?.account?.id === accountId);
+}
 function retryPatrolAfterAuthReady() {
-  if (!hasPendingPatrolSettlement()) return;
   const accountId = state.account?.account?.id;
-  if (!accountId) return;
+  if (!hasPendingPatrolSettlement() || !accountId) return;
   bootstrapAccountCookieSession().then((ready) => {
-    if (!ready || !socket?.connected || state.account?.account?.id !== accountId) return;
-    handlePatrolReconnect();
+    if (isPatrolRetryCurrent(ready, accountId)) handlePatrolReconnect();
   }).catch(() => {});
 }
 function reconnectAccountSocket() {

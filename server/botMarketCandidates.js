@@ -95,14 +95,20 @@ function worstShort(game, player) {
   let worst = null;
   Object.entries(player.shortPositions || {}).forEach(([id, position]) => {
     if (!(Number(position?.quantity) > 0)) return;
-    const entry = Number(position.entryQuote) || 0;
-    const quote = Math.max(10, Number(game.marketQuotes?.[id]) || entry || 100);
-    const ratio = entry > 0 ? quote / entry : 1;
-    const quantity = affordableCover(player, { position, quote });
-    if (!quantity) return;
-    if (!worst || ratio > worst.ratio) worst = { id, position, quote, ratio, quantity };
+    const candidate = coverableShort(game, player, id, position);
+    if (candidate && (!worst || candidate.ratio > worst.ratio)) worst = candidate;
   });
   return worst;
+}
+
+// One held short the seat can fund to cover: its quote, ratio to entry and affordable quantity. Null when none is affordable.
+function coverableShort(game, player, id, position) {
+  const entry = Number(position.entryQuote) || 0;
+  const quote = Math.max(10, Number(game.marketQuotes?.[id]) || entry || 100);
+  const ratio = entry > 0 ? quote / entry : 1;
+  const quantity = affordableCover(player, { position, quote });
+  if (!quantity) return null;
+  return { id, position, quote, ratio, quantity };
 }
 
 // Largest quantity of the short the seat can fund (marketExpansion.coverShort's own check).
@@ -154,11 +160,16 @@ function enrich(game, player, candidate) {
 
 // Pay forced buy-in debt down to the reserve. The server's shortDefaultRejection
 // has no turn gate (the debt must never be unreachable), so neither does this.
+// The seat must be live at a started table, with the short market open and no payment or loan-backed cash pending.
+function settleBlocked(game, player) {
+  if (!game.started || player.bankrupt || player.disconnected) return true;
+  if (!game.settings.market || !complexityAllows(game, 'shorting')) return true;
+  return Boolean(game.pendingPayment || game.hasLoanBackedCash?.(player));
+}
+
 function settleCandidate(game, player) {
   const debt = wholeNumber(player.shortDefaultDebt);
-  if (debt <= 0 || !game.started || player.bankrupt || player.disconnected) return null;
-  if (!game.settings.market || !complexityAllows(game, 'shorting') || game.pendingPayment) return null;
-  if (game.hasLoanBackedCash?.(player)) return null;
+  if (debt <= 0 || settleBlocked(game, player)) return null;
   const amount = Math.min(debt, wholeNumber(player.cash) - SETTLE_RESERVE);
   if (amount < 1) return null;
   return { id: 'market:settle-short-default', kind: 'settle-short-default', amount, risk: 0, score: 12 };

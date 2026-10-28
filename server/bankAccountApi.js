@@ -16,6 +16,19 @@ function tierInfo(tier) {
   return BANK_ACCOUNT_TIERS.find(entry => entry.tier === tier) || BANK_ACCOUNT_TIERS[0];
 }
 
+function upgradeRefusal(game, player) {
+  if (!player) return { success: false, error: 'Player not found.' };
+  if (!game.started) return { success: false, error: 'Game has not started.' };
+  if (!game.bankAccountsEnabled()) return { success: false, error: 'Bank accounts are off at this table.' };
+  if (player.bankrupt) return { success: false, error: 'Bankrupt players cannot upgrade.' };
+  return null;
+}
+
+function rememberUpgradeRequest(account, key) {
+  account.requests.push(key);
+  if (account.requests.length > REQUEST_MEMORY) account.requests.shift();
+}
+
 export const bankAccountApi = {
   bankAccountsEnabled() {
     return Boolean(this.settings?.bankAccountUpgrades);
@@ -76,10 +89,8 @@ export const bankAccountApi = {
 
   upgradeBankAccount(socketId, requestId = null) {
     const player = this.getPlayerBySocket(socketId);
-    if (!player) return { success: false, error: 'Player not found.' };
-    if (!this.started) return { success: false, error: 'Game has not started.' };
-    if (!this.bankAccountsEnabled()) return { success: false, error: 'Bank accounts are off at this table.' };
-    if (player.bankrupt) return { success: false, error: 'Bankrupt players cannot upgrade.' };
+    const refusal = upgradeRefusal(this, player);
+    if (refusal) return refusal;
     const account = this.bankAccountOf(player);
     const key = normalizeRequestId(requestId) || null;
     // A repeated request id replays the first answer instead of buying a second tier.
@@ -91,10 +102,7 @@ export const bankAccountApi = {
     if (this.spendableCash(player) < next.cost) return { success: false, error: `You need $${next.cost} to upgrade.` };
     player.cash -= next.cost;
     account.tier = next.tier;
-    if (key) {
-      account.requests.push(key);
-      if (account.requests.length > REQUEST_MEMORY) account.requests.shift();
-    }
+    if (key) rememberUpgradeRequest(account, key);
     this.bankAccountEntry(player, `UPGRADE · ${next.name}`, -next.cost);
     this.feedMessage(`${player.nickname} upgraded to ${next.name}.`);
     return { success: true, tier: next.tier };

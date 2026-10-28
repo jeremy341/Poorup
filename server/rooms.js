@@ -56,6 +56,29 @@ function safeSeatColor(color) {
   return color;
 }
 
+function identityConflictInRoom(room, identity) {
+  for (const player of room.game.players) {
+    const conflict = identityConflictForPlayer(player, identity);
+    if (conflict) return conflict;
+  }
+  return null;
+}
+
+// A client match on a live seat already bound to this socket is the same tab, not a conflict; the account check is then skipped.
+function identityConflictForPlayer(player, { clientId, accountId, socketId }) {
+  if (clientId && player.clientId === clientId) {
+    if (!player.disconnected && socketId && player.socketId === socketId) return null;
+    return player.disconnected
+      ? 'That seat is still held by another room. Restore it or wait for it to expire.'
+      : 'That seat is already in use.';
+  }
+  if (accountId && player.accountId === accountId && !player.bankrupt
+    && (player.disconnected || player.socketId !== socketId)) {
+    return 'This account is already seated in another room.';
+  }
+  return null;
+}
+
 function seatAccountAllowsReconnect(player, accountId) {
   if (!player.accountId) return true;
   return player.accountId === accountId;
@@ -1073,18 +1096,8 @@ class RoomManager {
   identitySeatElsewhere(room, { clientId = '', accountId = null, socketId = null } = {}) {
     for (const other of this.rooms.values()) {
       if (other === room) continue;
-      for (const player of other.game.players) {
-        if (clientId && player.clientId === clientId) {
-          if (!player.disconnected && socketId && player.socketId === socketId) continue;
-          return player.disconnected
-            ? 'That seat is still held by another room. Restore it or wait for it to expire.'
-            : 'That seat is already in use.';
-        }
-        if (accountId && player.accountId === accountId && !player.bankrupt
-          && (player.disconnected || player.socketId !== socketId)) {
-          return 'This account is already seated in another room.';
-        }
-      }
+      const conflict = identityConflictInRoom(other, { clientId, accountId, socketId });
+      if (conflict) return conflict;
     }
     return null;
   }

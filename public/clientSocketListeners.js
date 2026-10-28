@@ -110,31 +110,39 @@ export function reconcileSignedOutState(message = "This account session ended in
   if (notify) host.notice("ACCOUNT", message);
 }
 
+function applyLifecycleStorage(newValue) {
+  try {
+    reconcileAccountLifecycleEvent(JSON.parse(newValue), state);
+    renderAccountPanel();
+    host.renderAll();
+  } catch { /* malformed cross-tab lifecycle data is ignored */ }
+}
+
+function applySessionReadyStorage(newValue) {
+  try {
+    const ready = JSON.parse(newValue);
+    const account = loadAccountSession()?.account;
+    if (!account || account.id !== ready?.accountId) return;
+    if (state.account?.account?.id && state.account.account.id !== account.id) {
+      pendingCrossTabAccountId = account.id;
+      reconcileSignedOutState("Account changed in another tab.", { persistSession: false });
+    }
+    if (pendingCrossTabAccountId && pendingCrossTabAccountId !== account.id) return;
+    pendingCrossTabAccountId = null;
+    pendingAccountSync = null;
+    cookieSessionReady = null;
+    updateAccountFromResponse({ account, sessionToken: "", logoutToken: "" });
+    host.reconnectSocket();
+  } catch { /* malformed cross-tab session readiness is ignored */ }
+}
+
 export function onStorage(event) {
   if (event?.key === "poorup.account.lifecycle.v1" && event.newValue) {
-    try {
-      reconcileAccountLifecycleEvent(JSON.parse(event.newValue), state);
-      renderAccountPanel();
-      host.renderAll();
-    } catch { /* malformed cross-tab lifecycle data is ignored */ }
+    applyLifecycleStorage(event.newValue);
     return;
   }
   if (event?.key === ACCOUNT_SESSION_READY_KEY && event.newValue) {
-    try {
-      const ready = JSON.parse(event.newValue);
-      const account = loadAccountSession()?.account;
-      if (!account || account.id !== ready?.accountId) return;
-      if (state.account?.account?.id && state.account.account.id !== account.id) {
-        pendingCrossTabAccountId = account.id;
-        reconcileSignedOutState("Account changed in another tab.", { persistSession: false });
-      }
-      if (pendingCrossTabAccountId && pendingCrossTabAccountId !== account.id) return;
-      pendingCrossTabAccountId = null;
-      pendingAccountSync = null;
-      cookieSessionReady = null;
-      updateAccountFromResponse({ account, sessionToken: "", logoutToken: "" });
-      host.reconnectSocket();
-    } catch { /* malformed cross-tab session readiness is ignored */ }
+    applySessionReadyStorage(event.newValue);
     return;
   }
   if (event?.key !== ACCOUNT_SESSION_KEY) return;

@@ -26,6 +26,29 @@ async function shot(page, info, id, label, selector) {
 async function noPageOverflow(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1 && document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
 }
+// A started two-seat room with item rewards on unless itemRewards is false. Seat 0 is the host.
+function startedItemRoom({ host, guest, rulesProfile, itemRewards = true }) {
+  const room = new RoomManager().createRoom({ rulesProfile, socketId: host, clientId: host, nickname: 'HOST' });
+  room.addOrReconnectPlayer({ socketId: guest, clientId: guest, nickname: 'GUEST' });
+  if (itemRewards) room.setRoomSetting('itemRewards', true);
+  expect(room.startGame().success).toBe(true);
+  const game = room.game;
+  return { game, owner: game.players[0], other: game.players[1] };
+}
+// The data-deal-action values of a detail card's buttons, in DOM order.
+const dealActionNames = locator => locator.evaluateAll(buttons => buttons.map(button => button.dataset.dealAction));
+// Each catalog icon is present in the sprite and sits inside its row's glyph frame.
+async function expectIconsInFrames(card, spriteText, ids) {
+  for (const id of ids) {
+    expect(spriteText).toContain(`id="${id}"`);
+    const glyph = card.locator(`.wallet-item-row:has(use[href$="#${id}"]) .holding-item-glyph`);
+    const svg = glyph.locator('svg'); await expect(svg).toBeVisible();
+    const frame = await glyph.boundingBox(), icon = await svg.boundingBox();
+    expect(icon.x).toBeGreaterThanOrEqual(frame.x - 1); expect(icon.y).toBeGreaterThanOrEqual(frame.y - 1);
+    expect(icon.x + icon.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
+    expect(icon.y + icon.height).toBeLessThanOrEqual(frame.y + frame.height + 1);
+  }
+}
 
 test('a host can enable item rewards independently and preserve the choice between presets', async ({ page }, info) => {
   await page.goto('/'); await page.locator('#home-alias').fill('ITEMHOST');
@@ -40,10 +63,8 @@ test('a host can enable item rewards independently and preserve the choice betwe
 });
 
 test('real catalog items show their value and exercise server-owned effects', async ({ page }, info) => {
-  const manager = new RoomManager(), room = manager.createRoom({ socketId: 'ui-host', clientId: 'ui-host', nickname: 'HOST' });
-  room.addOrReconnectPlayer({ socketId: 'ui-guest', clientId: 'ui-guest', nickname: 'GUEST' });
-  room.setRoomSetting('itemRewards', true); expect(room.startGame().success).toBe(true);
-  const game = room.game, owner = game.players[0]; game.currentPlayerId = owner.id; game.roundNumber = 5; owner.inJail = true;
+  const { game, owner } = startedItemRoom({ host: 'ui-host', guest: 'ui-guest' });
+  game.currentPlayerId = owner.id; game.roundNumber = 5; owner.inJail = true;
   game.applyCard(owner, { action: 'jailFree' });
   game.applyCard(owner, { action: 'itemReward', catalogId: 'parlor-bond', itemName: 'a Parlor Bond' });
   game.applyCard(owner, { action: 'itemReward', catalogId: 'silver-keepsake', itemName: 'a Silver Keepsake' });
@@ -68,15 +89,7 @@ test('real catalog items show their value and exercise server-owned effects', as
   await expect(card.locator('.wallet-item-row')).toHaveCount(3); await expect(card).not.toContainText(/REWARD \d+/);
   const asset = await page.evaluate(async () => { const response = await fetch('/assets/item-icons.svg'); return { ok: response.ok, text: await response.text() }; });
   expect(asset.ok).toBe(true);
-  for (const id of ['prison-key', 'parlor-bond', 'silver-keepsake']) {
-    expect(asset.text).toContain(`id="${id}"`);
-    const glyph = card.locator(`.wallet-item-row:has(use[href$="#${id}"]) .holding-item-glyph`);
-    const svg = glyph.locator('svg'); await expect(svg).toBeVisible();
-    const frame = await glyph.boundingBox(), icon = await svg.boundingBox();
-    expect(icon.x).toBeGreaterThanOrEqual(frame.x - 1); expect(icon.y).toBeGreaterThanOrEqual(frame.y - 1);
-    expect(icon.x + icon.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
-    expect(icon.y + icon.height).toBeLessThanOrEqual(frame.y + frame.height + 1);
-  }
+  await expectIconsInFrames(card, asset.text, ['prison-key', 'parlor-bond', 'silver-keepsake']);
   await expect(card.locator('[data-wallet-item-action=trade], [data-wallet-item-action=exchange]')).toHaveCount(0);
   const bondRow = card.locator('.wallet-item-row').filter({ hasText: 'PARLOR BOND' });
   await expect(bondRow.locator('[data-wallet-item-action=use]')).toBeDisabled(); await expect(bondRow).toContainText('ROUND 7');
@@ -96,10 +109,8 @@ test('real catalog items show their value and exercise server-owned effects', as
 });
 
 test('a long real inventory remains scrollable and keyboard reachable', async ({ page }, info) => {
-  const manager = new RoomManager(), room = manager.createRoom({ socketId: 'scroll-host', clientId: 'scroll-host', nickname: 'HOST' });
-  room.addOrReconnectPlayer({ socketId: 'scroll-guest', clientId: 'scroll-guest', nickname: 'GUEST' });
-  room.setRoomSetting('itemRewards', true); expect(room.startGame().success).toBe(true);
-  const game = room.game, owner = game.players[0]; game.currentPlayerId = owner.id; game.roundNumber = 5;
+  const { game, owner } = startedItemRoom({ host: 'scroll-host', guest: 'scroll-guest' });
+  game.currentPlayerId = owner.id; game.roundNumber = 5;
   for (let n = 0; n < 12; n++) game.applyCard(owner, { action: 'itemReward', catalogId: n % 2 ? 'parlor-bond' : 'silver-keepsake' });
   const items = game.summaryItems(owner, owner.id); expect(new Set(items.map(item => item.itemId)).size).toBe(12);
   await fixture(page); await page.evaluate(items => { const f = window.__ipadModalCapture; f.state.players[0].items = items; f.state.roundNumber = 5; f.openWallet('items'); }, items);
@@ -110,10 +121,8 @@ test('a long real inventory remains scrollable and keyboard reachable', async ({
 });
 
 test('an owner can sell an item during another player’s turn', async ({ page }, info) => {
-  const manager = new RoomManager(), room = manager.createRoom({ socketId: 'seller', clientId: 'seller', nickname: 'HOST' });
-  room.addOrReconnectPlayer({ socketId: 'other', clientId: 'other', nickname: 'GUEST' }); room.setRoomSetting('itemRewards', true);
-  expect(room.startGame().success).toBe(true);
-  const game = room.game, owner = game.players[0], other = game.players[1]; game.currentPlayerId = other.id;
+  const { game, owner, other } = startedItemRoom({ host: 'seller', guest: 'other' });
+  game.currentPlayerId = other.id;
   game.applyCard(owner, { action: 'itemReward', catalogId: 'silver-keepsake' });
   const before = owner.cash, items = game.summaryItems(owner, owner.id); expect(items[0].canSell).toBe(true);
   await page.exposeFunction('__offturnSale', ({ itemId, requestId }) => {
@@ -133,9 +142,8 @@ test('an owner can sell an item during another player’s turn', async ({ page }
 });
 
 test('an older loan can be negotiated into a current offer without moving cash before acceptance', async ({ page }, info) => {
-  const manager = new RoomManager(), room = manager.createRoom({ socketId: 'borrower', clientId: 'borrower', nickname: 'HOST', rulesProfile: 'advanced' });
-  room.addOrReconnectPlayer({ socketId: 'lender', clientId: 'lender', nickname: 'GUEST' }); expect(room.startGame().success).toBe(true);
-  const game = room.game, borrower = game.players[0], lender = game.players[1]; game.currentPlayerId = lender.id;
+  const { game, owner: borrower, other: lender } = startedItemRoom({ host: 'borrower', guest: 'lender', rulesProfile: 'advanced', itemRewards: false });
+  game.currentPlayerId = lender.id;
   const proposed = game.proposePlayerContract('lender', { toPlayerId: borrower.id, kind: 'loan', amount: 100, premiumRate: 15, durationRounds: 3 });
   expect(proposed.success).toBe(true); const legacy = proposed.contract; delete legacy.rulesVersion;
   const originalId = legacy.id, before = [borrower.cash, lender.cash];
@@ -213,14 +221,14 @@ test('trade actions put the primary action on the right for both roles', async (
     deal.openDealDetails('trade', 'order-trade');
   });
   const actions = page.locator('#deal-detail-card [data-deal-action]');
-  expect(await actions.evaluateAll(buttons => buttons.map(button => button.dataset.dealAction))).toEqual(['decline', 'negotiate', 'accept']);
+  expect(await dealActionNames(actions)).toEqual(['decline', 'negotiate', 'accept']);
   await expect(actions.last()).toHaveClass(/cta-red/);
   await page.evaluate(() => {
     const { state: s, deal } = window.__ipadModalCapture;
     s.pendingTrade = { id: 'order-trade', fromPlayerId: 'visual-host', toPlayerId: 'visual-guest' };
     deal.renderDealDetailsIfOpen();
   });
-  expect(await actions.evaluateAll(buttons => buttons.map(button => button.dataset.dealAction))).toEqual(['cancel', 'adjust']);
+  expect(await dealActionNames(actions)).toEqual(['cancel', 'adjust']);
   await expect(actions.last()).toHaveClass(/cta-red/);
 });
 
@@ -265,7 +273,7 @@ test('trade negotiation limit is explained for both roles and blocks stale contr
   expect(await page.evaluate(() => window.__tradeEditors)).toBe(0);
   await page.evaluate(() => window.__ipadModalCapture.deal.renderDealDetailsIfOpen());
   const actions = card.locator('[data-deal-action]');
-  expect(await actions.evaluateAll(buttons => buttons.map(button => button.dataset.dealAction))).toEqual(['decline', 'negotiate', 'accept']);
+  expect(await dealActionNames(actions)).toEqual(['decline', 'negotiate', 'accept']);
   await expect(card.locator('[data-deal-action=negotiate]')).toBeDisabled();
   await expect(card.locator('[data-deal-action=negotiate]')).toHaveAttribute('aria-describedby', 'deal-unavailable-reason');
   await expect(card.locator('#deal-unavailable-reason')).toContainText('negotiation limit');
@@ -275,7 +283,7 @@ test('trade negotiation limit is explained for both roles and blocks stale contr
     s.pendingTrade = { id: 'limited-trade', fromPlayerId: 'visual-host', toPlayerId: 'visual-guest', counterDepth: 2 };
     deal.renderDealDetailsIfOpen();
   });
-  expect(await actions.evaluateAll(buttons => buttons.map(button => button.dataset.dealAction))).toEqual(['adjust', 'cancel']);
+  expect(await dealActionNames(actions)).toEqual(['adjust', 'cancel']);
   await expect(card.locator('[data-deal-action=adjust]')).toBeDisabled();
   await expect(card.locator('[data-deal-action=adjust]')).toHaveAttribute('aria-describedby', 'deal-unavailable-reason');
   await expect(card.locator('[data-deal-action=cancel]')).toHaveClass(/cta-red/);

@@ -367,38 +367,65 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     return run.waveStartedAt + run.spawnIndex * interval;
   }
 
+  // The moment a target next needs attention: its delivery deadline while
+  // pending, otherwise its expiry plus the grace window.
+  function patrolTargetDeadline(target) {
+    return target.deliveryPending ? target.readyBy : target.expiresAt + PATROL_GRACE_MS;
+  }
+
+  function patrolNextExpiry(run) {
+    let nextExpiry = Infinity;
+    for (const target of run.targets.values()) nextExpiry = Math.min(nextExpiry, patrolTargetDeadline(target));
+    return nextExpiry;
+  }
+
+  function endPatrolRun(run, at, reason) {
+    run.ended = true;
+    run.endedAt = at;
+    run.endReason = reason;
+  }
+
+  function patrolAdvanceWave(run) {
+    run.wave += 1;
+    patrolCloseWaves(run);
+    run.waveStartedAt = run.waveEndsAt;
+    run.waveEndsAt += 60_000;
+    run.spawnIndex = 0;
+  }
+
+  // Ends the run on the first undelivered target past its deadline, or resolves
+  // each expired target as a miss and ends the run once hearts run out.
+  function patrolExpireTargets(run, at) {
+    for (const [id, target] of run.targets) {
+      if (target.deliveryPending) {
+        if (target.readyBy > at) continue;
+        endPatrolRun(run, at, 'delivery-timeout');
+        break;
+      }
+      if (target.expiresAt + PATROL_GRACE_MS > at) continue;
+      run.targets.delete(id);
+      patrolResolveTarget(run, target, true);
+      if (target.kind !== 'beacon') { run.misses += 1; run.hearts -= 1; }
+      if (run.hearts <= 0) {
+        run.hearts = 0;
+        endPatrolRun(run, at, 'no-hearts');
+        break;
+      }
+    }
+  }
+
   function patrolAdvance(run, now = Date.now()) {
     if (run.ended || run.pausedAt !== null) return false;
     let changed = false;
     while (!run.ended) {
       const nextSpawn = patrolNextSpawn(run);
-      let nextExpiry = Infinity;
-      for (const target of run.targets.values()) nextExpiry = Math.min(nextExpiry, target.deliveryPending ? target.readyBy : target.expiresAt + PATROL_GRACE_MS);
+      const nextExpiry = patrolNextExpiry(run);
       const next = Math.min(nextSpawn, nextExpiry, run.waveEndsAt);
       if (next > now) break;
       changed = true;
-      if (next === nextExpiry) {
-        for (const [id, target] of run.targets) {
-          if (target.deliveryPending) {
-            if (target.readyBy > next) continue;
-            run.ended = true;
-            run.endedAt = next;
-            run.endReason = 'delivery-timeout';
-            break;
-          }
-          if (target.expiresAt + PATROL_GRACE_MS > next) continue;
-          run.targets.delete(id);
-          patrolResolveTarget(run, target, true);
-          if (target.kind !== 'beacon') { run.misses += 1; run.hearts -= 1; }
-          if (run.hearts <= 0) { run.hearts = 0; run.ended = true; run.endedAt = next; run.endReason = 'no-hearts'; break; }
-        }
-      } else if (next === run.waveEndsAt) {
-        run.wave += 1;
-        patrolCloseWaves(run);
-        run.waveStartedAt = run.waveEndsAt;
-        run.waveEndsAt += 60_000;
-        run.spawnIndex = 0;
-      } else {
+      if (next === nextExpiry) patrolExpireTargets(run, next);
+      else if (next === run.waveEndsAt) patrolAdvanceWave(run);
+      else {
         patrolTarget(run, nextSpawn);
         run.spawnIndex += 1;
       }
@@ -423,6 +450,22 @@ function registerSocialSocketHandlers(on, socket, runtime) {
       patrolArm(run);
     }, Math.max(1, due - Date.now()));
     run.timer.unref?.();
+  }
+
+  // A pause that would push the run past its total allowance has expired.
+  function patrolPauseExhausted(run, delta) {
+    return (run.initialWaiting ? 0 : run.pausedTotal) + delta >= PATROL_PAUSE_LIMIT_MS;
+  }
+
+  // Moves every run clock forward by the paused interval so the run resumes where it stopped.
+  function shiftPatrolClocks(run, delta) {
+    run.waveStartedAt += delta;
+    run.waveEndsAt += delta;
+    for (const target of run.targets.values()) {
+      target.offeredAt += delta;
+      if (target.deliveryPending) target.readyBy += delta;
+      else { target.spawnedAt += delta; target.actionableAt += delta; target.expiresAt += delta; }
+    }
   }
 
   function patrolGet(payload, callback) {
@@ -539,16 +582,14 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     const { run } = context;
     if (run.pausedAt !== null) {
       const delta = Date.now() - run.pausedAt;
-      if ((run.initialWaiting ? 0 : run.pausedTotal) + delta >= PATROL_PAUSE_LIMIT_MS) { clearTimeout(run.timer); patrolRuns.delete(run.token); return reply(callback, { success: false, error: 'That paused patrol run expired.' }); }
+      if (patrolPauseExhausted(run, delta)) {
+        clearTimeout(run.timer);
+        patrolRuns.delete(run.token);
+        return reply(callback, { success: false, error: 'That paused patrol run expired.' });
+      }
       if (!run.initialWaiting) run.pausedTotal += delta;
       run.initialWaiting = false;
-      run.waveStartedAt += delta;
-      run.waveEndsAt += delta;
-      for (const target of run.targets.values()) {
-        target.offeredAt += delta;
-        if (target.deliveryPending) target.readyBy += delta;
-        else { target.spawnedAt += delta; target.actionableAt += delta; target.expiresAt += delta; }
-      }
+      shiftPatrolClocks(run, delta);
       run.pausedAt = null;
       patrolAdvance(run);
     }

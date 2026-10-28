@@ -237,28 +237,54 @@ export function createAdminOpsController({
     else chip(`SYNCED · ${formatClock(outcome.model.generatedAt)}`, 'green', outcome.model.generatedAt);
   }
 
-  async function applyMode(mode) {
-    if (destroyed || releaseBusy) return;
+  // Returns false when a release action is already running or the panel has been torn down.
+  function beginReleaseAction() {
+    if (destroyed || releaseBusy) return false;
     releaseBusy = true;
     syncReleaseButtons();
     releaseStatus('APPLYING…');
+    return true;
+  }
+
+  function isAccessDenied(status) {
+    return status === 401 || status === 403;
+  }
+
+  // Puts the server verdict in the status line. An unaudited change still counts as applied, but says so.
+  function showVerdict(result, appliedText) {
+    if (!result.ok) releaseStatus(`NOT APPLIED · ${isAccessDenied(result.status) ? 'ADMIN ACCESS REQUIRED' : result.error}`, 'warning');
+    else if (result.audited === false) releaseStatus(AUDIT_UNSAVED, 'warning');
+    else releaseStatus(appliedText, 'green');
+  }
+
+  // Moves focus to the fallback control when the focused one was removed or disabled by the refresh.
+  function restoreFocusAfterRelease(fallbackSelector) {
+    const active = globalThis.document?.activeElement;
+    if (!active || active === globalThis.document.body || active.disabled) find(root, fallbackSelector)?.focus?.();
+  }
+
+  // Shared tail of both release actions: shows the verdict, then reads the state back from the server.
+  async function settleRelease(result, { appliedText, announcement, fallbackSelector }) {
+    releaseBusy = false;
+    if (destroyed) return;
+    showVerdict(result, appliedText);
+    if (result.ok) announce(announcement);
+    // Read the state back from the server either way.
+    await Promise.all([loadRelease(), loadAudit('release')]);
+    restoreFocusAfterRelease(fallbackSelector);
+  }
+
+  async function applyMode(mode) {
+    if (!beginReleaseAction()) return;
     // Read the fields again now: "minutes from now" counts from the moment of the change, not from the click.
     const request = buildMaintenanceRequest({ mode, ...readReleaseFields() }, clock());
     if (!request.ok) { releaseBusy = false; syncReleaseButtons(); markInvalid(request); return; }
     const result = await postMaintenance({ mode, message: request.body.message, releaseId: request.body.releaseId, deadline: request.body.deadline }, { fetcher });
-    releaseBusy = false;
-    if (destroyed) return;
-    if (result.ok) {
-      if (result.audited === false) releaseStatus(AUDIT_UNSAVED, 'warning');
-      else releaseStatus(`${RELEASE_COPY[mode].label} APPLIED · CONFIRMED BY SERVER`, 'green');
-      announce('Release mode changed.');
-    } else {
-      releaseStatus(`NOT APPLIED · ${result.status === 401 || result.status === 403 ? 'ADMIN ACCESS REQUIRED' : result.error}`, 'warning');
-    }
-    // Read the state back from the server either way.
-    await Promise.all([loadRelease(), loadAudit('release')]);
-    const active = globalThis.document?.activeElement;
-    if (!active || active === globalThis.document.body || active.disabled) find(root, '[data-release-summary]')?.focus?.();
+    await settleRelease(result, {
+      appliedText: `${RELEASE_COPY[mode].label} APPLIED · CONFIRMED BY SERVER`,
+      announcement: 'Release mode changed.',
+      fallbackSelector: '[data-release-summary]',
+    });
   }
 
   const RELEASE_FIELDS = Object.freeze({
@@ -311,35 +337,25 @@ export function createAdminOpsController({
   }
 
   // ---- Public maintenance panel -------------------------------------------------
+  // The request body for the public maintenance panel: "on" carries the message, "off" reopens the site.
+  function lockoutPayload(action, fields) {
+    return action === 'on' ? { enabled: true, message: fields.message, releaseId: fields.releaseId } : { enabled: false, reopen: true };
+  }
+
   async function applyLockout(action) {
-    if (destroyed || releaseBusy) return;
-    releaseBusy = true;
-    syncReleaseButtons();
-    releaseStatus('APPLYING…');
-    const fields = readReleaseFields();
-    const request = action === 'on'
-      ? { enabled: true, message: fields.message, releaseId: fields.releaseId }
-      : { enabled: false, reopen: true };
-    const result = await postLockout(request, { fetcher });
-    releaseBusy = false;
-    if (destroyed) return;
-    if (result.ok) {
-      if (result.audited === false) releaseStatus(AUDIT_UNSAVED, 'warning');
-      else releaseStatus(LOCKOUT_COPY[action].applied, 'green');
-      announce(action === 'on' ? 'Maintenance panel is on.' : 'Maintenance panel is off. The site is open.');
-    } else {
-      releaseStatus(`NOT APPLIED · ${result.status === 401 || result.status === 403 ? 'ADMIN ACCESS REQUIRED' : result.error}`, 'warning');
-    }
-    await Promise.all([loadRelease(), loadAudit('release')]);
-    const active = globalThis.document?.activeElement;
-    if (!active || active === globalThis.document.body || active.disabled) find(root, '[data-lockout-action]')?.focus?.();
+    if (!beginReleaseAction()) return;
+    const result = await postLockout(lockoutPayload(action, readReleaseFields()), { fetcher });
+    await settleRelease(result, {
+      appliedText: LOCKOUT_COPY[action].applied,
+      announcement: action === 'on' ? 'Maintenance panel is on.' : 'Maintenance panel is off. The site is open.',
+      fallbackSelector: '[data-lockout-action]',
+    });
   }
 
   function requestLockout() {
     if (releaseBusy || lockoutAction === null) return;
     const action = lockoutAction;
-    const fields = readReleaseFields();
-    const request = buildLockoutRequest(action === 'on' ? { enabled: true, message: fields.message, releaseId: fields.releaseId } : { enabled: false, reopen: true });
+    const request = buildLockoutRequest(lockoutPayload(action, readReleaseFields()));
     if (!request.ok) { markInvalid(request); return; }
     clearInvalid();
     const copy = LOCKOUT_COPY[action];

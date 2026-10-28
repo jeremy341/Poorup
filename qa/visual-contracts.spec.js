@@ -8,6 +8,8 @@ test.beforeEach(({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-1920x1080", "viewport-specific contracts run on the desktop-1920x1080 project");
 });
 
+const DESKTOP = { width: 1920, height: 1080 };
+
 async function hostLobby(page, bots = 3) {
   await page.addInitScript(() => {
     let real = null;
@@ -49,6 +51,12 @@ async function startGame(page) {
   await page.waitForFunction(() => { const b = document.getElementById("roll-btn"); return b && !b.disabled; });
 }
 
+// Hosts a lobby with the given bots and starts the game; the caller sizes the viewport first.
+async function hostAndStart(page, bots = 3) {
+  await hostLobby(page, bots);
+  await startGame(page);
+}
+
 const inViewport = (page, selector) => page.evaluate((sel) => {
   const el = document.querySelector(sel);
   if (!el) return null;
@@ -60,6 +68,38 @@ const documentScroll = (page) => page.evaluate(() => ({
   doc: document.documentElement.scrollHeight - innerHeight,
   body: document.body.scrollHeight - innerHeight,
 }));
+
+// Sends two chat lines and checks that the first node survives the second append.
+async function chatAppendsWithoutRebuilding(page) {
+  const chat = page.locator("#chat-body");
+  await expect(chat).toHaveAttribute("role", "log");
+  await expect(chat).toHaveAttribute("tabindex", "0");
+  await expect(chat).toHaveAttribute("aria-label", /chat/i);
+  // The chat is a closed dock until opened.
+  await page.click("#chat-toggle");
+  await page.fill("#chat-input", "first line");
+  await page.keyboard.press("Enter");
+  await expect(chat.locator("p.chat-line").last()).toContainText("first line");
+  await chat.locator("p.chat-line").first().evaluate((el) => { el.dataset.survivor = "yes"; });
+  await page.waitForTimeout(1600); // the chat send throttle drops a second message sent inside ~1s
+  await page.fill("#chat-input", "second line");
+  await page.keyboard.press("Enter");
+  await expect(chat.locator("p.chat-line").last()).toContainText("second line");
+  await expect(chat.locator('p.chat-line[data-survivor="yes"]')).toHaveCount(1);
+}
+
+// Measures a throwaway toast's dismiss button.
+function toastDismissSize(page) {
+  return page.evaluate(() => {
+    const toast = document.createElement("div");
+    toast.className = "parlor-toast";
+    toast.innerHTML = '<span class="parlor-toast-title">T</span><button class="parlor-toast-close" type="button" aria-label="Dismiss">x</button>';
+    document.querySelector("#toast-stack").append(toast);
+    const r = toast.querySelector("button").getBoundingClientRect();
+    toast.remove();
+    return { w: r.width, h: r.height };
+  });
+}
 
 test.describe("bounded shell for non-touch 768-1279 landscape", () => {
   for (const [width, height] of [[1024, 768], [1180, 820], [1279, 720], [800, 600]]) {
@@ -84,9 +124,8 @@ test.describe("bounded shell for non-touch 768-1279 landscape", () => {
 
 test.describe("board tiles", () => {
   test("tokens stacked on Start never cover the COLLECT / $200 caption", async ({ page }) => {
-    await page.setViewportSize({ width: 1920, height: 1080 });
-    await hostLobby(page, 3);
-    await startGame(page);
+    await page.setViewportSize(DESKTOP);
+    await hostAndStart(page, 3);
     const overlaps = await page.evaluate(() => {
       const tile = document.querySelector('.tile[data-tile="0"]');
       const captions = [...tile.querySelectorAll(".tile-name, .tile-price")].map((el) => el.getBoundingClientRect());
@@ -98,9 +137,8 @@ test.describe("board tiles", () => {
   });
 
   test("tile captions are at least 11px at 1920x1080 and stay inside their tiles", async ({ page }) => {
-    await page.setViewportSize({ width: 1920, height: 1080 });
-    await hostLobby(page, 3);
-    await startGame(page);
+    await page.setViewportSize(DESKTOP);
+    await hostAndStart(page, 3);
     const result = await page.evaluate(() => {
       let minName = Infinity;
       const escaped = [];
@@ -121,9 +159,8 @@ test.describe("board tiles", () => {
 
 test.describe("accessible names and live regions", () => {
   test("dialog names, stable toggle names, appended chat rows, toast target, tile labels", async ({ page }) => {
-    await page.setViewportSize({ width: 1920, height: 1080 });
-    await hostLobby(page, 1);
-    await startGame(page);
+    await page.setViewportSize(DESKTOP);
+    await hostAndStart(page, 1);
 
     // Both dialogs are named even before they are opened.
     await expect(page.getByRole("dialog", { name: /social/i, includeHidden: true }).first()).toHaveAttribute("id", "social-modal");
@@ -140,32 +177,10 @@ test.describe("accessible names and live regions", () => {
     await music.click();
 
     // Named, focusable log; new rows are appended, old nodes survive.
-    const chat = page.locator("#chat-body");
-    await expect(chat).toHaveAttribute("role", "log");
-    await expect(chat).toHaveAttribute("tabindex", "0");
-    await expect(chat).toHaveAttribute("aria-label", /chat/i);
-    // The chat is a closed dock until opened.
-    await page.click("#chat-toggle");
-    await page.fill("#chat-input", "first line");
-    await page.keyboard.press("Enter");
-    await expect(chat.locator("p.chat-line").last()).toContainText("first line");
-    await chat.locator("p.chat-line").first().evaluate((el) => { el.dataset.survivor = "yes"; });
-    await page.waitForTimeout(1600); // the chat send throttle drops a second message sent inside ~1s
-    await page.fill("#chat-input", "second line");
-    await page.keyboard.press("Enter");
-    await expect(chat.locator("p.chat-line").last()).toContainText("second line");
-    await expect(chat.locator('p.chat-line[data-survivor="yes"]')).toHaveCount(1);
+    await chatAppendsWithoutRebuilding(page);
 
     // Toast dismiss target.
-    const closeSize = await page.evaluate(() => {
-      const toast = document.createElement("div");
-      toast.className = "parlor-toast";
-      toast.innerHTML = '<span class="parlor-toast-title">T</span><button class="parlor-toast-close" type="button" aria-label="Dismiss">x</button>';
-      document.querySelector("#toast-stack").append(toast);
-      const r = toast.querySelector("button").getBoundingClientRect();
-      toast.remove();
-      return { w: r.width, h: r.height };
-    });
+    const closeSize = await toastDismissSize(page);
     expect(closeSize.w).toBeGreaterThanOrEqual(24);
     expect(closeSize.h).toBeGreaterThanOrEqual(24);
 

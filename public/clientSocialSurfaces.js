@@ -477,27 +477,46 @@ function socialHeroMarkup(view) {
   return `<div class="${view.hero.shellClass}">${view.hero.closeBtn}<section class="social-hero panel noise"><div class="social-hero-mark"><img src="/assets/social-network.svg" alt="" width="32" height="32"></div><div class="social-hero-copy"><span class="t-micro g400">PARLOR SOCIAL · PLAYER INDEX</span><h2 class="t-section g100" id="social-${view.surfaceKey}-title">People who keep the table moving</h2><p class="t-body ink-2" id="social-${view.surfaceKey}-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><div class="social-hero-stats"><div><span class="t-micro ink-3">FRIENDS</span><strong class="t-label f20 g100">${view.hero.friendsCount}</strong></div><div><span class="t-micro ink-3">PENDING</span><strong class="t-label f20 g300">${view.pending}</strong></div><div><span class="t-micro ink-3">INBOX</span><strong class="t-label f20 green">${view.hero.inboxCount}</strong></div></div></section>${view.syncStatus}<div class="social-guest-shell${guestClass}"><div class="social-guest-content" data-social-guest-content${guestContentState}>${socialSearchMarkup(view)}${socialNetworkMarkup(view)}</div>${gate}</div></div>`;
 }
 
+function captureSocialFocus(card) {
+  const active = document.activeElement;
+  const inside = Boolean(card.contains?.(active));
+  return {
+    playerId: inside ? active?.closest?.("[data-social-player]")?.dataset?.socialPlayer : null,
+    requestFocus: inside && Boolean(active?.dataset?.friendshipId || active?.matches?.(".social-feed")),
+    friendshipId: active?.dataset?.friendshipId,
+    action: active?.dataset?.socialRequest,
+    cancel: active?.hasAttribute?.("data-social-request-cancel"),
+  };
+}
+
+function focusSocialReplacement(card, replacement) {
+  (replacement || card.querySelector(".social-feed"))?.focus({ preventScroll: true });
+}
+
+function matchesSocialRequestControl(button, focus) {
+  const sameControl = focus.cancel ? button.hasAttribute("data-social-request-cancel") : button.dataset.socialRequest === focus.action;
+  return button.dataset.friendshipId === focus.friendshipId && sameControl && !button.disabled;
+}
+
+function restoreSocialFocus(card, focus) {
+  if (focus.playerId) {
+    focusSocialReplacement(card, [...card.querySelectorAll("[data-social-player]")].find(button => button.dataset.socialPlayer === focus.playerId));
+  }
+  if (focus.requestFocus) {
+    const controls = focus.friendshipId ? [...card.querySelectorAll("[data-friendship-id]")] : [];
+    focusSocialReplacement(card, controls.find(button => matchesSocialRequestControl(button, focus)));
+  }
+}
+
 export function renderSocialSurface(target = "#social-card") {
   const card = surfaceCard(target, "#social-card");
   if (!card) return;
-  const active = document.activeElement;
-  const focusedPlayerId = card.contains?.(active) ? active?.closest?.("[data-social-player]")?.dataset?.socialPlayer : null;
-  const requestFocus = card.contains?.(active) && (active?.dataset?.friendshipId || active?.matches?.(".social-feed"));
-  const friendshipId = active?.dataset?.friendshipId;
-  const action = active?.dataset?.socialRequest;
-  const cancel = active?.hasAttribute?.("data-social-request-cancel");
+  const focus = captureSocialFocus(card);
   const view = socialSurfaceView(card);
   card.innerHTML = socialHeroMarkup(view);
   const guestContent = card.querySelector("[data-social-guest-content]");
   if (guestContent) guestContent.inert = !view.signedIn;
-  if (focusedPlayerId) {
-    const replacement = [...card.querySelectorAll("[data-social-player]")].find(button => button.dataset.socialPlayer === focusedPlayerId);
-    (replacement || card.querySelector(".social-feed"))?.focus({ preventScroll: true });
-  }
-  if (requestFocus) {
-    const replacement = friendshipId && [...card.querySelectorAll("[data-friendship-id]")].find(button => button.dataset.friendshipId === friendshipId && (cancel ? button.hasAttribute("data-social-request-cancel") : button.dataset.socialRequest === action) && !button.disabled);
-    (replacement || card.querySelector(".social-feed"))?.focus({ preventScroll: true });
-  }
+  restoreSocialFocus(card, focus);
 }
 
 

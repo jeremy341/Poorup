@@ -76,6 +76,14 @@ function boundedMap(limit) {
   };
 }
 
+// A whole, uncompressed, cacheable 200 HTML string. Anything else is sent as it is.
+function isCacheableHtml(res, body) {
+  return typeof body === 'string' && body.length >= MIN_HTML_BYTES && res.statusCode === 200
+    && /^text\/html/i.test(String(res.getHeader('Content-Type') || ''))
+    && !/no-store/i.test(String(res.getHeader('Cache-Control') || ''))
+    && !res.getHeader('Content-Encoding');
+}
+
 // Absolute path of a request path inside root, or null when it would leave the
 // root, hide behind a dot segment, or is not decodable.
 function resolveInside(root, requestPath) {
@@ -150,6 +158,18 @@ export function createStaticAssets({ root } = {}) {
     res.setHeader('ETag', tag);
   }
 
+  // Compressed bytes for one HTML string, served from the cache when the same
+  // body was compressed for the same encoding before.
+  function encodedHtml(body, encoding) {
+    const key = `${encoding}|${crypto.createHash('sha1').update(body).digest('base64url')}`;
+    const cached = html.get(key);
+    if (cached) return Promise.resolve(cached);
+    return compress(Buffer.from(body, 'utf8'), encoding).then(buffer => {
+      html.set(key, buffer);
+      return buffer;
+    });
+  }
+
   // Wraps res.send so the HTML the metadata router and /about build per request
   // is compressed too. Only whole 200 HTML strings that are cacheable: the
   // no-store recovery pages and JSON stay as they are.
@@ -158,18 +178,11 @@ export function createStaticAssets({ root } = {}) {
     const encoding = pickEncoding(req.headers['accept-encoding']);
     const send = res.send;
     res.send = function sendHtml(body) {
-      const eligible = typeof body === 'string' && body.length >= MIN_HTML_BYTES && res.statusCode === 200
-        && /^text\/html/i.test(String(res.getHeader('Content-Type') || ''))
-        && !/no-store/i.test(String(res.getHeader('Cache-Control') || ''))
-        && !res.getHeader('Content-Encoding');
-      if (!eligible) return send.call(this, body);
+      if (!isCacheableHtml(res, body)) return send.call(this, body);
       res.vary('Accept-Encoding');
       res.send = send;
       if (!encoding) return send.call(this, body);
-      const key = `${encoding}|${crypto.createHash('sha1').update(body).digest('base64url')}`;
-      const cached = html.get(key);
-      const ready = cached ? Promise.resolve(cached) : compress(Buffer.from(body, 'utf8'), encoding).then(buffer => { html.set(key, buffer); return buffer; });
-      ready.then(buffer => {
+      encodedHtml(body, encoding).then(buffer => {
         res.setHeader('Content-Encoding', encoding);
         send.call(this, buffer);
       }, () => send.call(this, body));

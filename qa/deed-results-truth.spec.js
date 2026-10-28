@@ -45,6 +45,22 @@ async function captureDeedDetail(page, testInfo, fileName) {
   await page.locator('#deed-card-detail').screenshot({ path: detailPath, animations: 'disabled' });
 }
 
+async function openDeedDetail(page, index) {
+  await page.evaluate(i => window.__deedTruthHarness.deeds.openDeedDetail(i), index);
+}
+
+async function sellOneHouse(page, testInfo, game, index, expectedLevel) {
+  await page.locator('#dd-sell').click();
+  await expect.poll(() => game.getTile(index).houseCount).toBe(expectedLevel);
+  if (index === 1 && expectedLevel === 1) {
+    await expect(page.locator('#dd-sell')).toBeDisabled();
+    await expect(page.locator('#dd-close')).toBeFocused();
+    await captureState(page, testInfo, 'deed-sell-one-house', 'Even selling blocks a second sale from the lower street');
+  }
+  if (expectedLevel === 0 && index === 3) await expect(page.locator('#dd-trade-deed')).toBeFocused();
+  await page.locator('#dd-close').click();
+}
+
 async function expectTradeFitsCard(page) {
   const geometry = await page.locator('#trade-card').evaluate(card => {
     const box = card.getBoundingClientRect();
@@ -189,28 +205,19 @@ test('real Brown-set sales stay even and Sell deed negotiates with a player', as
   };
   await page.exposeFunction('__deedTruthAction', bridge);
   await installClient(page, finishedSnapshot(room, owner), true);
-  const detail = index => page.evaluate(i => window.__deedTruthHarness.deeds.openDeedDetail(i), index);
-  await detail(1);
+  await openDeedDetail(page, 1);
   await expect(page.locator('#dd-sell')).toBeEnabled();
   await expect(page.locator('#dd-sell')).toContainText('SELL HOUSE');
   await expect(page.locator('#dd-mortgage')).toBeDisabled();
   await captureState(page, testInfo, 'deed-manager-property', 'Even building sales available off turn');
   await captureDeedDetail(page, testInfo, 'deed-manager-property.detail.png');
   for (const [index, expectedLevel] of [[1, 1], [3, 1], [1, 0], [3, 0]]) {
-    if (index !== 1 || expectedLevel !== 1) await detail(index);
-    await page.locator('#dd-sell').click();
-    await expect.poll(() => game.getTile(index).houseCount).toBe(expectedLevel);
-    if (index === 1 && expectedLevel === 1) {
-      await expect(page.locator('#dd-sell')).toBeDisabled();
-      await expect(page.locator('#dd-close')).toBeFocused();
-      await captureState(page, testInfo, 'deed-sell-one-house', 'Even selling blocks a second sale from the lower street');
-    }
-    if (expectedLevel === 0 && index === 3) await expect(page.locator('#dd-trade-deed')).toBeFocused();
-    await page.locator('#dd-close').click();
+    if (index !== 1 || expectedLevel !== 1) await openDeedDetail(page, index);
+    await sellOneHouse(page, testInfo, game, index, expectedLevel);
   }
   expect(owner.cash).toBe(900); // $200 spent, four $25 refunds.
   expect(brownTiles.map(index => game.getTile(index).houseCount)).toEqual([0, 0]);
-  await detail(1);
+  await openDeedDetail(page, 1);
   await expect(page.locator('#dd-bank-sale')).toHaveCount(0);
   await expect(page.locator('#dd-trade-deed')).toBeEnabled();
   await expect(page.locator('#dd-mortgage')).toBeEnabled();
@@ -271,7 +278,7 @@ test('mortgaged deeds can be offered and requested without clearing their mortga
     snapshot: finishedSnapshot(room, seller),
   }));
   await installClient(page, finishedSnapshot(room, seller), true);
-  await page.evaluate(() => window.__deedTruthHarness.deeds.openDeedDetail(5));
+  await openDeedDetail(page, 5);
   await expect(page.locator('#dd-trade-deed')).toBeEnabled();
   await captureState(page, testInfo, 'deed-mortgaged', 'Mortgaged airport remains eligible for player trade');
   await captureDeedDetail(page, testInfo, 'deed-mortgaged.detail.png');
@@ -337,7 +344,7 @@ test('every owned deed manager shows its complete rent schedule without expandin
   }
   await installClient(page, finishedSnapshot(room, owner));
   for (const [index, name, rows] of [[1, 'property', 6], [5, 'airport', 4], [12, 'electric', 2], [28, 'water', 2]]) {
-    await page.evaluate(i => window.__deedTruthHarness.deeds.openDeedDetail(i), index);
+    await openDeedDetail(page, index);
     const ladder = page.locator('#deed-card-detail .dd-ladder');
     await expect(ladder).toBeVisible();
     await expect(ladder.locator('.dd-row')).toHaveCount(rows);
@@ -375,7 +382,7 @@ test('building stays available beyond the old shared supply totals even with leg
     return { response: game.manageProperty('uncapped-ui-host', payload), snapshot: finishedSnapshot(room, owner) };
   });
   await installClient(page, finishedSnapshot(room, owner), true);
-  await page.evaluate(() => window.__deedTruthHarness.deeds.openDeedDetail(1));
+  await openDeedDetail(page, 1);
   await expect(page.locator('#dd-buy')).toBeEnabled();
   await expect(page.locator('.dd-stock-details')).toHaveCount(0);
   const cost = game.getPropertyHouseCost(target);

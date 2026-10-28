@@ -208,39 +208,60 @@ function boundClosedFriendships(friendships) {
   return friendships.filter((entry, index) => !dropped.has(index));
 }
 
-function normalizeFriendships(entries) {
-  const result = [];
-  const byPair = new Map();
-  const accountCounts = new Map();
-  const inboundCounts = new Map();
-  const statusRank = { accepted: 3, requested: 2, declined: 1 };
-  for (const entry of objectArray(entries)) {
-    const requesterId = boundedIdentifier(entry.requesterId);
-    const addresseeId = boundedIdentifier(entry.addresseeId);
-    if (!requesterId || !addresseeId || requesterId === addresseeId) continue;
-    const normalized = { ...entry, requesterId, addresseeId };
-    const key = friendshipKey(normalized);
-    const existingIndex = byPair.get(key);
-    if (existingIndex !== undefined) {
-      const current = result[existingIndex];
-      if ((statusRank[normalized.status] || 0) <= (statusRank[current.status] || 0)) continue;
-      adjustFriendshipCounts(accountCounts, inboundCounts, current, -1);
-      result[existingIndex] = normalized;
-      adjustFriendshipCounts(accountCounts, inboundCounts, normalized, 1);
-      continue;
-    }
-    if (normalized.status === 'accepted') {
-      if ((accountCounts.get(requesterId) || 0) >= MAX_FRIENDSHIPS_PER_ACCOUNT) continue;
-      if ((accountCounts.get(addresseeId) || 0) >= MAX_FRIENDSHIPS_PER_ACCOUNT) continue;
-    } else if (normalized.status === 'requested') {
-      if ((accountCounts.get(requesterId) || 0) >= MAX_FRIENDSHIPS_PER_ACCOUNT) continue;
-      if ((inboundCounts.get(addresseeId) || 0) >= MAX_PENDING_INBOUND_REQUESTS_PER_ACCOUNT) continue;
-    }
-    byPair.set(key, result.length);
-    result.push(normalized);
-    adjustFriendshipCounts(accountCounts, inboundCounts, normalized, 1);
+// Higher rank wins when two persisted rows describe the same pair.
+const FRIENDSHIP_STATUS_RANK = { accepted: 3, requested: 2, declined: 1 };
+
+function normalizeFriendshipRow(entry) {
+  const requesterId = boundedIdentifier(entry.requesterId);
+  const addresseeId = boundedIdentifier(entry.addresseeId);
+  if (!requesterId || !addresseeId || requesterId === addresseeId) return null;
+  return { ...entry, requesterId, addresseeId };
+}
+
+function outranksFriendship(candidate, current) {
+  return (FRIENDSHIP_STATUS_RANK[candidate.status] || 0) > (FRIENDSHIP_STATUS_RANK[current.status] || 0);
+}
+
+// Live rows are capped per account: accepted friendships against the friend
+// budget, and requests against the requester's budget and the addressee's inbox.
+function friendshipCapReached({ accountCounts, inboundCounts }, { status, requesterId, addresseeId }) {
+  const friendCount = accountId => accountCounts.get(accountId) || 0;
+  if (status === 'accepted') {
+    return friendCount(requesterId) >= MAX_FRIENDSHIPS_PER_ACCOUNT || friendCount(addresseeId) >= MAX_FRIENDSHIPS_PER_ACCOUNT;
   }
-  return boundClosedFriendships(result);
+  if (status === 'requested') {
+    return friendCount(requesterId) >= MAX_FRIENDSHIPS_PER_ACCOUNT
+      || (inboundCounts.get(addresseeId) || 0) >= MAX_PENDING_INBOUND_REQUESTS_PER_ACCOUNT;
+  }
+  return false;
+}
+
+function replaceFriendshipRow(state, index, normalized) {
+  adjustFriendshipCounts(state.accountCounts, state.inboundCounts, state.result[index], -1);
+  state.result[index] = normalized;
+  adjustFriendshipCounts(state.accountCounts, state.inboundCounts, normalized, 1);
+}
+
+function admitFriendship(state, normalized) {
+  const key = friendshipKey(normalized);
+  const existingIndex = state.byPair.get(key);
+  if (existingIndex !== undefined) {
+    if (outranksFriendship(normalized, state.result[existingIndex])) replaceFriendshipRow(state, existingIndex, normalized);
+    return;
+  }
+  if (friendshipCapReached(state, normalized)) return;
+  state.byPair.set(key, state.result.length);
+  state.result.push(normalized);
+  adjustFriendshipCounts(state.accountCounts, state.inboundCounts, normalized, 1);
+}
+
+function normalizeFriendships(entries) {
+  const state = { result: [], byPair: new Map(), accountCounts: new Map(), inboundCounts: new Map() };
+  for (const entry of objectArray(entries)) {
+    const normalized = normalizeFriendshipRow(entry);
+    if (normalized) admitFriendship(state, normalized);
+  }
+  return boundClosedFriendships(state.result);
 }
 
 function normalizeBlocks(entries) {
@@ -261,29 +282,67 @@ function normalizeBlocks(entries) {
   return result;
 }
 
+function normalizeReportRow(entry) {
+  const reporterId = boundedIdentifier(entry.reporterId);
+  const reportedId = boundedIdentifier(entry.reportedId);
+  if (!reporterId || !reportedId || reporterId === reportedId) return null;
+  return { ...entry, reporterId, reportedId };
+}
+
+// One open report per reporter/reported pair; the first row wins.
+function admitOpenReport(openPairs, report) {
+  const key = `${report.reporterId}\u0000${report.reportedId}`;
+  if (openPairs.has(key)) return false;
+  openPairs.add(key);
+  return true;
+}
+
+// Closed reports are kept while young enough and within the per-reporter bound.
+function admitArchivedReport(archivedCounts, report, now) {
+  const createdAt = Date.parse(report.createdAt || '');
+  if (Number.isFinite(createdAt) && now - createdAt > REPORT_RETENTION_MS) return false;
+  const count = archivedCounts.get(report.reporterId) || 0;
+  if (count >= MAX_ARCHIVED_REPORTS_PER_REPORTER) return false;
+  archivedCounts.set(report.reporterId, count + 1);
+  return true;
+}
+
 function normalizeReports(entries, now = Date.now()) {
   const result = [];
   const openPairs = new Set();
   const archivedCounts = new Map();
   for (const entry of objectArray(entries)) {
-    const reporterId = boundedIdentifier(entry.reporterId);
-    const reportedId = boundedIdentifier(entry.reportedId);
-    if (!reporterId || !reportedId || reporterId === reportedId) continue;
-    const normalized = { ...entry, reporterId, reportedId };
-    if (normalized.status === 'open') {
-      const key = `${reporterId}\u0000${reportedId}`;
-      if (openPairs.has(key)) continue;
-      openPairs.add(key);
-      result.push(normalized);
-      continue;
-    }
-    const createdAt = Date.parse(normalized.createdAt || '');
-    if (Number.isFinite(createdAt) && now - createdAt > REPORT_RETENTION_MS) continue;
-    if ((archivedCounts.get(reporterId) || 0) >= MAX_ARCHIVED_REPORTS_PER_REPORTER) continue;
-    archivedCounts.set(reporterId, (archivedCounts.get(reporterId) || 0) + 1);
-    result.push(normalized);
+    const normalized = normalizeReportRow(entry);
+    if (!normalized) continue;
+    const admitted = normalized.status === 'open'
+      ? admitOpenReport(openPairs, normalized)
+      : admitArchivedReport(archivedCounts, normalized, now);
+    if (admitted) result.push(normalized);
   }
   return result;
+}
+
+// Cooldown left by removing a request or a decline. An accepted friendship leaves none.
+function remainingDeclineCooldown(declined) {
+  const declinedAt = Date.parse(declined.updatedAt || '');
+  return Number.isFinite(declinedAt)
+    ? Math.max(0, DECLINED_REQUEST_COOLDOWN_MS - Math.max(0, Date.now() - declinedAt))
+    : DECLINED_REQUEST_COOLDOWN_MS;
+}
+
+function startRemovalCooldown(store, existing, accountId) {
+  if (existing.status === 'requested') {
+    if (existing.requesterId === accountId) {
+      store.startRequestCooldown(existing.requesterId, existing.addresseeId);
+    } else {
+      store.startRequestCooldown(existing.requesterId, existing.addresseeId, Date.now(), DECLINED_REQUEST_COOLDOWN_MS);
+    }
+    return;
+  }
+  if (existing.status === 'declined') {
+    const remaining = remainingDeclineCooldown(existing);
+    if (remaining > 0) store.startRequestCooldown(existing.requesterId, existing.addresseeId, Date.now(), remaining);
+  }
 }
 
 export class SocialStore {
@@ -504,19 +563,7 @@ export class SocialStore {
       // A former friend's pending room invites (either direction) die with the friendship.
       this.invites = this.invites.filter(invite => invite.status !== 'pending' || !matchesPair(invite.senderId, invite.recipientId, accountId, otherId));
     }
-    if (existing.status === 'requested') {
-      if (existing.requesterId === accountId) {
-        this.startRequestCooldown(existing.requesterId, existing.addresseeId);
-      } else {
-        this.startRequestCooldown(existing.requesterId, existing.addresseeId, Date.now(), DECLINED_REQUEST_COOLDOWN_MS);
-      }
-    } else if (existing.status === 'declined') {
-      const declinedAt = Date.parse(existing.updatedAt || '');
-      const remaining = Number.isFinite(declinedAt)
-        ? Math.max(0, DECLINED_REQUEST_COOLDOWN_MS - Math.max(0, Date.now() - declinedAt))
-        : DECLINED_REQUEST_COOLDOWN_MS;
-      if (remaining > 0) this.startRequestCooldown(existing.requesterId, existing.addresseeId, Date.now(), remaining);
-    }
+    startRemovalCooldown(this, existing, accountId);
     this.persistOrRestore(snapshot);
     return { success: true };
   }

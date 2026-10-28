@@ -99,27 +99,42 @@ function bankruptciesByPolicy(game, seatsByPolicy) {
 // Market P&L is booked on the player's own book: voluntary sells, forced margin liquidations and bankruptcy liquidations all
 // add to marketPositions[*].realizedPnl. The display ledger is a capped view (newest 300 rows) that never records forced or
 // derivative settlements, so aggregate the book and add any explicit settlement rows the ledger carries on top.
+// Unrealised P&L of one held position, marked at its quote (average cost when unquoted). A flat position carries none.
+function openPositionPnl(game, instrumentId, position) {
+  const quantity = Math.max(0, Number(position?.quantity) || 0);
+  if (!quantity) return 0;
+  const averageCost = Math.max(0, Number(position?.averageCost) || 0);
+  const quote = Number(game.marketQuotes?.[instrumentId]);
+  const mark = Number.isFinite(quote) && quote > 0 ? quote : averageCost;
+  return (mark - averageCost) * quantity;
+}
+
+// Realised plus open P&L across one player's own market book.
+function bookMarketPnl(game, player) {
+  let realized = 0;
+  let open = 0;
+  for (const [instrumentId, position] of Object.entries(player.marketPositions || {})) {
+    realized += Number(position?.realizedPnl) || 0;
+    open += openPositionPnl(game, instrumentId, position);
+  }
+  return realized + open;
+}
+
+// The P&L a ledger row settles outside the book (forced or derivative settlements). Buys and sells are already on the book.
+function ledgerSettlementPnl(entry) {
+  if (!entry?.playerId || ['buy', 'sell'].includes(entry.side)) return null;
+  const settled = Number(entry.realizedPnl);
+  return Number.isFinite(settled) ? settled : null;
+}
+
 function marketPnlByPlayer(game) {
   const totals = new Map();
   for (const player of game.players || []) {
-    let realized = 0;
-    let open = 0;
-    for (const [instrumentId, position] of Object.entries(player.marketPositions || {})) {
-      const quantity = Math.max(0, Number(position?.quantity) || 0);
-      const averageCost = Math.max(0, Number(position?.averageCost) || 0);
-      realized += Number(position?.realizedPnl) || 0;
-      if (!quantity) continue;
-      const quote = Number(game.marketQuotes?.[instrumentId]);
-      const mark = Number.isFinite(quote) && quote > 0 ? quote : averageCost;
-      open += (mark - averageCost) * quantity;
-    }
-    totals.set(player.id, realized + open);
+    totals.set(player.id, bookMarketPnl(game, player));
   }
   for (const entry of game.marketLedger || []) {
-    if (!entry?.playerId) continue;
-    if (['buy', 'sell'].includes(entry.side)) continue;
-    const settled = Number(entry.realizedPnl);
-    if (!Number.isFinite(settled)) continue;
+    const settled = ledgerSettlementPnl(entry);
+    if (settled === null) continue;
     totals.set(entry.playerId, (totals.get(entry.playerId) || 0) + settled);
   }
   return totals;

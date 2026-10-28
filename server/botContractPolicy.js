@@ -105,26 +105,35 @@ function premiumPercent(offer, principal, due) {
   return principal > 0 ? Math.max(0, (due - principal) / principal * 100) : 0;
 }
 
+// The repayment must come from cash the bot can actually spend (an open
+// auction reserves the leading bid), at no premium, over enough rounds to schedule.
+function loanPricingAcceptable(offer, bot, game, principal, due) {
+  if (due > spendableOf(game, bot) * CONTRACT_REPAY_RATIO) return false;
+  if (premiumPercent(offer, principal, due) > BORROW_MAX_PREMIUM_PERCENT) return false;
+  return amountOf(offer.durationRounds, BORROW_MIN_ROUNDS) >= BORROW_MIN_ROUNDS;
+}
+
+// The lender must still be able to fund the contract when the engine
+// activates it: alive, holding the money, not lending it twice, and not
+// having it reserved by an open auction. The pledged deeds must not break the
+// borrower's own set, and must not cover more than the money received.
+function loanCollateralAcceptable(game, offer, bot, lender, principal) {
+  if (!lenderCanFund(game, lender, principal)) return false;
+  const pledged = pledgedTiles(game, offer);
+  if (pledged.some(tile => endangersSet(game, bot, tile))) return false;
+  const cover = pledged.reduce((sum, tile) => sum + deedValue(game, tile), 0);
+  return cover <= principal * COLLATERAL_MAX_COVER;
+}
+
 function loanTermsAcceptable(offer, bot, { lender, game }) {
   if (!lender || lender.bankrupt || lender.disconnected) return false;
   if (!seatCanReceive(bot)) return false;
   const principal = amountOf(offer.amount);
   const due = amountOf(offer.totalDue, principal);
   if (!(principal > 0)) return false;
-  // The repayment must come from cash the bot can actually spend (an open
-  // auction reserves the leading bid).
-  if (due > spendableOf(game, bot) * CONTRACT_REPAY_RATIO) return false;
-  if (premiumPercent(offer, principal, due) > BORROW_MAX_PREMIUM_PERCENT) return false;
-  if (amountOf(offer.durationRounds, BORROW_MIN_ROUNDS) < BORROW_MIN_ROUNDS) return false;
+  if (!loanPricingAcceptable(offer, bot, game, principal, due)) return false;
   if (!game) return true;
-  // The lender must still be able to fund the contract when the engine
-  // activates it: alive, holding the money, not lending it twice, and not
-  // having it reserved by an open auction.
-  if (!lenderCanFund(game, lender, principal)) return false;
-  const pledged = pledgedTiles(game, offer);
-  if (pledged.some(tile => endangersSet(game, bot, tile))) return false;
-  const cover = pledged.reduce((sum, tile) => sum + deedValue(game, tile), 0);
-  return cover <= principal * COLLATERAL_MAX_COVER;
+  return loanCollateralAcceptable(game, offer, bot, lender, principal);
 }
 
 // New rent shares are finite, passive rights to rent. The owner can build
@@ -152,18 +161,28 @@ export function borrowerAcceptsContract(offer, bot, { lender = null, game = null
 // The bot proposed the contract and a counter came back. Take it only when it is
 // still a loan the bot would have offered: priced, short, bounded, and funded
 // without touching the lending reserve.
-export function lenderAcceptsCounter(game, bot, offer) {
-  if (!playerFinanceEnabled(game) || offer?.rulesVersion !== 2 || offer.kind !== 'loan') return false;
+// The counter keeps the bot's own lending shape: a bounded principal, a priced premium, and a short term.
+function counterTermsAcceptable(offer) {
   const amount = amountOf(offer.amount);
   if (!(amount > 0) || amount > LEND_MAX_PRINCIPAL) return false;
   if (amountOf(offer.premiumRate) < LEND_MIN_PREMIUM_PERCENT) return false;
   const rounds = amountOf(offer.durationRounds);
-  if (rounds < 1 || rounds > LEND_MAX_ROUNDS) return false;
+  return rounds >= 1 && rounds <= LEND_MAX_ROUNDS;
+}
+
+// A borrower seat that is dead cannot receive the principal. An unknown borrower is not checked here.
+function counterBorrowerSeatOpen(game, offer) {
+  const borrower = typeof game?.getPlayerById === 'function' ? game.getPlayerById(offer.toPlayerId) : null;
+  return !borrower || seatCanReceive(borrower);
+}
+
+export function lenderAcceptsCounter(game, bot, offer) {
+  if (!playerFinanceEnabled(game) || offer?.rulesVersion !== 2 || offer.kind !== 'loan') return false;
+  if (!counterTermsAcceptable(offer)) return false;
   if (!seatCanReceive(bot)) return false;
   // The engine activates the contract only from cash the bot can actually
   // spend, and never from loan-backed cash (contractLogic.js acceptContract).
   if (loanBackedCash(game, bot)) return false;
-  const borrower = typeof game?.getPlayerById === 'function' ? game.getPlayerById(offer.toPlayerId) : null;
-  if (borrower && !seatCanReceive(borrower)) return false;
-  return spendableOf(game, bot) - amount >= contractReserve(game);
+  if (!counterBorrowerSeatOpen(game, offer)) return false;
+  return spendableOf(game, bot) - amountOf(offer.amount) >= contractReserve(game);
 }

@@ -497,22 +497,33 @@ function historyEventName(event) {
   return "EVENT";
 }
 
+function netWorthRoundLabel(row) {
+  return `R${Math.max(0, Math.floor(Number(row?.round) || 0))}`;
+}
+
+function netWorthSeatSeries(participant, index, accountId, rows) {
+  const isYou = participant?.accountId === accountId;
+  return {
+    id: participant?.accountId || `seat-${index}`,
+    name: `${participant?.displayNameAtMatch || "PLAYER"}${isYou ? " (you)" : ""}`,
+    values: rows.map((row) => (Array.isArray(row?.worth) ? row.worth[index] : null)),
+  };
+}
+
 /** Net worth per round as a multi-line chart spec: you first (solid, primary), then the other seats. */
 export function historyNetWorthChartSpec(record, accountId) {
   const rows = Array.isArray(record?.netWorthTimeline) ? record.netWorthTimeline : [];
   const participants = Array.isArray(record?.participants) ? record.participants : [];
   if (rows.length < 2 || !participants.length) return null;
-  const seats = participants.slice(0, 6).map((participant, index) => ({ participant, index })).sort((a, b) => Number(b.participant?.accountId === accountId) - Number(a.participant?.accountId === accountId));
+  const seats = participants.slice(0, 6)
+    .map((participant, index) => ({ participant, index }))
+    .sort((a, b) => Number(b.participant?.accountId === accountId) - Number(a.participant?.accountId === accountId));
   return {
     kind: "line",
     unit: "dollars",
     title: "Net worth by round",
-    labels: rows.map((row) => `R${Math.max(0, Math.floor(Number(row?.round) || 0))}`),
-    series: seats.map(({ participant, index }) => ({
-      id: participant?.accountId || `seat-${index}`,
-      name: `${participant?.displayNameAtMatch || "PLAYER"}${participant?.accountId === accountId ? " (you)" : ""}`,
-      values: rows.map((row) => (Array.isArray(row?.worth) ? row.worth[index] : null)),
-    })),
+    labels: rows.map(netWorthRoundLabel),
+    series: seats.map(({ participant, index }) => netWorthSeatSeries(participant, index, accountId, rows)),
   };
 }
 

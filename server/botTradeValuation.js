@@ -174,10 +174,8 @@ function resolver(game) {
 // Does handing `giveIndexes` to `receiverId` complete one of their groups? `returnIndexes` are the receiver's own deeds going back
 // the other way: they are netted out, so swapping one Brown for another completes nothing. Returns { givesMonopoly, groups, buildReady }.
 // buildReady (cash >= one house) is informational only: the veto ignores it, because a $99 buyer finishes the set once they have $100.
-export function monopolyGiveaway(game, giveIndexes, receiverId, returnIndexes = []) {
-  const result = { givesMonopoly: false, groups: [], buildReady: false };
-  if (!game || !receiverId || !Array.isArray(giveIndexes) || !giveIndexes.length) return result;
-  const resolve = resolver(game);
+// The hand-over deeds the giver parts with, bucketed by colour group (ungrouped tiles are skipped).
+function givenDeedsByGroup(resolve, giveIndexes) {
   const byGroup = new Map();
   for (const index of giveIndexes) {
     const tile = resolve(index);
@@ -185,28 +183,58 @@ export function monopolyGiveaway(game, giveIndexes, receiverId, returnIndexes = 
     if (!byGroup.has(tile.group)) byGroup.set(tile.group, []);
     byGroup.get(tile.group).push(tile);
   }
+  return byGroup;
+}
+
+// The receiver's own deeds that come back the other way, counted per colour group.
+function returnedDeedsByGroup(resolve, returnIndexes, receiverId) {
   const returned = new Map();
   for (const index of indexList(returnIndexes)) {
     const tile = resolve(index);
     if (!tile?.group || tile.ownerId !== receiverId) continue;
     returned.set(tile.group, (returned.get(tile.group) || 0) + 1);
   }
+  return returned;
+}
+
+// The groups the receiver finishes: short of a full set before the trade, complete after it, once returned deeds are netted out.
+function groupsCompletedBy(game, receiverId, byGroup, returned) {
+  const groups = [];
   for (const [group, deeds] of byGroup) {
     const { owned, total } = ownedInGroup(game, receiverId, group);
     if (!total) continue;
     const after = owned + deeds.length - (returned.get(group) || 0);
-    if (owned < total && after >= total) {
-      result.givesMonopoly = true;
-      result.groups.push({ group, before: owned, after, total });
-    }
+    if (owned < total && after >= total) groups.push({ group, before: owned, after, total });
   }
-  if (result.givesMonopoly) {
-    const receiver = typeof game.getPlayerById === 'function' ? game.getPlayerById(receiverId) : null;
-    const cash = Math.max(0, Math.floor(Number(receiver?.cash) || 0));
-    const threshold = Math.min(...result.groups.map(entry => cheapestHouseCost(game, entry.group)));
-    result.buildReady = cash >= threshold;
-  }
-  return result;
+  return groups;
+}
+
+// Whether the receiver's cash covers one house on the cheapest of the completed groups.
+function receiverBuildReady(game, receiverId, groups) {
+  const receiver = typeof game.getPlayerById === 'function' ? game.getPlayerById(receiverId) : null;
+  const cash = Math.max(0, Math.floor(Number(receiver?.cash) || 0));
+  const threshold = Math.min(...groups.map(entry => cheapestHouseCost(game, entry.group)));
+  return cash >= threshold;
+}
+
+export function monopolyGiveaway(game, giveIndexes, receiverId, returnIndexes = []) {
+  const result = { givesMonopoly: false, groups: [], buildReady: false };
+  if (!game || !receiverId || !Array.isArray(giveIndexes) || !giveIndexes.length) return result;
+  const resolve = resolver(game);
+  const groups = groupsCompletedBy(
+    game,
+    receiverId,
+    givenDeedsByGroup(resolve, giveIndexes),
+    returnedDeedsByGroup(resolve, returnIndexes, receiverId)
+  );
+  if (!groups.length) return result;
+  return { givesMonopoly: true, groups, buildReady: receiverBuildReady(game, receiverId, groups) };
+}
+
+// The extra price a deed carries when handing it over completes its colour group (zero otherwise).
+function monopolyPremiumOn(value, tile, completed) {
+  if (!completed.has(tile.group)) return 0;
+  return Math.floor(value * (MONOPOLY_PREMIUM_NUM - MONOPOLY_PREMIUM_DEN) / MONOPOLY_PREMIUM_DEN);
 }
 
 // What the giver must be paid, in cash on top of returning deeds, for handing `outgoingIndexes` to `receiverId` while
@@ -225,7 +253,7 @@ export function monopolyRequirement(game, outgoingIndexes, incomingIndexes, rece
     if (!tile) continue;
     const value = deedValue(game, tile);
     result.requiredValue += value;
-    if (completed.has(tile.group)) result.requiredValue += Math.floor(value * (MONOPOLY_PREMIUM_NUM - MONOPOLY_PREMIUM_DEN) / MONOPOLY_PREMIUM_DEN);
+    result.requiredValue += monopolyPremiumOn(value, tile, completed);
   }
   for (const index of incoming) {
     const tile = resolve(index);
@@ -237,10 +265,8 @@ export function monopolyRequirement(game, outgoingIndexes, incomingIndexes, rece
 
 // Groups a player completes or breaks when `outgoingIndexes` leave and
 // `incomingIndexes` arrive. Keeps a seat from trading away its own set.
-export function tradeSetChanges(game, playerId, outgoingIndexes, incomingIndexes) {
-  const result = { completes: [], breaks: [] };
-  if (!game || !playerId) return result;
-  const resolve = resolver(game);
+// Net change in the seat's deed count per colour group: deeds it gives away count against it, deeds it receives count for it.
+function setDeltaByGroup(resolve, playerId, outgoingIndexes, incomingIndexes) {
   const delta = new Map();
   for (const index of indexList(outgoingIndexes)) {
     const tile = resolve(index);
@@ -252,6 +278,13 @@ export function tradeSetChanges(game, playerId, outgoingIndexes, incomingIndexes
     if (!tile?.group || tile.ownerId === playerId) continue;
     delta.set(tile.group, (delta.get(tile.group) || 0) + 1);
   }
+  return delta;
+}
+
+export function tradeSetChanges(game, playerId, outgoingIndexes, incomingIndexes) {
+  const result = { completes: [], breaks: [] };
+  if (!game || !playerId) return result;
+  const delta = setDeltaByGroup(resolver(game), playerId, outgoingIndexes, incomingIndexes);
   for (const [group, change] of delta) {
     const { owned, total } = ownedInGroup(game, playerId, group);
     if (!total) continue;

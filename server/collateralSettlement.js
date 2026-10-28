@@ -1,16 +1,20 @@
 // Server-authored, agreement-time collateral quotes. Pure: defaults apply the returned plan through the existing settlement owners.
 export const COLLATERAL_CREDIT_VERSION = 1;
+const COLLATERAL_TILE_TYPES = ['property', 'railroad', 'utility'];
 
 function wholeNonnegative(value) {
   const number = Number(value);
   return Number.isSafeInteger(number) && number >= 0 ? number : null;
 }
 
+function uniqueTileIndices(indices) {
+  return [...new Set(indices.map(Number).filter(Number.isSafeInteger))];
+}
+
 export function collateralQuoteFor(game, indices = []) {
-  const unique = [...new Set(indices.map(Number).filter(Number.isSafeInteger))];
-  return unique.flatMap(tileIndex => {
+  return uniqueTileIndices(indices).flatMap(tileIndex => {
     const tile = game.getTile(tileIndex), value = wholeNonnegative(tile?.price);
-    if (!tile || value == null || !['property', 'railroad', 'utility'].includes(tile.type)) return [];
+    if (!tile || value == null || !COLLATERAL_TILE_TYPES.includes(tile.type)) return [];
     return [{ tileIndex, name: String(tile.name || ''), value }];
   });
 }
@@ -31,22 +35,36 @@ export function collateralCreditPlan(game, borrower, contract, balance, { allowB
   const empty = { outstanding, credit: 0, remaining: outstanding, entries: [], seizedTileIndices: [] };
   if (!usesCollateralCredit(contract) || !borrower || (borrower.bankrupt && !allowBankruptCollateral)) return empty;
   if (contract.toPlayerId != null && contract.toPlayerId !== borrower.id) return empty;
-  const indices = Array.isArray(contract.collateralTileIndices) && contract.collateralTileIndices.length
-    ? contract.collateralTileIndices : contract.collateralTileIndex == null ? [] : [contract.collateralTileIndex];
-  const quotes = new Map((Array.isArray(contract.collateralCreditQuotes) ? contract.collateralCreditQuotes : [])
-    .filter(q => Number.isSafeInteger(q?.tileIndex) && wholeNonnegative(q.value) != null)
-    .map(q => [q.tileIndex, q]));
+  const quotes = quoteMapFor(contract);
   const entries = [];
   let remaining = outstanding;
-  for (const index of [...new Set(indices.map(Number).filter(Number.isSafeInteger))]) {
+  for (const index of uniqueTileIndices(collateralIndicesOf(contract))) {
     if (remaining === 0) break;
     const tile = game.getTile(index), quote = quotes.get(index);
-    if (!tile || tile.ownerId !== borrower.id || !['property', 'railroad', 'utility'].includes(tile.type) || !quote || quote.value === 0) continue;
+    if (!isCreditableCollateral(tile, borrower, quote)) continue;
     const credit = Math.min(remaining, quote.value);
     entries.push({ tileIndex: index, quotedValue: quote.value, credit });
     remaining -= credit;
   }
   return { outstanding, credit: outstanding - remaining, remaining, entries, seizedTileIndices: entries.map(e => e.tileIndex) };
+}
+
+function collateralIndicesOf(contract) {
+  if (Array.isArray(contract.collateralTileIndices) && contract.collateralTileIndices.length) return contract.collateralTileIndices;
+  return contract.collateralTileIndex == null ? [] : [contract.collateralTileIndex];
+}
+
+function quoteMapFor(contract) {
+  return new Map((Array.isArray(contract.collateralCreditQuotes) ? contract.collateralCreditQuotes : [])
+    .filter(q => Number.isSafeInteger(q?.tileIndex) && wholeNonnegative(q.value) != null)
+    .map(q => [q.tileIndex, q]));
+}
+
+// A deed still owned by the borrower, of a collateral type, with a non-zero agreed quote.
+function isCreditableCollateral(tile, borrower, quote) {
+  if (!tile || tile.ownerId !== borrower.id) return false;
+  if (!COLLATERAL_TILE_TYPES.includes(tile.type)) return false;
+  return Boolean(quote) && quote.value !== 0;
 }
 
 // A foreclosure can touch several deeds and terminate share contracts before a

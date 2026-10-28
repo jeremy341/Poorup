@@ -44,19 +44,20 @@ const io = { sockets: { sockets: new Map() }, in() { return { emit() {} }; }, em
 const api = createSocialApi({ io, accountStore, socialStore, matchStore: { listForAccount: () => [] }, achievementStore: {} });
 
 function ids(card) { return (card.achievements || []).map(entry => entry.id); }
+const cardIds = (ownerId, viewerId) => ids(api.publicPlayerCard(ownerId, viewerId));
 
 check('player card: a non-friend does not receive friends-only achievements', () => {
-  assert.deepEqual(ids(api.publicPlayerCard(friendsOnly.id, stranger.id)), []);
-  assert.deepEqual(ids(api.publicPlayerCard(friendsOnly.id, null)), []);
-  assert.deepEqual(ids(api.publicPlayerCard(friendsOnly.id, pending.id)), [], 'a pending request is not a friendship');
-  assert.equal(ids(api.publicPlayerCard(friendsOnly.id, friend.id)).length, 2, 'an accepted friend sees them');
-  assert.equal(ids(api.publicPlayerCard(friendsOnly.id, friendsOnly.id)).length, 2, 'the owner sees them');
+  assert.deepEqual(cardIds(friendsOnly.id, stranger.id), []);
+  assert.deepEqual(cardIds(friendsOnly.id, null), []);
+  assert.deepEqual(cardIds(friendsOnly.id, pending.id), [], 'a pending request is not a friendship');
+  assert.equal(cardIds(friendsOnly.id, friend.id).length, 2, 'an accepted friend sees them');
+  assert.equal(cardIds(friendsOnly.id, friendsOnly.id).length, 2, 'the owner sees them');
 });
 
 check('player card: private achievements reach nobody but the owner, even a friend', () => {
-  assert.deepEqual(ids(api.publicPlayerCard(privateOwner.id, friend.id)), []);
-  assert.deepEqual(ids(api.publicPlayerCard(privateOwner.id, stranger.id)), []);
-  assert.equal(ids(api.publicPlayerCard(privateOwner.id, privateOwner.id)).length, 2);
+  assert.deepEqual(cardIds(privateOwner.id, friend.id), []);
+  assert.deepEqual(cardIds(privateOwner.id, stranger.id), []);
+  assert.equal(cardIds(privateOwner.id, privateOwner.id).length, 2);
 });
 
 check('store card: includeAchievements alone cannot unlock a private account', () => {
@@ -72,18 +73,23 @@ check('social summary: a pending requester card carries no friends-only achievem
 });
 
 // leaderboard handlers
+// The social-handler dependencies for a socket whose account is the viewer.
+function socialDeps(viewer) {
+  return {
+    accountForSocket: () => viewer, allowAnonymousAction: () => true, allowSocialAction: () => true,
+    chatBlockedInRoom: () => false, chatRateLimited: () => false, emitSocialUpdate() {}, maxPlausiblePatrolScore: () => 0,
+    notifyAccount() {}, patrolAchievementCandidates: () => [], patrolRunError: () => null, patrolRunPlausible: () => true,
+    prunePatrolRuns() {}, patrolRuns: new Map(), publicPlayerCard: () => ({}), recentPlayers: () => [],
+    recordVerifiedAchievement: () => false, socialSummary: () => ({})
+  };
+}
+
 function boards(viewer) {
   const handlers = new Map();
   const socket = { id: 'sock', handshake: { address: '127.0.0.1' }, request: { socket: { remoteAddress: '127.0.0.1' } } };
   registerSocialSocketHandlers((event, handler) => handlers.set(event, handler), socket, {
     accountStore, socialStore, matchStore: { listForAccount: () => [] },
-    social: {
-      accountForSocket: () => viewer, allowAnonymousAction: () => true, allowSocialAction: () => true,
-      chatBlockedInRoom: () => false, chatRateLimited: () => false, emitSocialUpdate() {}, maxPlausiblePatrolScore: () => 0,
-      notifyAccount() {}, patrolAchievementCandidates: () => [], patrolRunError: () => null, patrolRunPlausible: () => true,
-      prunePatrolRuns() {}, patrolRuns: new Map(), publicPlayerCard: () => ({}), recentPlayers: () => [],
-      recordVerifiedAchievement: () => false, socialSummary: () => ({})
-    },
+    social: socialDeps(viewer),
     roomManager: { getRoomBySocket: () => null }, io
   });
   return (event, payload) => { let ack; handlers.get(event)(payload, value => { ack = value; }); return ack; };

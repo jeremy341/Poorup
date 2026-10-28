@@ -312,22 +312,24 @@ function giveCandidates(game, player, owned, askTile) {
 }
 
 function collectGroupTradeCandidates(ctx, partner, owned, out) {
-  const { game, player } = ctx;
-  const found = [];
-  for (const askTile of tradeTiles(game, partner)) {
-    const held = groupOwnedBy(game, player.id, askTile.group);
-    if (!held) continue;
-    const completer = held === (game.getGroupTiles(askTile.group) || []).length - 1;
-    const gives = giveCandidates(game, player, owned, askTile).map(tile => [tile]);
-    // Cash alone can buy the last deed of a set; it never buys a partial stake.
-    if (completer) gives.push([]);
-    for (const giveTiles of gives) {
-      const candidate = groupTradeCandidate(ctx, partner, giveTiles, askTile);
-      if (candidate) found.push(candidate);
-    }
-  }
+  const { game } = ctx;
+  const found = tradeTiles(game, partner).flatMap(askTile => groupAskCandidates(ctx, partner, owned, askTile));
   found.sort((a, b) => b.score - a.score || b.strategicValue - a.strategicValue);
   out.push(...found.slice(0, 4));
+}
+
+// Priced offers for one deed the partner holds, one per give-side option (a single tradeable deed, or cash alone).
+function groupAskCandidates(ctx, partner, owned, askTile) {
+  const { game, player } = ctx;
+  const held = groupOwnedBy(game, player.id, askTile.group);
+  if (!held) return [];
+  const completer = held === (game.getGroupTiles(askTile.group) || []).length - 1;
+  const gives = giveCandidates(game, player, owned, askTile).map(tile => [tile]);
+  // Cash alone can buy the last deed of a set; it never buys a partial stake.
+  if (completer) gives.push([]);
+  return gives
+    .map(giveTiles => groupTradeCandidate(ctx, partner, giveTiles, askTile))
+    .filter(Boolean);
 }
 
 // One priced offer, or null: no cooled-off repeat, no value-neutral swap, no set

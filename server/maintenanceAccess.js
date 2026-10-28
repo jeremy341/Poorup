@@ -23,9 +23,17 @@ const TOKEN_PATTERN = /^([0-9a-z]{1,11})\.([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43
 const SIGNING_CONTEXT = 'poorup-maintenance-access-v1|';
 const FAILED = Object.freeze({ success: false, error: 'Sign-in failed.' });
 
+function isUnsetTtl(value) {
+  return value === undefined || value === null || value === '';
+}
+
+function isPositiveFinite(value) {
+  return Number.isFinite(value) && value > 0;
+}
+
 export function resolveAccessTtlMs(value) {
   const parsed = Number(value);
-  if (value === undefined || value === null || value === '' || !Number.isFinite(parsed) || parsed <= 0) return DEFAULT_ACCESS_TTL_MS;
+  if (isUnsetTtl(value) || !isPositiveFinite(parsed)) return DEFAULT_ACCESS_TTL_MS;
   return Math.min(MAX_ACCESS_TTL_MS, Math.max(MIN_ACCESS_TTL_MS, Math.floor(parsed)));
 }
 
@@ -105,8 +113,13 @@ export function createMaintenanceAccess({
     return verify(parseCookieHeader(typeof header === 'string' ? header : '')[MAINTENANCE_ACCESS_COOKIE]);
   }
 
+  // True only for a grant object this module issued through verify().
+  function isKnownGrant(grant) {
+    return Boolean(grant) && typeof grant === 'object' && grants.has(grant);
+  }
+
   function isGrantActive(grant) {
-    if (!enabled || !grant || typeof grant !== 'object' || !grants.has(grant)) return false;
+    if (!enabled || !isKnownGrant(grant)) return false;
     return grant.expiresAt > now() && !revoked.has(grant.jti);
   }
 
@@ -155,6 +168,74 @@ export function createMaintenanceAccess({
  *   POST /maintenance/unlock   { password }: 200 + cookie | 401 | 429 | 403 | 400 | 413 | 404
  *   POST /maintenance/logout   always 200, clears the cookie and revokes its token
  */
+const notFound = res => res.status(404).json({ success: false, error: 'Not found.' });
+const NOT_VALID_JSON = 'The request body is not valid JSON.';
+
+function isSecureRequest(req, forceSecure) {
+  return forceSecure === true || req.secure === true;
+}
+
+function noStore(_req, res, next) {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+}
+
+function requireUnlockEnabled(access) {
+  return (req, res, next) => (access.enabled ? next() : notFound(res));
+}
+
+function requireSameOrigin(publicOrigin) {
+  return (req, res, next) => (sameOrigin(req, publicOrigin) ? next() : res.status(403).json({ success: false, error: 'Origin is not allowed.' }));
+}
+
+function unlockStatus(access) {
+  return (req, res) => {
+    if (!access.enabled) return notFound(res);
+    const bypass = access.isGrantActive(access.grantFromCookieHeader(req.headers.cookie));
+    return res.json({ success: true, available: true, bypass });
+  };
+}
+
+function unlockResponse(access, res, result, secure) {
+  if (result.ok) {
+    res.setHeader('Set-Cookie', access.cookie(result.token, { secure }));
+    return res.json({ success: true, expiresAt: new Date(result.expiresAt).toISOString() });
+  }
+  if (result.status === 429) {
+    res.setHeader('Retry-After', String(result.retryAfterSeconds));
+    return res.status(429).json({ success: false, error: 'Too many attempts. Try again later.' });
+  }
+  return res.status(401).json(FAILED);
+}
+
+function unlockAttempt(access, forceSecure) {
+  return async (req, res, next) => {
+    try {
+      const candidate = req.body && typeof req.body === 'object' ? req.body.password : undefined;
+      const result = await access.attempt(req.ip || req.socket?.remoteAddress, candidate);
+      return unlockResponse(access, res, result, isSecureRequest(req, forceSecure));
+    } catch {
+      // Never forward to the app's error handler: it logs error messages.
+      return next(new Error('maintenance unlock failed'));
+    }
+  };
+}
+
+function logout(access, forceSecure) {
+  return (req, res) => {
+    access.revoke(access.grantFromCookieHeader(req.headers.cookie));
+    res.setHeader('Set-Cookie', access.clearCookie({ secure: isSecureRequest(req, forceSecure) }));
+    return res.json({ success: true });
+  };
+}
+
+// Body-parser failures carry a message that can quote the raw body (and so
+// the password). They are answered here and never logged.
+function answerBodyError(error, _req, res, next) {
+  if (!error?.type) return next(error);
+  return res.status(error.type === 'entity.too.large' ? 413 : 400).json({ success: false, error: NOT_VALID_JSON });
+}
+
 export function registerMaintenanceAccessRoutes(app, {
   access,
   publicOrigin = '',
@@ -164,58 +245,17 @@ export function registerMaintenanceAccessRoutes(app, {
 } = {}) {
   const router = express.Router();
   const limiter = createHttpRateLimiter({ max: unlockRateLimit.max, windowMs: unlockRateLimit.windowMs, trustProxy });
-  const secureFor = req => forceSecure === true || req.secure === true;
-  const notFound = res => res.status(404).json({ success: false, error: 'Not found.' });
 
-  router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
-
-  router.get('/unlock', (req, res) => {
-    if (!access.enabled) return notFound(res);
-    const bypass = access.isGrantActive(access.grantFromCookieHeader(req.headers.cookie));
-    return res.json({ success: true, available: true, bypass });
-  });
-
+  router.use(noStore);
+  router.get('/unlock', unlockStatus(access));
   router.post('/unlock',
-    (req, res, next) => (access.enabled ? next() : notFound(res)),
-    (req, res, next) => (sameOrigin(req, publicOrigin) ? next() : res.status(403).json({ success: false, error: 'Origin is not allowed.' })),
+    requireUnlockEnabled(access),
+    requireSameOrigin(publicOrigin),
     limiter,
     express.json({ limit: '2kb' }),
-    async (req, res, next) => {
-      try {
-        const candidate = req.body && typeof req.body === 'object' ? req.body.password : undefined;
-        const result = await access.attempt(req.ip || req.socket?.remoteAddress, candidate);
-        if (result.ok) {
-          res.setHeader('Set-Cookie', access.cookie(result.token, { secure: secureFor(req) }));
-          return res.json({ success: true, expiresAt: new Date(result.expiresAt).toISOString() });
-        }
-        if (result.status === 429) {
-          res.setHeader('Retry-After', String(result.retryAfterSeconds));
-          return res.status(429).json({ success: false, error: 'Too many attempts. Try again later.' });
-        }
-        return res.status(401).json(FAILED);
-      } catch {
-        // Never forward to the app's error handler: it logs error messages.
-        return next(new Error('maintenance unlock failed'));
-      }
-    });
-
-  router.post('/logout',
-    (req, res, next) => (sameOrigin(req, publicOrigin) ? next() : res.status(403).json({ success: false, error: 'Origin is not allowed.' })),
-    (req, res) => {
-      access.revoke(access.grantFromCookieHeader(req.headers.cookie));
-      res.setHeader('Set-Cookie', access.clearCookie({ secure: secureFor(req) }));
-      return res.json({ success: true });
-    });
-
-  // Body-parser failures carry a message that can quote the raw body (and so
-  // the password). They are answered here and never logged.
-  router.use((error, _req, res, next) => {
-    if (error?.type === 'entity.parse.failed' || error?.type === 'entity.too.large') {
-      return res.status(error.type === 'entity.too.large' ? 413 : 400).json({ success: false, error: 'The request body is not valid JSON.' });
-    }
-    if (error?.type) return res.status(400).json({ success: false, error: 'The request body is not valid JSON.' });
-    return next(error);
-  });
+    unlockAttempt(access, forceSecure));
+  router.post('/logout', requireSameOrigin(publicOrigin), logout(access, forceSecure));
+  router.use(answerBodyError);
 
   app.use('/maintenance', router);
   return router;

@@ -1141,10 +1141,7 @@ function syncFinancingRanges(root = $("#financing-card")) {
   });
 }
 
-function refreshFinancingPreview() {
-  const preview = $("#financing-preview");
-  if (preview) preview.innerHTML = financingPreviewHTML();
-  const amountError = financingAmountError();
+function syncFinancingAmountField(amountError) {
   const amount = $("#finance-amount");
   if (amount) {
     amount.setAttribute("aria-invalid", String(Boolean(amountError)));
@@ -1153,6 +1150,9 @@ function refreshFinancingPreview() {
   }
   const error = $("#finance-amount-error");
   if (error) error.textContent = amountError;
+}
+
+function syncFinancingLoanFields() {
   for (const [id, message] of Object.entries(financingLoanErrors())) {
     const input = $(`#${id}`);
     if (!input) continue;
@@ -1160,11 +1160,21 @@ function refreshFinancingPreview() {
     const errorNode = $(`#${id}-error`);
     if (errorNode) errorNode.textContent = message;
   }
+}
+
+function syncFinancingSendButton() {
   const send = $("#financing-send");
-  if (send) {
-    send.disabled = financingSendDisabled();
-    send.classList.toggle("financing-disabled-action", send.disabled);
-  }
+  if (!send) return;
+  send.disabled = financingSendDisabled();
+  send.classList.toggle("financing-disabled-action", send.disabled);
+}
+
+function refreshFinancingPreview() {
+  const preview = $("#financing-preview");
+  if (preview) preview.innerHTML = financingPreviewHTML();
+  syncFinancingAmountField(financingAmountError());
+  syncFinancingLoanFields();
+  syncFinancingSendButton();
 }
 
 const FINANCE_INPUT_FIELDS = {

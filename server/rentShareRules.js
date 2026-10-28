@@ -18,11 +18,14 @@ export function newContractTermsError(offer = {}) {
   if (offer.kind != null && !['loan', 'equity'].includes(String(offer.kind))) return 'Choose a loan or a temporary rent share.';
   if (offer.permanent != null && offer.permanent !== false) return 'Rent shares must be temporary, for 1 to 20 rounds.';
   if (offer.equityControl != null && offer.equityControl !== 'passive') return 'Rent shares are passive only; the owner keeps control of the deed.';
-  if (offer.kind === 'equity') {
-    if (Object.hasOwn(offer, 'expiresRound') && offer.expiresRound == null) return 'Rent shares must be temporary, for 1 to 20 rounds.';
-    const duration = offer.durationRounds == null ? DEFAULT_RENT_SHARE_ROUNDS : Number(offer.durationRounds);
-    if (!Number.isInteger(duration) || duration < 1 || duration > 20) return 'Rent share duration must be a whole number from 1 to 20 rounds.';
-  }
+  if (offer.kind === 'equity') return rentShareTermsError(offer);
+  return null;
+}
+
+function rentShareTermsError(offer) {
+  if (Object.hasOwn(offer, 'expiresRound') && offer.expiresRound == null) return 'Rent shares must be temporary, for 1 to 20 rounds.';
+  const duration = offer.durationRounds == null ? DEFAULT_RENT_SHARE_ROUNDS : Number(offer.durationRounds);
+  if (!Number.isInteger(duration) || duration < 1 || duration > 20) return 'Rent share duration must be a whole number from 1 to 20 rounds.';
   return null;
 }
 
