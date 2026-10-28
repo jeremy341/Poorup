@@ -1,5 +1,4 @@
-// Server-authored, agreement-time collateral quotes. This module is pure:
-// defaults apply the returned plan through the existing settlement owners.
+// Server-authored, agreement-time collateral quotes. Pure: defaults apply the returned plan through the existing settlement owners.
 export const COLLATERAL_CREDIT_VERSION = 1;
 
 function wholeNonnegative(value) {

@@ -157,11 +157,9 @@ function bankLoanDebt(player) {
   return nonNegative(player.bankLoan.remaining);
 }
 
-// Defaulted contracts leave contractValue (their status is terminal), but the
-// claim ledger keeps the unpaid principal collectable through
-// bankruptcyLogic.settleDefaultClaim. Count each open claim once, on the side
-// that will move cash: the borrower owes it, and the lender only holds it
-// while the borrower can still be made to pay.
+// Defaulted contracts leave contractValue (their status is terminal), but the claim ledger keeps the unpaid principal collectable
+// through bankruptcyLogic.settleDefaultClaim. Each open claim is counted once, on the side that moves cash: the borrower owes it,
+// and the lender holds it only while the borrower can still be made to pay.
 function defaultClaimValue(game, player) {
   return (Array.isArray(game?.defaultClaims) ? game.defaultClaims : []).reduce((sum, claim) => {
     if (!claim || claim.status !== 'open') return sum;

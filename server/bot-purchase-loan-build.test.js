@@ -1,17 +1,6 @@
-// Regression suite for three bot-correctness defects found in the audit
-// campaign. Every check pins one repaired defect so it cannot silently
-// regress; the classification notes live in the campaign report.
-//
-//   B-23  botLogic.plannedPurchaseDecision compared the buy projection against
-//         a `pass` candidate. `pass` has no applier in the planner, so it came
-//         back 'unsupported' and scored 0: the verdict became "is
-//         buy.score >= 0" instead of "is this deed better than doing nothing".
-//   B-24  botApi.loanContractCandidate scored the *neediest* borrower highest
-//         while the responder gate (totalDue <= cash * shared repayment ratio)
-//         makes exactly those proposals a guaranteed decline.
-//   B-26  botApi.sortCandidates broke equal-score ties on ascending cost. All
-//         build candidates share one score, so every build was ordered
-//         cheapest-first and a monopoly bot developed its weakest rent stream.
+// Bot-correctness checks for the purchase policy, loan targeting and build ordering.
+// Purchases compare the buy projection to a no-op baseline (`pass` has no applier and scores 0). Loans prefer a borrower who can service the loan.
+// Builds break ties on development value, not cost, which would build the weakest rent stream first.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { buildBotStrategicContext } from './botStrategicContext.js';
@@ -42,7 +31,7 @@ function check(name, run) {
   }
 }
 
-// --- fixtures ---------------------------------------------------------------
+// fixtures
 
 let roomSerial = 0;
 function botRoom({ cash = 1500, humanSeats = 2, settings = {} } = {}) {
@@ -107,9 +96,9 @@ function purchaseProjections(game, bot, tile) {
   };
 }
 
-// --- B-23 -------------------------------------------------------------------
+// Purchase verdicts
 
-check('B-23: purchase verdicts track the planner against a real no-op baseline', () => {
+check('purchase verdicts track the planner against a real no-op baseline', () => {
   const { game, bot } = botRoom({ cash: 600 });
   game.roundNumber = 14;
   bot.properties = [];
@@ -122,14 +111,14 @@ check('B-23: purchase verdicts track the planner against a real no-op baseline',
       status: standStill.projectionStatus,
       buyScore: buy.score,
       standStillScore: standStill.score,
-      // A planner "no" is overruled only when the bot would pay the face price at auction (F2).
+      // A planner "no" is overruled only when the bot would pay the face price at auction.
       expected: buy.score >= standStill.score || auctionCeiling(game, bot, tile) >= tile.price,
       actual: shouldBuyWithPlan(game, bot, tile)
     };
   });
   assert.ok(verdicts.length > 10, 'the fixture board offers a spread of deeds');
   assert.equal(verdicts[0].status, 'projected', 'the stand-still baseline is a real projection');
-  // Scores are marginal to standing still (F-074): the baseline itself is the zero.
+  // Scores are marginal to standing still: the baseline itself is the zero.
   assert.equal(verdicts[0].standStillScore, 0, 'the stand-still baseline is the zero marginal value');
   assert.ok(verdicts.some(verdict => verdict.buyScore < verdict.standStillScore),
     'the fixture contains deeds the planner values below doing nothing');
@@ -139,7 +128,7 @@ check('B-23: purchase verdicts track the planner against a real no-op baseline',
   });
 });
 
-check('B-23: the planner stops buying deeds it values below doing nothing and the auction would not pay for', () => {
+check('the planner stops buying deeds it values below doing nothing and the auction would not pay for', () => {
   // A rival Dark Blue set with houses lifts the liquidity reserve to 1000, so a
   // $1300 bot's auction ceiling is $300: the $320 deed is below the planner's
   // stand-still projection and above what the bot would bid, so it is declined.
@@ -161,7 +150,7 @@ check('B-23: the planner stops buying deeds it values below doing nothing and th
   assert.ok(bought.length > 0, 'the fix is not a blanket refusal: deeds above the baseline are still bought');
 });
 
-// --- F2: purchase policy agrees with auction judgement ------------------------
+// Purchase policy agrees with auction judgement
 
 // What the bot would pay for the deed at auction right now: the same
 // auctionBidDecision the auction rail runs, from an opening (no bid yet) auction.
@@ -169,7 +158,7 @@ function auctionCeiling(game, bot, tile) {
   return auctionBidDecision({ propertyTile: tile, highestBid: 0, highestBidderId: null, participants: [bot.id] }, bot, 1500, game).maximum;
 }
 
-check('F2: a deed the bot would pay for at auction is not declined at face value on landing', () => {
+check('a deed the bot would pay for at auction is not declined at face value on landing', () => {
   const { game, bot } = botRoom({ cash: 600 });
   game.roundNumber = 14;
   bot.properties = [];
@@ -184,7 +173,7 @@ check('F2: a deed the bot would pay for at auction is not declined at face value
       actual: shouldBuyWithPlan(game, bot, tile)
     };
   });
-  // The audit's measurement: the planner alone bought 8 of 22 deeds at $600.
+  // Measured on this fixture: the planner alone buys 8 of 22 deeds at $600.
   assert.equal(rows.filter(row => row.plannerBuys).length, 8, 'the planner on its own still scores only 8 of 22 deeds above standing still');
   assert.ok(rows.some(row => !row.plannerBuys && row.ceiling >= row.tile.price), 'the fixture has deeds the planner declines but the auction would pay for');
   rows.forEach(row => {
@@ -195,7 +184,7 @@ check('F2: a deed the bot would pay for at auction is not declined at face value
   assert.equal(rows.filter(row => row.actual).length, 22, 'every deed priced at or below the auction ceiling is bought at $600');
 });
 
-check('F2: the planner veto still binds where the auction would not pay the price', () => {
+check('the planner veto still binds where the auction would not pay the price', () => {
   const { game, bot, humans } = botRoom({ cash: 900 });
   game.roundNumber = 14;
   bot.properties = [];
@@ -215,7 +204,7 @@ check('F2: the planner veto still binds where the auction would not pay the pric
   });
 });
 
-check('F2: a deed that completes a colour set is exempt from the +120 cash floor', () => {
+check('a deed that completes a colour set is exempt from the +120 cash floor', () => {
   const { game, bot } = botRoom({ cash: 100 });
   game.roundNumber = 14;
   bot.properties = [];
@@ -233,9 +222,9 @@ check('F2: a deed that completes a colour set is exempt from the +120 cash floor
   assert.equal(shouldBuyWithPlan(game, bot, stray), false);
 });
 
-// --- F3: smaller bot-policy defects ------------------------------------------------
+// Smaller bot-policy defects
 
-check('F3: jail stay-or-leave tells opponents apart when it reads the board', () => {
+check('jail stay-or-leave tells opponents apart when it reads the board', () => {
   const { game, bot, humans } = botRoom({ cash: 300 });
   bot.inJail = true;
   game.roundNumber = 14;
@@ -275,7 +264,7 @@ async function houseRescueChoice(game, bot) {
   return { candidates, decision };
 }
 
-await checkAsync('F3: a predatory bank loan is not taken before selling a house', async () => {
+await checkAsync('a predatory bank loan is not taken before selling a house', async () => {
   const { game, bot } = builtDebtor('predatory');
   assert.equal(game.getBankLoanOffer(bot).severity, 'predatory', 'the offer is the default predatory loan');
   const { candidates, decision } = await houseRescueChoice(game, bot);
@@ -287,14 +276,14 @@ await checkAsync('F3: a predatory bank loan is not taken before selling a house'
   assert.ok(sells.every(sale => sale.score > loan.score), 'every sale outranks the 50% premium loan');
 });
 
-await checkAsync('F3: a fair-priced bank loan still comes before selling a house', async () => {
+await checkAsync('a fair-priced bank loan still comes before selling a house', async () => {
   const { game, bot } = builtDebtor('fair');
   assert.equal(game.getBankLoanOffer(bot).severity, 'fair');
   const { decision } = await houseRescueChoice(game, bot);
   assert.equal(decision.actionId, 'debt:loan', 'a 20% premium is cheaper than the 50% a house sale gives away');
 });
 
-await checkAsync('F3: a zero-cash bot after its roll takes an available loan before declaring bankruptcy', async () => {
+await checkAsync('a zero-cash bot after its roll takes an available loan before declaring bankruptcy', async () => {
   const { room, game, bot } = botRoom({ cash: 0 });
   game.hasRolled = true;
   assert.equal(game.getBankLoanOffer(bot).available, true, 'the bank offers a loan');
@@ -323,7 +312,7 @@ for (const [catalogId, expectedCash] of [['silver-keepsake', 75], ['parlor-bond'
   });
 }
 
-await checkAsync('F3: a zero-cash bot with no loan on offer still declares bankruptcy', async () => {
+await checkAsync('a zero-cash bot with no loan on offer still declares bankruptcy', async () => {
   const { game, bot } = botRoom({ cash: 0 });
   game.hasRolled = true;
   game.getBankLoanOffer = () => ({ available: false });
@@ -331,7 +320,7 @@ await checkAsync('F3: a zero-cash bot with no loan on offer still declares bankr
   assert.deepEqual(ids, ['bankruptcy:zero-cash']);
 });
 
-// --- F3: market and casino candidates mirror the engine's table-obligation guard ---------
+// Market and casino candidates mirror the engine's table-obligation guard
 
 function marketRoom() {
   const fixture = botRoom({ cash: 6000, settings: { casino: true, market: true } });
@@ -345,7 +334,7 @@ function marketRoom() {
 const tableKinds = candidates => [...new Set(candidates.filter(candidate => ['casino', 'market'].includes(candidate.kind))
   .map(candidate => `${candidate.kind}:${candidate.side || ''}`))].sort();
 
-check('F3: casino and market candidates appear when the table is free', () => {
+check('casino and market candidates appear when the table is free', () => {
   const { game, bot } = marketRoom();
   assert.deepEqual(tableKinds(game.getBotCandidates(bot, { expanded: true, parity: true })), ['casino:', 'market:buy', 'market:sell'],
     'the control fixture offers a bet, market buys and a market sell');
@@ -359,7 +348,7 @@ check('F3: casino and market candidates appear when the table is free', () => {
     kind: 'loan', toPlayerId: humans[0].id, amount: 100, premiumRate: 10, durationRounds: 3
   }))]
 ].forEach(([label, open]) => {
-  check(`F3: no casino or market candidate is offered while the bot has ${label}`, () => {
+  check(`no casino or market candidate is offered while the bot has ${label}`, () => {
     const fixture = marketRoom();
     assert.equal(open(fixture).success, true, 'the obligation opens');
     assert.equal(fixture.game.tableObligationPending(), true, 'the engine reports a table obligation');
@@ -369,9 +358,34 @@ check('F3: casino and market candidates appear when the table is free', () => {
   });
 });
 
-// --- B-24 -------------------------------------------------------------------
+check('market buys respect margin and short debt while sells remain available', () => {
+  const { game, bot } = marketRoom();
+  for (const obligation of ['margin', 'short']) {
+    game.marginMaintenanceDue = () => obligation === 'margin';
+    bot.shortDefaultDebt = obligation === 'short' ? 50 : 0;
+    const candidates = game.botMarketCandidates(bot);
+    assert.equal(candidates.some(candidate => candidate.side === 'buy'), false, obligation);
+    assert.equal(candidates.some(candidate => candidate.side === 'sell'), true, obligation);
+  }
+});
 
-check('B-24: loan-contract candidates target a borrower who can service them', () => {
+check('bots request full amnesty settlement when discounted amount is affordable', () => {
+  for (const status of ['active', 'due']) {
+    const { room, game, bot } = botRoom({ cash: status === 'due' ? 360 : 600 });
+    game.globalEventIncludes = id => id === 'debt-amnesty';
+    game.activeEventEffects = () => ({ loanSettlementMultiplier: 0.8 });
+    bot.bankLoan = { status, remaining: 450, issuedRound: 1, dueRound: 10, cureRound: 11, collateralTileIndex: null };
+    const candidate = game.botBankLoanRepaymentCandidates(bot)[0];
+    assert.equal(candidate?.amount, 450, status);
+    const result = room.runBotAction(bot.id, actor => game.repayBankLoan(actor, { amount: candidate.amount, requestId: 'amnesty-bot' }));
+    assert.equal(result.success, true, result.error);
+    assert.equal(bot.bankLoan.status, 'paid');
+  }
+});
+
+// Loan-contract targeting
+
+check('loan-contract candidates target a borrower who can service them', () => {
   const { game, bot, humans } = botRoom({ cash: 1500 });
   const [poor, solvent] = humans;
   poor.cash = 80;
@@ -388,7 +402,7 @@ check('B-24: loan-contract candidates target a borrower who can service them', (
   };
   const forPoor = candidate => candidate.offer.toPlayerId === poor.id;
   // $80 of cash cannot service a $405 obligation, so no cash loan is aimed at
-  // that seat any more — and the top of the list is always closable.
+  // that seat, and the top of the list is always closable.
   assert.equal(loans.some(forPoor), false, 'no doomed cash loan is proposed to a broke borrower');
   assert.ok(loans.length >= 2, 'all viable borrowers are considered instead of truncating to two seats');
   const solventLoan = loans.find(candidate => candidate.offer.toPlayerId === solvent.id);
@@ -400,7 +414,7 @@ check('B-24: loan-contract candidates target a borrower who can service them', (
   assert.deepEqual(poorLegs.sort(), ['equity'], 'a cash-poor target still gets its deed-backed options');
 });
 
-check('B-24: loan ranking follows acceptance headroom, not borrower need', () => {
+check('loan ranking follows acceptance headroom, not borrower need', () => {
   const { game, bot, humans } = botRoom({ cash: 1500 });
   const [mid, roomy] = humans;
   mid.cash = 700;
@@ -416,9 +430,9 @@ check('B-24: loan ranking follows acceptance headroom, not borrower need', () =>
     'every proposed loan is serviceable under the responder gate');
 });
 
-// --- B-26 -------------------------------------------------------------------
+// Build ordering
 
-check('B-26: equal-score builds rank by development value, not by ascending cost', () => {
+check('equal-score builds rank by development value, not by ascending cost', () => {
   const { game, bot } = botRoom({ cash: 2000 });
   ownGroup(game, bot, 'Brown');          // $50 house, ~$40 rent gain per circuit
   ownGroup(game, bot, 'Dark Blue');      // $200 house, ~$140-200 rent gain per circuit
@@ -434,7 +448,7 @@ check('B-26: equal-score builds rank by development value, not by ascending cost
     'the parity-mode rail orders builds identically');
 });
 
-check('B-26: builds inside one monopoly keep their stable board order', () => {
+check('builds inside one monopoly keep their stable board order', () => {
   const { game, bot } = botRoom({ cash: 2000 });
   const tiles = ownGroup(game, bot, 'Light Blue');
   assert.deepEqual(buildIds(game.getBotCandidates(bot)), tiles.map(tile => `build:${tile.index}`),

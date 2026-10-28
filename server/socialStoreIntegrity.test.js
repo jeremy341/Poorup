@@ -1,4 +1,4 @@
-// s10 items 08, 09, 11: per-account caps instead of global truncation,
+// Covers per-account caps instead of global truncation,
 // rollback of memory when a persist fails, notification cleanup and a
 // re-request cooldown on cancel, and removeFriend revoking pending invites.
 import assert from 'node:assert/strict';
@@ -19,7 +19,7 @@ function failPersist(store, run) {
   try { run(); } finally { store.persist = original; }
 }
 
-// s10-08: no global truncation. One account filling its own block list does not
+// No global truncation. One account filling its own block list does not
 // evict another account's block, and the stores keep every record they hold.
 {
   const store = freshStore();
@@ -33,7 +33,7 @@ function failPersist(store, run) {
   assert.ok(reloaded.blocks.length > 10_000, 'a reload does not truncate either');
 }
 
-// s10-08: a per-account block cap rejects instead of dropping.
+// A per-account block cap rejects; it never drops.
 {
   const store = freshStore();
   for (let i = 0; i < 500; i += 1) assert.equal(store.blockPlayer('a', `t-${i}`).success, true);
@@ -45,7 +45,7 @@ function failPersist(store, run) {
   assert.equal(store.blockPlayer('b', 't-extra').success, true, 'another account is unaffected');
 }
 
-// s10-08: a per-reporter open-report cap.
+// A per-reporter open-report cap.
 {
   const store = freshStore();
   for (let i = 0; i < 50; i += 1) assert.equal(store.reportPlayer('r', `t-${i}`, 'spam').success, true);
@@ -54,7 +54,7 @@ function failPersist(store, run) {
   assert.equal(store.reportPlayer('q', 't-extra', 'spam').success, true, 'another reporter is unaffected');
 }
 
-// s10-08: a per-account friendship cap.
+// A per-account friendship cap.
 {
   const store = freshStore();
   for (let i = 0; i < 1_000; i += 1) assert.equal(store.requestFriend('a', `t-${i}`).success, true);
@@ -63,7 +63,7 @@ function failPersist(store, run) {
   assert.equal(store.friendships.length, 1_001);
 }
 
-// s10-09: every mutation rolls memory back when persist throws.
+// Every mutation rolls memory back when persist throws.
 {
   const store = freshStore();
   failPersist(store, () => {
@@ -103,7 +103,7 @@ function failPersist(store, run) {
   assert.equal(store.reports.length, 0);
 }
 
-// s10-11: cancelling a request deletes the target's notification for it.
+// Cancelling a request deletes the target's notification for it.
 {
   const store = freshStore();
   const { friendship } = store.requestFriend('a', 'b');
@@ -115,7 +115,7 @@ function failPersist(store, run) {
   assert.deepEqual(remaining.map(entry => entry.kind), ['room-invite'], 'only the cancelled request notification is removed');
 }
 
-// s10-11: a re-request cooldown after cancel (and after a decline).
+// A re-request cooldown after cancel (and after a decline).
 {
   const realNow = Date.now;
   let clock = 1_700_000_000_000;
@@ -142,7 +142,7 @@ function failPersist(store, run) {
   }
 }
 
-// s10-11: a declined request cannot be resent at once (updatedAt is wall-clock).
+// A declined request cannot be resent at once (updatedAt is wall-clock).
 {
   const declined = freshStore();
   const request = declined.requestFriend('x', 'y');
@@ -158,7 +158,7 @@ function failPersist(store, run) {
   assert.equal(declined.requestFriend('x', 'y').success, true, 'it can be resent after the cooldown');
 }
 
-// s10-11: removeFriend revokes the former friend's pending invites.
+// removeFriend revokes the former friend's pending invites.
 {
   const store = freshStore();
   const { friendship } = store.requestFriend('a', 'b');
@@ -170,7 +170,7 @@ function failPersist(store, run) {
   assert.ok(store.getInvite('c', other.id), 'invites to other players are untouched');
 }
 
-// H1: display-name redaction replaces whole words only, so unrelated text that
+// Display-name redaction replaces whole words only, so unrelated text that
 // happens to contain the name as a substring is not corrupted.
 {
   const store = freshStore();
@@ -183,7 +183,7 @@ function failPersist(store, run) {
   assert.equal(kept[0].body, 'A deleted player went home.', 'a whole-word name is still redacted');
 }
 
-// H1: only the notifications about the deleted account are touched. One that
+// Only the notifications about the deleted account are touched. One that
 // references it by metadata is removed, one that names it as a whole token is
 // redacted, and an unrelated notification is left exactly as it was.
 {
@@ -199,7 +199,7 @@ function failPersist(store, run) {
   assert.equal(bodies.some(body => body.includes('Ann Marie')), false, 'no copy of the deleted name remains');
 }
 
-// H2: removeFriend only deletes an accepted friendship; pending and declined
+// removeFriend only deletes an accepted friendship; pending and declined
 // records are cancelled/declined with the matching cooldown.
 {
   const store = freshStore();
@@ -228,7 +228,7 @@ function failPersist(store, run) {
   assert.equal(store.requestFriend('a', 'b').success, false, 'the decline cooldown survives the removal');
 }
 
-// F7: housekeeping never leaves memory pruned when the write fails.
+// Housekeeping never leaves memory pruned when the write fails.
 {
   const store = freshStore();
   store.createInvite({ roomCode: 'OLDINV', senderId: 'a', recipientId: 'b' });
@@ -243,7 +243,7 @@ function failPersist(store, run) {
   assert.equal(store.invites.length, 0);
 }
 
-// H7: load normalizes malformed friendship, block and report rows.
+// Load normalizes malformed friendship, block and report rows.
 {
   const filePath = path.join(tempDir, 'social-normalized.json');
   const longId = 'x'.repeat(121);
@@ -282,7 +282,7 @@ function failPersist(store, run) {
   assert.equal(store.reports.filter(report => report.status === 'open').length, 2);
 }
 
-// H7: closed (declined) request history is bounded on load too, and the most
+// Closed (declined) request history is bounded on load too, and the most
 // recent rows are kept so a decline cooldown still survives a restart.
 {
   const filePath = path.join(tempDir, 'social-closed-cap.json');
@@ -298,7 +298,7 @@ function failPersist(store, run) {
   assert.deepEqual(store.friendships.map(entry => entry.id), Array.from({ length: 50 }, (_, i) => `d-${70 + i}`), 'the most recent closed rows are the ones kept');
 }
 
-// H7/H8: load enforces the friendship, pending-inbound and archived-report caps.
+// Load enforces the friendship, pending-inbound and archived-report caps.
 {
   const filePath = path.join(tempDir, 'social-load-caps.json');
   const friendships = [];
@@ -328,7 +328,7 @@ function failPersist(store, run) {
   assert.equal(store.reports.length, 60, 'load keeps open report evidence beyond the mutation cap');
 }
 
-// H8: incoming pending requests have their own cap and never spend the
+// Incoming pending requests have their own cap and never spend the
 // recipient's outgoing budget.
 {
   const store = freshStore();

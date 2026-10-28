@@ -78,7 +78,7 @@ const cappedCampaign = await runBotTournament({
     createBotPolicy('campaign-ai-b', { brain: 'ai', advisor: campaignAdvisor })
   ]],
   seatRotations: [0],
-  // Decisions with nothing to choose between no longer reach the provider, so the
+  // Decisions with nothing to choose between do not reach the provider, so the
   // second (cap-exhausting) request needs a few more steps than it once did.
   stepLimit: 40,
   callCapTracker: campaignTransport
@@ -102,7 +102,7 @@ await withSeededSimulationGlobals(15, async ({ advanceTime }) => {
   advanceTime(300);
   assert.equal(Date.now(), startedAt + 300, 'simulations advance deterministic virtual time for timed game rules');
 });
-// F-063: seeded dice must roll doubles at the real rate. The old LCG alternated
+// Seeded dice must roll doubles at the real rate. A plain LCG alternates
 // parity on every draw, so die one and die two could never match.
 const DICE_SAMPLE = 20_000;
 const seededDicePairs = seed => withSeededSimulationGlobals(seed, () => Array.from({ length: DICE_SAMPLE }, () => rollDice()));
@@ -133,7 +133,7 @@ const delayedDecision = await withSeededSimulationGlobals(16, () => delayedProvi
 }));
 assert.ok(delayedDecision.latencyMs >= 10, 'AI provider latency uses elapsed wall time, not the frozen simulation clock');
 
-// 30 steps: the stub is only asked at real decisions now, and the first one falls after step 10.
+// 30 steps: the stub is only asked at real decisions, and the first one falls after step 10.
 const first = await simulateBotMatch({ seed: 7123, policyBySeat: policies, stepLimit: 30, captureTrace: true });
 const replay = await simulateBotMatch({ seed: 7123, policyBySeat: policies, stepLimit: 30, captureTrace: true });
 assert.deepEqual(replay.decisionTrace, first.decisionTrace, 'same seed and policies reproduce the decision trace');
@@ -338,7 +338,7 @@ const ledgerResult = buildMatchResult(ledgerRoom, {
 });
 assert.equal(ledgerResult.marketPnlByPolicy['market-a'], 33, 'market P&L includes realized sales, fees, and remaining holdings');
 
-// F-004: buildings count toward tournament net worth. A developed Brown set
+// Buildings count toward tournament net worth. A developed Brown set
 // (4 houses, then a hotel stored as houseCount 5) must outrank an equal-cash
 // bare Light Blue pair; the old tileAssetValue counted buildings as $0.
 const developedGame = createSimulationRoom({ settings: { seatCount: 2 } }).game;
@@ -386,7 +386,7 @@ assert.equal(reportingSummary.strategyMetricsByPolicy.reporting.auctionBidFacePr
 assert.equal(reportingSummary.strategyMetricsByPolicy.reporting.completedGroupsLost, 1);
 assert.equal(reportingSummary.strategyMetricsByPolicy.reporting.marketPnl, 15);
 
-// F-082: the documented COUNT knob must run seeds 1..COUNT, and an empty or
+// The documented COUNT knob must run seeds 1..COUNT, and an empty or
 // blank SEEDS must not be read as seed 0.
 const cliRuns = [];
 const runCli = env => runTournamentCli({

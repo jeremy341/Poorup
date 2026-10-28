@@ -11,6 +11,7 @@ import {
   buildAssociation,
   buildDataQuality
 } from './analyticsProjection.js';
+import { createAnalyticsRollupStore } from './analyticsRollupStore.js';
 
 function check(name, run) {
   try {
@@ -87,7 +88,7 @@ check('builds ruleset, economy, event, and bot read models', () => {
   assert.equal(bots.rows[0].associationLabel, undefined);
 });
 
-check('S15-01: a ruleset row is one preset on one board, not one per bot, provider or event slice', () => {
+check('a ruleset row is one preset on one board, not one per bot, provider or event slice', () => {
   const base = { seasonId: 's', rulesetRevision: 1, balanceRevision: 1, boardVariant: 'standard-40', marketComplexity: 'basic' };
   const sliced = {
     generatedAt: '2026-09-13T12:00:00.000Z',
@@ -167,7 +168,7 @@ check('live tiles come only from measured runtime numbers and stay null otherwis
   kpis.forEach(item => assert.equal(typeof item.unit, 'string'));
 });
 
-check('N11c: the error rate counts failed player actions, not HTTP failures', () => {
+check('the error rate counts failed player actions, not HTTP failures', () => {
   const live = { activeSockets: 7, actionCount: 200, errorCount: 5, socketErrorCount: 2, httpErrorCount: 3, latencyP95Ms: 41, latencySamples: 200, peakSockets24h: 19 };
   const kpis = buildOverview({ ...rollup, quality: { ...rollup.quality, live } }, query).kpis;
   const errorRate = kpis.find(item => item.id === 'error-rate');
@@ -195,4 +196,18 @@ check('adds a previous-period comparison only when a previous window is supplied
   const completion = kpis.find(item => item.id === 'completion-rate');
   assert.equal(completion.comparison.value, 0.8);
   assert.equal(completion.comparison.delta, 0);
+});
+
+check('match duration median and p95 describe the whole window, not the first 2048 matches', () => {
+  const start = Date.parse('2026-10-20T10:05:00Z');
+  const store = createAnalyticsRollupStore({ now: () => start + 30 * 60 * 1000 });
+  const total = 3000;
+  for (let seconds = 1; seconds <= total; seconds += 1) {
+    store.record({ kind: 'match-complete', createdAt: new Date(start + seconds).toISOString(), data: { durationSeconds: seconds, botOnly: false } });
+  }
+  const health = buildMatchHealth(store, { range: 'month' });
+  assert.equal(health.durationMedian.sampleSize, total, 'the sample size is the full count');
+  // The sample is uniform, so the statistics land near the truth (a sample of only the first 2048 values would give 1024 and 1946).
+  assert.ok(Math.abs(health.durationMedian.value - 1500.5) < 120, `median ${health.durationMedian.value} is close to 1500.5`);
+  assert.ok(Math.abs(health.durationP95.value - 2850) < 90, `p95 ${health.durationP95.value} is close to 2850`);
 });

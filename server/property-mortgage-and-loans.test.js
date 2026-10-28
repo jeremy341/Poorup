@@ -1,7 +1,6 @@
-// Audit fixes for property mortgage gates, purchase-offer liveness and
-// tile coercion, bank-loan issue guards, and loan collateral naming.
-// Style mirrors server/contracts-market.test.js: results array, check,
-// summary, process.exit.
+// Property mortgage gates, purchase-offer liveness, tile coercion, bank-loan issue guards,
+// and loan collateral naming. Style mirrors server/contracts-market.test.js: results array,
+// check, summary and process.exit.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 
@@ -72,21 +71,21 @@ function loanRoom() {
 const PROPERTY_LIVENESS_ERROR = 'Property access is unavailable right now.';
 const BANK_LIVENESS_ERROR = 'Bank credit is unavailable right now.';
 
-check('FIX1 mortgage blocked for bankrupt seat', () => {
+check('mortgage blocked for bankrupt seat', () => {
   const ctx = ownedRoom();
   ctx.give(1);
   ctx.owner.bankrupt = true;
   assert.deepEqual(ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }), { success: false, error: PROPERTY_LIVENESS_ERROR });
 });
 
-check('FIX1 mortgage blocked for disconnected seat', () => {
+check('mortgage blocked for disconnected seat', () => {
   const ctx = ownedRoom();
   ctx.give(1);
   ctx.owner.disconnected = true;
   assert.deepEqual(ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }), { success: false, error: PROPERTY_LIVENESS_ERROR });
 });
 
-check('FIX1 unmortgage blocked for bankrupt seat', () => {
+check('unmortgage blocked for bankrupt seat', () => {
   const ctx = ownedRoom();
   const tile = ctx.give(1);
   tile.mortgaged = true;
@@ -94,7 +93,7 @@ check('FIX1 unmortgage blocked for bankrupt seat', () => {
   assert.deepEqual(ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'unmortgage' }), { success: false, error: PROPERTY_LIVENESS_ERROR });
 });
 
-check('FIX1 mortgage raises funds to settle pendingPayment', () => {
+check('mortgage raises funds to settle pendingPayment', () => {
   const ctx = ownedRoom();
   const tile = ctx.give(1);
   ctx.owner.cash = 0;
@@ -106,7 +105,7 @@ check('FIX1 mortgage raises funds to settle pendingPayment', () => {
   assert.equal(ctx.owner.cash, 20);
 });
 
-check('FIX1 debt owed by another seat does not block a mortgage', () => {
+check('debt owed by another seat does not block a mortgage', () => {
   const ctx = ownedRoom();
   ctx.give(1);
   ctx.game.pendingPayment = { playerId: 'another-player', creditorId: null, amountRemaining: 10, reason: 'r' };
@@ -114,35 +113,35 @@ check('FIX1 debt owed by another seat does not block a mortgage', () => {
   assert.equal(result.success, true);
 });
 
-check('FIX1 mortgage remains available while an unrelated auction is open', () => {
+check('mortgage remains available while an unrelated auction is open', () => {
   const ctx = ownedRoom();
   ctx.give(1);
   ctx.game.auction = { active: true };
   assert.equal(ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }).success, true);
 });
 
-check('FIX1 mortgage remains available while an unrelated trade is open', () => {
+check('mortgage remains available while an unrelated trade is open', () => {
   const ctx = ownedRoom();
   ctx.give(1);
   ctx.game.pendingTrade = { id: 't1' };
   assert.equal(ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }).success, true);
 });
 
-check('FIX1 mortgage remains available while an unrelated contract is open', () => {
+check('mortgage remains available while an unrelated contract is open', () => {
   const ctx = ownedRoom();
   ctx.give(1);
   ctx.game.pendingPlayerContract = { id: 'c1' };
   assert.equal(ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }).success, true);
 });
 
-check('FIX1 mortgage remains available while another player property offer is open', () => {
+check('mortgage remains available while another player property offer is open', () => {
   const ctx = ownedRoom();
   ctx.give(6);
   ctx.game.pendingPurchaseOffer = { playerId: ctx.owner.id, tileIndex: 1 };
   assert.equal(ctx.game.manageProperty('socket-a', { tileIndex: 6, action: 'mortgage' }).success, true);
 });
 
-check('FIX1 liveness wins over table obligation', () => {
+check('liveness wins over table obligation', () => {
   const ctx = ownedRoom();
   ctx.give(1);
   ctx.owner.bankrupt = true;
@@ -150,7 +149,7 @@ check('FIX1 liveness wins over table obligation', () => {
   assert.deepEqual(ctx.game.manageProperty('socket-a', { tileIndex: 1, action: 'mortgage' }), { success: false, error: PROPERTY_LIVENESS_ERROR });
 });
 
-check('FIX1 mortgage still succeeds with a live seat and a free table', () => {
+check('mortgage still succeeds with a live seat and a free table', () => {
   const ctx = ownedRoom();
   const tile = ctx.give(1);
   ctx.owner.cash = 0;
@@ -158,7 +157,7 @@ check('FIX1 mortgage still succeeds with a live seat and a free table', () => {
   assert.equal(tile.mortgaged, true);
 });
 
-check('FIX1 summary projects event-aware property action costs and reasons', () => {
+check('summary projects event-aware property action costs and reasons', () => {
   const ctx = ownedRoom();
   const tile = ctx.give(1);
   ctx.game.globalEvent = { id: 'housing', phase: 'active', effects: { buildingCostMultiplier: 1.35, propertyValueMultiplier: 0.65 } };
@@ -168,7 +167,7 @@ check('FIX1 summary projects event-aware property action costs and reasons', () 
   assert.equal(projected.unmortgage.cost, 22);
 });
 
-check('FIX2 purchase accept blocked for bankrupt seat', () => {
+check('purchase accept blocked for bankrupt seat', () => {
   const ctx = offerRoom();
   const tile = ctx.game.getTile(1);
   tile.ownerId = null;
@@ -178,7 +177,7 @@ check('FIX2 purchase accept blocked for bankrupt seat', () => {
   assert.deepEqual(ctx.game.purchaseProperty('socket-a', 1), { success: false, error: PROPERTY_LIVENESS_ERROR });
 });
 
-check('FIX2 purchase accept blocked for disconnected seat', () => {
+check('purchase accept blocked for disconnected seat', () => {
   const ctx = offerRoom();
   const tile = ctx.game.getTile(1);
   tile.ownerId = null;
@@ -188,7 +187,7 @@ check('FIX2 purchase accept blocked for disconnected seat', () => {
   assert.deepEqual(ctx.game.purchaseProperty('socket-a', 1), { success: false, error: PROPERTY_LIVENESS_ERROR });
 });
 
-check('FIX2 decline blocked for bankrupt seat', () => {
+check('decline blocked for bankrupt seat', () => {
   const ctx = offerRoom();
   const tile = ctx.game.getTile(1);
   tile.ownerId = null;
@@ -197,7 +196,7 @@ check('FIX2 decline blocked for bankrupt seat', () => {
   assert.deepEqual(ctx.game.declineProperty('socket-a', 1), { success: false, error: PROPERTY_LIVENESS_ERROR });
 });
 
-check('FIX2 string tileIndex is coerced for purchase', () => {
+check('string tileIndex is coerced for purchase', () => {
   const ctx = offerRoom();
   const tile = ctx.game.getTile(1);
   tile.ownerId = null;
@@ -207,7 +206,7 @@ check('FIX2 string tileIndex is coerced for purchase', () => {
   assert.equal(tile.ownerId, ctx.buyer.id);
 });
 
-check('FIX2 string tileIndex is coerced for decline', () => {
+check('string tileIndex is coerced for decline', () => {
   const ctx = offerRoom();
   const tile = ctx.game.getTile(1);
   tile.ownerId = null;
@@ -216,7 +215,7 @@ check('FIX2 string tileIndex is coerced for decline', () => {
   assert.equal(ctx.game.pendingPurchaseOffer, null);
 });
 
-check('FIX2 string tileIndex is coerced for property management', () => {
+check('string tileIndex is coerced for property management', () => {
   const ctx = ownedRoom();
   const tile = ctx.give(1);
   ctx.owner.cash = 0;
@@ -224,19 +223,19 @@ check('FIX2 string tileIndex is coerced for property management', () => {
   assert.equal(tile.mortgaged, true);
 });
 
-check('FIX3 bank loan blocked for bankrupt seat', () => {
+check('bank loan blocked for bankrupt seat', () => {
   const ctx = loanRoom();
   ctx.borrower.bankrupt = true;
   assert.deepEqual(ctx.game.takeBankLoan('socket-a', 'audit-bankrupt'), { success: false, error: BANK_LIVENESS_ERROR });
 });
 
-check('FIX3 bank loan blocked for disconnected seat', () => {
+check('bank loan blocked for disconnected seat', () => {
   const ctx = loanRoom();
   ctx.borrower.disconnected = true;
   assert.deepEqual(ctx.game.takeBankLoan('socket-a', 'audit-disconnected'), { success: false, error: BANK_LIVENESS_ERROR });
 });
 
-check('FIX3 bank loan remains available as an in-debt rescue action', () => {
+check('bank loan remains available as an in-debt rescue action', () => {
   const ctx = loanRoom();
   ctx.borrower.inDebt = true;
   ctx.game.pendingPayment = { playerId: ctx.borrower.id, creditorId: null, amountRemaining: 500, reason: 'rent' };
@@ -247,19 +246,19 @@ check('FIX3 bank loan remains available as an in-debt rescue action', () => {
   assert.equal(ctx.game.pendingPayment.amountRemaining, 500);
 });
 
-check('FIX3 unknown socket reports unavailable bank credit', () => {
+check('unknown socket reports unavailable bank credit', () => {
   const ctx = loanRoom();
   assert.deepEqual(ctx.game.takeBankLoan('socket-missing', 'audit-unknown'), { success: false, error: BANK_LIVENESS_ERROR });
 });
 
-check('FIX3 bank loan still succeeds for a live solvent seat', () => {
+check('bank loan still succeeds for a live solvent seat', () => {
   const ctx = loanRoom();
   const result = ctx.game.takeBankLoan('socket-a', 'audit-clean');
   assert.equal(result.success, true);
   assert.equal(result.loan.status, 'active');
 });
 
-check('FIX3 bank loan remains blocked by other table obligations', () => {
+check('bank loan remains blocked by other table obligations', () => {
   ['pendingPurchaseOffer', 'auction', 'pendingTrade', 'pendingPlayerContract'].forEach((key) => {
     const ctx = loanRoom();
     ctx.borrower.cash = 100;
@@ -271,7 +270,7 @@ check('FIX3 bank loan remains blocked by other table obligations', () => {
   });
 });
 
-check('FIX4 issued loan stores collateralName', () => {
+check('issued loan stores collateralName', () => {
   const ctx = loanRoom();
   const tile = ctx.game.getTile(1);
   tile.ownerId = ctx.borrower.id;
@@ -284,14 +283,14 @@ check('FIX4 issued loan stores collateralName', () => {
   assert.equal(result.loan.collateralName, tile.name);
 });
 
-check('FIX4 issued loan falls back to NONE with no deed', () => {
+check('issued loan falls back to NONE with no deed', () => {
   const ctx = loanRoom();
   const result = ctx.game.takeBankLoan('socket-a', 'audit-none');
   assert.equal(result.success, true);
   assert.equal(result.loan.collateralName, 'NONE');
 });
 
-check('FIX4 bank collateral excludes deeds that already carry equity shares', () => {
+check('bank collateral excludes deeds that already carry equity shares', () => {
   const ctx = loanRoom();
   const tile = ctx.game.getTile(1);
   tile.ownerId = ctx.borrower.id;
@@ -303,7 +302,7 @@ check('FIX4 bank collateral excludes deeds that already carry equity shares', ()
   assert.equal(result.loan.collateralName, 'NONE');
 });
 
-// --- FIX5 bank-loan default, replay cache and collateral sale rate ----------
+// Bank-loan default, replay cache and collateral sale rate
 
 // A borrower whose bank loan is past the cure round, with the seat's cash and
 // the debt it already owes left to the test.
@@ -327,7 +326,7 @@ function defaultingLoanRoom({ cash = 500, parked = 0 } = {}) {
   return ctx;
 }
 
-check('FIX5 a bank default waits behind the debt the seat already owes', () => {
+check('a bank default waits behind the debt the seat already owes', () => {
   const ctx = defaultingLoanRoom({ cash: 500, parked: 100 });
   ctx.game.processBankLoans();
   assert.equal(ctx.borrower.bankLoan.status, 'defaulted');
@@ -339,7 +338,7 @@ check('FIX5 a bank default waits behind the debt the seat already owes', () => {
   assert.equal(ctx.borrower.bankLoan.remaining, 300, 'the balance is cleared only after settlement');
 });
 
-check('FIX5 the queued bank claim clears the loan balance once it is paid', () => {
+check('the queued bank claim clears the loan balance once it is paid', () => {
   const ctx = defaultingLoanRoom({ cash: 500, parked: 100 });
   ctx.game.processBankLoans();
   assert.equal(ctx.game.pendingPaymentQueue.length, 1, 'the bank claim is queued');
@@ -351,7 +350,7 @@ check('FIX5 the queued bank claim clears the loan balance once it is paid', () =
   assert.equal(ctx.game.pendingPaymentQueue.length, 0);
 });
 
-check('FIX5 an unsettled bank claim keeps the loan balance open', () => {
+check('an unsettled bank claim keeps the loan balance open', () => {
   const ctx = defaultingLoanRoom({ cash: 40 });
   ctx.game.processBankLoans();
   assert.equal(ctx.game.pendingPayment.amountRemaining, 260);
@@ -361,7 +360,7 @@ check('FIX5 an unsettled bank claim keeps the loan balance open', () => {
   assert.equal(ctx.borrower.bankLoan.remaining, 0);
 });
 
-check('FIX5 a solvent default with no claim ahead is still paid outright', () => {
+check('a solvent default with no claim ahead is still paid outright', () => {
   const ctx = defaultingLoanRoom({ cash: 500 });
   ctx.game.processBankLoans();
   assert.equal(ctx.borrower.bankLoan.status, 'defaulted');
@@ -371,7 +370,7 @@ check('FIX5 a solvent default with no claim ahead is still paid outright', () =>
   assert.equal(ctx.game.pendingPaymentQueue.length, 0);
 });
 
-check('FIX5 a replayed loan answer is the state the loan was given in', () => {
+check('a replayed loan answer is the state the loan was given in', () => {
   const ctx = loanRoom();
   const taken = ctx.game.takeBankLoan('socket-a', 'replay-take');
   assert.equal(taken.success, true);
@@ -389,7 +388,7 @@ check('FIX5 a replayed loan answer is the state the loan was given in', () => {
   assert.equal(replayedRepay.loan.status, 'paid');
 });
 
-check('FIX5 a repayment request id is scoped to the loan it paid', () => {
+check('a repayment request id is scoped to the loan it paid', () => {
   const ctx = loanRoom();
   const first = ctx.game.takeBankLoan('socket-a', 'scope-take');
   ctx.borrower.cash = 1000;
@@ -407,7 +406,7 @@ check('FIX5 a repayment request id is scoped to the loan it paid', () => {
   assert.equal(ctx.borrower.cash, 1000 - second.loan.totalDue, 'the second repayment really ran');
 });
 
-check('FIX5 a seized house is liquidated at the table sale rate', () => {
+check('a seized house is liquidated at the table sale rate', () => {
   const ctx = loanRoom();
   const tile = ctx.game.getTile(1);
   tile.ownerId = ctx.borrower.id;
@@ -421,6 +420,35 @@ check('FIX5 a seized house is liquidated at the table sale rate', () => {
   ctx.game.processBankLoans();
   assert.equal(ctx.borrower.bankLoan.status, 'defaulted');
   assert.equal(ctx.borrower.cash, Math.floor(2 * houseCost * 0.25), 'the houses liquidate at the sale rate');
+});
+
+check('bank-loan repayment cannot spend cash reserved for a parked player debt', () => {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
+  room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
+  room.setRoomSetting('rulesProfile', 'advanced');
+  room.setRoomSetting('bankLoans', true);
+  assert.equal(room.startGame().success, true);
+  const game = room.game;
+  const [a, b] = game.players;
+  game.currentPlayerId = a.id;
+  game.hasRolled = true;
+  game.awaitingEndTurn = true;
+  const deed = game.tiles.find((t) => t.type === 'property' && t.price >= 120 && t.price <= 130 && !t.ownerId);
+  deed.ownerId = a.id; a.properties.push(deed.index); deed.mortgaged = false; deed.houseCount = 0;
+  a.cash = 0;
+  game.openDebtSettlement({ player: a, creditor: b, amount: 100, message: 'rent owed to B', turnOptions: {}, hooks: {} });
+  a.bankLoan = { loanId: 'loan_t_1', status: 'active', principal: 300, totalDue: 450, remaining: 450, issuedRound: 1, dueRound: 9, cureRound: 10, collateralTileIndex: null, collateralTileIndices: [] };
+  assert.equal(game.manageProperty('socket-a', { tileIndex: deed.index, action: 'mortgage' }).success, true);
+  assert.equal(a.cash, 60, 'the mortgage pays 60, short of the 100 claim');
+  const attempt = game.repayBankLoan('socket-a', { amount: 60, requestId: 'r-1' });
+  assert.equal(attempt.success, false, 'the 60 is B\'s, so it cannot go to the bank');
+  assert.match(attempt.error, /reserved for a debt/);
+  assert.equal(a.cash, 60);
+  assert.equal(a.bankLoan.remaining, 450, 'the loan balance is untouched');
+  a.cash = 160;
+  assert.equal(game.repayBankLoan('socket-a', { amount: 60, requestId: 'r-2' }).success, true, 'cash above the claim can still repay the bank');
+  assert.equal(a.bankLoan.remaining, 390);
 });
 
 const failed = results.filter((entry) => entry !== true).length;

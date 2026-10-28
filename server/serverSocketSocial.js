@@ -1,9 +1,6 @@
-// The social socket domain: chat, friends/blocks, invites, notifications,
-// player cards, search, match history, leaderboards, and Parlor Patrol.
-// Every ack payload, error string, and emit order is wire-identical to the
-// original server.js handlers; the high-cc handlers (friend-request privacy,
-// player-card visibility, search, history, invites) became guard chains in
-// the propertyApi.js style.
+// The social socket domain: chat, friends and blocks, invites, notifications, player cards, search, match history, leaderboards and Parlor Patrol.
+// Every ack payload, error string and emit order is wire-identical to the original server.js handlers. The high-cc handlers
+// (friend-request privacy, player-card visibility, search, history, invites) became guard chains in the propertyApi.js style.
 import crypto from 'crypto';
 import { listMatchRecordsForAccount } from './matchHistoryAdapter.js';
 import { PARLOR_PATROL_ENABLED, PARLOR_PATROL_OFF_MESSAGE } from './accountStore.js';
@@ -30,9 +27,8 @@ const leaderboardCaches = new WeakMap();
 const PLAYER_NOT_FOUND ={ success: false, error: 'Player not found.' };
 const ACCOUNT_DELETION_PENDING = { success: false, code: 'ACCOUNT_DELETION_PENDING', error: 'Account deletion is pending.' };
 
-// Public social references use the already-public username rather than the
-// internal account UUID. Keep the existing wire field names while ensuring
-// accountStore IDs stay server-side.
+// Public social references use the already-public username, not the internal account UUID. Keep the existing wire field names
+// while accountStore IDs stay server-side.
 export function publicSearchProfile(account) {
   return { id: account.username, username: account.username, displayName: account.displayName, color: account.color, avatarGrid: account.avatarGrid };
 }
@@ -228,6 +224,8 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     if (restricted(viewer)) return reply(callback, ACCOUNT_DELETION_PENDING);
     const target = lookupAccountTarget(payload.accountId, viewer);
     if (!target || (target.accountDeactivated === true && target.id !== viewer?.id)) return reply(callback, PLAYER_NOT_FOUND);
+    // A block hides the blocker everywhere else (card, search): the history follows the same gate.
+    if (blockedCardView(viewer, target)) return reply(callback, PLAYER_NOT_FOUND);
     const friendship = viewer ? socialStore.friendshipBetween(viewer.id, target.id) : null;
     const { canSeePrivateHistory, error: privacyError } = matchHistoryPrivacyError(viewer, target, friendship);
     if (privacyError) return reply(callback, { success: false, error: privacyError });
@@ -311,7 +309,7 @@ function registerSocialSocketHandlers(on, socket, runtime) {
 
   socket.on?.('disconnect', () => {
     for (const [token, run] of patrolRuns) {
-      if (run.socketId !== socket.id) continue;
+      if (run.socketId !== socket.id || run.settlementPending) continue;
       clearTimeout(run.timer);
       patrolRuns.delete(token);
     }
@@ -432,6 +430,8 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     const token = String(payload.runToken || '').trim();
     const invalid = patrolRunError(socket.id, account, token);
     if (invalid) { reply(callback, { success: false, error: invalid }); return null; }
+    // An account with a pending deletion takes no writes, and a patrol run ends in one (score, achievements).
+    if (restricted(account)) { reply(callback, ACCOUNT_DELETION_PENDING); return null; }
     const run = patrolRuns.get(token);
     const now = Date.now();
     const expiredPause = run.pausedAt !== null && (run.initialWaiting ? 0 : run.pausedTotal) + now - run.pausedAt >= PATROL_PAUSE_LIMIT_MS;
@@ -449,10 +449,11 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     if (!PARLOR_PATROL_ENABLED) return reply(callback, { success: false, error: PARLOR_PATROL_OFF_MESSAGE });
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to sync Parlor Patrol achievements.' });
+    if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
     if (!allowSocialAction(account.id, 'patrol-run')) return reply(callback, { success: false, error: 'Too many patrol runs. Try again in a minute.' });
     prunePatrolRuns();
     for (const [token, previous] of patrolRuns) {
-      if (previous.socketId === socket.id) { clearTimeout(previous.timer); patrolRuns.delete(token); }
+      if (previous.socketId === socket.id && !previous.settlementPending) { clearTimeout(previous.timer); patrolRuns.delete(token); }
     }
     if ([...patrolRuns.values()].some(run => run.accountId === account.id)) return reply(callback, { success: false, error: 'A patrol is already active on another connection.' });
     if (patrolRuns.size >= 2000) return reply(callback, { success: false, error: 'Patrol is busy. Try again shortly.' });
@@ -565,16 +566,48 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     if (!context) return;
     const { account, run } = context;
     patrolAdvance(run);
+    if (!run.ended) {
+      run.ended = true;
+      run.endedAt = Date.now();
+      run.endReason = 'finished';
+    }
+    run.pausedAt = null;
+    run.settlementPending = true;
+    patrolArm(run);
+    const cleanRun = run.hearts === 0 && run.clearedCleanWave;
+    let result;
+    try {
+      result = accountStore.recordPatrolResult(account.id, {
+        score: run.score,
+        misses: run.misses,
+        settlementId: run.token,
+        cleanRun
+      });
+    } catch (error) {
+      console.error('Patrol score settlement failed:', error?.message || 'unknown error');
+      run.endedAt = Date.now();
+      patrolArm(run);
+      return reply(callback, { success: false, retryable: true, error: 'Could not save this patrol. Please try again.' });
+    }
+    if (!result.success) {
+      if (result.retryable) {
+        run.endedAt = Date.now();
+        patrolArm(run);
+        return reply(callback, result);
+      }
+      clearTimeout(run.timer);
+      patrolRuns.delete(run.token);
+      return reply(callback, result);
+    }
     clearTimeout(run.timer);
     patrolRuns.delete(run.token);
-    const result = accountStore.recordPatrolResult(account.id, { score: run.score, misses: run.misses });
-    if (!result.success) return reply(callback, result);
-    const cleanRun = run.hearts === 0 && run.clearedCleanWave;
     const candidates = patrolAchievementCandidates(account, run.score, { ...result, cleanRun });
     candidates.forEach(candidate => {
       try { recordVerifiedAchievement(candidate, `patrol_${run.token}`); }
       catch (error) { console.error('Patrol achievement settlement failed:', error?.message || 'unknown error'); }
     });
+    try { runtime.social.reconcilePendingPatrolAchievementSettlements?.(account.id); }
+    catch (error) { console.error('Patrol achievement journal reconciliation failed:', error?.message || 'unknown error'); }
     const response = { success: true, score: run.score, misses: run.misses, best: result.best, aceRuns: result.aceRuns };
     rememberCompletedPatrolResult(account.id, run.token, response);
     const snapshot = accountStore.getAccountSnapshot(account.id);
@@ -792,14 +825,23 @@ function leaderboardScope(rawScope) {
     return compute.serve(ack);
   }
 
-  // An account that keeps its achievements private is not ranked by them, and
-  // its achievement figures are not published on any other board.
-  function withAchievementPrivacy(metric, rows) {
+  // An account that keeps its achievements private (or friends-only) is not
+  // ranked by them, and its achievement figures are not published on any other
+  // board, unless the viewer is the owner or (friends-only) an accepted friend.
+  function withAchievementPrivacy(metric, rows, viewer = null) {
     const ranksAchievements = metric === 'achievements' || metric === 'mythical';
+    const graph = viewer && typeof socialStore.friendshipIndex === 'function' ? socialStore.friendshipIndex() : socialStore;
+    const mayRead = owner => {
+      const level = owner?.privacy?.achievements;
+      if (level !== 'private' && level !== 'friends') return true;
+      if (!viewer) return false;
+      if (viewer.id === owner.id) return true;
+      return level === 'friends' && graph.friendshipBetween(viewer.id, owner.id)?.status === 'accepted';
+    };
     return rows.flatMap(row => {
       const owner = accountStore.getAccountById(row?.accountId);
       if (!owner || accountDeactivated(row.accountId)) return [];
-      if (owner?.privacy?.achievements !== 'private') return [row];
+      if (mayRead(owner)) return [row];
       if (ranksAchievements) return [];
       const rest = { ...row };
       ['achievements', 'achievementScore', 'mythical'].forEach(field => delete rest[field]);
@@ -809,7 +851,7 @@ function leaderboardScope(rawScope) {
 
   function leaderboardAck(callback, metric, scope, options, viewer) {
     const compute = () => ({ success: true, metric, scope, rows: accountStore.getLeaderboard(metric, options) });
-    compute.serve = ack => ({ ...ack, rows: withAchievementPrivacy(metric, ack.rows || []).map(publicLeaderboardRow) });
+    compute.serve = ack => ({ ...ack, rows: withAchievementPrivacy(metric, ack.rows || [], viewer).map(publicLeaderboardRow) });
     if (scope === 'friends') {
       // A friends board is per viewer and never cached, so every recompute
       // costs the caller's budget.
@@ -830,7 +872,7 @@ function leaderboardScope(rawScope) {
         metrics: snapshot.metrics || {}
       };
     };
-    compute.serve = ack => ({ ...ack, metrics: Object.fromEntries(Object.entries(ack.metrics || {}).map(([name, rows]) => [name, withAchievementPrivacy(name, rows).map(publicLeaderboardRow)])) });
+    compute.serve = ack => ({ ...ack, metrics: Object.fromEntries(Object.entries(ack.metrics || {}).map(([name, rows]) => [name, withAchievementPrivacy(name, rows, viewer).map(publicLeaderboardRow)])) });
     if (scope === 'friends') {
       if (!viewer || !allowSocialAction(viewer.id, 'leaderboard')) return reply(callback, LEADERBOARD_BUSY);
       return reply(callback, compute.serve(compute()));

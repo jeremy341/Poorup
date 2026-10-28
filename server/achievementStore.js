@@ -7,10 +7,9 @@ const __dirname = path.dirname(__filename);
 const DEFAULT_FILE = path.join(__dirname, 'data', 'achievements.json');
 
 const loanLikeContract = contract => ['loan', 'hybrid'].includes(contract?.kind);
-// Match records intentionally store human-readable event titles, while older
-// records and test fixtures may contain stable event ids. Keep both forms in
-// one predicate so the crisis achievement cannot silently disappear after a
-// title projection.
+// Match records store human-readable event titles, while older records and fixtures may hold
+// stable event ids. Keep both forms in one predicate so the crisis achievement cannot vanish
+// after a title projection.
 const NEGATIVE_GLOBAL_EVENTS = new Set([
   'housing-bubble', 'HOUSING BUBBLE POP', 'credit-freeze', 'CREDIT FREEZE',
   'inflation-spiral', 'INFLATION SPIRAL', 'anti-monopoly', 'ANTI-MONOPOLY INVESTIGATION',
@@ -54,10 +53,9 @@ function sanitize(record = {}) {
   };
 }
 
-// One descriptor per achievement rule, in evaluation order (the order is
-// observable: candidates are pushed in this sequence). Tests read a per-player
-// context assembled once in evaluateMatch; strings must stay verbatim because
-// accountStore's rarity/points maps and client copy depend on them.
+// One descriptor per achievement rule, in evaluation order, since candidates are pushed in
+// that sequence. Strings must stay verbatim: accountStore's rarity and points maps and the
+// client copy depend on them.
 const ACHIEVEMENT_RULES = [
   { achievementId: 'first-deed', title: 'FIRST DEED', rarity: 'COMMON', body: 'You bought your first property.', test: ({ participant }) => participant.propertyCount > 0 },
   { achievementId: 'last-wallet-standing', title: 'LAST WALLET STANDING', rarity: 'COMMON', body: 'You were the last wallet standing.', test: ({ isWinner }) => isWinner },
@@ -108,6 +106,7 @@ const ACHIEVEMENT_RULES = [
   { achievementId: 'treasure-map', title: 'TREASURE MAP', rarity: 'EPIC', body: 'You drew every Treasure card across your account history.', test: ({ treasureCardCount }) => treasureCardCount >= 16 },
   { achievementId: 'event-tourist', title: 'EVENT TOURIST', rarity: 'RARE', body: 'You experienced three different global events.', test: ({ eventCount }) => eventCount >= 3 },
 ];
+const ACHIEVEMENT_RULE_BY_ID = new Map(ACHIEVEMENT_RULES.map(rule => [rule.achievementId, rule]));
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -252,6 +251,28 @@ export class AchievementStore {
     participants.forEach((participant) => {
       if (!participant.accountId) return;
       appendUnlockedAchievements(candidates, buildMatchContext(participant, shared));
+    });
+    return candidates;
+  }
+
+  recoveryCandidatesFromAnnotatedMatch(matchRecord) {
+    const candidates = [];
+    (Array.isArray(matchRecord?.participants) ? matchRecord.participants : []).forEach(participant => {
+      if (typeof participant?.accountId !== 'string' || !participant.accountId) return;
+      const ids = Array.isArray(participant.achievementsUnlocked) ? participant.achievementsUnlocked : [];
+      [...new Set(ids.filter(id => typeof id === 'string'))].forEach(achievementId => {
+        const rule = ACHIEVEMENT_RULE_BY_ID.get(achievementId);
+        if (!rule) return;
+        candidates.push({
+          accountId: participant.accountId,
+          achievementId,
+          title: rule.title,
+          rarity: rule.rarity,
+          body: rule.body,
+          unlockedAt: typeof matchRecord.completedAt === 'string' ? matchRecord.completedAt : null,
+          suppressPublicAnnouncement: matchRecord.roomVisibility === 'private'
+        });
+      });
     });
     return candidates;
   }

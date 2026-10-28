@@ -661,7 +661,7 @@ export class SocialStore {
     this.notifications.delete(id);
     const cooldownsBefore = this.requestCooldowns.size;
     for (const [key, entry] of this.requestCooldowns) if (entry.fromId === id || entry.toId === id) this.requestCooldowns.delete(key);
-    // Other players' notifications about this account are part of its data too (E24-08).
+    // Other players' notifications about this account are part of its data too.
     for (const [owner, list] of this.notifications) {
       this.notifications.set(owner, scrubNotificationList(list, id, removedInviteIds, String(displayName || '')));
     }

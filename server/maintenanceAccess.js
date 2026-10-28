@@ -1,17 +1,10 @@
-// Operator sign-in for the maintenance lockout.
+// Operator sign-in for the maintenance lockout. POORUP_MAINTENANCE_PASSWORD unlocks the site for one browser while the lockout is on.
+// Unset, the feature does not exist: the unlock route answers 404 and nothing verifies (admin accounts still bypass, see socketRuntime.js).
 //
-// POORUP_MAINTENANCE_PASSWORD unlocks the site for one browser while the
-// lockout is on. Unset, the feature does not exist: the unlock route answers
-// 404 and nothing verifies (admin accounts still bypass, see socketRuntime.js).
-//
-// What is kept: the SHA-256 digest of the password (compared in constant time)
-// and an HMAC key derived from it. What is never kept, logged, metered or
-// echoed: the password itself. A successful sign-in sets an HttpOnly,
-// SameSite=Strict cookie holding "<expiry>.<id>.<signature>"; the signature
-// covers the expiry and a random id, so the token cannot be extended or forged,
-// and rotating the password invalidates every token. Logout revokes the id for
-// the rest of its lifetime. The key is random per process unless
-// POORUP_MAINTENANCE_COOKIE_SECRET is set, so a restart signs everyone out.
+// Kept: the SHA-256 digest of the password (compared in constant time) and an HMAC key derived from it. Never kept, logged or echoed:
+// the password itself. A sign-in sets an HttpOnly, SameSite=Strict cookie holding "<expiry>.<id>.<signature>". The signature covers
+// the expiry and a random id, so tokens cannot be extended or forged, and rotating the password invalidates all of them. Logout revokes
+// the id. The key is random per process unless POORUP_MAINTENANCE_COOKIE_SECRET is set, so a restart signs everyone out.
 import crypto from 'node:crypto';
 import express from 'express';
 import { createHttpRateLimiter } from './httpRateLimiter.js';
@@ -159,7 +152,7 @@ export function createMaintenanceAccess({
 
 /**
  *   GET  /maintenance/unlock   404 when no password is set; else { success, available: true, bypass }
- *   POST /maintenance/unlock   { password } -> 200 + cookie | 401 | 429 | 403 | 400 | 413 | 404
+ *   POST /maintenance/unlock   { password }: 200 + cookie | 401 | 429 | 403 | 400 | 413 | 404
  *   POST /maintenance/logout   always 200, clears the cookie and revokes its token
  */
 export function registerMaintenanceAccessRoutes(app, {

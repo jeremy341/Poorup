@@ -1,7 +1,5 @@
-// Wire-level seat identity checks (F-038..F-041) against a real server process.
-// Each scenario is the V3 audit repro: same clientId in two rooms, an account
-// orphaning its own seat from a second socket, a predictable bot clientId, and
-// a private code reclaimed while both humans are in grace.
+// Wire-level seat identity checks against a real server process. Scenarios: the same clientId in two rooms, an account
+// trying another room during reconnect grace, a predictable bot clientId, and a private code reclaimed while both humans are in grace.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -122,7 +120,7 @@ async function run() {
   try {
     await waitForServer(child);
 
-    // F-038: the same clientId cannot seat itself in a second room while its
+    // The same clientId cannot seat itself in a second room while its
     // first seat is live, and a graced seat in room A keeps its own timer.
     const hostB = await track();
     const roomB = await createPrivate(hostB, `w1-hb-${RUN}`, 'HostB', newCode());
@@ -150,7 +148,7 @@ async function run() {
     assert.equal(retry.success, true, 'after room A releases the seat the clientId may join room B');
     passed += 1;
 
-    // F-040: a predictable bot clientId does not claim a bot seat in a started private game.
+    // A predictable bot clientId does not claim a bot seat in a started private game.
     const hostC = await track();
     const roomC = await createPrivate(hostC, `w2-hc-${RUN}`, 'HostC', newCode());
     assert.equal((await ask(hostC, 'set-setting', { key: 'bots', value: 1 })).success, true);
@@ -164,7 +162,7 @@ async function run() {
     );
     passed += 1;
 
-    // F-041: a private code is not reclaimed while its humans are in grace.
+    // A private code is not reclaimed while its humans are in grace.
     const hostD = await track();
     const roomD = await createPrivate(hostD, `w3-hd-${RUN}`, 'HostD', newCode());
     const guestD = await track();
@@ -184,15 +182,15 @@ async function run() {
     assert.equal((await ask(restored, 'restore-session', { clientId: hostDClient })).success, true, 'the original host restores within grace');
     passed += 1;
 
-    // F-039: an account cannot release its own graced seat in room E from a
-    // socket that is seated live in room F, and room F keeps that seat.
+    // A graced account cannot join room F; a different account can
+    // join it, but cannot release the first account's graced room E seat.
     const accountName = `w4u${RUN}`.slice(0, 16);
     const password = 'scratch-pass-1';
     const hostE = await track();
     const roomE = await createPrivate(hostE, `w4-he-${RUN}`, 'HostE', newCode());
+    const eventsE = trackEvents(hostE);
     const hostF = await track();
     const roomF = await createPrivate(hostF, `w4-hf-${RUN}`, 'HostF', newCode());
-    const eventsF = trackEvents(hostF);
     const s3 = await track();
     const reg = await ask(s3, 'account-register', { username: accountName, displayName: 'V3User', password });
     assert.equal(reg.success, true, `account-register: ${JSON.stringify(reg)}`);
@@ -203,31 +201,49 @@ async function run() {
     const s4 = await track();
     assert.equal((await ask(s4, 'account-login', { username: accountName, password })).success, true);
     const cB = `w4-cB-${RUN}`;
-    assert.equal((await ask(s4, 'join-room', { roomCode: roomF, clientId: cB, nickname: 'V3User' })).success, true);
-    assert.deepEqual(await ask(s4, 'leave-room', { clientId: cA }), { success: false, error: NO_SESSION });
-    await poke(hostF);
-    const seatB = latestPlayers(eventsF)?.find(player => player.nickname === 'V3User');
-    assert.ok(seatB, 'room F still lists the account seat');
-    assert.equal(seatB.disconnected, false, 'the live seat in room F is not orphaned');
-    passed += 1;
-    // While that seat is live, the account and its clientId cannot take a second seat elsewhere.
-    const s5 = await track();
-    assert.equal((await ask(s5, 'account-login', { username: accountName, password })).success, true);
     assert.deepEqual(
-      await ask(s5, 'join-room', { roomCode: roomE, clientId: `w4-cC-${RUN}`, nickname: 'V3User' }),
+      await ask(s4, 'join-room', { roomCode: roomF, clientId: cB, nickname: 'V3User' }),
+      { success: false, error: ACCOUNT_SEATED_ELSEWHERE },
+      'a disconnected account seat remains held during reconnect grace',
+    );
+    await poke(hostE);
+    const seatA = latestPlayers(eventsE)?.find(player => player.nickname === 'V3User');
+    assert.ok(seatA, 'room E keeps the account seat');
+    assert.equal(seatA.disconnected, true, 'the original account seat remains in grace');
+
+    // A different account can be live in room F while the first account's
+    // room E seat stays graced; its socket cannot release the other seat.
+    const otherAccountName = `w4v${RUN}`.slice(0, 16);
+    const s5 = await track();
+    assert.equal((await ask(s5, 'account-register', { username: otherAccountName, displayName: 'OtherUser', password })).success, true);
+    assert.equal((await ask(s5, 'join-room', { roomCode: roomF, clientId: cB, nickname: 'OtherUser' })).success, true);
+    const cBEvents = trackEvents(hostF);
+    await poke(hostF);
+    const seatB = latestPlayers(cBEvents)?.find(player => player.nickname === 'OtherUser');
+    assert.ok(seatB, 'room F lists the other account seat');
+    assert.equal(seatB.disconnected, false, 'the live seat in room F is not orphaned');
+    assert.deepEqual(await ask(s5, 'leave-room', { clientId: cA }), { success: false, error: NO_SESSION });
+    await poke(hostF);
+    assert.equal(latestPlayers(cBEvents)?.find(player => player.nickname === 'OtherUser')?.disconnected, false);
+    passed += 1;
+    // The original account remains blocked by its graced room E seat, and
+    // the clientId in room F remains bound to the other account.
+    const s6 = await track();
+    assert.equal((await ask(s6, 'account-login', { username: accountName, password })).success, true);
+    assert.deepEqual(
+      await ask(s6, 'join-room', { roomCode: roomF, clientId: `w4-cC-${RUN}`, nickname: 'V3User' }),
       { success: false, error: ACCOUNT_SEATED_ELSEWHERE },
     );
     assert.deepEqual(
-      await ask(s5, 'join-room', { roomCode: roomE, clientId: cB, nickname: 'V3User' }),
+      await ask(s6, 'join-room', { roomCode: roomF, clientId: cB, nickname: 'V3User' }),
       { success: false, error: SEAT_IN_USE },
     );
     passed += 1;
-    // A1: create-room may not hand the account a second seat either. The
-    // account already plays room F, so a new room from another socket of the
-    // same account is refused instead of duplicating the seat.
+    // Create-room may not give the account a fresh seat while its first
+    // room E seat is still in reconnect grace.
     const dupCode = newCode();
     assert.deepEqual(
-      await ask(s5, 'create-room', { clientId: `w4-cD-${RUN}`, nickname: 'V3User', visibility: 'private', roomName: 'DUP', roomCode: dupCode }),
+      await ask(s6, 'create-room', { clientId: `w4-cD-${RUN}`, nickname: 'V3User', visibility: 'private', roomName: 'DUP', roomCode: dupCode }),
       { success: false, error: ACCOUNT_SEATED_ELSEWHERE },
       'create-room cannot duplicate an account seat',
     );

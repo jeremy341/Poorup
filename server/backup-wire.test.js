@@ -1,8 +1,6 @@
-// Boots the real server.js against throwaway data and backup directories and
-// checks the boot-time backup pass: healthy stores are copied, a store that is
-// quarantined as corrupt at load is not, and readiness reports the backup as
-// stale and unavailable. Covers D1a-3 (resolved paths reach the backup wiring)
-// and D1a-4 (the quarantine skip and its readiness effect) end to end.
+// Boots the real server.js against throwaway data and backup directories and checks the boot-time
+// backup pass: healthy stores are copied, a store quarantined as corrupt at load is not, and readiness
+// reports the backup as stale and unavailable, end to end.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';

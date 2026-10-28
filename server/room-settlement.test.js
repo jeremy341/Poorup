@@ -1,7 +1,6 @@
-// Audit fixes for rooms settle/appearance: FIX1 reconnect identity,
-// FIX2 bot identity, FIX3 obligation parity, FIX4 face validation.
-// Mirrors server/contracts-market.test.js check() style: sync asserts run
-// on load, counts printed, non-zero exit on failure.
+// Audit fixes for rooms settle and appearance: reconnect identity, bot identity,
+// obligation parity and face validation. Mirrors the check() style of contracts-market.test.js:
+// sync asserts run on load, counts are printed, and a non-zero exit signals failure.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 
@@ -57,7 +56,7 @@ function plantDebt(game, debtorId, creditorId) {
   game.pendingPaymentTurnOptions = { turn: 'test' };
 }
 
-// FIX1: reconnect always resolves effective color against effective grid.
+// Reconnect always resolves effective color against effective grid.
 check('FIX1 reconnect omitted color with colliding face resolves color', () => {
   const { room, game } = roomWith([SEAT_B]);
   const custom = validGrid('#ffffff');
@@ -89,7 +88,7 @@ check('FIX1 reconnect non-colliding keeps requested color and grid', () => {
   assert.deepEqual(result.player.avatarGrid, fresh);
 });
 
-// FIX2: bots resolve through the same color-plus-face identity.
+// Bots resolve through the same color-plus-face identity.
 check('FIX2 bot colliding generic color resolves to first free preset', () => {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', color: '#286ea1' });
@@ -112,7 +111,7 @@ check('FIX2 bot same color different face keeps requested color', () => {
   assert.equal(bot.color, '#286ea1');
 });
 
-// FIX3a: debtor quit clears with notice; creditor quit clears too.
+// Debtor quit clears with notice; creditor quit clears too.
 check('FIX3a quitting debtor clears pendingPayment with notice', () => {
   const ctx = startedWith([SEAT_B, SEAT_C]);
   const b = ctx.game.getPlayerByClient('client-b');
@@ -191,7 +190,7 @@ check('FIX3a bank debt survives uninvolved quit but debtor quit clears', () => {
   assert.equal(ctx.game.pendingPaymentTurnOptions, null);
 });
 
-// FIX3b: auction lead revoked on leader quit and the stale floor is cleared.
+// Auction lead revoked on leader quit and the stale floor is cleared.
 check('FIX3b quitting auction leader resets the stale bid floor', () => {
   const ctx = startedWith([SEAT_B, SEAT_C]);
   const b = ctx.game.getPlayerByClient('client-b');
@@ -210,7 +209,7 @@ check('FIX3b non-leader quit leaves auction lead intact', () => {
   assert.equal(ctx.game.auction.highestBid, 100);
 });
 
-// FIX3c: endGame clears every table obligation including payment and contract.
+// EndGame clears every table obligation including payment and contract.
 check('FIX3c endGame clears trade offer auction payment and contract', () => {
   const ctx = startedWith([SEAT_B]);
   ctx.game.pendingPurchaseOffer = { playerId: ctx.game.players[0].id };
@@ -228,7 +227,7 @@ check('FIX3c endGame clears trade offer auction payment and contract', () => {
   assert.equal(ctx.game.pendingPlayerContract, null);
 });
 
-// FIX4: face validation uses a distinct error, never the taken error.
+// Face validation uses a distinct error, never the taken error.
 // Caps at 8x8 and hex-or-null-or-number cells; legacy small numeric faces
 // stay valid so existing suites keep passing.
 check('FIX4 setPlayerAppearance rejects malformed grids with distinct error', () => {

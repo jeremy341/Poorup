@@ -39,22 +39,18 @@ function requestPrompt(request) {
   return messagePrompt(request.messages) || inputPrompt(request.input) || '{}';
 }
 
-// An auction-bid candidate declares parameterRanges, so a reply without
-// parameters.amount is rejected by the advisor's response validation. The
-// advisor then trips its own circuit breaker and every later decision falls back
-// to the deterministic planner, which made AI-vs-no-AI results meaningless.
-// Bots may only raise by the offered steps (highestBid + 1 / + 20 / + 100); the
-// stub picks the standard +20 raise when offered, else the smallest legal one.
+// An auction-bid candidate declares parameterRanges, so a reply without parameters.amount fails the advisor's response
+// validation, which trips its circuit breaker and sends every later decision to the deterministic planner.
+// Bots may only raise by the offered steps; the stub picks the standard +20 when offered, else the smallest legal raise.
 export function stubBidAmount(candidate) {
   const options = Array.isArray(candidate?.amountOptions) ? candidate.amountOptions.filter(Number.isInteger) : [];
   if (!options.length) return null;
   return options[Math.min(1, options.length - 1)];
 }
 
-// The stub plays the planner's best option, as it did when the first option shown WAS the
-// planner's best. The advisor now shuffles the order (option-ID bias), so "first" is a
-// random option: pick on the planner score the prompt carries (futureScore when the
-// planner projected the candidates, else the static score), lower risk breaking ties.
+// The stub plays the planner's best option. The advisor
+// shuffles the order (option-ID bias), so "first" is random. Pick on the planner score in the prompt (futureScore when
+// projected, else the static score), breaking ties on lower risk.
 export function stubPickCandidate(candidates) {
   const projected = candidates.filter(candidate => Number.isFinite(candidate?.futureScore));
   const pool = projected.length ? projected : candidates;

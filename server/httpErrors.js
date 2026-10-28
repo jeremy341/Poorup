@@ -20,10 +20,9 @@ function clientErrorMessage(status) {
   return 'The request could not be read.';
 }
 
-// Terminal error middleware. A 4xx the framework raised (bad JSON, oversized or
-// wrongly encoded body, an undecodable URL) is the caller's fault: it answers
-// with that status and is not counted as a server error, so an anonymous client
-// cannot raise the admin error counter. Everything else is a 500.
+// Terminal error middleware. A 4xx the framework raised (bad JSON, oversized or wrongly encoded body, undecodable URL) is the
+// caller's fault: it answers with that status and is not counted as a server error, so an anonymous client cannot raise the
+// admin error counter. Everything else is a 500.
 export function createHttpErrorHandler({ metrics = null, errorPage, log = console.error } = {}) {
   return function httpErrorHandler(error, req, res, next) {
     if (res.headersSent) return next(error);

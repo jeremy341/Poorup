@@ -1,9 +1,8 @@
-// Bot decision support as a prototype mixin: socket impersonation for
-// bot-driven actions and the pre-roll candidate ranking. The candidate
-// arrays keep the original collector order; the final sort is stable, so
-// ties keep this sequence. kind values are the contract consumed by
-// botLogic's CANDIDATE_MAPPERS/CANDIDATE_RUNNERS tables.
+// Bot decision support as a prototype mixin: socket impersonation for bot-driven actions and the pre-roll
+// candidate ranking. Collector order is kept and the final sort is stable, so ties keep this sequence.
+// kind values are the contract consumed by botLogic's CANDIDATE_MAPPERS and CANDIDATE_RUNNERS tables.
 import { playerFinanceEnabled } from './financeRules.js';
+import { settlementDiscount } from './loanLogic.js';
 import { forecastMarketOrder } from './botMarketForecast.js';
 import { marketExpansionCandidatesFor } from './botMarketCandidates.js';
 import { JAIL_FINE } from './gameData.js';
@@ -57,7 +56,7 @@ function jailBoardTile(game, player, tile) {
 }
 
 // Grudge-gated dealing: ledgers start empty, so normalize missing entries
-// to 0 — a direct Number(undefined) comparison would lock out every seat.
+// to 0, since a direct Number(undefined) comparison would lock out every seat.
 function grudgedOut(grudges, id) {
   return Number((grudges || {})[id] || 0) >= 3;
 }
@@ -162,15 +161,9 @@ function postRollCandidates(game, player, options) {
   return sortCandidates(candidates, buildValueIndex(game, player, candidates));
 }
 
-// Every build candidate shares one score, so the old `risk` tie-break (cost
-// divided by cash) ordered a whole board cheapest-first: a bot holding a $200
-// monopoly and a $50 monopoly spent its budget on the weakest rent stream
-// first and only then started the set that actually threatens the table.
-// Equal-score builds now rank by the traffic-weighted rent their monopoly is
-// worth — the same "concentrate development HERE" measure the planner's
-// concentration bonus uses (botDevelopmentForecast.groupGainToThree) — with
-// cost kept as the final stable tie-break. Non-build kinds carry no value, so
-// their historical score/risk order is untouched.
+// Every build candidate shares one score, so a cost-over-cash tie-break would build the cheapest monopoly first.
+// Equal-score builds rank by the traffic-weighted rent their monopoly is worth (botDevelopmentForecast.groupGainToThree),
+// with cost as the final stable tie-break. Non-build kinds carry no value, so their order is untouched.
 function buildValueIndex(game, player, candidates) {
   const index = new Map();
   const seats = new Map((game.players || []).map((entry, position) => [
@@ -259,10 +252,9 @@ function traceShadowFields(entry) {
   };
 }
 
-// Shared trade gating: the group and rich trade collectors both refuse the
-// same table states before they start pairing deeds. The engine refuses a
-// proposal while an auction, purchase offer, sponsored purchase or trade is
-// open (tradeApi.js), so the bot must not offer one either.
+// Shared trade gating: the group and rich trade collectors refuse the same table states before pairing deeds.
+// The engine refuses a proposal while an auction, purchase offer, sponsored purchase or trade is open
+// (tradeApi.js), so the bot must not offer one either.
 function canOfferTrade(game, player) {
   if (game.settings.trading === false) return false;
   if (tableObligationOpen(game)) return false;
@@ -278,8 +270,8 @@ function tradeTiles(game, player) {
     .filter(tile => tile && game.isTradeableTile(tile) && tile.group);
 }
 
-// Bots may now deal with bots too (same veto applies); humans exploited
-// isolated bot seats that never cooperated.
+// Bots may deal with bots too (same veto applies); otherwise humans could
+// exploit isolated bot seats that never cooperate.
 function tradePartners(game, player, table, grudges) {
   return game.activePlayers().filter(candidate => isTradePartner(player, table, grudges, candidate));
 }
@@ -295,17 +287,16 @@ function isTradePartner(player, table, grudges, candidate) {
 
 // Seat label the planner projects against: opponents are numbered in table order
 // with the deciding bot left out, exactly as the strategic snapshot labels them.
-// Without it every trade was projected against opponent-1.
+// Without it every trade would be projected against opponent-1.
 function partnerSeatLabel(game, player, partner) {
   const opponents = (game.players || []).filter(candidate => candidate.id !== player.id);
   const index = opponents.findIndex(candidate => candidate.id === partner.id);
   return index < 0 ? undefined : `opponent-${index + 1}`;
 }
 
-// Group trades exist to finish or concentrate colour sets. Same-group 1-for-1
-// swaps were the only shape generated before and changed nothing for either seat
-// (audit finding 4), so each ask is a deed of a group the bot already holds a
-// stake in, paid for with a deed from a group the bot is not building (or cash).
+// Group trades exist to finish or concentrate colour sets. Same-group 1-for-1 swaps change nothing for either seat,
+// so each ask is a deed of a group the bot already holds a stake in, paid for with a deed from a group the bot
+// is not building, or with cash.
 function groupOwnedBy(game, playerId, group) {
   return (game.getGroupTiles(group) || []).filter(tile => tile.ownerId === playerId).length;
 }
@@ -392,13 +383,9 @@ function tradeMargin(game, requestIndexes) {
   return Math.max(TRADE_MIN_NET_GAIN, Math.ceil(face / 10));
 }
 
-// Prices one swap between the bot and a partner. Both seats are valued with the
-// same portfolio model (deeds + progress credit + the build value of a finished
-// set), the partner is paid for its loss plus a margin, and the cash is then
-// pushed so that neither seat hands the other a colour set below the monopoly
-// premium. The old pricing gave the partner the whole surplus and inverted the
-// cash sign on the group path. Returns null when the swap is value-neutral,
-// breaks a set either seat already holds, or cannot be paid.
+// Prices one swap between the bot and a partner. Both seats use the same portfolio model, and the partner
+// is paid for its loss plus a margin. The cash is then pushed so neither seat hands the other a colour set
+// below the monopoly premium. Returns null when the swap is value-neutral, breaks a set either seat holds, or cannot be paid.
 function priceTradeTerms(game, player, partner, giveIndexes, requestIndexes) {
   if (!giveIndexes.length && !requestIndexes.length) return null;
   if (tradeSetChanges(game, player.id, giveIndexes, requestIndexes).breaks.length) return null;
@@ -415,9 +402,8 @@ function priceTradeTerms(game, player, partner, giveIndexes, requestIndexes) {
   const floor = handsSet.givesMonopoly ? handsSet.needCash : -Infinity;
   const ceiling = takesSet.givesMonopoly ? -takesSet.needCash : Infinity;
   if (floor > ceiling) return null;
-  // The partner is paid its own loss plus a margin (a tenth of the deeds it hands
-  // over), or half the surplus when that is smaller. It is not paid for the build
-  // value the bot gains from a finished set: splitting that evenly priced every
+  // The partner is paid its own loss plus a margin (a tenth of the deeds it hands over, or half the surplus if smaller).
+  // It is not paid for the build value the bot gains from a finished set: splitting that evenly priced every
   // completer beyond any bank balance.
   const partnerShare = Math.min(Math.floor((botDelta + partnerDelta) / 2), tradeMargin(game, requestIndexes));
   const net = Math.max(floor, Math.min(ceiling, partnerDelta - partnerShare));
@@ -469,23 +455,9 @@ function richTradeCandidate(game, player, partner, owned) {
   }];
 }
 
-// The portfolio model both trade paths price with: deeds + progress credit,
-// plus the build value of a finished set (the rent it would collect per
-// circuit). It is deliberately one step more generous than the ACCEPTANCE
-// side, which prices deeds and progress credit only (portfolioDeedValue in
-// botTradeValuation.js, used by botLogic.shouldAcceptTrade).
-//
-// The spread is intentional and harmless: the cash of every proposal is
-// clamped by the monopoly premium in both directions (priceTradeTerms), so a
-// set is never priced below the premium, and the partner is paid its own
-// loss plus a margin, which clears the acceptance bar. The proposal side is
-// optimistic about the set it completes; the acceptance side stays
-// conservative about the set it is offered. The invariant that keeps the two
-// from disagreeing - every proposed trade clears the partner's own acceptance
-// bar - is pinned in bot-trade-rework.test.js.
-//
-// Both sides now read the SAME valuation (portfolioValue in
-// botTradeValuation.js), so the two can never drift apart again.
+// The portfolio model both trade paths price with: deeds, progress credit, and the build value of a finished set.
+// Proposals are one step more generous than acceptance (portfolioDeedValue in botTradeValuation.js). The spread is
+// harmless: the monopoly premium clamps cash both ways, and every proposal clears the partner's own acceptance bar.
 const tradePortfolioValue = portfolioValue;
 
 // The engine refuses a contract proposal while another table obligation is
@@ -524,16 +496,9 @@ function collectContractCandidates(ctx, target, out) {
   out.push(equityContractCandidate(target, property, lenderCash, reserve));
 }
 
-// Scoring the neediest borrower rewarded the one seat that must decline: a
-// $300 loan priced at $405 needs roughly $507 of cash to clear the accept
-// gate, so every candidate scoring above 10 was a guaranteed rejection that
-// still burned the lender's single deal action for the turn. Two changes, one
-// gate and one ranking:
-//   - a loan the borrower cannot service is not offered at all. Deed-backed
-//     temporary rent-share offers still reach that seat, so the target keeps a real
-//     option instead of a doomed cash proposal.
-//   - the survivors rank by acceptance headroom, so a comfortable borrower
-//     outranks a bare-margin one instead of the other way round.
+// Scoring the neediest borrower would reward the one seat that must decline: a $300 loan priced at $405 needs roughly $507 of cash to clear the accept gate.
+// A needy borrower burns the lender's one deal action on a sure rejection. A loan the borrower cannot service is not offered (rent-share offers still reach that seat),
+// and survivors rank by acceptance headroom, so a comfortable borrower outranks a bare-margin one.
 const LOAN_PREMIUM_RATE = 35;
 const LOAN_CONTRACT_BASE_SCORE = 10;
 const LOAN_CONTRACT_HEADROOM_SCORE = 4;
@@ -556,7 +521,7 @@ function loanContractScore(totalDue, capacity) {
 
 function loanContractCandidate(target, lenderCash, reserve) {
   // Bots sign only interest-free loans (botContractPolicy.js), so a priced loan
-  // aimed at a bot is a guaranteed refusal that still burns the one deal action.
+  // aimed at a bot is a sure refusal that still burns the one deal action.
   if (target.isBot) return null;
   const amount = Math.min(300, Math.max(100, Math.floor(Math.max(0, lenderCash - reserve) / 3)));
   const offer = { toPlayerId: target.id, kind: 'loan', amount, premiumRate: LOAN_PREMIUM_RATE, durationRounds: 3, collateralTileIndex: null };
@@ -589,11 +554,9 @@ function targetTradeableProperty(game, target) {
     .find(tile => tile && game.isTradeableTile(tile) && tile.type === 'property' && tile.houseCount === 0 && !tile.mortgaged);
 }
 
-// The engine refuses market orders and casino bets while a payment, auction, purchase,
-// sponsorship, trade or contract is open (marketLogic.js, economyApi.js), including the
-// bot's own pending offer. Offering them anyway only burns the tick and AI budget.
-// (The deal collectors use the narrower tableObligationOpen from
-// botContractPolicy.js: a pending payment never blocks a deal.)
+// The engine refuses market orders and casino bets while a payment, auction, purchase, sponsorship, trade or
+// contract is open (marketLogic.js, economyApi.js), including the bot's own offer, so offering them only burns the tick.
+// The deal collectors use the narrower tableObligationOpen (botContractPolicy.js): a pending payment never blocks a deal.
 function engineTableObligationPending(game) {
   return typeof game.tableObligationPending === 'function' && game.tableObligationPending();
 }
@@ -673,7 +636,7 @@ function marketForecastContext(game) {
 
 function marketBuyCandidates(game, player) {
   if (!marketBuyEligible(game, player) || game.hasLoanBackedCash?.(player)) return [];
-  if (engineTableObligationPending(game)) return [];
+  if (engineTableObligationPending(game) || game.marginMaintenanceDue?.(player) || Number(player.shortDefaultDebt) > 0) return [];
   return Object.entries(game.marketQuotes || {}).flatMap(([instrumentId, rawQuote]) => {
     const quote = Number(rawQuote);
     if (!Number.isInteger(quote) || quote <= 0) return [];
@@ -772,10 +735,9 @@ function repayableContract(player, contract) {
   return Number(contract.remaining) > 0;
 }
 
-// A due debt is cured in full or not at all: a part payment still defaults (the
-// engine seizes the whole pledged basket) and only strands the cash. A debt that
-// can be cured is MANDATORY (see repaymentCandidate), because the planner books
-// repaying as net-worth neutral and would otherwise always prefer to roll.
+// A due debt is cured in full or not at all: a part payment still defaults (the engine seizes the whole basket)
+// and only strands the cash. A debt that can be cured is MANDATORY (see repaymentCandidate), because the planner
+// books repaying as net-worth neutral and would otherwise always prefer to roll.
 function repaymentPlan(contract, player) {
   const remaining = Math.max(0, Math.floor(Number(contract.remaining) || 0));
   const due = contract.status === 'due';
@@ -804,9 +766,15 @@ function collectRepaymentCandidate(player, contract, out) {
   out.push(repaymentCandidate(contract, plan, player));
 }
 
-function bankLoanRepayment(loan, player) {
+function bankLoanRepayment(game, loan, player) {
   const remaining = Math.max(0, Math.floor(Number(loan.remaining) || 0));
   const cash = Math.max(0, Math.floor(Number(player.cash || 0)));
+  // Request the full balance to activate amnesty; the engine charges the discounted amount.
+  if (remaining > 0 && game.globalEventIncludes?.('debt-amnesty')) {
+    const cost = Math.min(remaining, settlementDiscount(game, loan));
+    const reserve = loan.status === 'due' ? 0 : 180;
+    if (cash - reserve >= cost) return { remaining, amount: remaining };
+  }
   // Same rule as player contracts: a due loan is paid in full or left alone.
   if (loan.status === 'due') return { remaining, amount: cash >= remaining ? remaining : 0 };
   return { remaining, amount: Math.min(remaining, Math.max(0, cash - 180)) };
@@ -925,11 +893,9 @@ const botApi = {
     return sortCandidates(candidates, buildValueIndex(this, player, candidates));
   },
 
-  // Once movement has resolved, humans may still use the finance rail before
-  // ending their turn. Keep that same window available to both bot brains. A
-  // pending purchase is the only table obligation that takes precedence over
-  // the normal finance actions; otherwise candidates are legal post-roll
-  // verbs and a low-priority explicit end-turn sentinel.
+  // Once movement resolves, humans may still use the finance rail before ending their turn. Keep that window
+  // open for both bot brains. A pending purchase is the only obligation that takes precedence over finance actions;
+  // otherwise candidates are legal post-roll verbs plus a low-priority end-turn sentinel.
   botPostRollCandidates(player, options = {}) {
     if (!player?.isBot) return [];
     if (player.id !== this.currentPlayerId) return [];
@@ -937,7 +903,7 @@ const botApi = {
     const purchase = pendingPurchaseCandidate(this, player, offer);
     if (purchase) return [purchase];
     // Another seat's offer: nothing for me to buy, but the turn still needs
-    // an explicit end action instead of a no-op stall.
+    // an explicit end action, not a no-op stall.
     if (offer) return explicitEndTurn(this, player);
     return postRollCandidates(this, player, options);
   },
@@ -974,7 +940,7 @@ const botApi = {
     const loan = player?.bankLoan;
     if (!activeBankLoan(loan)) return [];
     if (player.id !== this.currentPlayerId) return [];
-    const repayment = bankLoanRepayment(loan, player);
+    const repayment = bankLoanRepayment(this, loan, player);
     if (repayment.amount <= 0) return [];
     return [bankLoanRepayCandidate(player, loan, repayment)];
   },
@@ -1105,10 +1071,8 @@ const botApi = {
   },
 
   botContractCandidates(player) {
-    // The server rejects loan-backed contract cash (contractLogic.js guard),
-    // so a loaned bot proposing contracts burns its deal counter on a
-    // guaranteed rejection every turn; the casino and market collectors
-    // already apply the same guard.
+    // The server rejects loan-backed contract cash (contractLogic.js guard), so a loaned bot proposing contracts
+    // burns its deal counter on a sure rejection every turn. The casino and market collectors already apply the same guard.
     if (this.hasLoanBackedCash?.(player)) return [];
     if (!canProposeContracts(this, player)) return [];
     const lenderCash = Number(player.cash || 0);

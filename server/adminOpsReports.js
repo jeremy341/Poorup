@@ -1,12 +1,11 @@
-// Read models for /admin/ops/*. Pure functions over numbers the caller measured:
-// nothing here reads the clock, the filesystem or a socket. A value the server
-// cannot know is null, never a guess, and no payload carries a room code, a
-// nickname, an account id or chat.
+// Read models for /admin/ops/*. Pure functions over numbers the caller measured: nothing here
+// reads the clock, filesystem or socket. An unknown value is null, never a guess, and no payload
+// carries a room code, nickname, account id or chat.
 import crypto from 'node:crypto';
 import { MIN_PERCENTILE_SAMPLES } from './metricsRegistry.js';
 import { buildBots, normalizeAnalyticsQuery } from './analyticsProjection.js';
 
-// ---- status ---------------------------------------------------------------
+// status
 //
 // Check thresholds (all counters are since the process started):
 //   backup    ok      latest run succeeded, no failures, not overdue
@@ -169,7 +168,7 @@ export function buildOpsStatus({ now = Date.now(), runtime = {}, metrics = null,
   };
 }
 
-// ---- rooms ----------------------------------------------------------------
+// rooms
 //
 // phase       lobby     the round has not started and no round has ended here
 //             playing   a round is running
@@ -279,7 +278,7 @@ export function buildOpsRooms({ rooms = [], tracker, now = Date.now(), metrics =
   };
 }
 
-// ---- bots -----------------------------------------------------------------
+// bots
 //
 // What the rollup records per bot decision (see recordBotTelemetry in
 // socketRuntime.js): the room's engine (botMode ai / no-ai), a decision count, a

@@ -1,7 +1,5 @@
-// The global-event domain as a prototype mixin: headline lifecycle, voting,
-// activation settlements, and the election policy flags. Every method runs
-// with `this` bound to the GameState instance, exactly as when they lived in
-// the class body; gameLogic.js assigns this object onto GameState.prototype.
+// The global-event domain as a prototype mixin: headline lifecycle, voting, activation settlements and election policy flags.
+// Methods run with `this` bound to the GameState instance, as when they lived in the class body; gameLogic.js assigns this object onto GameState.prototype.
 import { randomFloat } from './random.js';
 import { normalizeRequestId } from './requestId.js';
 import {
@@ -242,11 +240,9 @@ const globalEventsApi = {
     return (combo?.choices || definition.choices)?.map(choice => ({ ...choice })) || null;
   },
 
-  // A combination is the sum of the headlines it fused, so every component
-  // contributes its effects. The order the halves happened to arrive in must
-  // not decide the payload: the components merge in the combination's
-  // declared order (the later one wins a shared key) and the combination's
-  // own explicit effects win over both.
+  // A combination is the sum of the headlines it fused, so every component contributes its effects. The order the halves arrived in
+  // must not decide the payload: components merge in the combination's declared order (the later one wins a shared key), and its own
+  // explicit effects win over both.
   globalEventEffects(definition, combo) {
     const components = combo?.required?.length
       ? combo.required.map(id => this.globalEventDefinition(id)).filter(Boolean)
@@ -322,11 +318,9 @@ const globalEventsApi = {
       : `${this.globalEvent.title} is building. The table has one round to prepare.`);
   },
 
-  // A choice is enacted only with a strict majority of the ACTIVE seats.
-  // Abstentions count as no change, so a split or thin turnout returns null
-  // and no event choice is made (A8-06). Only active seats may shape the
-  // outcome: a ballot cast before the voter went bankrupt or disconnected is
-  // not tallied, or a departed ballot could flip what the live table decided.
+  // A choice is enacted only with a strict majority of the ACTIVE seats. Abstentions count as no change, so a split or thin turnout
+  // returns null. Only active seats shape the outcome: a ballot cast before the voter went bankrupt or disconnected is not tallied,
+  // or a departed ballot could flip what the live table decided.
   globalEventVoteChoice(event) {
     const seats = this.activePlayers().length;
     const counts = Object.fromEntries((event.choices || []).map(choice => [choice.id, 0]));
@@ -487,11 +481,9 @@ const globalEventsApi = {
     if (!event) return;
     if (event.phase !== 'active') return;
     if (event.settlementApplied) return;
-    // A settlement reprices loans and pays bailouts against the table's cash.
-    // Under an open payment or a live auction that money is already spoken
-    // for, so the settlement waits for the obligation to clear instead of
-    // landing on a balance that is about to change (the ballot guard does the
-    // same for votes).
+    // A settlement reprices loans and pays bailouts against the table's cash. Under an open payment or live auction that money is
+    // already spoken for, so the settlement waits for the obligation to clear instead of landing on a balance about to change
+    // (the ballot guard does the same for votes).
     if (this.pendingPayment || this.auction?.active) return;
     event.settlementApplied = true;
     GLOBAL_EVENT_SETTLEMENT_STEPS.forEach(step => {
@@ -517,7 +509,7 @@ const globalEventsApi = {
   },
 
   // Only distressed players are paid. A loan does not qualify a solvent seat:
-  // the bailout is a rescue, not a loan-holder payout (F-035).
+  // the bailout is a rescue, not a loan-holder payout.
   isBailoutRecipient(player, threshold) {
     return player.cash < threshold;
   },

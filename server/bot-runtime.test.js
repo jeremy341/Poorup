@@ -1,20 +1,10 @@
-// Bot runtime repairs (audit lane B8). Each check pins one audited defect at
-// the public seam it affects and the corrected behaviour:
-//   F-032   payment candidates skip properties in an open offer, fall through
-//           to the next legal rescue, and never freeze the table on a rejection;
-//   F-033   a sponsorship only counts sponsors that could really fund it, and a
-//           bot buyer cancels as soon as nobody can contribute;
-//   C14-06  a bot never sponsors while a trade, auction, or contract is open;
-//   C14-05  a bot builds only with cash for the house plus a reserve, and a
-//           rejected build tries the next legal option instead of ending turn;
-//   F-021   a malformed 2xx body is an invalid-response that is refunded;
-//   F-022   the provider timeout covers the body read and the turn lock expires;
-//   F-025   a rejected environment profile never seeds the advisor;
-//   F-026   rotating the active provider's key reaches the advisor;
-//   C35-04  a live game keeps its per-game AI budget across eviction;
-//   C35-05  a process-wide rolling AI call cap bounds provider spend;
-//   F-089   a bot-created contract offer is delivered to the human recipient;
-//   F-090   a blocked trade proposal names the real blocker.
+// Bot runtime checks, each pinning one behaviour at its public seam:
+//   - payments skip properties in an open offer, fall through to the next rescue, and never freeze the table;
+//   - sponsorships count only sponsors who can really fund them, and a bot buyer cancels when nobody can contribute;
+//   - a bot never sponsors during an open trade, auction or contract; builds need house cash plus a reserve;
+//   - AI provider: malformed 2xx bodies are refunded, timeouts cover the body read, rejected profiles never seed the advisor,
+//     key rotation reaches the advisor, and per-game and process-wide AI budgets hold;
+//   - a bot-created contract offer reaches the human recipient, and a blocked trade names the real blocker.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { AiAdvisor, DeterministicAdvisor, createBotAdvisor } from './botAdvisor.js';
@@ -93,8 +83,8 @@ function debtWithOpenTrade() {
   return { room, game, bot, human, inTrade, free };
 }
 
-// F-032: the rescue ladder must never offer a property the server will refuse.
-check('F-032 debt mortgage and sale candidates skip properties in an open offer', () => {
+// The rescue ladder must never offer a property the server will refuse.
+check('debt mortgage and sale candidates skip properties in an open offer', () => {
   const { game, bot, inTrade, free } = debtWithOpenTrade();
   const mortgages = debtMortgageCandidates(game, bot).map(entry => entry.tile.index);
   assert.equal(mortgages.includes(inTrade.index), false, 'the deed in the open trade is not a mortgage candidate');
@@ -105,7 +95,7 @@ check('F-032 debt mortgage and sale candidates skip properties in an open offer'
   assert.ok(choiceIds.includes('debt:bankruptcy'), 'bankruptcy stays the terminal rescue');
 });
 
-await checkAsync('F-032 a rejected advisor rescue falls through to the next rescue instead of freezing', async () => {
+await checkAsync('a rejected advisor rescue falls through to the next rescue instead of freezing', async () => {
   const { room, game, bot, free } = debtWithOpenTrade();
   // Force the server to refuse the mortgage the advisor picked (stale state).
   const manage = room.manageProperty;
@@ -123,14 +113,12 @@ await checkAsync('F-032 a rejected advisor rescue falls through to the next resc
   assert.equal(bot.bankrupt, true, 'with every rescue refused the ladder ends in bankruptcy, not a stalled debt');
 });
 
-await checkAsync('F-032 the deterministic rescue ladder never selects the blocked deed', async () => {
+await checkAsync('the deterministic rescue ladder never selects the blocked deed', async () => {
   const { room, game, bot, inTrade } = debtWithOpenTrade();
   const result = await runBotTurn(room, bot, new DeterministicAdvisor());
   assert.notEqual(result?.botDecision?.actionId, `debt:mortgage:${inTrade.index}`);
   assert.equal(game.getTile(inTrade.index).mortgaged, false, 'the deed in the open trade is never mortgaged');
 });
-
-// --- end of F-032 block ---
 
 // A bot buyer short of a $200-class deed, with one cash-rich bot sponsor.
 function sponsorRoom() {
@@ -148,9 +136,9 @@ function sponsorRoom() {
   return { room, game, buyer, sponsor, humans, tile };
 }
 
-// F-033: a bot buyer requests sponsorship only from sponsors the server would
+// A bot buyer requests sponsorship only from sponsors the server would
 // let fund it now; a round-gated sponsor cannot give until the round advances.
-check('F-033 a bot buyer does not open a request only a round-gated sponsor could fund', () => {
+check('a bot buyer does not open a request only a round-gated sponsor could fund', () => {
   const { room, game, buyer, sponsor } = sponsorRoom();
   sponsor.lastSponsorRound = game.roundNumber;
   resolvePurchaseOffer(room, buyer, { success: true, purchaseOffer: game.pendingPurchaseOffer });
@@ -158,16 +146,16 @@ check('F-033 a bot buyer does not open a request only a round-gated sponsor coul
     'no sponsorship is opened on cash that the sponsor is barred from giving this round');
 });
 
-check('F-033 a bot buyer still opens a request a fundable sponsor can cover', () => {
+check('a bot buyer still opens a request a fundable sponsor can cover', () => {
   const { room, game, buyer } = sponsorRoom();
   resolvePurchaseOffer(room, buyer, { success: true, purchaseOffer: game.pendingPurchaseOffer });
   assert.ok(game.pendingSponsoredPurchase, 'a fundable sponsor keeps the request available');
   assert.equal(game.pendingSponsoredPurchase.buyerId, buyer.id);
 });
 
-// F-033: a request that no bot or cash-holding human can fund is cancelled at
+// A request that no bot or cash-holding human can fund is cancelled at
 // once, not after a round that can never pass while the request is open.
-check('F-033 a bot buyer cancels a request nobody can contribute to at once', () => {
+check('a bot buyer cancels a request nobody can contribute to at once', () => {
   const { room, game, buyer, sponsor } = sponsorRoom();
   assert.equal(room.runBotAction(buyer.id, actor => room.game.requestPurchaseSponsorship(actor)).success, true);
   const request = game.pendingSponsoredPurchase;
@@ -177,7 +165,7 @@ check('F-033 a bot buyer cancels a request nobody can contribute to at once', ()
     'with no bot or cash-holding human able to give, the request is dead now, not after a round');
 });
 
-check('F-033 a bot buyer keeps waiting while a human with cash can still contribute', () => {
+check('a bot buyer keeps waiting while a human with cash can still contribute', () => {
   const { room, game, buyer, sponsor, humans } = sponsorRoom();
   assert.equal(room.runBotAction(buyer.id, actor => room.game.requestPurchaseSponsorship(actor)).success, true);
   sponsor.lastSponsorRound = game.roundNumber;
@@ -186,9 +174,9 @@ check('F-033 a bot buyer keeps waiting while a human with cash can still contrib
     'a human who can still fund the request keeps it open');
 });
 
-// C14-06: the server refuses sponsor contributions while a trade, auction, or
+// The server refuses sponsor contributions while a trade, auction, or
 // contract is open, so no bot may size, claim, or be woken for one.
-check('C14-06 a bot sponsor claims no contribution while a trade is open', () => {
+check('a bot sponsor claims no contribution while a trade is open', () => {
   const { room, game, buyer, sponsor, humans } = sponsorRoom();
   assert.equal(room.runBotAction(buyer.id, actor => room.game.requestPurchaseSponsorship(actor)).success, true);
   assert.ok(sponsorshipContributionAmount(game, sponsor) > 0, 'the sponsor can fund the open request');
@@ -223,9 +211,9 @@ function buildCandidateIds(game, bot) {
     .map(candidate => candidate.tileIndex);
 }
 
-// C14-05 / C25-07: a house is offered only when the bot keeps a cash reserve
+// A house is offered only when the bot keeps a cash reserve
 // after paying for it, and never on a deed named by an open offer.
-check('C14-05 build candidates need the house cost plus a reserve', () => {
+check('build candidates need the house cost plus a reserve', () => {
   const { game, bot, group } = monopolyBuildRoom();
   const tile = group[0];
   const houseCost = game.getPropertyHouseCost(tile);
@@ -237,7 +225,7 @@ check('C14-05 build candidates need the house cost plus a reserve', () => {
     'a build that leaves the reserve is offered');
 });
 
-check('C14-05 build candidates skip a deed named by an open offer', () => {
+check('build candidates skip a deed named by an open offer', () => {
   const { room, game, bot, human, group } = monopolyBuildRoom();
   bot.cash = 10_000;
   const tile = group[0];
@@ -249,7 +237,7 @@ check('C14-05 build candidates skip a deed named by an open offer', () => {
     'the server refuses to build on a deed in an open trade, so no candidate names it');
 });
 
-await checkAsync('C14-05 a refused build tries the next legal option instead of ending the turn', async () => {
+await checkAsync('a refused build tries the next legal option instead of ending the turn', async () => {
   const { room, game, bot, group } = monopolyBuildRoom();
   bot.cash = 10_000;
   const [refused, accepted] = group;
@@ -269,16 +257,16 @@ await checkAsync('C14-05 a refused build tries the next legal option instead of 
   assert.equal(game.awaitingEndTurn, true, 'the bot did not end its turn on a refused build');
 });
 
-// --- AI advisor seam (F-021, F-022, C35-04, C35-05) ---
+// AI advisor seam
 
 const advisorCandidates = [
   { id: 'roll', kind: 'roll', score: 0, risk: 0 },
   { id: 'build:1', kind: 'build', score: 30, risk: 0.2, cost: 100 }
 ];
 
-// F-021: a 2xx body that is not JSON must not escape chooseAction; it is an
+// A 2xx body that is not JSON must not escape chooseAction; it is an
 // invalid-response that counts as a failure and returns its budget.
-await checkAsync('F-021 a malformed 2xx body is an invalid-response that returns its budget', async () => {
+await checkAsync('a malformed 2xx body is an invalid-response that returns its budget', async () => {
   let calls = 0;
   const advisor = new AiAdvisor({
     apiKey: 'test-key',
@@ -300,9 +288,9 @@ await checkAsync('F-021 a malformed 2xx body is an invalid-response that returns
   assert.equal(calls, 2, 'the refunded unit lets the second decision call the provider');
 });
 
-// F-022: the provider timeout covers reading the body, so a stalled body is
+// The provider timeout covers reading the body, so a stalled body is
 // aborted and the decision falls back instead of hanging the bot turn.
-await checkAsync('F-022 a provider that stalls the body is aborted at the timeout', async () => {
+await checkAsync('a provider that stalls the body is aborted at the timeout', async () => {
   const advisor = new AiAdvisor({
     apiKey: 'test-key',
     timeoutMs: 5,
@@ -325,9 +313,9 @@ await checkAsync('F-022 a provider that stalls the body is aborted at the timeou
   assert.equal(decision.fallbackReason, 'timeout', 'the timer stays armed until the body is consumed');
 });
 
-// F-025: an environment profile that does not validate never seeds the
+// An environment profile that does not validate never seeds the
 // advisor, and the default transport fails closed rather than sending the key.
-await checkAsync('F-025 an unvalidated production environment profile never reaches the provider', async () => {
+await checkAsync('an unvalidated production environment profile never reaches the provider', async () => {
   const realFetch = globalThis.fetch;
   let transportCalls = 0;
   globalThis.fetch = async () => { transportCalls += 1; return { ok: true, status: 200, json: async () => ({}) }; };
@@ -349,8 +337,8 @@ await checkAsync('F-025 an unvalidated production environment profile never reac
   }
 });
 
-// C35-04: evicting old game budgets must not reset the budget of a live game.
-await checkAsync('C35-04 a live game keeps its AI budget when older game budgets are evicted', async () => {
+// Evicting old game budgets must not reset the budget of a live game.
+await checkAsync('a live game keeps its AI budget when older game budgets are evicted', async () => {
   const advisor = new AiAdvisor({ apiKey: 'test-key', maxDecisionsPerGame: 1, fetchImpl: async () => ({ ok: false, status: 500, json: async () => ({}) }) });
   assert.equal(advisor.consumeGameBudget('live-game', 'bot-x'), true);
   for (let index = 0; index < 1100; index += 1) advisor.consumeGameBudget(`other-game-${index}`, 'bot-y');
@@ -358,8 +346,8 @@ await checkAsync('C35-04 a live game keeps its AI budget when older game budgets
     'the live game still has its one decision spent after 1100 other games arrived');
 });
 
-// C35-05: a process-wide rolling call cap bounds provider spend across games.
-await checkAsync('C35-05 a process-wide rolling call cap stops provider calls across games', async () => {
+// A process-wide rolling call cap bounds provider spend across games.
+await checkAsync('a process-wide rolling call cap stops provider calls across games', async () => {
   let calls = 0;
   const advisor = new AiAdvisor({
     apiKey: 'test-key',
@@ -376,25 +364,27 @@ await checkAsync('C35-05 a process-wide rolling call cap stops provider calls ac
   assert.equal(reasons[2], 'process-budget', 'the third decision falls back without a provider call');
 });
 
-// F-026: rotating the active provider's key reaches the advisor immediately,
+// Rotating the active provider's key reaches the advisor immediately,
 // and the rotated key starts from an untested connection.
-check('F-026 rotating the active provider key re-applies it to the advisor', () => {
+await checkAsync('rotating the active provider key re-applies it to the advisor only after a passing test', async () => {
   const applied = [];
   const advisor = { fetchImpl: async () => ({}), configureProvider: config => { applied.push(config); } };
   const store = createAiProviderStore({ masterKey: 'b8-master-key-0123456789abcdef' });
   store.upsert({ id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-test', apiKey: 'key-one', protocol: 'auto' });
   store.markTest('openai', { ok: true, protocol: 'chat', latencyMs: 1 });
   store.activate('openai');
-  const manager = createAiProviderManager({ store, advisor, env: { NODE_ENV: 'development' } });
+  const passing = async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"ok":true}' } }] }) });
+  const manager = createAiProviderManager({ store, advisor, env: { NODE_ENV: 'test' }, fetchImpl: passing, requestImpl: passing, resolveHost: async () => [{ address: '8.8.8.8', family: 4 }] });
   assert.equal(applied.at(-1).apiKey, 'key-one');
-  manager.upsert({ id: 'openai', apiKey: 'key-two' });
-  assert.equal(applied.at(-1).apiKey, 'key-two', 'the rotated key is the one the advisor now uses');
-  assert.equal(store.get('openai').lastTest, null, 'a rotated key is a new connection that must be tested again');
+  assert.throws(() => manager.upsert({ id: 'openai', apiKey: 'key-two' }), /connection test/, 'a bare upsert cannot rotate the active key');
+  assert.equal(applied.at(-1).apiKey, 'key-one', 'the refused rotation never reaches the advisor');
+  assert.equal((await manager.update({ id: 'openai', apiKey: 'key-two' })).test.ok, true);
+  assert.equal(applied.at(-1).apiKey, 'key-two', 'the rotated key is the one the advisor now uses once it passes');
 });
 
-// F-025: the private-endpoint opt-in has one name; the old name still works
+// The private-endpoint opt-in has one name; the old name still works
 // and warns once.
-check('F-025 the private-endpoint opt-in reads one name and warns once for the alias', () => {
+check('the private-endpoint opt-in reads one name and warns once for the alias', () => {
   const warnings = [];
   const originalWarn = console.warn;
   console.warn = message => { warnings.push(String(message)); };
@@ -410,18 +400,18 @@ check('F-025 the private-endpoint opt-in reads one name and warns once for the a
   assert.match(warnings[0], /POORUP_AI_ALLOW_PRIVATE_ENDPOINTS is deprecated/);
 });
 
-// F-025 regression guard: the documented default (a key with no base URL) still
+// The documented default (a key with no base URL) still
 // seeds the DeepSeek endpoint in production, so a valid env profile keeps working.
-check('F-025 a valid production key with the default endpoint still seeds the advisor', () => {
+check('a valid production key with the default endpoint still seeds the advisor', () => {
   const seeded = createBotAdvisor({ NODE_ENV: 'production', POORUP_AI_API_KEY: 'live-key' });
   assert.equal(seeded.apiKey, 'live-key');
   assert.equal(seeded.endpoint, 'https://api.deepseek.com/chat/completions');
 });
 
-// F-022 (runtime): a bot decision that never settles frees its turn lock
+// A bot decision that never settles frees its turn lock
 // through the watchdog, and the stale completion cannot free the lock a newer
-// decision now holds.
-await checkAsync('F-022 a stalled bot decision is released by the watchdog and a stale finish cannot free the newer lock', async () => {
+// decision holds.
+await checkAsync('a stalled bot decision is released by the watchdog and a stale finish cannot free the newer lock', async () => {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'wd-host', clientId: 'wd-host', nickname: 'Host', rulesProfile: 'advanced', roomCode: 'B8WATCH' });
   room.addOrReconnectPlayer({ socketId: 'wd-seat', clientId: 'wd-seat', nickname: 'Seat' });
@@ -489,8 +479,8 @@ await checkAsync('F-022 a stalled bot decision is released by the watchdog and a
   assert.equal(turnTimers().length, 0, 'a stale finish leaves the newer decision lock in place');
 });
 
-// F-090: a blocked trade proposal names the blocker that is really open.
-check('F-090 a blocked trade proposal names the blocker that is open', () => {
+// A blocked trade proposal names the blocker that is really open.
+check('a blocked trade proposal names the blocker that is open', () => {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'f090-host', clientId: 'f090-host', nickname: 'Host', rulesProfile: 'advanced', roomCode: 'B8F090' });
   room.addOrReconnectPlayer({ socketId: 'f090-seat', clientId: 'f090-seat', nickname: 'Seat' });
@@ -514,9 +504,9 @@ check('F-090 a blocked trade proposal names the blocker that is open', () => {
   }
 });
 
-// F-089: a contract a bot creates reaches its human recipient as an event, the
-// same way a human's proposal does, instead of appearing silently in the rail.
-await checkAsync('F-089 a bot-created contract offer is sent to its human recipient', async () => {
+// A contract a bot creates reaches its human recipient as an event, the
+// same way a human's proposal does, not silently in the rail.
+await checkAsync('a bot-created contract offer is sent to its human recipient', async () => {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'f089-host', clientId: 'f089-host', nickname: 'Host', rulesProfile: 'advanced', roomCode: 'B8F089' });
   room.addOrReconnectPlayer({ socketId: 'f089-seat', clientId: 'f089-seat', nickname: 'Seat' });
@@ -574,7 +564,7 @@ await checkAsync('F-089 a bot-created contract offer is sent to its human recipi
 });
 
 // The env cap is read once at construction and documented beside the others.
-check('C35-05 the process-wide AI call cap is set from POORUP_AI_CALLS_PER_HOUR', () => {
+check('the process-wide AI call cap is set from POORUP_AI_CALLS_PER_HOUR', () => {
   assert.equal(createBotAdvisor({ POORUP_AI_API_KEY: 'k', POORUP_AI_CALLS_PER_HOUR: '7' }).maxCallsPerHour, 7);
   assert.ok(createBotAdvisor({ POORUP_AI_API_KEY: 'k' }).maxCallsPerHour > 0, 'an unset cap still bounds spend');
 });
@@ -583,5 +573,5 @@ if (failures.length) {
   console.error(`${failures.length} bot-runtime check(s) failed`);
   process.exitCode = 1;
 } else {
-  console.log('bot-runtime (B8) checks passed');
+  console.log('bot-runtime checks passed');
 }

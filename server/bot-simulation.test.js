@@ -6,7 +6,7 @@ import { runBotTurn } from './botLogic.js';
 import { createBotPolicy, simulateBotMatch } from './bot-policy-tournament.js';
 import { summarizeBalanceCampaign } from './balanceMetrics.js';
 
-// Planner bots now play real games to the end (about a second each), so the suite runs a
+// Planner bots play real games to the end (about a second each), so the suite runs a
 // bounded sample; POORUP_BOT_SIMULATION_COUNT=1000 runs the full campaign.
 const SIMULATION_COUNT = Math.max(1, Math.floor(Number(process.env.POORUP_BOT_SIMULATION_COUNT) || 60));
 const START_INDEX = Math.max(1, Math.floor(Number(process.env.POORUP_BOT_SIMULATION_START_INDEX) || 1));
@@ -17,7 +17,7 @@ const STEP_LIMIT = Math.max(1, Math.floor(Number(process.env.POORUP_BOT_STEP_LIM
 const STARTING_CASH = Math.max(1, Math.floor(Number(process.env.POORUP_BOT_STARTING_CASH) || 1_500));
 
 // A broke bot with its roll done resolves on its own tick: it takes the bank loan when one is
-// on offer (audit 2026-10 finding 3: it used to declare bankruptcy without trying), and
+// on offer (it must not declare bankruptcy without trying), and
 // declares bankruptcy only when no loan is available.
 async function assertZeroCashPostRollBotsResolve({ loanAvailable }) {
   const manager = new RoomManager();

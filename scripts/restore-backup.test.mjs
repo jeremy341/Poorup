@@ -111,6 +111,21 @@ assert.equal(forced.status, 0, forced.err);
 assert.equal(fs.readFileSync(path.join(existing, 'accounts.json'), 'utf8'), secondBytes);
 assert.match(forced.out, /overwrote existing/i);
 
+// Operator audit backups are included in the restore allow-list and map to
+// the persisted audit filename.
+{
+  const auditSourceDir = path.join(root, 'audit-source');
+  const auditBackups = path.join(root, 'audit-backups');
+  const auditTarget = path.join(root, 'audit-target');
+  fs.mkdirSync(auditSourceDir, { recursive: true });
+  const auditSource = path.join(auditSourceDir, 'admin-audit.json');
+  fs.writeFileSync(auditSource, '[{"action":"release-mode"}]');
+  backupJsonFile(auditSource, auditBackups, { now: Date.UTC(2026, 0, 3) });
+  const restored = run(['--backup-dir', auditBackups, '--store', 'adminAudit', '--to', auditTarget]);
+  assert.equal(restored.status, 0, restored.err);
+  assert.equal(fs.readFileSync(path.join(auditTarget, 'admin-audit.json'), 'utf8'), '[{"action":"release-mode"}]');
+}
+
 // The live data directory is off limits unless the target is exactly that
 // directory and --force is passed. Subdirectories of it are always refused.
 const liveRefused = run(['--backup-dir', backupDir, '--store', 'accounts', '--to', liveDir]);
@@ -126,9 +141,26 @@ assert.equal(liveForced.status, 0, liveForced.err);
 assert.equal(fs.readFileSync(path.join(liveDir, 'accounts.json'), 'utf8'), secondBytes);
 assert.match(liveForced.out, /live data directory/);
 
-// X6: the live data directory is protected even when POORUP_DATA_DIR is not
+// Junction aliases and nonexistent descendants remain subject to the same
+// live-directory guard as the lexical path.
+{
+  const liveAlias = path.join(root, 'live-alias');
+  fs.symlinkSync(liveDir, liveAlias, 'junction');
+  const aliasRefused = run(['--backup-dir', backupDir, '--store', 'accounts', '--to', liveAlias]);
+  assert.equal(aliasRefused.status, 1, 'a junction alias of the live data directory is protected');
+  assert.match(aliasRefused.err, /live data directory/);
+  const aliasForced = run(['--backup-dir', backupDir, '--store', 'accounts', '--to', liveAlias, '--force']);
+  assert.equal(aliasForced.status, 1, 'force does not authorize a junction alias');
+  const aliasNested = path.join(liveAlias, 'not-created');
+  const nestedAliasRefused = run(['--backup-dir', backupDir, '--store', 'accounts', '--to', aliasNested, '--force']);
+  assert.equal(nestedAliasRefused.status, 1, 'a missing descendant through a live junction cannot bypass the guard');
+  assert.match(nestedAliasRefused.err, /live data directory/);
+  assert.equal(fs.existsSync(path.join(liveDir, 'not-created')), false, 'nothing was written through the alias');
+}
+
+// The live data directory is protected even when POORUP_DATA_DIR is not
 // set. The server then keeps its stores in <repo>/server/data, and a restore
-// into the default live directory used to be allowed without --force.
+// into the default live directory is refused without --force.
 {
   const defaultLive = path.join(root, 'default-live');
   fs.mkdirSync(defaultLive, { recursive: true });

@@ -2,10 +2,9 @@ import { dynamicReserve, groupBuildPlan } from './botDevelopmentForecast.js';
 import { deedValue, progressCredit } from './botTradeValuation.js';
 import { applyRentCap } from './botRentForecast.js';
 
-// Raises over the standing bid (or the opening bid) a bot may make: exactly the
-// buttons the player UI offers (public/clientAuctionUi.js BID_STEPS). The bot's own
-// decision (botLogic.js) picks from them and the server enforces them for bots
-// (auctionApi.js), so a bot never makes a raise the table's players cannot.
+// Raises over the standing bid (or opening bid) a bot may make: exactly the buttons the player UI offers
+// (public/clientAuctionUi.js BID_STEPS). The bot's decision (botLogic.js) picks from them, and auctionApi.js enforces
+// them for bots, so a bot never makes a raise the table's players cannot.
 export const AUCTION_BID_INCREMENTS = Object.freeze([1, 20, 100]);
 // The standard raise: what the deterministic planner bids when it can afford it.
 export const AUCTION_BID_STEP = 20;
@@ -67,10 +66,9 @@ function buildEffects(game) {
   return game.activeEventEffects();
 }
 
-// Building is frozen by the table's own rule (globalEventsApi
-// isConstructionBlocked), which covers the effect payload and the headlines
-// that block construction on their own: housing bubble, bank run and supply
-// chain. A bot that values a set it cannot build overpays for it.
+// Building is frozen by the table's own rule (globalEventsApi isConstructionBlocked), which covers the effect
+// payload and the headlines that block construction on their own: housing bubble, bank run and supply chain.
+// A bot that values a set it cannot build overpays for it.
 function constructionUnavailable(game, effects) {
   if (effects.constructionBlocked) return true;
   if (effects.rentMultiplier === 0) return true;

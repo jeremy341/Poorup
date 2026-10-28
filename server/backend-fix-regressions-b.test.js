@@ -1,8 +1,6 @@
-// Regression suite B for the backend audit fixes, covering the bankruptcy
-// module: B-03 (hybrid collateral re-validation), B-04 (obligations on every
-// bankruptcy path), B-16 (plain-loan default claim) and B-17 (the claim
-// ledger's production recovery path). Split from backend-fix-regressions.test.js
-// so the two agents editing this campaign never write the same file.
+// Regression checks for the bankruptcy module: hybrid collateral
+// re-validation, obligations on every bankruptcy path, plain-loan default claims, and the claim ledger's
+// production recovery path.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { settleAfkPayment } from './socketRuntime.js';
@@ -109,10 +107,9 @@ check('a padded response requestId replays the same settlement (B-22)', () => {
   const first = room.respondPlayerContract('b', true, 'b22-accept');
   assert.equal(first.success, true);
 
-  // " b22-accept " is the same logical request. Without trimming before
-  // keying, the bounded replay map misses the memo and runs the settlement
-  // ladder again - and a second acceptance against a cleared pending
-  // contract would surface as a bogus second cash movement.
+  // " b22-accept " is the same logical request. Without trimming before keying, the bounded replay map
+  // misses the memo and runs the settlement ladder again, and a second acceptance against a cleared
+  // pending contract would show up as a bogus second cash movement.
   const replay = room.respondPlayerContract('b', true, '  b22-accept  ');
   assert.equal(replay, first, 'a whitespace-padded response id must replay, not re-execute');
   assert.equal(a.cash, 1500 - 100, 'the padded replay must not move cash a second time');

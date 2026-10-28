@@ -1,5 +1,4 @@
 // Regression checks for the bot tournament harness validity items
-// (docs/BOT-ENGINE-AUDIT-2026-10.md findings 11 and 12).
 import crypto from 'node:crypto';
 import { ROUND_LIMIT } from './gameData.js';
 import { netWorth } from './botTableBrain.js';
@@ -40,7 +39,7 @@ check('seeded item match exercises item actions', firstItemIds.length > 0 && sec
 check('seeded item action IDs reproduce exactly', JSON.stringify(firstItemIds) === JSON.stringify(secondItemIds),
   `${JSON.stringify(firstItemIds)} vs ${JSON.stringify(secondItemIds)}`);
 
-// (1) The step budget scales with the round limit instead of a fixed 2,000.
+// The step budget scales with the round limit, not a fixed 2,000.
 check('default step limit covers the full round limit', defaultStepLimit(3) === ROUND_LIMIT * 3 * STEPS_PER_SEAT_ROUND);
 check('default step limit is well above the old 2,000 cap', defaultStepLimit(3) > 5 * 2_000);
 check('default step limit grows with seats', defaultStepLimit(3) > defaultStepLimit(2));
@@ -91,7 +90,7 @@ check('censored matches are excluded from completed totals', summary.completedCo
 check('win rate ignores censored matches', summary.policyOutcomes.x.winRate === 0.5 && summary.policyOutcomes.x.censored === 2, JSON.stringify(summary.policyOutcomes.x));
 check('per-policy outcome lists completion kinds', summary.policyOutcomes.x.completionKinds['step-limit'] === 1);
 
-// (2) Auction responders cycle; no seat is structurally first.
+// Auction responders cycle; no seat is structurally first.
 const orderContext = {
   seed: 7, auctionOrdinal: 0, auctionKey: null, auctionStartSeat: 0,
   room: { game: { players: [{ id: 'p0' }, { id: 'p1' }, { id: 'p2' }] } },
@@ -109,7 +108,7 @@ check('the opening responder rotates through all seats', new Set(firstSeats.slic
 const afterBid = auctionResponseOrder(orderContext, { startedAt: 1005, propertyTile: { index: 5 }, highestBidderId: 'p1' });
 check('after a bid the next seat in the cycle responds first', afterBid.map(player => player.id).join() === 'p2,p0,p1', afterBid.map(player => player.id).join());
 
-// (3) The stub AI supplies a legal bid amount.
+// The stub AI supplies a legal bid amount.
 const bidOptions = auctionRaiseOptions(10, 1000);
 check('stub picks the standard +20 raise when offered', stubBidAmount({ amountOptions: bidOptions }) === 30);
 check('stub falls back to the only legal option', stubBidAmount({ amountOptions: [11] }) === 11);
@@ -127,7 +126,7 @@ const bidDecision = await stubPolicy.advisor.chooseAction({
 check('stub bid is accepted rather than falling back', bidDecision.fallback !== true && bidDecision.actionId === 'auction:bid', JSON.stringify(bidDecision));
 check('stub bid carries a legal amount parameter', bidOptions.includes(bidDecision.parameters?.amount), JSON.stringify(bidDecision.parameters));
 
-// (4) Each match gets a fresh advisor, so state cannot leak between matches.
+// Each match gets a fresh advisor, so state cannot leak between matches.
 const advisorInstances = [];
 const trackedStub = { ...stubPolicy, createAdvisor: () => { const advisor = stubPolicy.createAdvisor(); advisorInstances.push(advisor); return advisor; } };
 const control = createBotPolicy('fresh-control');
@@ -148,7 +147,7 @@ const cappedDefaults = createDefaultPolicySet({ fetchImpl: cappedTransport.fetch
 const cappedStub = cappedDefaults.find(policy => policy.policyId === 'ai-stub');
 check('fresh advisors keep the shared call-cap transport', cappedStub.createAdvisor().fetchImpl === cappedTransport.fetchImpl);
 
-// (5) The seeds env var is parsed whole.
+// The seeds env var is parsed whole.
 const cliRuns = [];
 const runCli = env => runTournamentCli({
   runBotTournament: async options => { cliRuns.push(options); return { matches: [] }; },
@@ -164,7 +163,7 @@ check('an unset step limit lets the harness scale it', cliRuns.at(-1).stepLimit 
 await runCli({ POORUP_BOT_EVAL_SEEDS: '1', POORUP_BOT_EVAL_STEP_LIMIT: '50000' });
 check('an explicit step limit is honoured', cliRuns.at(-1).stepLimit === 50_000);
 
-// (6) Mortgaged deeds use the engine net-worth rule.
+// Mortgaged deeds use the engine net-worth rule.
 const worthGame = createSimulationRoom({ settings: { seatCount: 2 } }).game;
 const worthPlayer = worthGame.players[0];
 worthPlayer.cash = 400;
@@ -179,7 +178,7 @@ check('a mortgaged deed counts at half face', unmortgagedWorth - mortgagedWorth 
   `${unmortgagedWorth} vs ${mortgagedWorth}`);
 check('harness net worth matches the engine rule', mortgagedWorth === netWorth(worthGame, worthPlayer), `${mortgagedWorth} vs ${netWorth(worthGame, worthPlayer)}`);
 
-// (7) The tournament reports and orders seats on the canonical net worth
+// The tournament reports and orders seats on the canonical net worth
 // (netWorth.js): a seat that owes short-default debt is worth less, and is
 // placed below the solvent seat.
 const canonicalRoom = createSimulationRoom({ settings: { seatCount: 2 } });
@@ -204,7 +203,7 @@ check('the seat in debt is placed below the solvent seat',
   canonicalResult.placementsByPolicy['debt-seat'] === 2 && canonicalResult.placementsByPolicy['solvent-seat'] === 1,
   JSON.stringify(canonicalResult.placementsByPolicy));
 
-// (8) Market P&L is aggregated from the player's own book: the display ledger
+// Market P&L is aggregated from the player's own book: the display ledger
 // is capped at 300 rows and never records forced settlements.
 const bookRoom = createSimulationRoom({ settings: { seatCount: 2, market: true } });
 const bookPlayer = bookRoom.game.players[0];
@@ -233,7 +232,7 @@ check('an explicit forced settlement row counts as realized P&L',
   settlementResult.marketPnlByPolicy['settle-a'] === 25,
   String(settlementResult.marketPnlByPolicy['settle-a']));
 
-// (9) A policy with no completed match has no average placement at all.
+// A policy with no completed match has no average placement at all.
 const quietSummary = buildTournamentSummary([{
   ended: false,
   completed: false,
@@ -247,7 +246,7 @@ check('a policy with no completed match has no average placement',
   quietSummary.policyOutcomes.quiet.averagePlacement === null,
   String(quietSummary.policyOutcomes.quiet.averagePlacement));
 
-// (10) The shadow row counts the matches a policy was evaluated in, not the
+// The shadow row counts the matches a policy was evaluated in, not the
 // number of decisions it made.
 const shadowOnlySummary = buildTournamentSummary([{
   ended: true,
@@ -266,7 +265,7 @@ const shadowRow = shadowOnlySummary.shadowEvaluationSummary['shadow-a'];
 check('the shadow row counts the match once, not the decisions', shadowRow.matches === 1, String(shadowRow.matches));
 check('the shadow row still counts every decision', shadowRow.decisions === 2, String(shadowRow.decisions));
 
-// (11) A match row without live-AI counters must not poison the totals.
+// A match row without live-AI counters must not poison the totals.
 const bareSummary = buildTournamentSummary([{
   ended: false,
   completed: false,
@@ -280,7 +279,7 @@ check('missing live-AI counters sum to zero, not NaN',
   bareSummary.liveAiCalls === 0 && bareSummary.liveAiFallbacks === 0 && bareSummary.liveAiCapExhaustions === 0,
   JSON.stringify([bareSummary.liveAiCalls, bareSummary.liveAiFallbacks, bareSummary.liveAiCapExhaustions]));
 
-// (12) Two different strata must never share a key.
+// Two different strata must never share a key.
 const collidingSummary = buildTournamentSummary([
   {
     ended: true, completed: true, censored: false, winnerPolicyId: 'a:b',
@@ -295,7 +294,7 @@ check('two different strata never share a key',
   Object.keys(collidingSummary.pairedDifferences).length === 2,
   JSON.stringify(Object.keys(collidingSummary.pairedDifferences)));
 
-// (13) The CLI environment reaches the default advisor, and the ambient
+// The CLI environment reaches the default advisor, and the ambient
 // process environment is not consulted behind the CLI's back.
 const ambientModel = process.env.POORUP_AI_MODEL;
 process.env.POORUP_AI_MODEL = 'ambient-model';
@@ -313,7 +312,7 @@ try {
   else process.env.POORUP_AI_MODEL = ambientModel;
 }
 
-// (14) A reused advisor must not carry the first match into the second one.
+// A reused advisor must not carry the first match into the second one.
 const sharedStub = createDefaultPolicySet().find(policy => policy.policyId === 'ai-stub');
 const sharedPolicy = createBotPolicy('shared-ai', { brain: 'ai', advisor: sharedStub.advisor });
 const sharedPolicies = [sharedPolicy, createBotPolicy('shared-control')];
@@ -325,7 +324,7 @@ check('a reused advisor does not carry the first match calls',
   sharedStub.advisor.aiCalls === sharedSecond.strategyMetricsByPolicy['shared-ai'].providerCalls,
   `${sharedStub.advisor.aiCalls} vs ${sharedSecond.strategyMetricsByPolicy['shared-ai'].providerCalls}`);
 
-// (15) A seed outside the unsigned 32-bit range is rejected, and two seeded
+// A seed outside the unsigned 32-bit range is rejected, and two seeded
 // matches never overlap their seeded globals.
 let seedError = null;
 try {
@@ -353,7 +352,7 @@ check('the CLI rejects a seed outside the unsigned 32-bit range',
   cliSeedError instanceof Error && /POORUP_BOT_EVAL_SEEDS/.test(cliSeedError.message),
   String(cliSeedError?.message));
 
-// (16) The simulated auction decision is taken with the game and the same
+// The simulated auction decision is taken with the game and the same
 // context fields the live table hands the advisor.
 const auctionContexts = [];
 const auctionStub = createDefaultPolicySet().find(policy => policy.policyId === 'ai-stub').advisor;

@@ -1,9 +1,6 @@
-// Characterization suite for the room lifecycle handlers in server.js:
-// create-room, join-room, respond-room-invite, and get-match-history.
-// These tests pin the EXACT ack payloads (error strings included), the
-// check ordering, and the public/private ack shape so the Code Health
-// refactor can be proven behavior-preserving. Wire-level only: no store
-// internals are imported.
+// Characterization suite for the room lifecycle handlers in server.js: create-room, join-room, respond-room-invite and get-match-history.
+// These tests pin the exact ack payloads (error strings included), the check ordering and the public and private ack shapes, so the
+// Code Health refactor can be proven behavior-preserving. Wire-level only: no store internals are imported.
 import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -58,7 +55,7 @@ function ask(socket, event, payload) {
 const results = [];
 function check(name, condition) {
   results.push({ name, ok: Boolean(condition) });
-  console.log(`${condition ? 'PASS' : 'FAIL'} — ${name}`);
+  console.log(`${condition ? 'PASS' : 'FAIL'} - ${name}`);
 }
 
 function ackEquals(actual, expected) {
@@ -370,12 +367,9 @@ function watchStates(socket) {
   return () => seen[seen.length - 1] || null;
 }
 
-// The reconnect grace is shortened only inside this test server; the default
-// production grace remains 120 seconds and is pinned by fake-clock coverage.
-// It must drop a
-// pending player contract held by the departing seat, or the table stays
-// gated for everyone else until someone manually resolves it. These two
-// scenarios share the CT0001 fixture via ctx.
+// The reconnect grace is shortened only inside this test server; production stays at 120 seconds (pinned by fake-clock coverage).
+// It must drop a pending player contract held by the departing seat, or the table stays gated until someone resolves it.
+// These two scenarios share the CT0001 fixture via ctx.
 function seatId(latest, nickname) {
   return (latest()?.game?.players || []).find(player => player.nickname === nickname)?.id || null;
 }

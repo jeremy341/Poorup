@@ -1,7 +1,6 @@
-// Audit fixes for trade proposal guards, market obligation parity, and the
-// auction charge-before-transfer ordering. Pinned in the check() style of
-// server/contracts-market.test.js: results array, check(name, fn), summary
-// print, process.exit(failed ? 1 : 0).
+// Audit fixes for trade proposal guards, market obligation parity, and the auction
+// charge-before-transfer ordering. Pinned in the check() style of server/contracts-market.test.js:
+// results array, check(name, fn), summary print, and process.exit(failed ? 1 : 0).
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 
@@ -262,7 +261,7 @@ check('trade proposal respects the room trading toggle', () => {
 check('trade proposal blocked during auction', () => {
   const { game, b } = startedRoom();
   game.auction = { active: true };
-  // F-090: the message names the open auction, not a second trade.
+  // The message names the open auction, not a second trade.
   assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 10 }), { success: false, error: 'Resolve the open auction before proposing a trade.' });
   assert.equal(game.pendingTrade, null);
 });

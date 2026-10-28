@@ -27,11 +27,9 @@ function loanCollateralIndices(contract) {
   return contract.collateralTileIndex == null ? [] : [contract.collateralTileIndex];
 }
 
-// The proposal validated the whole basket; settlement must re-validate it
-// the same way. The singular collateralTileIndex is only a legacy alias
-// for the first index, so checking it alone lets later deeds sail through
-// acceptance already sold or mortgaged. Both a plain loan and the funded leg
-// of a hybrid note are secured by this basket, so both re-validate it.
+// The proposal validated the whole basket, so settlement must re-validate it the same way.
+// The singular collateralTileIndex is only a legacy alias, so checking it alone lets later deeds
+// through already sold or mortgaged. A plain loan and the funded leg of a hybrid are both secured by the basket.
 function pledgedCollateralRejection(game, player, contract) {
   const indices = loanCollateralIndices(contract);
   if (!indices.length) return null;
@@ -110,10 +108,9 @@ function debtsOwedBy(game, playerId) {
   return debts;
 }
 
-// Who is owed the settlement debt (creditor null = the bank), and whether
-// the seat owes anything at all (no debt = a voluntary retirement). A queued
-// claim settles exactly like the head: its creditor is the one the estate
-// passes to.
+// Who is owed the settlement debt (creditor null means the bank), and whether the seat owes anything
+// at all (no debt means a voluntary retirement). A queued claim settles like the head: its creditor is
+// the one the estate passes to.
 export function outstandingDebtFor(game, player) {
   const [debt] = debtsOwedBy(game, player.id);
   if (!debt) return { owes: false, creditor: null };
@@ -121,11 +118,9 @@ export function outstandingDebtFor(game, player) {
   return { owes: true, creditor };
 }
 
-// A departing debtor's queued claims leave the queue with its estate. The first
-// queued claim owed to the estate's creditor (the creditor outstandingDebtFor
-// reports) is paid by the estate; every other claim the seat owes is written
-// off in the feed, so none leaves the queue unannounced. The head claim is the
-// caller's to clear, since each exit path settles it differently.
+// A departing debtor's queued claims leave the queue with its estate. The first claim owed to the
+// estate's creditor is paid by the estate; every other claim the seat owes is written off in the feed,
+// so none leaves the queue unannounced. The caller clears the head claim, since each exit settles it differently.
 export function settleQueuedDebtsOf(game, player, estateCreditor = null) {
   const queue = Array.isArray(game.pendingPaymentQueue) ? game.pendingPaymentQueue : [];
   const owed = queue.filter(entry => entry?.payment?.playerId === player.id);
@@ -161,10 +156,9 @@ export function clearQuitObligations(game, player, estateCreditor = null) {
   settleQueuedDebtsOf(game, player, estateCreditor);
   game.removeQueuedPaymentsForPlayer?.(player.id);
   if (game.pendingPurchaseOffer?.playerId === player.id) game.pendingPurchaseOffer = null;
-  // A pending payment cannot keep running after either side exits. The
-  // debtor's current cash is handled by the bankruptcy caller first; this
-  // clear only removes the now-unresolvable table gate. Keep it silent so the
-  // existing bankruptcy announcement remains the first user-facing result.
+  // A pending payment cannot keep running after either side exits. The debtor's cash is handled by the
+  // bankruptcy caller first; this clear only removes the now-unresolvable table gate. Keep it silent so the
+  // existing bankruptcy announcement stays the first user-facing result.
   const pendingPayment = game.pendingPayment;
   if (pendingPayment && (pendingPayment.playerId === player.id || pendingPayment.creditorId === player.id)) {
     // A staying debtor who rolled onto this debt resumes its roll when the debt
@@ -192,13 +186,9 @@ function canSeizeLoanCollateral(borrower, lender, collateral) {
   return collateral?.ownerId === borrower.id;
 }
 
-// A past-due player loan seizes whatever collateral still belongs to the
-// borrower (never from a bankrupt seat), marks the pledge as lost, files the
-// lender's claim, and closes the contract in the feed. It is the seam the
-// contract processor reaches for every default, so it is also where the
-// claim ledger collects what matured on an earlier round: a default is the
-// table's debt beat, and the claim just filed is skipped by that same sweep
-// (it is not collectable until the next round).
+// A past-due player loan seizes collateral still held by the borrower (never from a bankrupt seat),
+// marks the pledge lost, files the lender's claim and closes the contract. Every default reaches this seam,
+// so it is also where the claim ledger collects matured claims. The claim just filed is skipped until the next round.
 export function handlePlayerLoanDefault(game, contract, options = {}) {
   if (usesCollateralCredit(contract)) return defaultPlayerLoanWithCredit(game, contract, options);
   const { reason = 'loan-default' } = options;
@@ -211,7 +201,7 @@ export function handlePlayerLoanDefault(game, contract, options = {}) {
   }
   const principal = Math.max(0, Math.floor(Number(contract.remaining ?? contract.totalDue ?? contract.amount) || 0));
   // Keep the unpaid principal as a server-side claim even when no collateral
-  // remains. Marking only a terminal status previously destroyed the lender's
+  // remains. Marking only a terminal status would destroy the lender's
   // recovery path on failed hybrid conversion.
   contract.defaultedPrincipal = principal;
   contract.defaultReason = reason;
@@ -276,13 +266,9 @@ function trimTerminalDefaultClaims(claims, limit) {
   }
 }
 
-// Defaults are retained as a server-owned claim ledger rather than only
-// descriptive fields on a terminal contract. This gives unsecured hybrids a
-// deterministic recovery path without minting cash or exposing claims in
-// public room projections.
-// True when recordDefaultClaim would succeed for this contract right now,
-// without touching the ledger: the contract already has a claim, a slot is
-// free, or a terminal claim could be trimmed to make room.
+// Defaults are kept in a server-owned claim ledger, not only as fields on a terminal contract. This
+// gives unsecured hybrids a deterministic recovery path without minting cash or exposing claims publicly.
+// True when recordDefaultClaim would succeed now: the contract has a claim, a slot is free, or a terminal claim can be trimmed.
 export function canRecordDefaultClaim(game, contract) {
   const claims = game.defaultClaims || [];
   if (claims.some(claim => claim.contractId === contract.id)) return true;
@@ -349,17 +335,9 @@ export function settleDefaultClaim(game, contractId, amount = null) {
   return { success: true, contractId, paid: payment, remaining: claim.remaining, status: claim.status };
 }
 
-// The deterministic recovery path the ledger promises, and the only production
-// caller of settleDefaultClaim. The two table debt beats sweep it: the
-// contract processor's default path (handlePlayerLoanDefault) and the
-// bankruptcy ladder (bankruptcyApi.handleBankruptcy). Claims are paid oldest
-// first, and only from the round after they were filed, so the defaulting
-// round records the debt instead of charging it. A claim is paid in full or
-// not at all: a seat whose cash cannot cover the whole remaining balance keeps
-// it, so a recorded claim can never push a survivor into bankruptcy, and the
-// transfer moves cash between two seats without minting or destroying any.
-// Claims whose borrower or lender has left the table stay open forever as the
-// write-off record they were filed as.
+// The deterministic recovery path the ledger promises, and the only production caller of settleDefaultClaim. The two debt beats
+// sweep it: the contract default path and the bankruptcy ladder. Claims are paid oldest first, only from the round after filing, and only in full,
+// so a claim cannot push a survivor into bankruptcy. Claims whose borrower or lender has left stay open as the write-off record.
 export function settleDefaultClaims(game) {
   const round = Math.max(0, Math.floor(Number(game.roundNumber) || 0));
   const matured = (game.defaultClaims || []).filter(claim => claim.status === 'open' && Number(claim.createdRound) < round);
@@ -378,13 +356,9 @@ export function announceLoanDue(game, contract, borrower) {
   game.feedMessage(lender.nickname + ' is owed $' + contract.remaining + ' by ' + borrower.nickname + '.');
 }
 
-// Share percentages are clamped 5-100 at proposal, but stored tiles can
-// predate that (or arrive from a hand-edited file): a non-finite or
-// non-positive share must never reach the cash arithmetic as NaN.
-// Equity stays payable while its contract is live: an active agreement,
-// or a converted hybrid note whose debt leg ended but whose equity leg
-// still earns. (Mirrors equityShareContractLive in contractLogic.js; kept
-// local because that module imports from this one.)
+// Share percentages are clamped to 5-100 at proposal, but stored tiles can predate that, so a non-finite or non-positive share
+// must never reach the cash arithmetic as NaN. Equity stays payable while its contract is live (an active agreement, or a converted hybrid still earning).
+// Mirrors equityShareContractLive in contractLogic.js, kept local because that module imports this one.
 function equityShareContractLive(contract) {
   if (contract.status === 'active') return true;
   return contract.status === 'converted';

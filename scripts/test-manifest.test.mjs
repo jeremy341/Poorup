@@ -94,12 +94,13 @@ assert.deepEqual(parseRunnerOptions(['--group', 'account', '--suite=server/accou
 });
 assert.equal(parseRunnerOptions(['--group=core', '--allow-empty']).allowEmpty, true);
 
-// G12-07: a selection that runs nothing is a configuration error, not a pass.
-// Shard 200/200 selects no suites from the 173-suite manifest.
-const emptySelection = spawnSync(process.execPath, ['scripts/run-test-manifest.mjs', '--group=core', '--shard=200/200'], { encoding: 'utf8' });
+// A selection that runs nothing is a configuration error, not a pass.
+// A shard past the end of the group selects no suites, so it must fail.
+const pastEnd = testSuites('core').length + 1;
+const emptySelection = spawnSync(process.execPath, ['scripts/run-test-manifest.mjs', '--group=core', '--shard=' + pastEnd + '/' + pastEnd], { encoding: 'utf8' });
 assert.notEqual(emptySelection.status, 0, 'an empty shard selection fails instead of reporting success');
 assert.match(emptySelection.stderr, /No suites selected/, 'the empty selection failure names the cause');
 const allowedEmpty = spawnSync(process.execPath, ['scripts/run-test-manifest.mjs', '--group=core', '--shard=200/200', '--allow-empty'], { encoding: 'utf8' });
 assert.equal(allowedEmpty.status, 0, 'an intentionally empty selection passes with --allow-empty');
 
-console.log(`test manifest: ${totalGroupRuns} prior invocations → ${allSuites.length} unique suites, time-balanced shards (fallback round-robin)`);
+console.log(`test manifest: ${totalGroupRuns} prior invocations, ${allSuites.length} unique suites, time-balanced shards (fallback round-robin)`);

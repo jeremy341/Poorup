@@ -127,12 +127,10 @@ check('fix2 payEach sufficient cash feeds total', () => {
   assert.match(game.feed[0].text, /\$20/);
 });
 
-// F-016 (owner decision: keep the forgiveness; pinned here so it cannot drift).
-// A collect-from-each card takes what a short payer has and forgives the rest:
-// no debt is parked and no shortfall is announced. A pay-each card that is
-// short parks the same kind of shortfall as a debt instead. The asymmetry is
-// deliberate.
-check('F-016 pin: collect-from-each forgives a short payer, while pay-each parks the same shortfall', () => {
+// Owner decision: keep the forgiveness, pinned here so it cannot drift.
+// A collect-from-each card takes what a short payer has and forgives the rest, so no debt is parked
+// and no shortfall is announced. A pay-each card that is short parks a debt instead.
+check('collect-from-each forgives a short payer, while pay-each parks the same shortfall', () => {
   const collect = startedRoom();
   collect.a.cash = 100;
   collect.b.cash = 10;

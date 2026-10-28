@@ -1,11 +1,6 @@
-// Regression suite for the sponsorship/economy defect repairs B-08, B-10, and
-// B-22. Each check pins one audited defect and the corrected behavior:
-//   B-08 a loan-backed bot must never be scheduled or counted as a funder,
-//        because the server rejects the contribution it is scheduled for;
-//   B-10 the short-default settlement path shares the market guard ladder, but
-//        stays a forced obligation (off-turn, quota-exempt) by design;
-//   B-22 an overfunded escrow returns the exact excess; the rounding dust is
-//        absorbed by the sponsors, never gifted to the buyer.
+// Regression suite for sponsorship and economy repairs. Each check pins one audited defect:
+// loan-backed bots are never scheduled or counted as funders, short-default settlement stays a forced
+// obligation, an overfunded escrow returns the exact excess, and rounding dust goes to the sponsors.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { findPendingCounterpart } from './botCandidates.js';
@@ -77,7 +72,7 @@ check('a loan-backed bot is never scheduled or counted as a sponsorship funder (
   assert.equal(findPendingCounterpart(game)?.id, buyer.id,
     'the tainted bot must never be scheduled as the sponsorship counterpart; the buyer takes the seat to cancel');
 
-  // Running the phase must no-op instead of burning a guaranteed rejection.
+  // Running the phase is a no-op, not a burned rejection.
   const phase = runSponsorshipPhase(room, sponsor, game);
   assert.equal(phase.success, true);
   assert.equal(phase.noEmit, true);
@@ -86,7 +81,7 @@ check('a loan-backed bot is never scheduled or counted as a sponsorship funder (
   assert.equal(sponsor.lastSponsorRound, undefined,
     'a rejected attempt must not be treated as a settled sponsorship round');
 
-  // The tainted bot no longer counts as a live funder, so the dead-request
+  // The tainted bot does not count as a live funder, so the dead-request
   // cancellation can fire once a full round has passed.
   game.roundNumber = sponsorship.createdRound + 2;
   assert.equal(sponsorshipBuyerShouldCancel(game, buyer, sponsorship), true,
@@ -191,7 +186,7 @@ check('an overfunded escrow returns the exact excess instead of gifting the buye
   assert.equal(game.requestPurchaseSponsorship('a').success, true);
 
   // Pro-rata shares of a $10 excess are 3.3 / 3.3 / 3.4: flooring every one
-  // of them loses a dollar that the buyer used to receive.
+  // of them loses a dollar that the buyer is meant to receive.
   const contributions = [[first, 33], [second, 33], [third, 34]];
   contributions.forEach(([sponsor, amount], index) => {
     assert.equal(game.contributeToSponsoredPurchase(String.fromCharCode(98 + index), { amount }).success, true);

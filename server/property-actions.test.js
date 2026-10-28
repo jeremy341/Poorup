@@ -344,7 +344,7 @@ check('dead seats cannot build or sell', () => {  const { game } = ownedRoom();
   );
 });
 
-check('mortgage never blocked by debt — only endTurn is', () => {
+check('mortgage never blocked by debt: only endTurn is', () => {
   const { game, owner, give } = ownedRoom();
   give(1);
   game.pendingPayment = { playerId: owner.id, creditorId: game.players[1].id, amountRemaining: 40 };
@@ -355,10 +355,8 @@ check('mortgage never blocked by debt — only endTurn is', () => {
   assert.equal(game.manageProperty('socket-a', { tileIndex: 3, action: 'mortgage' }).success, true);
 });
 
-// The stubbed ownedRoom() above replaces canBuildOnTile and canSellFromTile, so
-// the real even-build rule (propertyRules.js evenBuildAllows and its sell mirror)
-// never ran in this file (F-048). The checks below use a room whose build and
-// sell predicates are the real ones; only tile levels and evenBuild vary.
+// The stubbed ownedRoom() above replaces canBuildOnTile and canSellFromTile, so the real even-build rule (propertyRules.js
+// evenBuildAllows and its sell mirror) never runs here. The checks below use the real build and sell predicates.
 function pairRoom(evenBuild) {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });

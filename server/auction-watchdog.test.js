@@ -1,5 +1,5 @@
-// F-002: an auction opened by a bot's decision had no finish timer, so with no
-// bids it stayed active forever and blocked roll and end-turn. These tests run
+// An auction opened by a bot's decision needs a finish timer, so with no
+// bids it would stay active forever and block roll and end-turn. These tests run
 // the real runtime with fake timers and check that the auction closes.
 import assert from 'node:assert/strict';
 import { createRuntime } from './socketRuntime.js';
@@ -174,7 +174,7 @@ function testWatchdogIsUnrefedAndStoppable() {
   assert.equal(watchdog.cleared, true, 'shutdown clears the watchdog interval');
 }
 
-// o01 F2 / s06 S06-05: the lead bidder's socket drops. The lead is revoked at
+// The lead bidder's socket drops. The lead is revoked at
 // once (the sale cannot void at close with a frozen lead no rival can beat),
 // and the bid window is extended so rivals get a fair chance.
 function testDisconnectedLeaderLosesTheLead() {
@@ -192,7 +192,7 @@ function testDisconnectedLeaderLosesTheLead() {
   assert.equal(h.room.runBotAction(h.bot.id, actor => h.room.placeAuctionBid(actor, 20)).success, true, 'a rival can now win below the old bid');
 }
 
-// o01 F4: a finish handle that already fired must not stay registered, or the
+// A finish handle that already fired must not stay registered, or the
 // watchdog treats the room as armed and never closes an overdue auction.
 function testFiredFinishHandleDoesNotDisableWatchdog() {
   // The two runtime clock reads can straddle a millisecond. Identify the
@@ -213,7 +213,7 @@ function testFiredFinishHandleDoesNotDisableWatchdog() {
   assert.equal(h.game.auction, null, 'the watchdog still closes the overdue auction');
 }
 
-// s17 S17-07: every background interval is unref-ed and one call stops them
+// Every background interval is unref-ed and one call stops them
 // all; the empty-room GC reads the injected clock, not Date.now().
 function testBackgroundIntervalsAreUnrefedAndStoppable() {
   const h = harness();
@@ -237,7 +237,7 @@ function testEmptyRoomGcUsesInjectedClock() {
   assert.equal(h.manager.rooms.has(h.room.roomCode), false, 'the room is collected on the injected clock');
 }
 
-// s17 S17-02: a started table with no human seat left does not keep running.
+// A started table with no human seat left does not keep running.
 function testHumanlessTableDoesNotScheduleBots() {
   const h = harness({ bots: 2 });
   h.manager.leaveRoomByClient('host-client', 'host-sock');
@@ -272,11 +272,11 @@ for (const [name, fn] of SUITES) {
   try {
     await fn();
     passed += 1;
-    console.log(`PASS — ${name}`);
+    console.log(`PASS - ${name}`);
   } catch (error) {
     failed.push(name);
-    console.error(`FAIL — ${name}: ${error && error.message}`);
+    console.error(`FAIL - ${name}: ${error && error.message}`);
   }
 }
-console.log(`auction watchdog tests: ${SUITES.length} suites — ${passed} passed, ${failed.length} failed`);
+console.log(`auction watchdog tests: ${SUITES.length} suites, ${passed} passed, ${failed.length} failed`);
 if (failed.length) process.exitCode = 1;

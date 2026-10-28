@@ -1,13 +1,6 @@
-// Multi-turn development planning for bots (deterministic, testable).
-// The future planner evaluates single candidates; this module answers the
-// longer questions a smart player asks: which set do I develop first, how
-// fast does it pay back, what is the biggest hit coming my way, and what
-// stage is the table in. Pure functions over the provider-safe snapshot
-// shape (board tiles with ownerSeat/rent/houseCount/mortgaged) plus an
-// optional opponents list. Everything degrades to safe defaults on thin
-// snapshots so legacy callers keep working.
-// Flat traffic tiers come from the one canonical table in botTradeValuation so
-// build priority and trade pricing always agree on which groups matter.
+// Multi-turn development planning for bots (deterministic, testable). The future planner evaluates single candidates; this answers longer questions:
+// which set to develop first, how fast it pays back, the biggest hit coming, and the table's stage. Pure functions over the provider-safe snapshot;
+// thin snapshots degrade to safe defaults. Flat traffic tiers come from botTradeValuation, so build priority and trade pricing agree.
 import { trafficPercent, groupDevelopmentGain, rentAtLevel as sharedRentAtLevel } from './botTradeValuation.js';
 // The engine's own rent math: the event modifiers and the rent cap change
 // what a seat actually pays, so a forecast that ignores them over-states the
@@ -99,11 +92,9 @@ export function bestBuildTarget(board, houseCostOf) {
   return best;
 }
 
-// Traffic-weighted rent gain from current levels up to 3 houses for a
-// fully owned group. Null when incomplete, mortgaged, or already at 3+.
-// Needs no cost data, so it runs on the provider-safe snapshot board.
-// The gain itself is the shared one in botTradeValuation, so build priority
-// and trade pricing cannot disagree about what a finished set is worth.
+// Traffic-weighted rent gain from current levels up to 3 houses for a fully owned group. Null when incomplete,
+// mortgaged or already at 3+. Needs no cost data, so it runs on the provider-safe board. The gain is the shared one
+// in botTradeValuation, so build priority and trade pricing agree on what a finished set is worth.
 export function groupGainToThree(board, group) {
   const tiles = ownGroupTiles(board, group, 'self');
   const total = groupSize(board, group);
@@ -123,10 +114,8 @@ export function bestGainGroup(board) {
   }
   return best;
 }
-// The rent an opponent's tile would really charge. With a snapshot the
-// engine's own math applies (event modifiers, the rent cap, the set and
-// utility ladders); without one the static house ladder is the only
-// information available.
+// The rent an opponent's tile would really charge. With a snapshot, the engine's own math applies (event modifiers,
+// the rent cap, set and utility ladders). Without one, the static house ladder is all that is known.
 function hitRent(board, tile, snapshot) {
   const type = tile?.type;
   if (snapshot && (type === 'property' || type === 'railroad' || type === 'utility')) {
@@ -179,11 +168,8 @@ export function developmentStage(board) {
   return 'early';
 }
 
-// Dynamic liquidity target: cover the forecasted max hit plus one house
-// cost of headroom, bounded to sane whole dollars. Replaces static 120/180
-// in planning math (candidate shapes and reserves stay untouched). The
-// snapshot, when the caller has one, prices the hit the way the engine
-// charges it.
+// Dynamic liquidity target: cover the forecast max hit plus one house of headroom, bounded to sane whole dollars.
+// Replaces the static 120/180 in planning math. The snapshot, when present, prices the hit the way the engine charges it.
 export function dynamicReserve(board, houseCost = 100, snapshot = null) {
   const target = forecastMaxHit(board, snapshot) + Math.max(0, Math.floor(number(houseCost)));
   return Math.max(120, Math.min(1000, target));

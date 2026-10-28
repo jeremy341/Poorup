@@ -1,9 +1,6 @@
-// Pure input shaping for the room lifecycle handlers in server.js. Nothing
-// here touches sockets, stores, or timers: each function maps plain payload
-// and account values into the exact normalized shapes the handlers pass on,
-// so the wire-visible behavior (check order, error strings, ack shapes) is
-// pinned by server/rooms.test.js and the shapes themselves by
-// server/roomSetup.test.js.
+// Pure input shaping for the room lifecycle handlers in server.js. Nothing here touches sockets, stores or timers: each function maps
+// plain payload and account values into the normalized shapes the handlers pass on. Wire-visible behavior (check order, error strings,
+// ack shapes) is pinned by server/rooms.test.js, and the shapes by server/roomSetup.test.js.
 import { sanitizeParticipant } from './participantFields.js';
 import { cleanDisplayText, cleanPlayerName, isReservedName, sliceCodePoints } from './nicknamePolicy.js';
 
@@ -89,7 +86,7 @@ function resolveAccountId(account) {
 }
 
 // Shared identity shaping for create-room and join-room: account values win
-// over raw payload values, exactly as the handlers used to inline it.
+// over raw payload values, matching the handlers' inline logic.
 export function buildRoomParticipant(payload, account) {
   return {
     nickname: resolveNickname(account, payload),

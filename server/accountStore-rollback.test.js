@@ -58,5 +58,37 @@ store.persist = AccountStore.prototype.persist;
 assert.equal(store.updateMatchRecord(revisedMatch).updated, true);
 assert.equal(store.getAccountById(registered.account.id).matchHistory[0].tradesCompleted, 7);
 
+const id = registered.account.id;
+const beforeAchievement = JSON.stringify(store.getAccountById(id));
+store.persist = failPersist;
+assert.throws(() => store.recordAchievement(id, { id: 'rollback-achievement' }), /persist failed/);
+assert.equal(JSON.stringify(store.getAccountById(id)), beforeAchievement, 'failed unlock must roll back');
+store.persist = AccountStore.prototype.persist;
+assert.equal(store.recordAchievement(id, { id: 'rollback-achievement' }).created, true);
+const beforeRemoval = JSON.stringify(store.getAccountById(id));
+store.persist = failPersist;
+assert.throws(() => store.removeAchievement(id, 'rollback-achievement'), /persist failed/);
+assert.equal(JSON.stringify(store.getAccountById(id)), beforeRemoval, 'failed removal must roll back');
+const beforePatrol = JSON.stringify(store.getAccountById(id));
+assert.throws(() => store.recordPatrolResult(id, { score: 200, misses: 1 }), /persist failed/);
+assert.equal(JSON.stringify(store.getAccountById(id)), beforePatrol, 'failed patrol result must roll back');
+store.persist = AccountStore.prototype.persist;
+assert.equal(store.recordPatrolResult(id, { score: 200, misses: 1 }).best, 200);
+
+const beforeJournalFailure = JSON.stringify(store.getAccountById(id));
+store.persist = failPersist;
+assert.throws(() => store.recordPatrolResult(id, { score: 250, misses: 2, settlementId: 'patrol-run-1', cleanRun: true }), /persist failed/);
+assert.equal(JSON.stringify(store.getAccountById(id)), beforeJournalFailure, 'failed score-and-journal persistence rolls both back');
+store.persist = AccountStore.prototype.persist;
+const patrolSettlement = store.recordPatrolResult(id, { score: 250, misses: 2, settlementId: 'patrol-run-1', cleanRun: true });
+assert.equal(patrolSettlement.best, 250);
+const restarted = new AccountStore(filePath);
+assert.deepEqual(restarted.getPendingPatrolAchievementSettlements(id), [{ id: 'patrol-run-1', score: 250, aceRuns: 1, cleanRun: true }], 'the award intent survives restart with its score settlement');
+const statsBeforeReplay = JSON.stringify(restarted.getAccountById(id).stats);
+assert.equal(restarted.recordPatrolResult(id, { score: 250, misses: 2, settlementId: 'patrol-run-1', cleanRun: true }).replayed, true);
+assert.equal(JSON.stringify(restarted.getAccountById(id).stats), statsBeforeReplay, 'replaying a journaled settlement does not apply score stats twice');
+assert.equal(restarted.completePatrolAchievementSettlement(id, 'patrol-run-1').completed, true);
+assert.deepEqual(restarted.getPendingPatrolAchievementSettlements(id), []);
+
 fs.rmSync(filePath, { force: true });
 console.log("account store rollback tests: passed");

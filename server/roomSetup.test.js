@@ -1,7 +1,5 @@
-// Unit suite for roomSetup.js: every pure shape the room handlers now
-// delegate to. Each assertion mirrors the exact behavior of the expression
-// it replaced in server.js (check order, error strings, normalization
-// limits, and viewer-scoped projection fields).
+// Unit suite for roomSetup.js: every pure shape the room handlers delegate to. Each assertion mirrors the expression it replaced in
+// server.js (check order, error strings, normalization limits, and viewer-scoped projection fields).
 import assert from 'assert';
 import {
   normalizeClientId,

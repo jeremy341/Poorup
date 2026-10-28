@@ -65,7 +65,7 @@ assert.equal(room.game.auction.highestBidderId, bots[0].id, 'the slow bot can bi
 assert.equal(room.game.auction.highestBid, 40);
 console.log('PASS concurrent auction bots, stale-response protection and reconsideration');
 
-// S18-1: two bots whose timers fire together. The second one's bid lands inside
+// Two bots whose timers fire together. The second one's bid lands inside
 // the 300 ms bid cooldown and is rejected; that must not be recorded as a
 // finished evaluation, or the bot never bids in this auction again.
 {

@@ -1,7 +1,6 @@
-// getAccountById sits on the cookie-session fallback and in recordGameResults per
-// participant. It used to copy the whole account map into an array on every call.
-// The id index must stay correct through purge, rollback and re-registration, and
-// must make a lookup independent of the account count.
+// getAccountById is on the cookie-session fallback and runs per participant in recordGameResults,
+// so it must not copy the account map into an array on every call. The id index must stay
+// correct through purge, rollback and re-registration, and keep lookups independent of count.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';

@@ -1,10 +1,6 @@
-// Pins the financing rule for margin and shorts (F-037). Margin debt and short
-// borrow fees carry zero time cost by design: the margin balance stays at its
-// opening value while the quote holds, maintenance moves only with the quote,
-// and a short's borrow fee is one charge at open that is collected, prorated,
-// when the short is covered. No round step accrues interest. The owner kept
-// this economics and approved documenting it, so a per-round charge must be a
-// deliberate rule change that updates this suite.
+// Pins the financing rule for margin and shorts. Margin debt and short borrow fees carry zero time cost: the margin balance stays at its opening value while the quote holds,
+// maintenance moves only with the quote, and a short's borrow fee is one charge, collected and prorated when the short is covered. No round step accrues interest.
+// The owner approved this economics, so a per-round charge needs a deliberate rule change and an updated suite.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { forceLiquidate } from './marketExpansion.js';
@@ -69,10 +65,8 @@ function marketRoom(complexity) {
   assert.equal(player.shortPositions.brazil.borrowFee, 10, 'the borrow fee does not accrue with time');
   assert.equal(player.cash, cashAtOpen, 'no short carrying cost is charged per round');
 
-  // Cover at the same quote: the borrow fee (10) is collected with the $20
-  // cover fee, and the $20 trade fee the open already took out of the
-  // proceeds belongs in the P&L too, so realized P&L is exactly -50: the seat
-  // received $980 at the open and paid $1,030 to buy the units back.
+  // Cover at the same quote: the borrow fee (10) is collected with the $20 cover fee, and the $20 trade fee taken at open is part of the P&L,
+  // so realized P&L is exactly -50: the seat received $980 at the open and paid $1,030 to buy the units back.
   player.marketActionsThisTurn = 0;
   game.marketQuotes.brazil = 100;
   const cover = room.coverShort('a', 'brazil', 10, 'f37-short-cover');

@@ -66,7 +66,7 @@ runtime.scheduleBotAuction(room);
 assert.deepEqual(delays, [300, 450]);
 console.log('socket runtime bot scheduling: ordinary turn 300 ms, auction 450 ms');
 
-// E6-11: bot table talk takes the same cleaning as a human message, and text
+// Bot table talk takes the same cleaning as a human message, and text
 // that is empty after cleaning is not sent at all.
 {
   const bidi = String.fromCharCode(0x202e);
@@ -504,7 +504,7 @@ console.log('socket runtime auction deadline checks: 3 passed, 0 failed');
   console.log('PASS passedVoteKickProducesOneRemovalNotice');
 }
 
-// ---- live counters: bot fallbacks and seat reconnects ----------------------
+// live counters: bot fallbacks and seat reconnects
 
 const counts = registry => summarizeRuntimeMetrics(registry);
 
@@ -667,7 +667,7 @@ function reconnectFixture() {
   console.log('PASS socket runtime reconnects: leave and room teardown never count');
 }
 
-// ---- w6 audit fixes: reconnect delivery, cancel replay, lobby seats ----------
+// Reconnect delivery, cancel replay and lobby seats
 
 function bareRuntime(manager, extra = {}) {
   return createRuntime({
@@ -685,7 +685,7 @@ function bareRuntime(manager, extra = {}) {
 }
 
 {
-  // S09-2: after a counter the awaiting seat is the lender, so a reconnect
+  // After a counter the awaiting seat is the lender, so a reconnect
   // re-delivers the offer to the lender and not to the borrower who wrote it.
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'pc-a', clientId: 'pc-client-a', nickname: 'Lender' });
@@ -704,7 +704,7 @@ function bareRuntime(manager, extra = {}) {
 }
 
 {
-  // S09-4: a cancel replay memo names the contract it cancelled.
+  // A cancel replay memo names the contract it cancelled.
   const runtime = bareRuntime(new RoomManager());
   const socket = { id: 'cancel-memo-socket' };
   const game = { contractTransactions: new Map(), pendingPlayerContract: null };
@@ -719,7 +719,7 @@ function bareRuntime(manager, extra = {}) {
 }
 
 {
-  // s02 F6: a seat that drops is stamped, so a lobby ghost can be told apart
+  // A seat that drops is stamped, so a lobby ghost can be told apart
   // from a recent disconnect; a return clears the stamp.
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'ghost-a', clientId: 'ghost-client-a', nickname: 'Host' });
@@ -736,7 +736,7 @@ function bareRuntime(manager, extra = {}) {
 }
 
 {
-  // s01 S01-03: an invite honours the same lobby capacity rule as join-room,
+  // An invite honours the same lobby capacity rule as join-room,
   // which counts every retained seat (an eliminated one comes back for the rematch). Guards the invite path
   // against drifting from seatNewPlayer.
   const manager = new RoomManager();
@@ -752,7 +752,7 @@ function bareRuntime(manager, extra = {}) {
   console.log('PASS socket runtime invite acceptance respects lobby capacity');
 }
 
-// ---- s18 S18-3 / S18-4: a bot decision that outlives its lock or its room ----
+// A bot decision that outlives its lock or its room
 
 function pendingDecisionFixture() {
   const manager = new RoomManager();
@@ -793,7 +793,7 @@ const flushTicks = async () => { for (let index = 0; index < 6; index += 1) awai
 const liveTimers = timers => timers.filter(timer => !timer.cleared && !timer.fired);
 
 {
-  // S18-4: tearing the room down stops an in-flight decision and its watchdog.
+  // Tearing the room down stops an in-flight decision and its watchdog.
   const { room, runtime, timers, releases, state } = pendingDecisionFixture();
   runtime.scheduleBotTurn(room);
   const turn = liveTimers(timers).find(timer => timer.delay === 300);
@@ -812,7 +812,7 @@ const liveTimers = timers => timers.filter(timer => !timer.cleared && !timer.fir
 }
 
 {
-  // S18-3: the watchdog frees a stuck decision and a second one acts; the first
+  // The watchdog frees a stuck decision and a second one acts; the first
   // one, answering late, must not replay its stale answer.
   const { room, runtime, timers, releases, state } = pendingDecisionFixture();
   runtime.scheduleBotTurn(room);
@@ -836,7 +836,7 @@ const liveTimers = timers => timers.filter(timer => !timer.cleared && !timer.fir
   console.log('PASS socket runtime stale bot decision is dropped after its lock was released');
 }
 
-// ---- s05 S05-03: an unanswered player contract lapses like a trade ----------
+// An unanswered player contract lapses like a trade
 
 {
   const manager = new RoomManager();
@@ -855,7 +855,7 @@ const liveTimers = timers => timers.filter(timer => !timer.cleared && !timer.fir
   console.log('PASS socket runtime sweep expires a stale player contract');
 }
 
-// ---- s18 S18-2: a bot buyer's sponsorship is re-checked after the human window
+// A bot buyer's sponsorship is re-checked after the human window
 
 {
   const manager = new RoomManager();
@@ -888,7 +888,7 @@ const liveTimers = timers => timers.filter(timer => !timer.cleared && !timer.fir
   console.log('PASS socket runtime re-checks a bot buyer sponsorship after the human window');
 }
 
-// ---- s15 S15-03: the match-health duration rides the match-complete event ----
+// The match-health duration rides the match-complete event
 
 {
   const recorded = [];
@@ -906,10 +906,10 @@ const liveTimers = timers => timers.filter(timer => !timer.cleared && !timer.fir
   console.log('PASS socket runtime match-complete telemetry carries the duration');
 }
 
-// ---- F2: a failed invite acceptance leaves no seat behind --------------------
+// A failed invite acceptance leaves no seat behind
 
 {
-  // F2: a store failure while accepting an invite must not leave a live seat
+  // A store failure while accepting an invite must not leave a live seat
   // behind. The staged seat, the host seat it took over and the bot roster go
   // back to what they were, and the socket is not mapped into the room.
   const manager = new RoomManager();
@@ -944,10 +944,10 @@ const liveTimers = timers => timers.filter(timer => !timer.cleared && !timer.fir
   console.log('PASS socket runtime invite acceptance unwinds the seat when the store fails');
 }
 
-// ---- J2: a borrower notice waits for the seat to be back ----------------------
+// A borrower notice waits for the seat to be back
 
 {
-  // J2: a private notice for a seat that has no socket is kept until the seat
+  // A private notice for a seat that has no socket is kept until the seat
   // is back. Taking the queue emptied it, and the borrower never learned that
   // the lender cancelled the loan.
   const manager = new RoomManager();
@@ -973,10 +973,10 @@ const liveTimers = timers => timers.filter(timer => !timer.cleared && !timer.fir
   console.log('PASS socket runtime keeps a borrower notice until the seat has a socket');
 }
 
-// ---- D7: a late bot decision must not touch a finished match -----------------
+// A late bot decision must not touch a finished match
 
 {
-  // D7: endGame leaves the room alive, so a decision that answers after the
+  // EndGame leaves the room alive, so a decision that answers after the
   // match ended would still act on the finished table.
   const { room, runtime, timers, releases, state } = pendingDecisionFixture();
   runtime.scheduleBotTurn(room);
@@ -993,10 +993,10 @@ const liveTimers = timers => timers.filter(timer => !timer.cleared && !timer.fir
   console.log('PASS socket runtime late bot decision does not mutate a finished match');
 }
 
-// ---- N12: the settlement rows keep the market complexity ---------------------
+// The settlement rows keep the market complexity
 
 {
-  // N12: the match-start row carries the market complexity, so the settlement
+  // The match-start row carries the market complexity, so the settlement
   // rows must carry it too. Otherwise a non-basic match is split over two
   // rollup rows.
   const recorded = [];
@@ -1022,7 +1022,7 @@ const liveTimers = timers => timers.filter(timer => !timer.cleared && !timer.fir
   console.log('PASS socket runtime settlement telemetry keeps the market complexity');
 }
 
-// ---- a store failure during settlement must not abort the rest of it ---------
+// a store failure during settlement must not abort the rest of it
 
 function achievementSettlementFixture(overrides = {}) {
   const manager = new RoomManager();
@@ -1105,10 +1105,8 @@ function achievementSettlementFixture(overrides = {}) {
 }
 
 {
-  // The account store fails to record one unlock and the achievement store
-  // fails to roll that unlock back. The settlement must still finish: the
-  // remaining candidate keeps its unlock, the match telemetry is written and
-  // the player is still synced, and the room is marked as settled.
+  // The account store fails to record one unlock and the achievement store fails to roll it back. The settlement must still finish:
+  // the other candidate keeps its unlock, the match telemetry is written, the player is synced, and the room is marked as settled.
   const { room, runtime, telemetry, accountSyncs, recordedAchievements } = achievementSettlementFixture();
   runtime.emitRoomState(room);
   assert.equal(room.statsRecorded, true, 'the room is settled even though the achievement store failed');

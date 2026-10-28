@@ -1,15 +1,12 @@
 // Bounded change log for operator actions (AI provider profiles, release mode).
-//
-// What an entry may hold: a time, an area/action from fixed lists, a short
-// target label, a pseudonymous actor and an outcome. It never holds API keys,
-// endpoint URLs, maintenance messages or account ids: every free-text field is
-// cut down by safeTarget(), and the actor is a keyed hash of the account id.
-// The newest AUDIT_LIMIT entries are kept and, when a data directory is
-// configured, written to disk with the same atomic writer the other stores use.
+// Entries never hold keys, endpoint URLs, maintenance messages or account ids: free text goes
+// through safeTarget(), the actor is a keyed hash, and the newest AUDIT_LIMIT entries are kept on disk.
 import crypto from 'node:crypto';
-import { loadJson, writeJson } from './storeIO.js';
+import { clearQuarantineMarker, loadJson, readQuarantineMarker, writeJson } from './storeIO.js';
 
-export const AUDIT_LIMIT = 50;
+// Provider tests and edits are allowed 12 a minute per operator, so a window of 50 could be filled in minutes
+// and push every release-mode and lockout entry out of the trail; 500 keeps the security transitions visible.
+export const AUDIT_LIMIT = 500;
 export const AUDIT_STORE_VERSION = 1;
 export const AUDIT_AREAS = Object.freeze(['provider', 'release']);
 export const AUDIT_ACTIONS = Object.freeze(['create', 'update', 'activate', 'delete', 'test', 'mode', 'lockout']);
@@ -71,11 +68,17 @@ export function createAdminAuditLog({
   // log then refuses to write at all: the next record would otherwise replace
   // the bytes that were never read.
   let readable = true;
+  // A corrupt audit file is quarantined by the loader (bytes kept in a .corrupt-* copy, a marker left beside
+  // the file). The log restarts empty, but never silently: health() reports it until an operator acknowledges it.
+  let corruption = null;
 
   if (filePath) {
     try {
-      const loaded = load(filePath, value => Boolean(value) && typeof value === 'object' && Array.isArray(value.entries)).value;
+      const result = load(filePath, value => Boolean(value) && typeof value === 'object' && Array.isArray(value.entries));
+      const loaded = result?.value;
       if (loaded) entries = loaded.entries.map(cleanEntry).filter(Boolean).slice(-capacity);
+      if (result?.corrupt) console.error('Admin audit log file was corrupt: earlier entries are NOT in the active log. The corrupt bytes were preserved beside it.');
+      corruption = readQuarantineMarker(filePath);
     } catch (error) {
       // An unreadable audit file must not stop the server, and it must not be
       // overwritten either: the log starts empty and stays unwritable.
@@ -103,11 +106,9 @@ export function createAdminAuditLog({
   }
 
   /**
-   * Records one operator action. Returns the stored entry with a `persisted`
-   * flag, or null for an unknown area/action/outcome.
-   * The candidate list is written first and memory is only committed once the
-   * write succeeded, so a failed write can neither lose the durable entries
-   * nor make the log claim an action it never stored.
+   * Records one operator action. Returns the stored entry (with a `persisted` flag), or null
+   * for an unknown area, action or outcome. Memory is committed only after the write succeeds,
+   * so a failed write can neither lose durable entries nor claim an action it never stored.
    */
   function record({ area, action, target, accountId, outcome }) {
     const at = isoOrNull(now());
@@ -125,5 +126,27 @@ export function createAdminAuditLog({
     return entries.map(entry => ({ ...entry })).reverse();
   }
 
-  return Object.freeze({ list, record });
+  /**
+   * What an operator needs to know about the trail itself: 'ok', 'corrupt' (the file was unparseable, the log
+   * restarted empty and the old bytes are preserved) or 'unreadable' (a read error, the file is left untouched
+   * and nothing is written to it).
+   */
+  function health() {
+    if (!readable) return { state: 'unreadable', since: null, preservedAs: null, message: 'The audit log file could not be read. It was left untouched and new entries are not being saved.' };
+    if (corruption) {
+      const preserved = corruption.preservedAs ? ` The old bytes are preserved as ${corruption.preservedAs}.` : '';
+      return { state: 'corrupt', since: corruption.at || null, preservedAs: corruption.preservedAs || null, message: `The audit log file was corrupt and the log restarted empty; earlier entries are missing from this view.${preserved}` };
+    }
+    return { state: 'ok', since: null, preservedAs: null, message: null };
+  }
+
+  /** The operator has reviewed the preserved copy; stop reporting the corruption. */
+  function acknowledgeCorruption() {
+    if (!filePath || !corruption) return false;
+    clearQuarantineMarker(filePath);
+    corruption = null;
+    return true;
+  }
+
+  return Object.freeze({ acknowledgeCorruption, health, list, record });
 }

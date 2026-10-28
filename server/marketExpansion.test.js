@@ -76,10 +76,8 @@ assert.equal(margin.openMargin('a', 'brazil', 1, 'blocked').success, false);
 derivatives.game.players[0].marketActionsThisTurn = 0;
 assert.ok(derivatives.marketExpansionCandidates(derivatives.game.players[0]).length >= 1);
 
-// Margin maintenance is based on account equity, not the gross marked value:
-// $130 marked value + $35 held collateral - $100 remaining debt = $65 equity.
-// Multiple positions and partial debt make each term observable at the strict
-// maintenance boundary.
+// Margin maintenance is based on account equity, not gross marked value: $130 marked value + $35 held collateral - $100 remaining debt = $65 equity.
+// Multiple positions and partial debt make each term observable at the strict maintenance boundary.
 const marginEquityGame = { marketQuotes: { brazil: 40, ghana: 25 } };
 function marginEquityPlayer(maintenance) {
   return {
@@ -236,7 +234,7 @@ assert.equal(closeResult.success, true);
 assert.deepEqual(closeRoom.closePosition('a', closeOpen.option.id, 'close-1'), closeResult);
 assert.deepEqual(closeRoom.closePosition('a', closeOpen.option.id, 'close-2'), { success: false, error: 'You have already placed a market order this turn.' });
 
-// F-034: units stay on margin until the balance is fully repaid, then become
+// Units stay on margin until the balance is fully repaid, then become
 // ordinary spot inventory that can be sold. Margin still open at game end is
 // settled from its liquidation proceeds instead of being stranded.
 const repaidRoom = roomAt('margin');
@@ -252,7 +250,7 @@ assert.deepEqual(repaidPlayer.marginPositions, {});
 assert.equal(repaidPlayer.marketPositions.brazil.quantity, 2);
 // The margin opening fee ($4 on a $200 gross) is part of the cost basis, so
 // the converted units carry it into the spot book and the realized P&L of the
-// sale reports it (E2).
+// sale reports it.
 assert.equal(repaidPlayer.marketPositions.brazil.averageCost, 102);
 repaidPlayer.marketActionsThisTurn = 0;
 assert.equal(repaidRoom.tradeMarket('a', 'brazil', 'sell', 2, 'f34-sell').success, true);
@@ -270,7 +268,7 @@ assert.equal(endPlayer.marginCollateral, 0);
 assert.equal(endPlayer.reservedCash, 0);
 assert.equal(endPlayer.cash, cashAtEnd + 46);
 
-// E1: loan-backed cash may not open exposure, but it must never lock a seat
+// Loan-backed cash may not open exposure, but it must never lock a seat
 // out of the risk-reducing side of its own book. Reducing or covering a
 // position is how a borrower funds the repayment, so those paths stay open.
 {
@@ -300,7 +298,7 @@ assert.equal(endPlayer.cash, cashAtEnd + 46);
   assert.equal(covered.success, true, JSON.stringify(covered));
 }
 
-// E3: a forced or terminal settlement pays a buyer option what it is worth.
+// A forced or terminal settlement pays a buyer option what it is worth.
 // The reserve still bounds the payout, and only the unused part returns to
 // the house.
 {
@@ -327,10 +325,8 @@ assert.equal(endPlayer.cash, cashAtEnd + 46);
   assert.equal(settleRoom.game.marketOptionReserve, reserveBeforeSettlement + 20, 'only the unused reserve returns to the house');
 }
 
-// E4: the trade fee the short open already took out of the proceeds belongs
-// in the realized P&L of the closed short, next to the cover fee and the
-// borrow fee: $20 + $20 + $10 on a $1,000 notional opened and closed at the
-// same quote.
+// The trade fee the short open already took out of the proceeds belongs in the realized P&L of the closed short, next to the cover fee
+// and the borrow fee: $20 + $20 + $10 on a $1,000 notional opened and closed at the same quote.
 {
   const shortFeeRoom = roomAt('shorting');
   const shortFeePlayer = shortFeeRoom.game.players[0];
@@ -342,10 +338,8 @@ assert.equal(endPlayer.cash, cashAtEnd + 46);
   assert.equal(shortCover.realizedPnl, -50);
 }
 
-// An unpaid short buy-in is a forced obligation to the house, but it must not
-// trap the seat inside it: reducing margin, covering a short and closing a
-// position are how a levered seat raises the cash that repays the debt. Only
-// new exposure (the 'open' ladder) stays blocked.
+// An unpaid short buy-in is a forced obligation to the house, but it must not trap the seat inside it: reducing margin, covering a short
+// and closing a position are how a levered seat raises the cash that repays the debt. Only new exposure (the 'open' ladder) stays blocked.
 {
   const debtMarginRoom = roomAt('margin');
   const debtMarginPlayer = debtMarginRoom.game.players[0];

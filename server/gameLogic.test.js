@@ -13,7 +13,7 @@ function makeRoom() {
   return room;
 }
 
-// --- Fix-phase contract suites (gameLogic items 4-9) -----------------------
+// Contract suites for game rules that span several modules
 // Frozen preset order per contract 6: CRIMSON, COBALT, AMBER, VERDANT.
 const PRESET_COLORS = ['#d74438', '#286ea1', '#d9a62f', '#35a653'];
 
@@ -58,7 +58,7 @@ async function testJoinColorUniqueness() {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', color: PRESET_COLORS[0] });
   assert.equal(playerOf(room, 'client-a').color, '#d74438');
-  // Explicit collision with a connected player → first preset not in use.
+  // Explicit collision with a connected player: first preset not in use.
   const joined = room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B', color: '#d74438' });
   assert.equal(joined.success, true);
   assert.equal(playerOf(room, 'client-b').color, '#286ea1');
@@ -66,13 +66,13 @@ async function testJoinColorUniqueness() {
   const kept = room.addOrReconnectPlayer({ socketId: 'socket-c', clientId: 'client-c', nickname: 'C', color: '#d9a62f' });
   assert.equal(kept.success, true);
   assert.equal(playerOf(room, 'client-c').color, '#d9a62f');
-  // Default appearance (audit A5.5: every fresh account is VERDANT) must also de-conflict.
+  // Default appearance (every fresh account is VERDANT) must also de-conflict.
   const defaults = new RoomManager();
   const lobby = defaults.createRoom({ socketId: 'socket-d', clientId: 'client-d', nickname: 'D' });
   assert.equal(playerOf(lobby, 'client-d').color, '#35a653');
   lobby.addOrReconnectPlayer({ socketId: 'socket-e', clientId: 'client-e', nickname: 'E' });
   assert.equal(playerOf(lobby, 'client-e').color, '#d74438');
-  // All four presets in use (bots are players too) → keep the requested color.
+  // All four presets in use (bots are players too): keep the requested color.
   const packed = new RoomManager();
   const full = packed.createRoom({ socketId: 'socket-f', clientId: 'client-f', nickname: 'F', color: '#d74438' });
   full.setRoomSetting('bots', 3);
@@ -578,16 +578,16 @@ async function testExplicitEndTurn() {
     assert.equal(room.game.hasRolled, false);
 
     // Doubles retain the turn for the forced re-roll: no hold, no ending.
-    room.game.getTile(15).ownerId = b.id; // BKK Airport — B's own tile, a plain landing
+    room.game.getTile(15).ownerId = b.id; // BKK Airport: B's own tile, a plain landing
     b.position = 4;
-    diceQueue.push(3, 3); // 4 + 6 = 10 → jail visit with doubles pending
+    diceQueue.push(3, 3); // 4 + 6 = 10: jail visit with doubles pending
     assert.equal(room.rollDice('socket-b').success, true);
     assert.equal(room.game.getGameSummary().diceRollSequence, 2);
     assert.equal(room.game.awaitingEndTurn, false);
     assert.equal(room.game.extraRollPending, true);
     assert.equal(room.game.currentPlayerId, b.id);
     assert.equal(room.endTurn('socket-b').success, false, 'doubles force the re-roll');
-    diceQueue.push(2, 3); // 10 + 5 = 15 → own railroad → plain landing → hold
+    diceQueue.push(2, 3); // 10 + 5 = 15: own railroad, plain landing, hold
     assert.equal(room.rollDice('socket-b').success, true);
     assert.equal(room.game.getGameSummary().diceRollSequence, 3);
     assert.equal(room.game.awaitingEndTurn, true);
@@ -653,12 +653,9 @@ async function testThirdDoubleAutoAdvancesWithoutEndTurn() {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Stores characterization. The FIX_* fixtures below and the GOLDEN_* constants
-// were captured verbatim from the pre-refactor stores (main @ e23788d, 2026-09-04).
-// Dynamic ids/timestamps normalize to sentinels (<iso>, <uuid>, <acct>). This pins
-// current outputs so the participant-schema extraction must be equivalent.
-// ---------------------------------------------------------------------------
+// Stores characterization. The FIX_* fixtures and GOLDEN_* constants were captured verbatim from the pre-refactor stores
+// (main @ e23788d, 2026-09-04). Dynamic ids and timestamps normalize to sentinels (<iso>, <uuid>, <acct>), so the
+// participant-schema extraction is checked for equivalence against current outputs.
 
 const isRecursable = (value) => Boolean(value) && typeof value === 'object' && !(value instanceof Set);
 
@@ -855,9 +852,8 @@ const GOLDEN_AGAIN = {"firstCreated":true,"secondCreated":false,"sameRef":true};
 const GOLDEN_ACH = [{"accountId":"a1","achievementId":"first-deed","title":"FIRST DEED","rarity":"COMMON","body":"You bought your first property."},{"accountId":"a1","achievementId":"last-wallet-standing","title":"LAST WALLET STANDING","rarity":"COMMON","body":"You were the last wallet standing."},{"accountId":"a1","achievementId":"full-street","title":"FULL STREET","rarity":"UNCOMMON","body":"You completed a country property group."},{"accountId":"a1","achievementId":"even-builder","title":"EVEN BUILDER","rarity":"UNCOMMON","body":"You built while keeping the street balanced."},{"accountId":"a1","achievementId":"council-member","title":"COUNCIL MEMBER","rarity":"UNCOMMON","body":"You backed the policy that won the table vote."},{"accountId":"a1","achievementId":"public-works","title":"PUBLIC WORKS","rarity":"RARE","body":"You built through a public-works policy."},{"accountId":"a1","achievementId":"auction-ghost","title":"AUCTION GHOST","rarity":"RARE","body":"You won an auction below the listed price."},{"accountId":"a1","achievementId":"rent-reaper","title":"RENT REAPER","rarity":"RARE","body":"You collected rent from three players in one round."},{"accountId":"a1","achievementId":"airport-hopper","title":"AIRPORT HOPPER","rarity":"UNCOMMON","body":"You visited every airport."},{"accountId":"a1","achievementId":"liquidity-king","title":"LIQUIDITY KING","rarity":"EPIC","body":"You finished with more cash than the rest of the table combined."},{"accountId":"a1","achievementId":"bad-idea-good-timing","title":"BAD IDEA, GOOD TIMING","rarity":"RARE","body":"You survived after borrowing from the edge."},{"accountId":"a1","achievementId":"prison-break","title":"PRISON BREAK","rarity":"RARE","body":"You used a prison card and still won."},{"accountId":"a1","achievementId":"no-refunds","title":"NO REFUNDS","rarity":"RARE","body":"You won after reaching the loan warning."},{"accountId":"a1","achievementId":"roulette-regular","title":"ROULETTE REGULAR","rarity":"RARE","body":"You placed eight roulette bets in one game."},{"accountId":"a1","achievementId":"all-in","title":"ALL IN","rarity":"EPIC","body":"You risked your available capital on one roulette stake."},{"accountId":"a1","achievementId":"first-index","title":"FIRST INDEX","rarity":"COMMON","body":"You entered the fictional exchange."},{"accountId":"a1","achievementId":"market-maker","title":"MARKET MAKER","rarity":"RARE","body":"You completed ten market orders in one game."},{"accountId":"a1","achievementId":"crisis-investor","title":"CRISIS INVESTOR","rarity":"EPIC","body":"You bought through a crisis and profited after recovery."},{"accountId":"a1","achievementId":"fire-sale","title":"FIRE SALE","rarity":"RARE","body":"You sold three buildings while the housing market was in crisis."},{"accountId":"a1","achievementId":"bubble-survivor","title":"BUBBLE SURVIVOR","rarity":"EPIC","body":"You kept a developed deed through the housing crash."},{"accountId":"a1","achievementId":"short-the-street","title":"SHORT THE STREET","rarity":"EPIC","body":"You sold into the crash and rebuilt after recovery."},{"accountId":"a1","achievementId":"underdog","title":"THE UNDERDOG","rarity":"RARE","body":"You were last in cash at the midpoint and still won."},{"accountId":"a1","achievementId":"one-more-turn","title":"ONE MORE TURN","rarity":"EPIC","body":"You repaid a loan on its final cure round."},{"accountId":"a1","achievementId":"group-therapy","title":"GROUP THERAPY","rarity":"UNCOMMON","body":"You completed a trade involving three properties."},{"accountId":"a1","achievementId":"coalition-builder","title":"COALITION BUILDER","rarity":"RARE","body":"You traded with a player who backed a different policy."},{"accountId":"a1","achievementId":"unanimous","title":"UNANIMOUS","rarity":"RARE","body":"Every active player chose the same policy."},{"accountId":"a1","achievementId":"public-enemy","title":"PUBLIC ENEMY","rarity":"LEGENDARY","body":"The table voted to enforce an investigation against your portfolio."},{"accountId":"a1","achievementId":"compromised-council","title":"COMPROMISED COUNCIL","rarity":"LEGENDARY","body":"You chose the quiet exit when the legitimacy crisis reached the council."},{"accountId":"a1","achievementId":"stagflation-trader","title":"STAGFLATION TRADER","rarity":"EPIC","body":"You completed a trade through the stagflation squeeze."},{"accountId":"a1","achievementId":"moral-hazard","title":"MORAL HAZARD","rarity":"EPIC","body":"You took the bailout while already carrying a bank loan."},{"accountId":"a1","achievementId":"41st-tile","title":"THE 41ST TILE","rarity":"MYTHICAL","body":"There are forty tiles. You stepped on one more."},{"accountId":"a1","achievementId":"null-player","title":"THE NULL PLAYER","rarity":"MYTHICAL","body":"Your wallet was empty. The turn continued."},{"accountId":"a1","achievementId":"black-ledger","title":"THE BLACK LEDGER","rarity":"MYTHICAL","body":"The bank closed the book. Something inside kept counting."},{"accountId":"a1","achievementId":"crisis-manager","title":"CRISIS MANAGER","rarity":"RARE","body":"You stayed solvent through a global headline."},{"accountId":"a1","achievementId":"double-headline","title":"DOUBLE HEADLINE","rarity":"LEGENDARY","body":"You survived two global headlines in one game."},{"accountId":"a1","achievementId":"treasure-map","title":"TREASURE MAP","rarity":"EPIC","body":"You drew every Treasure card across your account history."},{"accountId":"a1","achievementId":"event-tourist","title":"EVENT TOURIST","rarity":"RARE","body":"You experienced three different global events."},{"accountId":"a2","achievementId":"double-headline","title":"DOUBLE HEADLINE","rarity":"LEGENDARY","body":"You survived two global headlines in one game."},{"accountId":"a2","achievementId":"debt-free","title":"DEBT FREE","rarity":"UNCOMMON","body":"You finished the game with clean books."},{"accountId":"a2","achievementId":"event-tourist","title":"EVENT TOURIST","rarity":"RARE","body":"You experienced three different global events."}];
 const GOLDEN_ACH2 = [{"accountId":"x1","achievementId":"generous-lender","title":"GENEROUS LENDER","rarity":"UNCOMMON","body":"You funded a player loan that was fully repaid."},{"accountId":"x1","achievementId":"silent-partner","title":"SILENT PARTNER","rarity":"RARE","body":"You completed a player loan without collateral."},{"accountId":"x1","achievementId":"collateral-damage","title":"COLLATERAL DAMAGE","rarity":"RARE","body":"A loan default cost the collateral deed."},{"accountId":"x1","achievementId":"debt-free","title":"DEBT FREE","rarity":"UNCOMMON","body":"You finished the game with clean books."},{"accountId":"x2","achievementId":"generous-lender","title":"GENEROUS LENDER","rarity":"UNCOMMON","body":"You funded a player loan that was fully repaid."},{"accountId":"x2","achievementId":"silent-partner","title":"SILENT PARTNER","rarity":"RARE","body":"You completed a player loan without collateral."},{"accountId":"x2","achievementId":"debt-free","title":"DEBT FREE","rarity":"UNCOMMON","body":"You finished the game with clean books."}];
 const GOLDEN_HIST = {"h1":[{"accountId":"y","achievementId":"debt-free","title":"DEBT FREE","rarity":"UNCOMMON","body":"You finished the game with clean books."}],"h2":[{"accountId":"z","achievementId":"debt-free","title":"DEBT FREE","rarity":"UNCOMMON","body":"You finished the game with clean books."}]};
-// The settlement/idempotency and collateral rules intentionally changed this
-// fixture: one account row is recorded per match and bank collateral defaults
-// are surfaced as a dedicated achievement.
+// The settlement, idempotency and collateral rules shape this fixture: one account row is recorded per match, and bank
+// collateral defaults are surfaced as a dedicated achievement.
 GOLDEN_ACH.splice(GOLDEN_ACH.findIndex(entry => entry.accountId === 'a2' && entry.achievementId === 'debt-free'), 1);
 GOLDEN_ACH.splice(GOLDEN_ACH.findIndex(entry => entry.accountId === 'a1' && entry.achievementId === 'crisis-manager'), 0, { accountId: 'a1', achievementId: 'collateral-damage', title: 'COLLATERAL DAMAGE', rarity: 'RARE', body: 'A loan default cost the collateral deed.' });
 for (let index = GOLDEN_ACH.length - 1; index >= 0; index -= 1) {
@@ -866,8 +862,7 @@ for (let index = GOLDEN_ACH.length - 1; index >= 0; index -= 1) {
 }
 const GOLDEN_REC1 = {"matchId":"game-1","completedAt":"<iso>","durationSeconds":900,"roundCount":5,"roomVisibility":"private","participants":[{"accountId":"<acct>","displayNameAtMatch":"FN","colorAtMatch":"#fff","finalPlacement":1,"endingCash":1234,"propertyCount":3,"bankrupt":false,"disconnected":false,"auctionWins":2,"rentCollected":300,"globalEventsExperienced":2,"globalEventsSurvived":1,"casinoNet":0,"casinoBets":3,"casinoMaxStake":90,"casinoTotalStaked":240,"casinoAllIn":true,"casinoOneDollar":true,"marketTrades":11,"crisisMarketProfit":true,"bankLoanStatus":"paid","bankLoanDefaulted":false,"bankLoanCount":2,"airportVisits":4,"taxTilesVisited":1,"maxRentPayersInRound":3,"auctionUnderListWins":1,"loanWarningSeen":true,"badIdeaLoan":true,"prisonBreak":true,"fullGroups":1,"evenBuilds":3,"councilWins":1,"publicWorksBuilds":2,"cardDraws":{"surprise":1,"treasure":2},"zeroCashReached":true,"collateralLost":true,"comboExperienced":true,"bubbleSurvivor":true,"rebuiltAfterHousingBubble":true,"foreclosureNoSecondLoan":true,"housingBubbleEnded":true,"soldBuildingsDuringHousingBubble":4,"boughtDuringHousingBubble":true,"airportOwnedDuringStrike":true,"nonAirportRentDuringStrike":true,"tradesDuringCombo":2,"groupTherapyTrade":true,"unanimousVote":true,"publicEnemy":true,"compromisedCouncil":true,"coalitionTrade":true,"bailoutReceived":true,"moralHazard":true,"treasureCardsSeen":2,"treasureCardsSeenList":["t1","t2"],"underdogAtHalfway":true,"oneMoreTurn":true,"moveCount":30,"hiddenMovementSequence":true},{"accountId":"<acct>","finalPlacement":2,"endingCash":2.9,"propertyCount":0,"bankrupt":false,"disconnected":false,"auctionWins":0,"rentCollected":0,"globalEventsExperienced":0,"globalEventsSurvived":0,"casinoNet":0,"casinoBets":0,"casinoMaxStake":0,"casinoTotalStaked":0,"casinoAllIn":false,"casinoOneDollar":false,"marketTrades":0,"crisisMarketProfit":false,"bankLoanStatus":"defaulted","bankLoanDefaulted":true,"bankLoanCount":0,"airportVisits":0,"taxTilesVisited":0,"maxRentPayersInRound":0,"auctionUnderListWins":0,"loanWarningSeen":false,"badIdeaLoan":false,"prisonBreak":false,"fullGroups":0,"evenBuilds":0,"councilWins":0,"publicWorksBuilds":0,"cardDraws":{"surprise":0,"treasure":0},"zeroCashReached":false,"collateralLost":false,"comboExperienced":false,"bubbleSurvivor":false,"rebuiltAfterHousingBubble":false,"foreclosureNoSecondLoan":false,"housingBubbleEnded":false,"soldBuildingsDuringHousingBubble":0,"boughtDuringHousingBubble":false,"airportOwnedDuringStrike":false,"nonAirportRentDuringStrike":false,"tradesDuringCombo":0,"groupTherapyTrade":false,"unanimousVote":false,"publicEnemy":false,"compromisedCouncil":false,"coalitionTrade":false,"bailoutReceived":false,"moralHazard":false,"treasureCardsSeen":0,"treasureCardsSeenList":[],"underdogAtHalfway":false,"oneMoreTurn":false,"moveCount":0,"hiddenMovementSequence":false}],"globalEvents":["e0","e1","e2","e3","e4","e5","e6","e7","e8","e9","e10","e11","e12","e13","e14","e15","e16","e17","e18","e19"],"eventCombinations":["a"],"tradesCompleted":3,"auctionsCompleted":4,"casino":[{"accountId":"<acct>","bets":3,"net":-10}],"market":[{"accountId":"<acct>","positions":{"A":{"realizedPnl":"5"},"B":{"realizedPnl":"junk"}}}],"playerContracts":[{"kind":"loan","status":"paid","fromAccountId":"<acct>","toAccountId":"other"},{"kind":"loan","status":"defaulted","fromAccountId":"other","toAccountId":"<acct>"},{"kind":"loan","status":"active","fromAccountId":"<acct>","toAccountId":"other"},{"kind":"equity","status":"paid","fromAccountId":"other","toAccountId":"<acct>"}]};
 const GOLDEN_ACCT = {"id":"<acct>","username":"goldone","displayName":"G","color":"#d74438","avatarGrid":null,"stats":{"gamesPlayed":2,"wins":1,"bankruptcies":0,"auctionWins":2,"rentCollected":300,"eventSurvival":1,"casinoNet":-20,"marketProfit":10,"playerLoansGiven":4,"playerLoansRepaid":0,"playerLoanDefaults":2,"equityDeals":2,"bankLoansTaken":2,"bankLoanRepayments":1,"bankLoanDefaults":1,"patrolBest":0,"patrolAceRuns":0,"patrolVerifiedBest":0,"patrolVerifiedAceRuns":0},"history":[{"matchId":"game-1","playedAt":"<iso>","result":"ROUND","won":false,"endingCash":2.9,"properties":0},{"matchId":"game-1","playedAt":"<iso>","result":"WIN","won":true,"endingCash":1234,"properties":3}],"achievements":[],"matchHistory":[{"matchId":"game-1"}],"recordedMatchIds":["game-1"],"privacy":{"history":"friends","achievements":"friends","friendRequests":"everyone","roomInvites":"friends"},"recentClearedAt":null,"createdAt":"<iso>"};
-// The reset-generation watermark is part of the persisted internal account,
-// while public account and export projections intentionally omit it.
+// The reset-generation watermark is part of the persisted internal account, while public account and export projections omit it.
 GOLDEN_ACCT.consumedPasswordResetGeneration = 0;
 GOLDEN_ACCT.stats.gamesPlayed = 1;
 GOLDEN_ACCT.stats.casinoNet = -10;
@@ -926,7 +921,7 @@ function testStoresCharacterization() {
   delete saved.passwordHash;
   delete saved.sessionTokenHash;
   const savedNormalized = normalizeDynamic(saved);
-  // The persisted matchHistory embeds a full copy of REC1; that shape is already
+  // The persisted matchHistory embeds a full copy of the match record; that shape is already
   // pinned above, so only its matchId is compared here.
   savedNormalized.matchHistory = savedNormalized.matchHistory.map((entry) => ({ matchId: entry.matchId }));
   assert.deepEqual(savedNormalized, GOLDEN_ACCT, 'persisted account stats/history');
@@ -946,10 +941,8 @@ function testStoresCharacterization() {
   fs.rmSync(goldAchFile, { force: true });
 }
 
-// The jail fine spends cash, so it sits behind the same debt gate as roll,
-// end-turn and build: a seat that owes a head or queued claim cannot pay the
-// fine ahead of its creditor. The Get Out of Prison card spends nothing and
-// leaves rolling (gated separately) untouched, so it stays available.
+// The jail fine spends cash, so it sits behind the same debt gate as roll, end-turn and build: a seat owing a head or queued claim
+// cannot pay the fine ahead of its creditor. The Get Out of Prison card spends nothing and leaves rolling (gated separately) untouched.
 function testJailFineRespectsDebtGate() {
   const room = makeRoom();
   assert.equal(room.startGame().success, true);
@@ -985,20 +978,20 @@ function testJailFineRespectsDebtGate() {
 
 const CONTRACT_SUITES = [
   ['public action history stores only seat/round/kind and resets per game', testGamePublicActionHistoryUsesSeatAndRoundOnly],
-  ['turn timer removal — no turnDeadline state', testGameStateDoesNotCreateTurnDeadlineState],
-  ['contract 7 — createRoom generated codes never overwrite', testCreateRoomCodeCollision],
-  ['contract 7b — createRoom requested codes never overwrite', testRequestedRoomCodeCollision],
-  ['contract 6 — join/create icon collision auto-assign', testJoinColorUniqueness],
-  ['contract 6 — seating keeps same-color different-face', testJoinFaceIdentity],
-  ['contract 6 — setPlayerAppearance duplicate-icon rejection', testSetPlayerAppearance],
-  ['contract 4 — Room.hasConnectedHumans', testHasConnectedHumans],
-  ['contract 5 — listPublicRooms browse purity', testListPublicRooms],
-  ['contract 8 — getGameSummary players[] avatarGrid', testGameSummaryAvatarGrid],
-  ['contract 9 — leaveRoomByClient mid-game seat release', testLeaveRoomByClientMidGame],
-  ['contract 10 — explicit end-turn hold after landing', testExplicitEndTurn],
-  ['contract 10b — third doubles jail and auto-advance', testThirdDoubleAutoAdvancesWithoutEndTurn],
-  ['jail fine — refused while the seat owes a claim', testJailFineRespectsDebtGate],
-  ['stores — participant schema + achievement characterization', testStoresCharacterization]
+  ['turn timer removal: no turnDeadline state', testGameStateDoesNotCreateTurnDeadlineState],
+  ['contract 7: createRoom generated codes never overwrite', testCreateRoomCodeCollision],
+  ['contract 7b: createRoom requested codes never overwrite', testRequestedRoomCodeCollision],
+  ['contract 6: join/create icon collision auto-assign', testJoinColorUniqueness],
+  ['contract 6: seating keeps same-color different-face', testJoinFaceIdentity],
+  ['contract 6: setPlayerAppearance duplicate-icon rejection', testSetPlayerAppearance],
+  ['contract 4: Room.hasConnectedHumans', testHasConnectedHumans],
+  ['contract 5: listPublicRooms browse purity', testListPublicRooms],
+  ['contract 8: getGameSummary players[] avatarGrid', testGameSummaryAvatarGrid],
+  ['contract 9: leaveRoomByClient mid-game seat release', testLeaveRoomByClientMidGame],
+  ['contract 10: explicit end-turn hold after landing', testExplicitEndTurn],
+  ['contract 10b: third doubles jail and auto-advance', testThirdDoubleAutoAdvancesWithoutEndTurn],
+  ['jail fine: refused while the seat owes a claim', testJailFineRespectsDebtGate],
+  ['stores: participant schema + achievement characterization', testStoresCharacterization]
 ];
 
 let passedCount = 0;
@@ -1008,20 +1001,20 @@ try {
   passedCount += 1;
 } catch (error) {
   failedSuites.push(['legacy smoke suite', error]);
-  console.error(`FAIL — legacy smoke suite: ${error && error.message}`);
+  console.error(`FAIL - legacy smoke suite: ${error && error.message}`);
 }
 for (const [name, fn] of CONTRACT_SUITES) {
   try {
     await fn();
     passedCount += 1;
-    console.log(`PASS — ${name}`);
+    console.log(`PASS - ${name}`);
   } catch (error) {
     failedSuites.push([name, error]);
-    console.error(`FAIL — ${name}: ${error && error.message}`);
+    console.error(`FAIL - ${name}: ${error && error.message}`);
   }
 }
 const total = passedCount + failedSuites.length;
-console.log(`gameLogic tests: ${total} suites — ${passedCount} passed, ${failedSuites.length} failed`);
+console.log(`gameLogic tests: ${total} suites, ${passedCount} passed, ${failedSuites.length} failed`);
 if (failedSuites.length) {
   process.exitCode = 1;
 }

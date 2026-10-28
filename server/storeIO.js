@@ -1,13 +1,7 @@
-// Shared persistence seam for the JSON-backed stores. Two failure modes used
-// to combine into silent, total data loss:
-//   1. persist() wrote with fs.writeFileSync straight onto the store file, so
-//      a crash mid-write left a truncated JSON file.
-//   2. load() wrapped the read+parse in a catch{} that started an EMPTY store
-//      for both "file missing" and "file corrupt". The next persist() then
-//      overwrote the (recoverable) corrupt file with the empty in-memory set.
-// This module gives every store one atomic write and one load that can tell
-// "missing" apart from "corrupt", quarantining corrupt bytes before we ever
-// overwrite them.
+// Shared persistence seam for the JSON-backed stores. Two failure modes combined into silent, total data loss: persist() wrote straight
+// onto the store file (a crash mid-write left truncated JSON), and load() treated both "file missing" and "file corrupt" as an empty
+// store, so the next persist() overwrote the recoverable corrupt file. Every store gets one atomic write and one load that tells
+// "missing" from "corrupt", quarantining corrupt bytes before anything overwrites them.
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -47,31 +41,85 @@ function loadJson(filePath, shapeValidator = null) {
   return { value, missing: false, corrupt: false };
 }
 
-// Stores whose unreadable bytes were moved aside in this process. The store
-// then starts empty, so backups must not copy it until the next restart.
+// Stores whose unreadable bytes were moved aside in this process. The store starts empty, so backups must not copy it until an
+// operator has dealt with it. The in-memory set alone is not enough: a restart would forget it and treat the empty stand-in as healthy,
+// so every quarantine also leaves a small marker file beside the store that survives restarts.
 const quarantinedStores = new Set();
+const QUARANTINE_MARKER_SUFFIX = '.quarantine-marker';
+
+function quarantineMarkerPath(filePath) {
+  return `${path.resolve(String(filePath))}${QUARANTINE_MARKER_SUFFIX}`;
+}
+
+/** The persisted record of a quarantine ({ store, at, preservedAs }), or null when the store was never quarantined. */
+function readQuarantineMarker(filePath) {
+  const fallback = { store: path.basename(String(filePath)), at: null, preservedAs: null };
+  try {
+    const record = JSON.parse(fs.readFileSync(quarantineMarkerPath(filePath), 'utf8'));
+    return record && typeof record === 'object' ? record : fallback;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    // A marker that exists but cannot be read or parsed still means "quarantined".
+    return fallback;
+  }
+}
+
+/** For an operator or restore tooling, once the quarantined store has been dealt with. */
+function clearQuarantineMarker(filePath) {
+  quarantinedStores.delete(path.resolve(String(filePath)));
+  try { fs.unlinkSync(quarantineMarkerPath(filePath)); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+}
 
 function isQuarantinedStore(filePath) {
-  return quarantinedStores.has(path.resolve(String(filePath)));
+  return quarantinedStores.has(path.resolve(String(filePath))) || readQuarantineMarker(filePath) !== null;
+}
+
+function writeQuarantineMarker(filePath, record) {
+  try {
+    fs.writeFileSync(quarantineMarkerPath(filePath), `${JSON.stringify(record, null, 2)}\n`, { encoding: 'utf8', mode: STORE_FILE_MODE });
+  } catch (error) {
+    // The corrupt bytes are already preserved; losing the marker only loses the restart memory.
+    console.error(`Store ${path.basename(filePath)} quarantine marker could not be saved:`, error?.code || 'unknown error');
+  }
+}
+
+// A quarantine copy never replaces an earlier one, even within the same millisecond.
+function exclusiveCopy(filePath, stamp, raw) {
+  for (let attempt = 0; ; attempt += 1) {
+    const target = `${filePath}.corrupt-${stamp}${attempt ? `-${attempt}` : ''}`;
+    try {
+      // Owner-only: the bytes are account and session material.
+      fs.writeFileSync(target, raw, { encoding: 'utf8', mode: STORE_FILE_MODE, flag: 'wx' });
+      return target;
+    } catch (error) {
+      if (error?.code !== 'EEXIST' || attempt >= 50) throw error;
+    }
+  }
 }
 
 function quarantine(filePath, raw) {
   quarantinedStores.add(path.resolve(filePath));
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const target = `${filePath}.corrupt-${stamp}`;
+  let target;
   try {
-    // Owner-only: the bytes are account and session material.
-    fs.writeFileSync(target, raw, { encoding: 'utf8', mode: STORE_FILE_MODE });
+    target = exclusiveCopy(filePath, stamp, raw);
   } catch (copyError) {
     // The copy failed, so move the original aside instead. If that fails too,
     // refuse to start: the next persist would overwrite the only copy of the
     // bytes.
+    target = `${filePath}.corrupt-${stamp}-moved`;
     try {
       fs.renameSync(filePath, target);
     } catch {
       throw new Error(`Store ${path.basename(filePath)} is unreadable and its bytes could not be preserved; refusing to start over it.`, { cause: copyError });
     }
   }
+  writeQuarantineMarker(filePath, {
+    store: path.basename(filePath),
+    at: new Date().toISOString(),
+    preservedAs: path.basename(target),
+    note: 'The store file was corrupt and its bytes were preserved. The live store started empty. Restore or review it, then delete this marker.',
+  });
   console.error(`Store ${path.basename(filePath)} was unreadable; bytes preserved at ${path.basename(target)} and a clean store is starting.`);
 }
 
@@ -98,7 +146,7 @@ function writeJson(filePath, value) {
   try {
     try {
       fs.writeFileSync(handle, data, 'utf8');
-      // Also set the mode on the handle: the owner-only guarantee must not rest
+      // Also set the mode on the handle: the owner-only setting must not rest
       // on the open call honouring its mode on every filesystem.
       fs.fchmodSync(handle, STORE_FILE_MODE);
       fs.fsyncSync(handle);
@@ -116,11 +164,11 @@ function writeJson(filePath, value) {
   } catch (renameError) {
     // Never truncate the previous snapshot after an atomic rename fails. The
     // fully-written temp file remains available for operator recovery, and
-    // the caller receives a failure instead of a false durable success.
+    // the caller gets a failure, not a false durable success.
     console.error(`Store ${path.basename(filePath)} atomic rename failed; previous snapshot preserved.`, renameError);
     throw new Error(`Atomic store write failed for ${path.basename(filePath)}.`, { cause: renameError });
   }
   sweepStaleTempFiles(filePath);
 }
 
-export { isQuarantinedStore, loadJson, STORE_DIRECTORY_MODE, STORE_FILE_MODE, writeJson };
+export { clearQuarantineMarker, isQuarantinedStore, loadJson, readQuarantineMarker, STORE_DIRECTORY_MODE, STORE_FILE_MODE, writeJson };

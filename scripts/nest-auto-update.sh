@@ -2,8 +2,8 @@
 # Pull-based auto updater for the Nest host. Runs as the poorup user from a
 # systemd timer (see nest-live-runbook.md). Polls origin/main; when a new SHA
 # appears it downloads the exact release tarball and hands off to the drain-
-# gated scripts/deploy-nest.sh from the NEW release (drain -> wait for empty
-# lobbies -> swap -> health -> normal, with rollback). No SSH or GitHub
+# gated scripts/deploy-nest.sh from the NEW release (drain, then wait for empty
+# lobbies, then swap, then health, then normal, with rollback). No SSH or GitHub
 # secrets are required: the repo is public and the maintenance token comes
 # from the host env file.
 set -euo pipefail
@@ -96,7 +96,7 @@ if [ ! -f "$RELEASE_DIR/package.json" ] || [ ! -f "$RELEASE_DIR/server/server.js
 fi
 
 # Output stays on the unit's journal: a failed install must say why it failed
-# (the set -e exit used to hide npm's message completely).
+# (a set -e exit would hide npm's message completely).
 npm ci --omit=dev --prefix "$RELEASE_DIR" --no-audit --no-fund
 
 # Hand off to the drain-gated deploy from the NEW release so deploy logic

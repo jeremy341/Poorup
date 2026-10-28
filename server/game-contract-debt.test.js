@@ -282,7 +282,7 @@ check('game summary exposes authoritative spectator status for eliminated humans
 });
 
 check('disconnected payer who can cover pays the debt in grace instead of going bankrupt', () => {
-  // Exit settlement (F-030): another seat's action settles the debt for the
+  // Exit settlement: another seat's action settles the debt for the
   // amount owed only; the grace seat is not bankrupted by it.
   const { game, b } = startedRoom();
   game.pendingPayment = { playerId: b.id, creditorId: null, amountRemaining: 10, reason: 'r' };

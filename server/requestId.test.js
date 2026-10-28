@@ -6,7 +6,7 @@ assert.equal(normalizeRequestId(42), '42');
 assert.equal(normalizeRequestId('x'.repeat(300)).length, 100);
 assert.equal(normalizeRequestId(undefined), '');
 assert.equal(normalizeRequestId(null), '');
-// S09-7: non-scalar ids used to collapse to one shared key ('[object Object]',
+// Non-scalar ids must not collapse to one shared key ('[object Object]',
 // '1'), so two different requests replayed each other's cached result.
 assert.equal(normalizeRequestId({ id: 1 }), '');
 assert.equal(normalizeRequestId({ id: 2 }), '');

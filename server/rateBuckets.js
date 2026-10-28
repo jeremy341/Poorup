@@ -1,17 +1,13 @@
 import { ipv6Words } from './ipAllowlist.js';
 
-// Fixed-window bucket maps shared by the ingress limiters. A Map keeps
-// insertion order and a bucket is re-inserted whenever its window restarts, so
-// the front of the map always holds the oldest window. Pruning therefore stops
-// at the first live bucket instead of rescanning every entry on each request,
+// Fixed-window bucket maps shared by the ingress limiters. A Map keeps insertion order and a bucket is re-inserted when its window
+// restarts, so the front always holds the oldest window. Pruning stops at the first live bucket instead of rescanning every entry,
 // which matters under reconnect churn when the map sits at its cap.
 export const MAX_TRACKED_BUCKETS = 10_000;
 
-// Keys beyond the cap are never given a shared bucket: a shared bucket hides
-// the spend of the key that is asking (a limit that reads the map directly
-// would see nothing and fail open). Instead the oldest live slot is moved to
-// the new key, budget included, so the new key starts from a spent budget and
-// no budget is ever reset to zero behind an attacker's back.
+// Keys beyond the cap never get a shared bucket: it would hide the spend of the key asking, and a limit reading the map directly
+// would see nothing and fail open. Instead the oldest live slot moves to the new key, budget included, so the new key starts spent
+// and no budget is ever reset to zero behind an attacker's back.
 function dropExpiredBuckets(buckets, now, windowMs) {
   for (const [key, entry] of buckets) {
     if (now - entry.startedAt < windowMs) break;

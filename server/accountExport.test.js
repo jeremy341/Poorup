@@ -27,7 +27,7 @@ assert.equal(serialized.includes('raw chat'), false);
 assert.deepEqual(document.retiredData, { cosmetics: { tokens: 75, owned: ['frame-copper'], equipped: {} } });
 assert.ok(document.statistics);
 
-// S11-03: placement and property count live on the account's participant entry.
+// Placement and property count live on the account's participant entry.
 const exported = buildAccountExport({
   account: {
     id: 'acct-p', username: 'placer',

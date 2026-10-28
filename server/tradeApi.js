@@ -1,8 +1,6 @@
-// Player-to-player trades as a prototype mixin: the proposal and accept-side
-// guard tables plus the settlement transfer. The guard arrays carry the
-// original if-clauses in evaluation order so a single error string wins
-// exactly as before — server/trades.test.js pins the full precedence.
-// gameLogic.js assigns this object onto GameState.prototype.
+// Player-to-player trades as a prototype mixin: the proposal and accept-side guard tables plus the settlement transfer.
+// The guard arrays keep the original if-clauses in evaluation order, so a single error string wins exactly as before.
+// gameLogic.js assigns this object onto GameState.prototype. trades.test.js pins the full precedence.
 import crypto from 'crypto';
 import { normalizeRequestId } from './requestId.js';
 import { AUCTION_COMMITTED_CASH_ERROR } from './auctionApi.js';
@@ -36,10 +34,9 @@ function normalizePropertyIndexes(value) {
   return [...new Set(value.slice(0, MAX_TRADE_PROPERTIES).map(Number))];
 }
 
-// A trade moves cash, deeds, achievement flags, counters and feed entries in
-// one step. A throw in any of those steps used to leave the table holding half
-// a trade (the cash of one seat moved, the deed did not), so everything the
-// settlement touches is captured first and restored when it fails.
+// A trade moves cash, deeds, achievement flags, counters and feed entries in one step. A throw in any of those steps must not leave
+// the table holding half a trade (one seat's cash moved, the deed did not), so everything the settlement touches is captured first
+// and restored when it fails.
 function tradeSettlementSnapshot(game, ctx) {
   const { fromPlayer, toPlayer, giveTiles, requestTiles } = ctx;
   const tiles = [...giveTiles, ...requestTiles].filter(Boolean).map(tile => ({
@@ -120,16 +117,9 @@ function restoreTradeSettlement(game, ctx, before) {
   });
 }
 
-// Trade proposal rejection rules as data: one entry per original if-clause of
-// GameState.proposeTrade, kept in the original evaluation order so a single
-// error string wins exactly as before. The context is fully normalized up
-// front (pure lookups only), and every predicate reads just that context.
-//
-// Deliberate design, not a gap: trades have NO turn guard. Loans, market,
-// casino and bank loans require your turn; player-to-player trades may be
-// proposed and settled on anyone's turn. A pending payment intentionally does
-// not block debt-rescue deals; auctions, purchase offers, existing trades, and
-// contracts still block a second trade.
+// Trade proposal rejection rules as data: one entry per original if-clause of GameState.proposeTrade, in the original evaluation order,
+// so a single error string wins exactly as before. The context is normalized up front (pure lookups only), and every predicate reads it.
+// Trades have no turn guard: they can be proposed and settled on anyone's turn. A pending payment does not block debt-rescue deals; auctions, purchase offers, trades and contracts do.
 const TRADE_PROPOSAL_GUARDS = [
   {
     error: 'The game is not running.',
@@ -148,7 +138,7 @@ const TRADE_PROPOSAL_GUARDS = [
     rejects: game => game.settings.trading === false
   },
   // One guard per blocker, in the original order, so the message names the
-  // open obligation instead of always reporting a second trade (F-090).
+  // open obligation instead of always reporting a second trade.
   {
     error: 'Resolve the open auction before proposing a trade.',
     rejects: game => Boolean(game.auction)
@@ -195,10 +185,8 @@ const TRADE_PROPOSAL_GUARDS = [
   }
 ];
 
-// Accept-side revalidation for respondToTrade: same order and strings as the
-// original accept branch. A fired guard also clears the pending trade, which
-// the responder does uniformly. The first entry covers the original combined
-// "players still exist, active" condition verbatim.
+// Accept-side revalidation for respondToTrade: same order and strings as the original accept branch. A fired guard also clears the
+// pending trade, as the responder always does. The first entry covers the original combined "players still exist, active" condition verbatim.
 const TRADE_SETTLEMENT_GUARDS = [
   {
     error: 'The trade is no longer valid.',
@@ -221,11 +209,9 @@ const TRADE_SETTLEMENT_GUARDS = [
 const tradeApi = {
   proposeTrade(socketId, offer = {}) {
     const ctx = this.tradeProposalContext(socketId, offer);
-    // Idempotent retry: a double-click with the same requestId replays the
-    // original offer instead of stacking a duplicate on the table. It is looked
-    // up before the guards (the live offer would trip "already pending") and
-    // only while that offer is still the pending one: a declined, cancelled or
-    // settled offer must never be handed back as live.
+    // Idempotent retry: a double-click with the same requestId replays the original offer instead of stacking a duplicate on the table.
+    // Looked up before the guards (the live offer would trip "already pending"), and only while that offer is still pending: a declined,
+    // cancelled or settled offer must never be handed back as live.
     const replayKey = ctx.fromPlayer ? tradeTransactionKey('trade-propose', ctx.fromPlayer.id, offer.requestId) : null;
     const replayed = memoizedTradeResult(this, replayKey);
     if (replayed?.trade && this.started && replayed.trade.id === this.pendingTrade?.id) return replayed;
@@ -334,10 +320,8 @@ const tradeApi = {
     return { player, trade };
   },
 
-  // Shared body of counter/adjust: both clear the live offer, re-propose with
-  // the negotiation depth bumped, and restore the offer if the re-proposal
-  // fails. A retried renegotiation reusing the original proposal's requestId
-  // replays the memoized result instead of proposing over a cleared table.
+  // Shared body of counter and adjust: both clear the live offer, re-propose with the negotiation depth bumped, and restore the offer
+  // if the re-proposal fails. A retried renegotiation reusing the original requestId replays the memoized result, not a cleared table.
   renegotiateTrade(socketId, offer, { roleField, roleName, verb, verbPast, targetField, marker }) {
     const found = this.renegotiationTrade(socketId, roleField, roleName, verb);
     if (found.error) return { success: false, error: found.error };

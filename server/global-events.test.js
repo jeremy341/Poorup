@@ -1,8 +1,6 @@
-// Characterization suite for the global-event lifecycle in gameLogic.js.
-// Pinned BEFORE refactoring activateGlobalEvent / maybeTriggerGlobalEvent /
-// resolveGlobalEventVote / applyGlobalEventActivationSettlements: every
-// observable (event ids, phases, effect snapshots, feed messages, vote
-// tallies, settlement cash deltas, RNG consumption) must survive verbatim.
+// Characterization suite for the global-event lifecycle in gameLogic.js, pinned BEFORE refactoring activateGlobalEvent,
+// maybeTriggerGlobalEvent, resolveGlobalEventVote and applyGlobalEventActivationSettlements. Every observable (event ids,
+// phases, effect snapshots, feed messages, vote tallies, settlement cash deltas, RNG consumption) must survive verbatim.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { GLOBAL_EVENT_COMBINATIONS } from './globalEventData.js';
@@ -74,7 +72,7 @@ async function testActivateWarningSnapshot() {
   game.players.forEach(player => assert.equal(player.globalEventsExperienced, 1));
   assert.equal(game.feed[0].text, 'TOURISM BOOM is building. The table has one round to prepare.');
   assert.equal(typeof game.feed[0].timestamp, 'number');
-  // warning -> active -> recovery -> off phase ladder via advanceRound
+  // warning, active, recovery, off phase ladder via advanceRound
   game.advanceRound();
   assert.equal(game.globalEvent.phase, 'active');
   assert.equal(game.globalEvent.startedRound, 2);
@@ -95,7 +93,7 @@ async function testActivateWarningSnapshot() {
 function testActivateDurationScaling() {
   const room = makeEventRoom();
   const game = room.game;
-  // 2 active players -> expectedRounds = max(12, 16) = 16.
+  // 2 active players: expectedRounds = max(12, 16) = 16.
   game.roundNumber = 1; // progress 0 -> <= 0.6
   game.activateGlobalEvent(game.globalEventDefinition('housing-bubble'));
   assert.equal(game.globalEvent.durationRounds, 7);
@@ -221,7 +219,7 @@ async function testMaybeTriggerGating() {
   cooled.game.globalEventCooldown = 2;
   cooled.game.maybeTriggerGlobalEvent();
   assert.equal(cooled.game.globalEvent, null);
-  // Early rounds are gated out (progress < 0.18 -> zero chance, even 0.0).
+  // Early rounds are gated out (progress < 0.18: zero chance, even 0.0).
   const early = makeEventRoom();
   early.game.roundNumber = 3;
   const restoreEarly = await stubRng({ floats: [0, 0] });
@@ -246,10 +244,9 @@ async function testMaybeTriggerGating() {
 }
 
 async function testMaybeTriggerChanceAndSelection() {
-  // Fresh 2-player room at round 8: eligible pool in definition order is
-  // [city-election, tourism-boom, public-works, convention-week, tax-audit]
-  // (weights all 1, so roll = f * 5 selects index ceil(roll) - 1 style).
-  // round 8 -> progress 0.4375: boundary chance 0.025, surprise 0.05.
+  // Fresh 2-player room at round 8. The eligible pool in definition order is
+  // [city-election, tourism-boom, public-works, convention-week, tax-audit], weights all 1.
+  // Round 8, progress 0.4375: boundary chance 0.025, surprise 0.05.
   const miss = makeEventRoom();
   miss.game.roundNumber = 8;
   let restore = await stubRng({ floats: [0.025] });
@@ -280,7 +277,7 @@ async function testMaybeTriggerChanceAndSelection() {
   }
   assert.equal(first.game.globalEvent.id, 'city-election'); // roll 0.5 -> index 0
   assert.equal(first.game.globalEvent.phase, 'voting');
-  // Late progress: round 14 -> 0.8125: boundary 0.04, surprise 0.07.
+  // Late progress: round 14, progress 0.8125: boundary 0.04, surprise 0.07.
   const late = makeEventRoom();
   late.game.roundNumber = 14;
   restore = await stubRng({ floats: [0.04] });
@@ -366,7 +363,7 @@ function testVoteGuards() {
   b.disconnected = false;
 }
 
-// F-036: a full-turnout vote runs the activation settlements (loan repricing,
+// A full-turnout vote runs the activation settlements (loan repricing,
 // bailout cash) immediately, so it must not land while a payment or auction is
 // open - the pending payment amount would go stale mid-turn.
 function testVoteWaitsForTableObligations() {
@@ -431,7 +428,7 @@ function testResolveVoteUnanimous() {
   assert.equal(game.feed[0].text, 'CITY ELECTION resolved: LOW TAX.');
 }
 
-// A8-06: a split or abstained ballot enacts no policy. The old coin flip
+// A split or abstained ballot enacts no policy. The old coin flip
 // among tied options is gone, so a 1-1 tie with an abstention and a zero-turnout
 // timeout both resolve to no choice.
 function testResolveVoteTieAndTimeout() {
@@ -470,10 +467,9 @@ function testResolveVoteTieAndTimeout() {
   assert.equal(idle.game.feed[0].text, 'CITY ELECTION resolved: NO MAJORITY, NO CHANGE.');
 }
 
-// A8-06: a policy choice is enacted only with a strict majority of the ACTIVE
-// seats. Abstentions count as no change. Seated tables of 2, 3, 4 and 6 are
-// checked: a bare majority is enacted (by timeout, or at full turnout), exactly
-// half is not, and a full-turnout split is not.
+// A policy choice is enacted only with a strict majority of the ACTIVE seats. Abstentions count as no change.
+// Tables of 2, 3, 4 and 6 are checked: a bare majority is enacted (by timeout or at full turnout), exactly half is not,
+// and a full-turnout split is not.
 function seatedVoteRoom(seats) {
   const manager = new RoomManager();
   const boardVariant = seats > 4 ? 'metro-52' : 'standard-40';
@@ -531,7 +527,7 @@ function testVoteNeedsStrictMajorityOfActiveSeats() {
   }
 }
 
-// Three seats: a 1-1 split enacts nothing under the strict-majority rule (A8-06),
+// Three seats: a 1-1 split enacts nothing under the strict-majority rule,
 // so each enforce outcome needs two of the three ballots.
 function testResolveVoteAntiMonopolyAndLegitimacy() {
   const room = makeEventRoom({ players: 3 });
@@ -661,7 +657,7 @@ function testBankRunBailoutSettlement() {
   assert.equal(game.globalEvent.startedRound, activeRound);
 }
 
-// F-035: the rescue reaches only players below the distress bar the bank-run
+// The rescue reaches only players below the distress bar the bank-run
 // event itself uses (cash under 35% of starting cash). A solvent player who
 // holds a bank loan is not distressed and must not be paid.
 function testBankRunBailoutOnlyReachesDistressedPlayers() {
@@ -690,7 +686,7 @@ function testBankRunBailoutOnlyReachesDistressedPlayers() {
   assert.ok(!feedTexts(game).some(text => text.includes(`${solventBorrower.nickname} received`)));
 }
 
-// F-035 copy: the bank-run bailout text must describe the rule that runs and
+// The bank-run bailout text must describe the rule that runs and
 // must not promise a loan surcharge the event never applies.
 function testBankRunBailoutCopyMatchesRule() {
   const room = makeEventRoom();
@@ -823,7 +819,7 @@ function testActivePhaseEffectQueries() {
   assert.equal(game.globalEventActive('bank-run'), false);
 }
 
-// G1: the match owns the election. Once the match is over the headline is
+// The match owns the election. Once the match is over the headline is
 // closed - it stays in the history - and a late ballot resolves nothing.
 function testFinishedMatchRefusesTheBallot() {
   const room = makeEventRoom();
@@ -848,7 +844,7 @@ function testFinishedMatchRefusesTheBallot() {
   assert.equal(game.globalEvent, null);
 }
 
-// G2: a ballot names the election it was cast in. A ballot from another
+// A ballot names the election it was cast in. A ballot from another
 // election must not count in the election on the table, even when the choice
 // id exists in both.
 function testStaleBallotIsRefused() {
@@ -874,7 +870,7 @@ function testStaleBallotIsRefused() {
   assert.equal(second.votes[game.players[1].id], 'emergency-bailout');
 }
 
-// G2: a vote is a write, so it is idempotent: the same request id answers
+// A vote is a write, so it is idempotent: the same request id answers
 // the same way twice and is counted once.
 function testVoteRequestIdIsCountedOnce() {
   const room = makeEventRoom();
@@ -888,7 +884,7 @@ function testVoteRequestIdIsCountedOnce() {
   assert.equal(event.votes[game.players[0].id], 'low-tax');
 }
 
-// G2: the socket layer carries the ballot identity to the game, so a ballot
+// The socket layer carries the ballot identity to the game, so a ballot
 // that names another election never reaches the tally.
 function testSocketVoteCarriesTheBallotIdentity() {
   const manager = new RoomManager();
@@ -922,7 +918,7 @@ function testSocketVoteCarriesTheBallotIdentity() {
   assert.equal(event.votes[room.game.players[0].id], 'low-tax');
 }
 
-// G3: a combination is the sum of the headlines it fused. The order the
+// A combination is the sum of the headlines it fused. The order the
 // halves happened to arrive in must not decide the payload.
 function testComboEffectsDoNotDependOnTriggerOrder() {
   const combo = GLOBAL_EVENT_COMBINATIONS.find(candidate => candidate.id === 'moral-hazard');
@@ -971,7 +967,7 @@ function testDebtAmnestyDiscountAppliesUnderTheMoralHazardCombo() {
   assert.equal(fullRepaymentCostUnder('bank-run', 'moral-hazard'), 360, 'the fused debt-amnesty discount applies');
 }
 
-// G4: the lifecycle rules belong to the headline, so a combination runs the
+// The lifecycle rules belong to the headline, so a combination runs the
 // rules of the headlines it fused.
 function testComboRunsTheComponentLifecycle() {
   const room = makeEventRoom();
@@ -990,7 +986,7 @@ function testComboRunsTheComponentLifecycle() {
   assert.equal(b.nonAirportRentDuringStrike, true);
 }
 
-// G4: the recovery rule belongs to the housing bubble, so it also runs when
+// The recovery rule belongs to the housing bubble, so it also runs when
 // the bubble was fused into a combination.
 function testComboRecoveryEndsTheHousingBubble() {
   const room = makeEventRoom();
@@ -1003,7 +999,7 @@ function testComboRecoveryEndsTheHousingBubble() {
   game.players.forEach(player => assert.equal(player.housingBubbleEnded, true));
 }
 
-// G6: the activation settlement reprices loans and pays bailouts against the
+// The activation settlement reprices loans and pays bailouts against the
 // table's cash. Under an open payment or a live auction that money is spoken
 // for, so the settlement waits for the obligation to clear.
 function testActivationSettlementWaitsForTheTableObligation() {
@@ -1027,42 +1023,42 @@ function testActivationSettlementWaitsForTheTableObligation() {
 }
 
 const CONTRACT_SUITES = [
-  ['activate — warning snapshot + phase ladder', testActivateWarningSnapshot],
-  ['activate — duration scaling (housing-bubble vs others)', testActivateDurationScaling],
-  ['activate — voting choices copy', testActivateVotingChoices],
-  ['activate — anti-monopoly leader / tax-audit target', testActivateTargetSelection],
-  ['activate — airport-strike ownership flags', testActivateAirportStrikeFlags],
-  ['activate — combo merge + comboExperienced', testActivateCombo],
-  ['maybeTrigger — settings/started/active/cooldown/round/cap gates', testMaybeTriggerGating],
-  ['maybeTrigger — chance thresholds + weighted selection', testMaybeTriggerChanceAndSelection],
-  ['maybeTrigger — surprise combination chaining', testMaybeTriggerComboPath],
-  ['vote — guards and tallies', testVoteGuards],
-  ['vote — waits for pending payment and open auction', testVoteWaitsForTableObligations],
-  ['resolveVote — preconditions', testResolveVotePreconditions],
-  ['resolveVote — unanimous + full-turnout auto-resolve', testResolveVoteUnanimous],
-  ['resolveVote — split and zero-turnout enact no choice (A8-06)', testResolveVoteTieAndTimeout],
-  ['resolveVote — strict majority of active seats at 2, 3, 4 and 6 seats (A8-06)', testVoteNeedsStrictMajorityOfActiveSeats],
-  ['resolveVote — publicEnemy + compromisedCouncil', testResolveVoteAntiMonopolyAndLegitimacy],
-  ['settlements — rent-control stipend + latch', testRentControlStipendSettlement],
-  ['settlements — currency devaluation + zero-cash flag', testCurrencyDevaluationSettlement],
-  ['settlements — bank-run bailout', testBankRunBailoutSettlement],
-  ['settlements — bank-run bailout reaches only distressed players (F-035)', testBankRunBailoutOnlyReachesDistressedPlayers],
-  ['copy — bank-run bailout text matches the rule (F-035)', testBankRunBailoutCopyMatchesRule],
-  ['settlements — ledger-run no-op + tax-audit amounts', testLetTheLedgerRunAndTaxAuditSettlement],
-  ['settlements — interest-rate shock reprices existing loans once', testInterestRateShockSettlement],
-  ['settlements — interest-rate shock preserves paid credit', testInterestRateShockPreservesPaidCredit],
-  ['settlements — labor-strike shortfalls become payable debt', testLaborStrikeShortfallCreatesDebt],
-  ['phases — housing-bubble survivor flags', testHousingBubbleSurvivorFlags],
-  ['effects — active-phase queries', testActivePhaseEffectQueries],
-  ['vote — a finished match refuses the ballot and closes the headline', testFinishedMatchRefusesTheBallot],
-  ['vote — a ballot from another election is stale', testStaleBallotIsRefused],
-  ['vote — the same request id is counted once', testVoteRequestIdIsCountedOnce],
-  ['vote — the socket layer carries the ballot identity', testSocketVoteCarriesTheBallotIdentity],
-  ['combo — the effects do not depend on which half fired it', testComboEffectsDoNotDependOnTriggerOrder],
-  ['combo — the debt-amnesty discount applies under moral-hazard', testDebtAmnestyDiscountAppliesUnderTheMoralHazardCombo],
-  ['combo — the component hooks and tile rules run',testComboRunsTheComponentLifecycle],
-  ['combo — the housing-bubble recovery rule runs', testComboRecoveryEndsTheHousingBubble],
-  ['settlements — the activation settlement waits for the table obligation', testActivationSettlementWaitsForTheTableObligation]
+  ['activate: warning snapshot + phase ladder', testActivateWarningSnapshot],
+  ['activate: duration scaling (housing-bubble vs others)', testActivateDurationScaling],
+  ['activate: voting choices copy', testActivateVotingChoices],
+  ['activate: anti-monopoly leader / tax-audit target', testActivateTargetSelection],
+  ['activate: airport-strike ownership flags', testActivateAirportStrikeFlags],
+  ['activate: combo merge + comboExperienced', testActivateCombo],
+  ['maybeTrigger: settings/started/active/cooldown/round/cap gates', testMaybeTriggerGating],
+  ['maybeTrigger: chance thresholds + weighted selection', testMaybeTriggerChanceAndSelection],
+  ['maybeTrigger: surprise combination chaining', testMaybeTriggerComboPath],
+  ['vote: guards and tallies', testVoteGuards],
+  ['vote: waits for pending payment and open auction', testVoteWaitsForTableObligations],
+  ['resolveVote: preconditions', testResolveVotePreconditions],
+  ['resolveVote: unanimous + full-turnout auto-resolve', testResolveVoteUnanimous],
+  ['resolveVote: split and zero-turnout enact no choice (A8-06)', testResolveVoteTieAndTimeout],
+  ['resolveVote: strict majority of active seats at 2, 3, 4 and 6 seats (A8-06)', testVoteNeedsStrictMajorityOfActiveSeats],
+  ['resolveVote: publicEnemy + compromisedCouncil', testResolveVoteAntiMonopolyAndLegitimacy],
+  ['settlements: rent-control stipend + latch', testRentControlStipendSettlement],
+  ['settlements: currency devaluation + zero-cash flag', testCurrencyDevaluationSettlement],
+  ['settlements: bank-run bailout', testBankRunBailoutSettlement],
+  ['settlements: bank-run bailout reaches only distressed players (F-035)', testBankRunBailoutOnlyReachesDistressedPlayers],
+  ['copy: bank-run bailout text matches the rule (F-035)', testBankRunBailoutCopyMatchesRule],
+  ['settlements: ledger-run no-op + tax-audit amounts', testLetTheLedgerRunAndTaxAuditSettlement],
+  ['settlements: interest-rate shock reprices existing loans once', testInterestRateShockSettlement],
+  ['settlements: interest-rate shock preserves paid credit', testInterestRateShockPreservesPaidCredit],
+  ['settlements: labor-strike shortfalls become payable debt', testLaborStrikeShortfallCreatesDebt],
+  ['phases: housing-bubble survivor flags', testHousingBubbleSurvivorFlags],
+  ['effects: active-phase queries', testActivePhaseEffectQueries],
+  ['vote: a finished match refuses the ballot and closes the headline', testFinishedMatchRefusesTheBallot],
+  ['vote: a ballot from another election is stale', testStaleBallotIsRefused],
+  ['vote: the same request id is counted once', testVoteRequestIdIsCountedOnce],
+  ['vote: the socket layer carries the ballot identity', testSocketVoteCarriesTheBallotIdentity],
+  ['combo: the effects do not depend on which half fired it', testComboEffectsDoNotDependOnTriggerOrder],
+  ['combo: the debt-amnesty discount applies under moral-hazard', testDebtAmnestyDiscountAppliesUnderTheMoralHazardCombo],
+  ['combo: the component hooks and tile rules run',testComboRunsTheComponentLifecycle],
+  ['combo: the housing-bubble recovery rule runs', testComboRecoveryEndsTheHousingBubble],
+  ['settlements: the activation settlement waits for the table obligation', testActivationSettlementWaitsForTheTableObligation]
 ];
 
 let passedCount = 0;
@@ -1071,14 +1067,14 @@ for (const [name, fn] of CONTRACT_SUITES) {
   try {
     await fn();
     passedCount += 1;
-    console.log(`PASS — ${name}`);
+    console.log(`PASS - ${name}`);
   } catch (error) {
     failedSuites.push([name, error]);
-    console.error(`FAIL — ${name}: ${error && error.message}`);
+    console.error(`FAIL - ${name}: ${error && error.message}`);
   }
 }
 const total = passedCount + failedSuites.length;
-console.log(`global-events tests: ${total} suites — ${passedCount} passed, ${failedSuites.length} failed`);
+console.log(`global-events tests: ${total} suites, ${passedCount} passed, ${failedSuites.length} failed`);
 if (failedSuites.length) {
   process.exitCode = 1;
 }

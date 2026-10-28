@@ -12,11 +12,9 @@ function normalizedLimit(value, fallback) {
   return Number.isFinite(parsed) ? Math.min(100_000, Math.max(0, Math.floor(parsed))) : fallback;
 }
 
-// Small process-local ingress guard. Game actions remain server-authoritative;
-// this only rejects abusive event volume before handlers do work.
-// Two budgets apply to every event: one per socket, and one per resolved peer
-// address. The socket budget resets on every reconnect (new socket id), so the
-// peer budget is what actually bounds a client that reconnects in a loop.
+// Small process-local ingress guard. Game actions stay server-authoritative; this only rejects abusive event volume before handlers run.
+// Two budgets apply to every event: one per socket, and one per resolved peer address. The socket budget resets on every reconnect
+// (new socket id), so the peer budget is what actually bounds a client that reconnects in a loop.
 export function createSocketRateLimiter({ max = 240, peerMax, windowMs = 10_000, now = () => Date.now() } = {}) {
   const buckets = new Map();
   const peerBuckets = new Map();
@@ -50,11 +48,9 @@ export function createSocketRateLimiter({ max = 240, peerMax, windowMs = 10_000,
   return { allow, forget, size: () => buckets.size + peerBuckets.size };
 }
 
-// Connection admission is a separate, pre-socket guard. The per-socket
-// limiter above protects event volume after a connection exists; this seam
-// prevents a client from creating unlimited fresh sockets to reset that
-// counter. Active connection count is supplied by Socket.IO's Engine.IO
-// server, while handshakes are bounded per peer over a short rolling window.
+// Connection admission is a separate, pre-socket guard. The per-socket limiter protects event volume after a connection exists; this
+// seam stops a client creating unlimited fresh sockets to reset that counter. Active connections come from Engine.IO, and handshakes
+// are bounded per peer over a short rolling window.
 export function createSocketAdmission({ maxConnections = 2_000, maxHandshakes = 120, windowMs = 10_000, now = () => Date.now() } = {}) {
   const connectionLimit = Math.max(1, Math.min(100_000, Math.floor(Number(maxConnections) || 2_000)));
   const handshakeLimit = Math.max(1, Math.min(100_000, Math.floor(Number(maxHandshakes) || 120)));

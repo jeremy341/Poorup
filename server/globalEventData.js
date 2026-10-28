@@ -1,16 +1,11 @@
-// Global-event vocabulary as data: the definition table, the curated
-// combination pairs, and the dispatch tables mirroring CARD_ACTION_HANDLERS
-// and RENT_EVENT_MODIFIERS: activation-time targets, per-event activation
-// hooks, vote-outcome side effects, and ordered activation settlements.
-// Every entry encodes the exact condition and mutation the original inline
-// if-ladders performed; the settlement order is observable (feed order and
-// cash deltas), so the array sequence is frozen. server/global-events.test.js
-// pins every title, summary, and effect payload through the live game loop.
+// Global-event vocabulary as data: the definition table, curated combination pairs, and dispatch tables that mirror
+// CARD_ACTION_HANDLERS and RENT_EVENT_MODIFIERS (activation targets, activation hooks, vote-outcome effects, settlements).
+// Entries encode the exact conditions and mutations of the original if-ladders. Settlement order is observable, so the array is frozen.
 
 const GLOBAL_EVENT_COOLDOWN_ROUNDS = 3;
 const GLOBAL_EVENT_MIN_ROUND = 3;
 // Distress is cash under this share of starting cash. The bank run triggers on
-// it and the emergency bailout pays only players below it (F-035).
+// it and the emergency bailout pays only players below it.
 const BANK_RUN_DISTRESS_CASH_RATIO = 0.35;
 // The spellings that turn headlines on (the '1' string is legacy-only and
 // stays in ROOM_FLAG_TRUE_VALUES for the other boolean settings).

@@ -1,10 +1,6 @@
-// The in-game socket domain: dice, property, auction, trade, contract, jail,
-// loan, economy, event-vote, and bankruptcy wiring. The repetitive room-verb
-// handlers (resolve room -> verb -> broadcast -> ack) are installed from the
-// GAME_VERB_HANDLERS table via socketHandlerSupport's factory — the same
-// table-installed pass-through pattern server/rooms.js GAME_PASSTHROUGHS
-// uses. Event names, ack payload key order, emit sequence, and message text
-// are wire-identical to the original server.js handlers.
+// The in-game socket domain: dice, property, auction, trade, contract, jail, loan, economy, event-vote and bankruptcy wiring.
+// Repetitive room-verb handlers (resolve room, run verb, broadcast, ack) come from GAME_VERB_HANDLERS via socketHandlerSupport's
+// factory, the same table-installed pass-through as GAME_PASSTHROUGHS in rooms.js. Names, ack key order, emit sequence and text are wire-identical.
 import { emitResultMessage, makeRoomVerbHandler, reply, roomVerbAck } from './socketHandlerSupport.js';
 import { contractLastProposerId, contractResponderId } from './contractLogic.js';
 import { presentationRemainingMs } from '../public/gamePresentationTiming.js';
@@ -31,14 +27,9 @@ function pickAckFields(fields) {
   };
 }
 
-// Contract negotiations keep the lender/borrower IDs stable while the
-// responder alternates after every counter. The relay routes by the same
-// authority the server itself uses for authorization: the seat awaiting a
-// decision is the responder (the party that did NOT act last), and a
-// resolution update returns to the last proposer. Parity on counterDepth is
-// only a fallback for legacy contracts that never recorded lastProposerId;
-// equity transfers pin depth at 2 while still alternating, so parity alone
-// echoes offers back to their author.
+// Contract negotiations keep lender and borrower IDs stable while the responder alternates after every counter. The relay routes by the same
+// authority the server uses for authorization: the responder is the seat that did NOT act last, and a resolution returns to the last proposer.
+// Parity on counterDepth is only a fallback for legacy contracts without lastProposerId; equity transfers pin depth at 2, so parity alone would echo offers back.
 function awaitingSeatField(contract) {
   return contractResponderId(contract) === contract?.toPlayerId ? 'toPlayerId' : 'fromPlayerId';
 }

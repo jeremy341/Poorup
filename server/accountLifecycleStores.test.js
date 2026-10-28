@@ -39,7 +39,7 @@ const achievements = new AchievementStore(path.join(root, 'achievements.json'));
 achievements.records.set('acct-1:first', { accountId: 'acct-1', achievementId: 'first' });
 assert.equal(achievements.purgeAccount('acct-1'), 1);
 
-// F4: the match store can be rolled back, so a purge that fails in a later
+// The match store can be rolled back, so a purge that fails in a later
 // store puts the erased matches back. A match recorded while the purge runs
 // survives the rollback.
 {

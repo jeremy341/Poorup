@@ -1,4 +1,4 @@
-// s10-13: a partial privacy patch merges into the stored settings. It must not
+// A partial privacy patch merges into the stored settings. It must not
 // reset the keys it leaves out to their defaults (which can loosen privacy).
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

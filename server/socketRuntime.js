@@ -1,10 +1,6 @@
-// The shared runtime every socket domain registers against: room state
-// broadcast, the bot/auction/disconnect/inactivity timers, the empty-room garbage
-// collector, seat detach/host-reassign bookkeeping, and the invite/cancel
-// flows two domains share. One createRuntime() per server process — server.js
-// builds the stores and io, then hands them here. Behavior (emit ordering,
-// feed text, ack shapes) is pinned by server/rooms.test.js and
-// server/server.test.js.
+// The shared runtime every socket domain registers against: room state broadcast, the bot, auction, disconnect and inactivity timers,
+// the empty-room garbage collector, seat detach and host reassignment, and the invite and cancel flows two domains share. One
+// createRuntime() per process: server.js builds the stores and io, then hands them here. Pinned by server/rooms.test.js and server/server.test.js.
 import { AUCTION_DURATION_MS } from './gameLogic.js';
 import { ensureRoomHost } from './rooms.js';
 import { normalizeAvatarGrid, normalizeClientId, normalizeChatText, buildMatchRecordOptions } from './roomSetup.js';
@@ -39,7 +35,7 @@ const EMPTY_ROOM_GC_INTERVAL_MS = 60 * 1000;
 const TRADE_OFFER_TTL_MS = 120 * 1000;
 const TRADE_EXPIRY_SWEEP_INTERVAL_MS = 5 * 1000;
 const AUCTION_WATCHDOG_INTERVAL_MS = 1000;
-// How often silent turn holders are checked for idleness (F-091). The idle
+// How often silent turn holders are checked for idleness. The idle
 // threshold itself is PLAYER_INACTIVITY_REMOVAL_MS.
 const IDLE_SEAT_SWEEP_INTERVAL_MS = 5000;
 const EMPTY_ROOM_GRACE_PERIOD_MS = 10 * 60 * 1000;
@@ -71,9 +67,10 @@ export function botChatPayload(bot, botChat) {
   return { text, nickname: bot.nickname, senderId: bot.id, bot: true };
 }
 
-// Thrown by the guarded advisor when its answer arrives after the decision lost
-// its lock or its room; the turn ends quietly.
-class StaleBotDecision extends Error {}
+// Thrown by the guarded advisor when its answer arrives after the decision lost its lock or its room; the turn ends quietly.
+// Thrown to abandon a decision the table has moved past. advisorLogic.chooseActionSafely passes anything marked `stale` straight
+// through instead of treating it as an advisor failure.
+class StaleBotDecision extends Error { stale = true; }
 
 // Room-local timer failures must not escape into the process-level exception
 // path. Keep the wrapper dependency-free so each timer callback remains easy
@@ -265,10 +262,9 @@ export function classifyBotDecision(decision = {}) {
   };
 }
 
-// The live counterpart of the rollup's fallback rate: one increment per decision
-// the model was asked and the house engine answered instead, using the same
-// classification as the rollup so deliberate house policy never counts. Called
-// once per recorded decision trace; metrics must never affect a bot's turn.
+// The live counterpart of the rollup's fallback rate: one increment per decision the model was asked and the house engine answered
+// instead, classified as the rollup does so deliberate house policy never counts. Called once per recorded decision trace;
+// metrics must never affect a bot's turn.
 export function noteBotFallback(metrics, decision) {
   if (!classifyBotDecision(decision).failed) return false;
   try { metrics?.incrementMetric?.('bot-fallbacks', { scope: 'ai' }); } catch { /* best effort */ }
@@ -423,12 +419,12 @@ function createRuntime(deps) {
   const auctionTimers = new Map();
   const disconnectTimers = new Map();
   const botTimers = new Map();
-  // Room code -> the token of the decision that owns the lock (F-022).
+  // Room code: the token of the decision that owns the lock.
   const botDecisionLocks = new Map();
-  // Room code -> the watchdog timer of the decision that holds the lock, so a
+  // Room code: the watchdog timer of the decision that holds the lock, so a
   // room teardown can stop it.
   const botDecisionWatchdogs = new Map();
-  // Room code -> the one-shot re-check of a bot buyer's open sponsorship.
+  // Room code: the one-shot re-check of a bot buyer's open sponsorship.
   const sponsorshipRechecks = new Map();
   // Auction decisions belong to a specific bot AND auction instance. A room-wide
   // lock serialized remote AI calls, letting one 4s request starve other bots
@@ -537,10 +533,8 @@ function createRuntime(deps) {
     }
   }
 
-  // The 30 s human window of a bot buyer's sponsorship request is judged against
-  // the wall clock, but nothing wakes the table when it ends, and the open
-  // request keeps the round from advancing: re-emit once it has elapsed so the
-  // buyer bot can cancel or accept.
+  // The 30 s human window of a bot buyer's sponsorship request is judged against the wall clock, but nothing wakes the table when it ends.
+  // The open request keeps the round from advancing, so re-emit once it has elapsed and the buyer bot can cancel or accept.
   function armSponsorshipRecheck(room) {
     const roomCode = room.roomCode;
     const sponsorship = room.game.pendingSponsoredPurchase;
@@ -575,12 +569,9 @@ function createRuntime(deps) {
     broadcastRoomStateSafely(room);
   }
 
-  // Private notices the engine queues for a seat (a lender's exit cancelling
-  // the loan it funded). Each one goes to the seat's own socket once; a bot
-  // has no socket and reads the room feed instead. A seat that is not
-  // connected yet keeps its notice: the queue is only emptied for the notices
-  // that really reached their seat, so a borrower that dropped does not lose
-  // the notice for good.
+  // Private notices the engine queues for a seat (a lender's exit cancelling the loan it funded). Each goes to the seat's own socket once;
+  // a bot has no socket and reads the room feed instead. A seat not connected yet keeps its notice: the queue empties only for notices
+  // that reached their seat, so a borrower who dropped does not lose the notice for good.
   function deliverBorrowerNotices(room) {
     const game = room.game;
     if (!game) return;
@@ -649,7 +640,7 @@ function createRuntime(deps) {
 
   function broadcastRoomState(room) {
     const serverTime = Date.now();
-    // Game summaries now carry owner-only loan and contract terms. Emit a
+    // Game summaries carry owner-only loan and contract terms. Emit a
     // viewer-scoped projection so another seat can see that a loan exists
     // without receiving its collateral, premium, or repayment schedule.
     io.sockets.sockets.forEach(candidate => {
@@ -706,9 +697,9 @@ function createRuntime(deps) {
     socket.emit('player-contract-offer', { contract });
   }
 
-  // --- seat lifecycle ------------------------------------------------------
+  // seat lifecycle
 
-  // Leave any previous game rooms so we don't receive ghost updates
+  // Leave any previous game rooms, so no ghost updates arrive.
   function leaveAllGameRooms(socket) {
     for (const joined of [...socket.rooms]) {
       if (joined !== socket.id) {
@@ -777,10 +768,8 @@ function createRuntime(deps) {
     return resolveSeatExitObligations(room, player, reason);
   }
 
-  // Shared by expiry and voluntary leave: a seat that leaves the table cancels
-  // the trade, contract, and sponsorship it owns with the same announcement,
-  // and auctions its pending purchase offer. Payment settlement stays with
-  // resolveSeatObligations, which only the expiry path runs.
+  // Shared by expiry and voluntary leave: a seat that leaves cancels the trade, contract and sponsorship it owns with the same announcement,
+  // and auctions its pending purchase offer. Payment settlement stays with resolveSeatObligations, which only the expiry path runs.
   function resolveSeatExitObligations(room, player, reason) {
     const prepared = room.game.prepareCollateralForExit?.(player);
     if (prepared?.success === false) return prepared;
@@ -854,14 +843,9 @@ function createRuntime(deps) {
     return timer;
   }
 
-  // The reconnect seam. A seat that lost its socket holds exactly one disconnect
-  // timer, and every way back to the table (restore-session, rejoin by code or
-  // room id, the create-room replay, an accepted invite) clears it once the seat
-  // is live again. So a cleared timer on a live seat is one successful seat
-  // reconnect, counted once: the timer is gone for the next call. Callers that
-  // clear it before the seat is attached (the account-seat reclaim, which swaps
-  // the clientId first) say so with `reconnected`. Leaving, rescheduling and
-  // room teardown go through dropDisconnectTimer and never count.
+  // The reconnect seam. A seat that lost its socket holds one disconnect timer, and every way back (restore-session, rejoin, create-room replay,
+  // accepted invite) clears it once the seat is live, so a cleared timer on a live seat counts as one reconnect. Callers that clear it before attaching
+  // the seat (the account-seat reclaim swaps the clientId first) say so with `reconnected`. Leaving and teardown never count.
   function clearDisconnectTimer(clientId, room, { reconnected = false } = {}) {
     const timer = dropDisconnectTimer(clientId, room);
     if (!timer) return;
@@ -906,7 +890,7 @@ function createRuntime(deps) {
       if (botKey.startsWith(`${roomCode}:`)) auctionDecisionLocks.delete(botKey);
     }
     auctionEvaluations.delete(roomCode);
-    // Drop the socket->room index for everyone still mapped to this room;
+    // Drop the socket to room index for everyone still mapped to this room;
     // otherwise connected players keep acting on a zombie room that is gone
     // from the registry (getRoomBySocket would still resolve it).
     forgetSocketMappings(room);
@@ -920,7 +904,7 @@ function createRuntime(deps) {
     }
   }
 
-  // A finished match that was never settled is settled now, once. A store
+  // A finished match that was never settled is settled once, here. A store
   // outage must not stop the room from being torn down.
   function settleCompletedRoom(room) {
     if (!room?.game?.lastWinner || room.statsRecorded) return false;
@@ -932,7 +916,7 @@ function createRuntime(deps) {
     return true;
   }
 
-  // --- bots ----------------------------------------------------------------
+  // bots
 
   function turnRoomReady(room) {
     if (!room?.game.started) return false;
@@ -974,12 +958,14 @@ function createRuntime(deps) {
 
   function beginBotTurn(room, bot) {
     botTimers.delete(room.roomCode);
+    // The timer was armed while a human was still seated: if the last one left since, the table is dead.
+    if (humanlessTable(room)) return;
     const remaining = presentationRemainingMs(room.game, now());
     if (remaining > 0) return scheduleBotTurn(room, remaining);
     room.game.presentationClock = now;
     // The decision owns the lock through its token. The watchdog frees a lock
     // whose decision never settles (a stalled provider the advisor could not
-    // abort); a stale completion then cannot free the lock a newer one holds (F-022).
+    // abort); a stale completion then cannot free the lock a newer one holds.
     const token = {};
     botDecisionLocks.set(room.roomCode, token);
     const watchdog = setTimeoutFn(
@@ -992,7 +978,7 @@ function createRuntime(deps) {
       .catch(error => {
         if (error instanceof StaleBotDecision) return;
         // A failed bot decision must not escape the timer callback: an
-        // uncaught error here used to take the whole process down. The room
+        // uncaught error here would take the whole process down. The room
         // stays alive and the watchdog/next action retries naturally.
         console.error(`Bot turn failed in room ${room.roomCode}:`, error);
       })
@@ -1027,7 +1013,7 @@ function createRuntime(deps) {
   }
 
   // A contract the bot just created (or countered) is pushed to its human
-  // recipient, as a human's proposal is, so the offer is not silent (F-089).
+  // recipient, as a human's proposal is, so the offer is not silent.
   function notifyBotContractOffer(room, priorContract) {
     const contract = room.game.pendingPlayerContract;
     if (!contract || contract === priorContract) return;
@@ -1055,11 +1041,9 @@ function createRuntime(deps) {
     });
   }
 
-  // A decision whose lock was released by the watchdog, whose room is gone, or
-  // whose match has already ended must not act on its late answer: the
-  // advisor call throws as it returns, which ends the turn before any action
-  // runs. endGame leaves the room alive, so the finished match is judged by
-  // the game itself.
+  // A decision whose lock the watchdog released, whose room is gone, or whose match has ended must not act on a late answer: the
+  // advisor call throws as it returns, ending the turn before any action runs. endGame leaves the room alive, so the finished match
+  // is judged by the game itself.
   function botDecisionIsStale(room, lockLost) {
     return () => room.destroyed
       || lockLost()
@@ -1117,7 +1101,7 @@ function createRuntime(deps) {
   }
 
   function finishBotTurn(room, token, movementDelayMs = 0) {
-    // Only the decision holding the lock may release it (F-022).
+    // Only the decision holding the lock may release it.
     if (botDecisionLocks.get(room.roomCode) !== token) return;
     botDecisionLocks.delete(room.roomCode);
     scheduleBotTurn(room, movementDelayMs);
@@ -1174,6 +1158,8 @@ function createRuntime(deps) {
 
   async function beginBotAuctionBidUnlocked(room, bot, key, expectedAuction) {
     if (room.game.auction !== expectedAuction || !expectedAuction.active) return;
+    // Same guard as beginBotTurn: no paid advisor call for a table whose last human seat is gone.
+    if (humanlessTable(room)) return;
     const auctionVersion = auctionIdentity(room.game.auction, bot);
     const decisionSequence = (room.game.botDecisionSequence || 0) + 1;
     room.game.botDecisionSequence = decisionSequence;
@@ -1243,7 +1229,7 @@ function createRuntime(deps) {
     return Boolean(auction?.active && identity && auctionIdentity(auction, bot) === identity);
   }
 
-  // --- auction/disconnect timers -------------------------------------------
+  // auction/disconnect timers
 
   function scheduleAuctionFinish(room) {
     const auction = room?.game.auction;
@@ -1260,7 +1246,7 @@ function createRuntime(deps) {
     // callback that survives clearTimeout must never finish a newer auction in
     // the same room.
     const timer = setTimeoutFn(() => {
-      // The handle has fired, so it no longer arms anything. Left registered it
+      // The handle has fired, so it arms nothing. Left registered it
       // would make the watchdog skip the room even if this callback returns
       // early or throws before it clears the entry.
       if (auctionTimers.get(roomCode) === timer) auctionTimers.delete(roomCode);
@@ -1398,7 +1384,7 @@ function createRuntime(deps) {
       ? 'The highest bidder disconnected. The bid is reset.'
       : `${player.nickname} left the room. The highest bid is reset.`;
     io.in(room.roomCode).emit('system-message', { text: message });
-    // Rivals bid against a lead that no longer exists, so they get a fresh window.
+    // Rivals bid against a lead that does not exist, so they get a fresh window.
     auction.endsAt = Math.max(Number(auction.endsAt) || 0, now() + AUCTION_DURATION_MS);
     scheduleAuctionFinish(room);
   }
@@ -1427,7 +1413,7 @@ function createRuntime(deps) {
     io.in(context.room.roomCode).emit('system-message', { text });
   }
 
-  // --- background intervals --------------------------------------------------
+  // background intervals
 
   // createdAt is stamped with the wall clock in proposeTrade, so compare with it.
   function tradeExpirySweepTick() {
@@ -1449,7 +1435,7 @@ function createRuntime(deps) {
   }
 
   function garbageCollectRoom(room, roomCode, current) {
-    // Bots and ghost seats must not keep a room alive (audit finding 14).
+    // Bots and ghost seats must not keep a room alive.
     if (room.hasConnectedHumans()) {
       room.emptySince = null;
       return;
@@ -1464,17 +1450,17 @@ function createRuntime(deps) {
     scheduleRoomsUpdated();
   }
 
-  // --- invite / contract-cancel flows ----------------------------------------
+  // invite / contract-cancel flows
 
   // Accept-branch of respond-room-invite: gate order, seat transfer, and ack
   // shape are pinned by server/rooms.test.js. Returns the ack payload so the
-  // handler stays a validate -> delegate -> respond flow.
+  // handler stays a validate, then delegate, then respond flow.
   function acceptRoomInvite(socket, account, invite, payload) {
     if (!invite) return { success: false, error: 'That room invite has expired.' };
     if (String(payload?.inviteId || '') !== String(invite.id || '')) return { success: false, error: 'That room invite is no longer valid.' };
     const expiresAt = Date.parse(invite.expiresAt || '');
     if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-      // Mark the stale record before doing any seat mutation. Previously an
+      // Mark the stale record before doing any seat mutation, or an
       // invite that expired between lookup and acceptance could still join a
       // room even though the response returned an expiry error.
       socialStore.respondInvite(account.id, invite.id, true);
@@ -1526,10 +1512,8 @@ function createRuntime(deps) {
       restoreLobbyRoster(room, rosterBefore);
       return { success: false, error: joined.error };
     }
-    // Validate and consume the invite while the source room is still intact.
-    // If the record was concurrently declined/expired, or the store failed
-    // outright, the staged target seat is rolled back and the source socket
-    // is left untouched: a failed invite never leaves a live seat behind.
+    // Validate and consume the invite while the source room is still intact. If the record was declined or expired concurrently, or the store
+    // failed, the staged target seat is rolled back and the source socket is untouched: a failed invite never leaves a live seat behind.
     let result;
     try {
       result = socialStore.respondInvite(account.id, payload.inviteId, true);
@@ -1618,7 +1602,7 @@ function createRuntime(deps) {
     };
   }
 
-  // --- maintenance lockout: who may pass it --------------------------------
+  // maintenance lockout: who may pass it
 
   // A socket passes the lockout with a live operator cookie grant (read at the
   // handshake, see server.js) or as an admin account. account undefined means
@@ -1666,13 +1650,13 @@ function createRuntime(deps) {
       : { success: false, error: pausedError, code: 'MAINTENANCE_DRAINING', maintenance: maintenanceStateFor(socket, snapshot) };
   }
 
-  // --- socket disconnect (registered per socket by the connection wiring) ----
+  // socket disconnect (registered per socket by the connection wiring)
 
   function handleSocketDisconnect(socket) {
     social.chatLastSent.delete(socket.id);
     forgetPatrolRuns(socket.id);
     // Every live seat bound to this socket enters grace, including one left in
-    // a room the socket is no longer mapped to; it must not stay live forever.
+    // a room the socket is not mapped to; it must not stay live forever.
     const seats = roomManager.liveSeatsOnSocket(socket.id);
     roomManager.disconnectPlayer(socket.id);
     seats.forEach(({ room, player }) => {
@@ -1689,7 +1673,7 @@ function createRuntime(deps) {
 
   function forgetPatrolRuns(socketId) {
     social.patrolRuns.forEach((run, token) => {
-      if (run.socketId === socketId) social.patrolRuns.delete(token);
+      if (run.socketId === socketId && !run.settlementPending) social.patrolRuns.delete(token);
     });
   }
 

@@ -109,5 +109,5 @@ for (const [name, run] of cases) {
 const ids = Object.keys(freshMarketQuotes());
 assert.deepEqual(ids, MARKET_INSTRUMENTS.map(instrument => instrument.id));
 assert.ok(Object.values(freshMarketQuotes()).every(quote => Number.isInteger(quote) && quote > 0));
-console.log(`market quote history: ${cases.length} cases — ${passed} passed, ${failures.length} failed`);
+console.log(`market quote history: ${cases.length} cases, ${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exitCode = 1;

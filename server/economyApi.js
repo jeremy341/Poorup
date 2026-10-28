@@ -1,9 +1,6 @@
-// The two wager economies as a prototype mixin: the roulette casino and the
-// index market, plus the shared transaction-replay cache and the economy
-// snapshot both flows return to the client. gameLogic.js assigns this object
-// onto GameState.prototype; server/casino-bankruptcy.test.js and
-// server/contracts-market.test.js pin every guard string, fee rounding, and
-// ledger shape.
+// The two wager economies as a prototype mixin: the roulette casino and the index market, plus the shared transaction-replay cache
+// and the economy snapshot both flows return to the client. gameLogic.js assigns this object onto GameState.prototype.
+// casino-bankruptcy and contracts-market tests pin every guard string, fee rounding and ledger shape.
 import crypto from 'crypto';
 import { randomInt } from './random.js';
 import {
@@ -55,13 +52,9 @@ function casinoSnapshot(game, player, limits) {
   };
 }
 
-// marketLogic mutates position objects IN PLACE (applyMarketBuy writes straight
-// into position.averageCost / position.quantity and economyApi reassigns the same
-// reference back into player.marketPositions[id]), so a shallow {...map} snapshot
-// aliases live state: an already-returned snapshot - including the economy
-// payload every cacheTransaction call site replays verbatim on a duplicate
-// requestId - rewrites itself retroactively. Rebuild each entry so the snapshot
-// never shares a reference with the player's book.
+// marketLogic mutates position objects in place (applyMarketBuy writes into averageCost and quantity), so a shallow {...map}
+// snapshot aliases live state. An already-returned snapshot, including the economy payload replayed on a duplicate requestId,
+// would rewrite itself retroactively. Rebuild each entry so no snapshot shares a reference with the player's book.
 function clonedPositionMap(map) {
   return Object.fromEntries(Object.entries(map || {}).map(([id, position]) => [id, { ...position }]));
 }
@@ -109,17 +102,9 @@ function shortInventory(game) {
   return game.marketShortInventory;
 }
 
-// Short buy-in debt is a forced obligation, so this path deliberately keeps
-// the off-turn, quota-exempt reach marketExpansion.settleShortDefault
-// documents ("callers may invoke this path on a later turn or before opening
-// another market position") and does not take the turn gate, the per-turn
-// market quota, or the trading-pause check: paying an obligation is the
-// opposite of trading, and a debt that only its owner can clear must never be
-// unreachable. It does share the rest of the expansion ladder - the same
-// loan-taint guard every other market entry uses, plus the session guards, so
-// the path cannot settle against a market the room does not run. Room market
-// settings are frozen once the game starts (rooms.js roomSettingChange-
-// RejectionReason), so these guards can never strand an outstanding obligation.
+// Short buy-in debt is a forced obligation, so this path keeps the off-turn, quota-exempt reach that marketExpansion.settleShortDefault documents.
+// It skips the turn gate, quota and trading-pause check: paying an obligation is the opposite of trading, and a debt only its owner can clear must never be unreachable.
+// It still shares the expansion ladder's loan-taint and session guards. Room market settings freeze at game start, so these cannot strand an obligation.
 function shortDefaultRejection(game, player) {
   if (!game.started || !player || player.bankrupt || player.disconnected) return 'Market access is unavailable right now.';
   if (game.hasLoanBackedCash?.(player)) return 'Loan-backed cash cannot fund margin, short, or option positions.';

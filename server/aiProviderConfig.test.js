@@ -582,6 +582,70 @@ check('default provider transport connects to the vetted DNS address while retai
   }
 });
 
+check('a provider that drops the connection mid-body rejects instead of leaving the request pending', async () => {
+  const server = http.createServer((request, response) => {
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.write('{"choices":[');
+    setTimeout(() => request.socket.destroy(), 50);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    const profile = {
+      ...normalizeProviderConfig({ id: 'drop', label: 'Drop', baseUrl: `http://provider.test:${address.port}/v1`, model: 'model', allowPrivateEndpoints: true }),
+      apiKey: 'key',
+    };
+    const advisor = { fetchImpl: async () => { throw new Error('un-pinned fetch must not be used'); }, configureProvider() {} };
+    createAiProviderManager({ store: { active: () => profile }, advisor, env: { NODE_ENV: 'test' }, resolveHost: async () => [{ address: '127.0.0.1', family: 4 }] });
+    let timer;
+    const outcome = await Promise.race([
+      advisor.fetchImpl(`http://provider.test:${address.port}/v1/chat/completions`, { method: 'POST', body: '{}' }).then(() => 'resolved', () => 'rejected'),
+      new Promise(resolve => { timer = setTimeout(() => resolve('pending'), 3000); }),
+    ]);
+    clearTimeout(timer);
+    assert.equal(outcome, 'rejected', 'a dropped body settles the request (it stayed pending before)');
+
+    // An abort signal also settles a response whose body never ends.
+    const hanging = http.createServer((request, response) => { response.writeHead(200); response.write('{'); });
+    await new Promise(resolve => hanging.listen(0, '127.0.0.1', resolve));
+    try {
+      const hangingPort = hanging.address().port;
+      const hangingProfile = { ...normalizeProviderConfig({ id: 'hang', label: 'Hang', baseUrl: `http://provider.test:${hangingPort}/v1`, model: 'model', allowPrivateEndpoints: true }), apiKey: 'key' };
+      const hangingAdvisor = { fetchImpl: async () => { throw new Error('un-pinned fetch must not be used'); }, configureProvider() {} };
+      createAiProviderManager({ store: { active: () => hangingProfile }, advisor: hangingAdvisor, env: { NODE_ENV: 'test' }, resolveHost: async () => [{ address: '127.0.0.1', family: 4 }] });
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 100);
+      let timer2;
+      const aborted = await Promise.race([
+        hangingAdvisor.fetchImpl(`http://provider.test:${hangingPort}/v1/chat/completions`, { method: 'POST', body: '{}', signal: controller.signal }).then(() => 'resolved', error => (error?.name === 'AbortError' ? 'aborted' : `rejected:${error?.name}`)),
+        new Promise(resolve => { timer2 = setTimeout(() => resolve('pending'), 3000); }),
+      ]);
+      clearTimeout(timer2);
+      assert.equal(aborted, 'aborted', 'the abort signal settles a body that never ends');
+    } finally {
+      hanging.closeAllConnections?.();
+      await new Promise(resolve => hanging.close(resolve));
+    }
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+check('creating a profile with an existing name is refused instead of replacing the live one', () => {
+  const store = createAiProviderStore({});
+  const first = store.upsert({ label: 'DeepSeek', baseUrl: 'https://api.deepseek.test/v1', model: 'model-a', apiKey: 'key-a', protocol: 'chat' });
+  assert.throws(
+    () => store.upsert({ label: 'DeepSeek', baseUrl: 'https://attacker.test/v1', model: 'model-b', apiKey: 'key-b', protocol: 'chat' }),
+    error => error.code === 'PROFILE_EXISTS',
+  );
+  assert.equal(store.get(first.id).baseUrl, 'https://api.deepseek.test/v1', 'the original connection is untouched');
+  assert.equal(store.get(first.id).model, 'model-a');
+  // Editing by id is still the way to change a profile.
+  const edited = store.upsert({ id: first.id, model: 'model-c' });
+  assert.equal(edited.model, 'model-c');
+});
+
 check('inherited object keys are not provider profiles', () => {
   const store = createAiProviderStore({});
   for (const id of ['constructor', 'toString', 'hasOwnProperty']) {
@@ -624,13 +688,15 @@ check('a provider edit that does not touch the connection keeps the health of th
   store.markTest('health', { ok: true, protocol: 'chat', latencyMs: 1 });
   store.activate('health');
   const advisor = new AiAdvisor({ apiKey: '', fetchImpl: async () => ({}) });
-  const manager = createAiProviderManager({ store, advisor, env: { NODE_ENV: 'test' } });
+  const passing = async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"ok":true}' } }] }) });
+  const manager = createAiProviderManager({ store, advisor, env: { NODE_ENV: 'test' }, fetchImpl: passing, requestImpl: passing, resolveHost: async () => [{ address: '8.8.8.8', family: 4 }] });
   advisor.registerFailure('quota');
   assert.equal(advisor.getPublicStatus().state, 'quota-exhausted');
   manager.upsert({ id: 'health', label: 'Renamed' });
   assert.equal(advisor.getPublicStatus().state, 'quota-exhausted', 'a rename does not clear an exhausted quota');
   assert.equal(advisor.getHealth().provider, 'Renamed', 'the new label still reaches the advisor');
-  manager.upsert({ id: 'health', label: 'Renamed', apiKey: 'rotated-key' });
+  // A rotated key on the active profile is a connection change: it is tested first, then applied.
+  assert.equal((await manager.update({ id: 'health', label: 'Renamed', apiKey: 'rotated-key' })).test.ok, true);
   assert.equal(advisor.getPublicStatus().state, 'healthy', 'a rotated key is a new connection and clears the old state');
 });
 

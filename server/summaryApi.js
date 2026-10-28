@@ -1,8 +1,6 @@
-// The client-facing game projection as a prototype mixin: one small
-// projector per top-level section of getGameSummary, each emitting the exact
-// field set, clamps, and viewer-scoped privacy the original single literal
-// produced. server/rooms.test.js and public/clientStateSync.test.js pin the
-// payload shapes.
+// The client-facing game projection as a prototype mixin: one small projector per top-level section of getGameSummary. Each emits the
+// exact field set, clamps and viewer-scoped privacy the original single literal produced. server/rooms.test.js and
+// public/clientStateSync.test.js pin the payload shapes.
 import { AUCTION_DURATION_MS } from './auctionApi.js';
 import { MARKET_FEE_RATE, marketQuoteHistorySnapshot } from './marketLogic.js';
 import { computePlacementById } from './gamePlacement.js';

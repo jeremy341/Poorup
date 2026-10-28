@@ -1,4 +1,4 @@
-// F-003 / A56-02: a leading auction bid is reserved cash. Outflows that would
+// A leading auction bid is reserved cash. Outflows that would
 // dip into it are refused while the auction is open, so the high bid cannot be
 // voided at close ("Auction ended without a valid winner").
 import assert from 'node:assert/strict';
@@ -182,7 +182,7 @@ function testEquityTransferCannotVoidBuyerLeadingBid() {
   assert.equal(seller.cash, 500);
 }
 
-// D8: a seat that owes money cannot bid. The cash behind a bid is the cash the
+// A seat that owes money cannot bid. The cash behind a bid is the cash the
 // debt collects, and a bid the debt eats voids the sale at close.
 function testDebtorCannotBid() {
   const { g, a, b } = freshGame();
@@ -208,8 +208,8 @@ function testDebtorCannotBid() {
   assert.equal(g.auction.highestBid, 500);
 }
 
-// D8: the active event blocks NEW auctions. An auction that is already open
-// keeps its clock and finishes normally (the T13 intent): freezing a live
+// The active event blocks NEW auctions. An auction that is already open
+// keeps its clock and finishes normally, as intended: freezing a live
 // auction would strand the bids that are already on the table.
 function testRunningAuctionSurvivesTheEventPause() {
   const { g, a } = freshGame();
@@ -229,7 +229,7 @@ function testRunningAuctionSurvivesTheEventPause() {
   assert.equal(blocked.error, 'Auctions are paused by the active Bank Run.');
 }
 
-// D8: the leading bid stays reserved from spendable cash while a debt is
+// The leading bid stays reserved from spendable cash while a debt is
 // parked, so a debt rescue cannot eat the money the bid needs.
 function testLeadingBidStaysReservedWhileDebtIsParked() {
   const { g, a } = freshGame();
@@ -262,11 +262,11 @@ for (const [name, fn] of SUITES) {
   try {
     fn();
     passed += 1;
-    console.log(`PASS — ${name}`);
+    console.log(`PASS - ${name}`);
   } catch (error) {
     failed.push(name);
-    console.error(`FAIL — ${name}: ${error && error.message}`);
+    console.error(`FAIL - ${name}: ${error && error.message}`);
   }
 }
-console.log(`auction bid escrow tests: ${SUITES.length} suites — ${passed} passed, ${failed.length} failed`);
+console.log(`auction bid escrow tests: ${SUITES.length} suites, ${passed} passed, ${failed.length} failed`);
 if (failed.length) process.exitCode = 1;

@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,12 +20,36 @@ const AUXILIARY_STORE_FILES = {
   aiProviders: 'ai-providers.json'
 };
 
-// Every configured data or backup location is resolved to an absolute path
-// once, here. A relative value would otherwise be resolved against whatever
-// working directory PM2 starts the process in.
-// Allow-list of store keys and file names for operator tooling such as
-// scripts/restore-backup.mjs. Retired stores are already in the auxiliary set.
-export const KNOWN_STORE_FILE_NAMES = Object.freeze({ ...STORE_FILES, ...AUXILIARY_STORE_FILES });
+// Every configured data or backup location is resolved to an absolute path once, here. A relative value would otherwise resolve
+// against whatever working directory PM2 starts the process in. Allow-list of store keys and file names for operator tooling
+// (scripts/restore-backup.mjs). Retired stores are already in the auxiliary set.
+export const KNOWN_STORE_FILE_NAMES = Object.freeze({ ...STORE_FILES, ...AUXILIARY_STORE_FILES, adminAudit: 'admin-audit.json' });
+
+// Resolve aliases in every existing ancestor, while preserving descendants
+// that have not been created yet. Lexical path checks alone miss junctions and
+// symlinks when the final configured directory does not exist.
+export function resolveCanonicalPath(value) {
+  const absolute = path.resolve(value);
+  let current = absolute;
+  const missing = [];
+  while (true) {
+    try {
+      const resolved = realpathSync.native(current);
+      return path.resolve(resolved, ...missing.reverse());
+    } catch (error) {
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error;
+      try {
+        if (lstatSync(current).isSymbolicLink()) throw new Error(`Cannot resolve symbolic link or junction: ${current}`, { cause: error });
+      } catch (statError) {
+        if (statError?.code !== 'ENOENT' && statError?.code !== 'ENOTDIR') throw statError;
+      }
+      const parent = path.dirname(current);
+      if (parent === current) return absolute;
+      missing.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
 
 export function resolveDataDirectory(env = process.env) {
   const raw = typeof env?.POORUP_DATA_DIR === 'string' ? env.POORUP_DATA_DIR.trim() : '';
@@ -42,8 +66,7 @@ export function resolveStorePaths(env = process.env) {
   return Object.fromEntries(Object.entries(STORE_FILES).map(([key, file]) => [key, root ? path.join(root, file) : undefined]));
 }
 
-// Expansion stores are intentionally a separate opt-in projection so the
-// legacy path contract remains stable for existing deployments and tests.
+// Expansion stores are a separate opt-in projection, so the legacy path contract stays stable for existing deployments and tests.
 export function resolveAuxiliaryStorePaths(env = process.env) {
   const root = resolveDataDirectory(env);
   return Object.fromEntries(Object.entries(AUXILIARY_STORE_FILES).map(([key, file]) => [key, root ? path.join(root, file) : undefined]));
@@ -74,8 +97,8 @@ function requireExternalDirectory(name, rawValue, appRoot) {
   const raw = typeof rawValue === 'string' ? rawValue.trim() : '';
   if (!raw) throw new Error(`${name} is required when NODE_ENV=production; set it to an absolute path outside the application directory.`);
   if (!path.isAbsolute(raw)) throw new Error(`${name} must be an absolute path when NODE_ENV=production.`);
-  const resolved = path.resolve(raw);
-  if (isInsideDirectory(resolved, appRoot)) throw new Error(`${name} must be outside the application directory when NODE_ENV=production; the next release deploy would delete it.`);
+  const resolved = resolveCanonicalPath(raw);
+  if (isInsideDirectory(resolved, resolveCanonicalPath(appRoot))) throw new Error(`${name} must be outside the application directory when NODE_ENV=production; the next release deploy would delete it.`);
   return resolved;
 }
 
@@ -105,10 +128,8 @@ function listKnownStoreFiles(directory) {
   return present;
 }
 
-// Older images kept the stores directly in the parent of today's data
-// directory (/var/lib/poorup). Booting onto an empty data directory while the
-// real stores sit one level up would silently show no accounts, so refuse.
-// Nothing is moved: the operator relocates the files deliberately.
+// Older images kept the stores directly in the parent of today's data directory (/var/lib/poorup). Booting onto an empty data
+// directory while the real stores sit one level up would silently show no accounts, so refuse. Nothing is moved: the operator relocates them.
 function assertNoStrandedLegacyStores(dataDir) {
   const parentDir = path.dirname(dataDir);
   if (parentDir === dataDir) return;

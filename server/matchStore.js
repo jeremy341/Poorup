@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 const DEFAULT_FILE = path.join(__dirname, 'data', 'matches.json');
 const MAX_MATCHES = 500;
 // Telemetry reads the in-memory record at settlement; only a short tail of the
-// bot-decision trace needs to survive on disk (it was ~93% of a bot match record).
+// bot-decision trace needs to survive on disk (it is ~93% of a bot match record).
 export const MAX_PERSISTED_BOT_DECISIONS = 40;
 
 function safeArray(value, limit) {
@@ -259,10 +259,14 @@ export class MatchStore {
     return this.matches.get(matchId) || null;
   }
 
-  // A restorable copy of the store, so a purge that fails in a later store can
-  // put the erased matches back (F4). The records themselves are replaced, not
-  // mutated, by the erasure, so a shallow copy is enough. Matches recorded
-  // while the purge runs are kept, so the rollback never drops a result.
+  listAll() {
+    return [...this.matches.values()]
+      .sort((a, b) => String(b.completedAt ?? '').localeCompare(String(a.completedAt ?? '')))
+      .slice(0, MAX_MATCHES);
+  }
+
+  // A restorable copy of the store, so a purge that fails in a later store can put the erased matches back. The records are replaced,
+  // not mutated, by the erasure, so a shallow copy is enough. Matches recorded while the purge runs are kept, so a rollback never drops a result.
   snapshot() {
     return new Map(this.matches);
   }

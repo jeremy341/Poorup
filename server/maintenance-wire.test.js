@@ -123,16 +123,14 @@ async function run() {
     passed += 1;
 
     // A seated lobby is a waiting room: a reload would drop its players, so the
-    // deploy gate waits for it as well as for started rounds (E37-04).
+    // deploy gate waits for it as well as for started rounds.
     const lobby = await (await fetch(`${base}/readyz`)).json();
     assert.equal(lobby.waitingRooms, 1, 'a lobby with a seated human is a waiting room');
     assert.equal(lobby.activeRounds, 0);
     passed += 1;
 
-    // A drain is not a lockout: it pauses new rooms and rounds, and the
-    // shutdown waits for the seats that are still in a lobby (the waiting-room
-    // count above), so a seat taken during a drain is not dropped on the way
-    // out. Only the lockout refuses a new seat.
+    // A drain is not a lockout: it pauses new rooms and rounds, and shutdown waits for seats still in a lobby (the waiting-room
+    // count above), so a seat taken during a drain is not dropped on the way out. Only the lockout refuses a new seat.
     const directory = await ask(socket, 'list-rooms', undefined);
     const openRoom = directory?.rooms?.[0];
     assert.ok(openRoom?.roomId, 'the waiting lobby must be listed for a joiner');
@@ -256,11 +254,9 @@ async function run() {
   }
 }
 
-// A maintenance file nobody can read must not open the table. The store loader
-// quarantines the bytes and reports the file as corrupt, and the controller
-// then boots closed instead of falling back to the environment default. The
-// closed state must also survive the next restart: the quarantined bytes
-// leave no valid record behind, so a durable closed marker takes their place.
+// A maintenance file nobody can read must not open the table. The store loader quarantines the bytes and reports the file corrupt,
+// so the controller boots closed instead of falling back to the environment default. The closed state must survive the next restart:
+// a durable closed marker takes the place of the quarantined bytes, which leave no valid record behind.
 async function runCorruptBootPhase() {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-maintenance-corrupt-'));
   const corruptPort = 8980 + (process.pid % 20);

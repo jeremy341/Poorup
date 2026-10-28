@@ -1,10 +1,8 @@
-// Advisor-driven decision phases: per-phase choice candidates, the identity
-// snapshots that reject stale AI answers after the async provider call, the
-// room executors for each classified phase, and the candidate runner table
-// pass-through. The room only enters this module as an injected collaborator,
-// never as an import. Every gate is a verbatim move of the original
-// scheduleBotTurn inline chain, so bot balance is unchanged.
+// Advisor-driven decision phases: choice candidates, identity snapshots that reject stale AI
+// answers after the async call, the room executors per phase, and the candidate runner pass-through.
+// The room is injected, never imported. Gates are verbatim moves from scheduleBotTurn, so bot balance is unchanged.
 import { vetoTrade } from './botTradeValuation.js';
+import { DeterministicAdvisor } from './botAdvisor.js';
 import { lenderAcceptsCounter } from './botContractPolicy.js';
 import { addGratitude } from './botTableMind.js';
 import {
@@ -120,7 +118,7 @@ function counterScore(game, bot, trade, accept) {
 
 // Cash added on top of the original ask, smallest first. A counter is a proposal,
 // so it must clear the same bar the bot applies to an offer made to it; a flat
-// +10% on a set-completing deed used to give a counter the bot itself would refuse.
+// +10% on a set-completing deed would give a counter the bot itself would refuse.
 const COUNTER_EXTRA_CASH = [10, 20, 40, 80, 160, 320, 640];
 
 function counterClearsOwnBar(game, bot, counter) {
@@ -369,11 +367,9 @@ function tryNearMissCounter(room, bot, game, trade) {
 function executeTradePhase(room, bot, game) {
   const trade = game.pendingTrade;
   const accept = shouldAcceptTrade(trade, index => game.getTile(index), game);
-  // Near-miss rejections become premium counters instead of flat
-  // declines: hopeless offers still decline, vetoed ones never counter.
-  // A failed counter (stale legs, new obligation) falls back to decline:
-  // counterTrade restores the offer on failure, so returning the failure
-  // would loop on an identical table forever.
+  // Near-miss rejections become premium counters instead of declines; hopeless and vetoed offers
+  // still decline. A failed counter falls back to decline, since counterTrade restores the offer
+  // on failure and returning that failure would loop on an identical table forever.
   if (!accept) {
     const countered = tryNearMissCounter(room, bot, game, trade);
     if (countered) return countered;
@@ -521,7 +517,7 @@ export async function runAdvisorChoicePhase({ room, bot, advisor, decisionContex
   // may counter, cancel, or replace the deal while the AI is thinking; the
   // old choice must never be rebound to the newer offer after the await.
   const snapshot = choiceSnapshot(game, bot, phase);
-  const decision = await advisor.chooseAction({
+  const decision = await chooseActionSafely(advisor, {
     ...decisionContext,
     candidates,
     event: game.globalEvent
@@ -612,10 +608,9 @@ function advisorFallbackCandidate(phase, bot) {
 // fallback, never by ending the turn on a refused build.
 const NON_ADVANCING_KINDS = new Set(['chat', 'end-turn', 'end-finance-window', 'bankruptcy', 'roll']);
 
-// A refused deal, market order or bet is never swapped for a different one: the
-// next entry in static-score order was never ranked by the planner against standing
-// still, and the walk used to buy index units the planner rated negative or send an
-// unrelated loan offer. Only the cash-raising kinds may stand in for each other.
+// A refused deal, market order or bet is never swapped for another. The next entry in static-score
+// order was never ranked against standing still, so the walk could buy units the planner rated
+// negative or send an unrelated loan offer. Only cash-raising kinds may stand in for each other.
 const NO_RETRY_KINDS = new Set(['trade', 'contract-propose', 'market', 'open-margin', 'reduce-margin', 'open-short', 'cover-short', 'settle-short-default', 'open-option', 'exercise-option', 'close-position', 'casino']);
 const LIQUIDATION_KINDS = new Set(['sell', 'mortgage']);
 
@@ -697,6 +692,20 @@ function runMandatoryObligation({ room, bot, phase, decisionContext, candidates 
   return attachBotDecision(result, trace, null);
 }
 
+// An advisor that throws (an adapter bug, a bad planner state) must not freeze the table: the state does not
+// change, so the same bot would be picked again every tick and throw again. Fall back to the deterministic
+// house choice for this one decision instead.
+export async function chooseActionSafely(advisor, context) {
+  try {
+    return await advisor.chooseAction(context);
+  } catch (error) {
+    // A deliberate stale-decision abort is control flow, not an advisor failure.
+    if (error?.stale === true) throw error;
+    console.error('Bot advisor failed; using the deterministic choice for this decision.', error?.message || error);
+    return new DeterministicAdvisor().chooseAction({ ...context, fallbackReason: 'advisor-error' });
+  }
+}
+
 export async function runAdvisorTurn({ room, bot, advisor, decisionContext = {}, phase = 'pre-roll' }) {
   const game = room.game;
   const candidates = game.getBotCandidates(bot, { expanded: true, parity: true, postRoll: phase === 'post-roll' });
@@ -706,7 +715,7 @@ export async function runAdvisorTurn({ room, bot, advisor, decisionContext = {},
   // contract, payment, or auction arriving mid-thought must not be acted
   // on with a stale pre-roll candidate list (mirrors the choice phases).
   const snapshot = advisorTableSnapshot(game);
-  const decision = await advisor.chooseAction({
+  const decision = await chooseActionSafely(advisor, {
     ...decisionContext,
     candidates,
     event: game.globalEvent

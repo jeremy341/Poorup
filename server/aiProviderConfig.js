@@ -17,8 +17,8 @@ const DEFAULT_DECISION_BUDGET = 240;
 const MAX_PROVIDER_RESPONSE_BYTES = 1_048_576;
 const PRIVATE_HOSTS = new Set(['localhost', 'metadata.google.internal']);
 export const DEFAULT_PROVIDER_ENDPOINT = 'https://api.deepseek.com/chat/completions';
-// The private-endpoint opt-in has one name, POORUP_AI_ALLOW_PRIVATE (F-025).
-// The former name still counts, and logs one deprecation warning.
+// The private-endpoint opt-in has one name, POORUP_AI_ALLOW_PRIVATE.
+// The legacy name still counts, and logs one deprecation warning.
 const LEGACY_ALLOW_PRIVATE_ENV = 'POORUP_AI_ALLOW_PRIVATE_ENDPOINTS';
 let legacyAllowPrivateWarned = false;
 
@@ -166,6 +166,18 @@ function pinnedProviderRequest(input, options = {}, destination) {
       return;
     }
     request.on('error', reject);
+    // The request's own abort handling stops reporting once the response has started, so the promise
+    // would stay pending on a body that never ends. Settle it from the signal as well.
+    const signal = options.signal;
+    if (signal) {
+      const rejectAborted = () => {
+        const error = signal.reason instanceof Error ? signal.reason : Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' });
+        reject(error);
+        try { request.destroy(error); } catch { /* already closed */ }
+      };
+      if (signal.aborted) rejectAborted();
+      else signal.addEventListener('abort', rejectAborted, { once: true });
+    }
     if (options.body !== undefined && options.body !== null) request.write(options.body);
     request.end();
   });
@@ -205,16 +217,22 @@ function consumeProviderResponse(response, resolve, reject, destroy) {
   }
   const chunks = [];
   let receivedBytes = 0;
+  let ended = false;
+  // Destroying the request is not enough once the response has started: reject the promise as well, so a
+  // dropped or oversized body can never leave the caller pending.
+  const fail = error => { destroy(error); reject(error); };
   response.on('data', chunk => {
     receivedBytes += chunk.length;
     if (receivedBytes > MAX_PROVIDER_RESPONSE_BYTES) {
-      destroy(new Error('Provider response exceeded the size limit.'));
+      fail(new Error('Provider response exceeded the size limit.'));
       return;
     }
     chunks.push(chunk);
   });
-  response.on('aborted', () => destroy(new Error('Provider response ended prematurely.')));
-  response.on('end', () => finishProviderResponse(response, chunks, resolve, reject));
+  response.on('aborted', () => fail(new Error('Provider response ended prematurely.')));
+  response.on('error', fail);
+  response.on('close', () => { if (!ended) fail(new Error('Provider response ended prematurely.')); });
+  response.on('end', () => { ended = true; finishProviderResponse(response, chunks, resolve, reject); });
 }
 
 function finishProviderResponse(response, chunks, resolve, reject) {
@@ -373,8 +391,8 @@ function safeTestResult(value) {
 }
 
 // The connection a probe described: the endpoint, the model, the protocol and
-// the key. A probe that finished after any of them changed no longer speaks
-// for the profile it is about to mark as tested (W27/X3a).
+// the key. A probe that finished after any of them changed, it does not speak
+// for the profile it is about to mark as tested.
 function connectionFingerprint(record) {
   if (!record || typeof record !== 'object') return null;
   return JSON.stringify([record.baseUrl || '', record.model || '', record.protocol || '', record.keyCipher || record.apiKey || '']);
@@ -452,19 +470,42 @@ export function createAiProviderStore({ filePath = '', masterKey = '', productio
   }
 
   function upsert(input = {}) {
+    return prepareUpsert(input).commit();
+  }
+
+  // Validates an edit and builds the record it would store, without storing anything. `config` is the candidate
+  // exactly as the advisor would run it (with its key), so a caller can probe it first; `commit(testResult)` then
+  // stores it, optionally with that probe's passing result so the profile stays activatable.
+  function prepareUpsert(input = {}) {
     const existing = input.id ? stored(input.id) : null;
     const normalized = normalizeProviderConfig({ ...existing, ...input }, { production, allowPrivateEndpoints });
+    // Creating a profile (no id given) never replaces one that has the same name: a matching label derives
+    // the same id, and the overwrite would swap the live connection and key without a test.
+    if (!input.id && stored(normalized.id)) {
+      throw new ProviderConfigError('A provider profile with that name already exists. Edit it, or choose another name.', 'PROFILE_EXISTS');
+    }
     const { apiKey, rotated } = resolveUpsertApiKey(input, existing, normalized);
-    // A rotated key is a new connection: the earlier test no longer describes it (F-026).
+    // A rotated key is a new connection: the earlier test does not describe it.
     const changed = rotated || profileConnectionChanged(existing, normalized);
     const record = buildProfileRecord(existing, normalized, apiKey, changed);
-    const previous = data.profiles[normalized.id];
-    data.profiles[normalized.id] = record;
-    persistOrRollback(() => {
-      if (previous) data.profiles[normalized.id] = previous;
-      else delete data.profiles[normalized.id];
-    });
-    return redactProviderConfig(record);
+    const existingUpdatedAt = existing?.updatedAt;
+    const commit = (testResult = null) => {
+      // Something else edited this profile while a candidate was being probed: the probe does not describe it.
+      if (stored(normalized.id) !== (existing || undefined) || stored(normalized.id)?.updatedAt !== existingUpdatedAt) throw new ProviderConfigError('The profile changed while the edit was being checked; try again.', 'PROFILE_CHANGED');
+      if (testResult?.ok === true) {
+        const safe = safeTestResult({ ...testResult, testedAt: testResult.testedAt || new Date().toISOString() });
+        record.lastTest = safe;
+        record.detectedProtocol = safe.protocol;
+      }
+      const previous = data.profiles[normalized.id];
+      data.profiles[normalized.id] = record;
+      persistOrRollback(() => {
+        if (previous) data.profiles[normalized.id] = previous;
+        else delete data.profiles[normalized.id];
+      });
+      return redactProviderConfig(record);
+    };
+    return { id: normalized.id, changed, config: { ...record, apiKey }, commit };
   }
 
   function resolveUpsertApiKey(input, existing, normalized) {
@@ -527,10 +568,9 @@ export function createAiProviderStore({ filePath = '', masterKey = '', productio
   function markTest(id, result, options = {}) {
     const record = stored(id);
     if (!record) throw new ProviderConfigError('Provider profile not found.', 'PROFILE_NOT_FOUND');
-    // A probe that finished after the profile was edited describes an older
-    // connection: it must not mark the edited profile as tested (W27/X3a).
-    // The caller is told the write was skipped, so it can say so instead of
-    // reporting a probe that was never stored as a success.
+    // A probe that finished after the profile was edited describes an older connection, so it must
+    // not mark the edited profile as tested. The caller is told the write was skipped and can say so,
+    // rather than reporting a probe that was never stored as a success.
     if (!markTestMatches(record, options)) return { ...redactProviderConfig(record), stale: true };
     const safe = safeTestResult({ ...result, testedAt: result?.testedAt || new Date().toISOString() });
     const previous = { lastTest: record.lastTest, detectedProtocol: record.detectedProtocol, updatedAt: record.updatedAt };
@@ -566,6 +606,7 @@ export function createAiProviderStore({ filePath = '', masterKey = '', productio
     get: id => internal(id),
     list,
     markTest,
+    prepareUpsert,
     remove,
     snapshot: () => ({ version: data.version, activeId: data.activeId, profiles: list(), persistent: durable, encrypted: durable && Boolean(cipherKey) }),
     upsert,
@@ -743,7 +784,7 @@ function envProfile(env = process.env, production = false) {
 }
 
 // The environment provider exactly as the manager would apply it, or null when
-// it does not validate. The advisor is seeded only from this (F-025).
+// it does not validate. The advisor is seeded only from this.
 export function environmentProviderProfile(env = process.env) {
   return envProfile(env, String(env?.NODE_ENV || '').trim().toLowerCase() === 'production');
 }
@@ -785,18 +826,23 @@ export function createAiProviderManager({ store, advisor, env = process.env, fet
     if (environmentProfile) apply(environmentProfile);
   }
 
-  async function test(id) {
-    const config = store?.get?.(id);
-    if (!config) throw new ProviderConfigError('Provider profile not found.', 'PROFILE_NOT_FOUND');
-    // The profile the probe is about: if it is edited or replaced while the
-    // probe is in flight, the answer no longer describes it (W27/X3a).
-    const expectedUpdatedAt = config.updatedAt || null;
-    const expectedFingerprint = connectionFingerprint(config);
-    const result = await probeProvider(config, fetchImpl, () => Date.now(), {
+  // The one connection test. The test route and the edit of the active provider both go through it.
+  function runProbe(config) {
+    return probeProvider(config, fetchImpl, () => Date.now(), {
       resolveHost,
       allowPrivateEndpoints: !production && config.allowPrivateEndpoints === true,
       requestImpl,
     });
+  }
+
+  async function test(id) {
+    const config = store?.get?.(id);
+    if (!config) throw new ProviderConfigError('Provider profile not found.', 'PROFILE_NOT_FOUND');
+    // The profile the probe is about: if it is edited or replaced while the
+    // probe is in flight, the answer does not describe it.
+    const expectedUpdatedAt = config.updatedAt || null;
+    const expectedFingerprint = connectionFingerprint(config);
+    const result = await runProbe(config);
     const marked = store.markTest(id, result, { expectedUpdatedAt, expectedFingerprint });
     if (marked?.stale === true) return { ok: false, stale: true, protocol: null, reason: 'stale', latencyMs: result.latencyMs, testedAt: result.testedAt };
     return result;
@@ -810,12 +856,33 @@ export function createAiProviderManager({ store, advisor, env = process.env, fet
     return result;
   }
 
-  // Editing the active profile (rotated key, new endpoint) reaches the advisor
-  // now, not at the next activation or restart: the old key stops being used (F-026).
+  // Editing the active profile (rotated key, new endpoint) reaches the advisor, so the old key stops.
+  // A change to the live connection (key, endpoint, model, protocol) is never applied here: it must pass
+  // a connection test first, which only update() can run.
   function upsert(input) {
-    const saved = store.upsert(input);
-    if (saved?.id && store.activePublic?.()?.id === saved.id) apply(store.active());
+    const staged = store.prepareUpsert(input);
+    if (staged.changed && isActiveProfile(staged.id)) {
+      throw new ProviderConfigError('Changing the active provider connection needs a passing connection test first.', 'TEST_REQUIRED');
+    }
+    return finishUpsert(staged.commit());
+  }
+
+  function isActiveProfile(id) { return Boolean(id) && store.activePublic?.()?.id === id; }
+
+  function finishUpsert(saved) {
+    if (saved?.id && isActiveProfile(saved.id)) apply(store.active());
     return saved;
+  }
+
+  // Edits a profile. When the profile is active and its connection changes, the candidate is probed with the same
+  // test the test route runs, before anything is stored or applied. A failing candidate is dropped: the previous
+  // config stays stored and running. Resolves { profile, test? } or { rejected: true, test, active }.
+  async function update(input = {}) {
+    const staged = store.prepareUpsert(input);
+    if (!(staged.changed && isActiveProfile(staged.id))) return { profile: finishUpsert(staged.commit()) };
+    const result = await runProbe(staged.config);
+    if (result.ok !== true) return { rejected: true, test: result, active: activePublicStatus() };
+    return { profile: finishUpsert(staged.commit(result)), test: result };
   }
   function remove(id) { return store.remove(id); }
   function list() {
@@ -844,6 +911,7 @@ export function createAiProviderManager({ store, advisor, env = process.env, fet
       storage: store?.snapshot?.() || null,
     }),
     test,
+    update,
     upsert,
   });
 }

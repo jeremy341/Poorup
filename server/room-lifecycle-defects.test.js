@@ -1,4 +1,4 @@
-// Regression suite for the room lifecycle audit round (s02 F1/F2/F4/F6, s01 S01-03).
+// Regression checks for room lifecycle defects.
 // Drives RoomManager / Room directly, the same objects the socket handlers call.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
@@ -15,7 +15,7 @@ function setupStarted(humans = 3) {
   return { manager, room, game: room.game };
 }
 
-// F1: a parked debt whose creditor leaves must still resolve the debtor's roll,
+// A parked debt whose creditor leaves must still resolve the debtor's roll,
 // otherwise the debtor can neither roll again nor end the turn.
 {
   const { manager, game } = setupStarted(3);
@@ -36,7 +36,7 @@ function setupStarted(humans = 3) {
   assert.equal(game.endTurn('s0').success, true, 'the debtor can end the turn');
 }
 
-// F1 control: a debtor who has not rolled (an off-turn debt) is not marked as having landed.
+// control: a debtor who has not rolled (an off-turn debt) is not marked as having landed.
 {
   const { manager, game } = setupStarted(3);
   const [current, creditor, debtor] = game.players;
@@ -51,7 +51,7 @@ function setupStarted(humans = 3) {
   assert.equal(game.hasRolled, false);
 }
 
-// F2: the current seat leaves while it has rolled and only one other seat is
+// The current seat leaves while it has rolled and only one other seat is
 // connected (the third is in reconnect grace). The inheriting seat must get a
 // fresh turn, not the leaver's roll state.
 {
@@ -73,7 +73,7 @@ function setupStarted(humans = 3) {
   assert.equal(game.rollDice('s1').success, true, 'the inheriting seat can roll');
 }
 
-// F4: a vote-kick block in one room must not stop account-seat recovery in another.
+// A vote-kick block in one room must not stop account-seat recovery in another.
 {
   const manager = new RoomManager();
   const roomA = manager.createRoom({ socketId: 'a-host', clientId: 'a-host-c', nickname: 'HostA' });
@@ -99,7 +99,7 @@ function setupStarted(humans = 3) {
   assert.equal(roomA.addOrReconnectPlayer({ socketId: 'a-v-2', clientId: 'a-v-c-2', nickname: 'Victim', accountId: 'acct-V' }).success, false);
 }
 
-// F6: a lobby seat in disconnect grace still holds capacity, so the directory must
+// A lobby seat in disconnect grace still holds capacity, so the directory must
 // not advertise it as an open seat.
 {
   const manager = new RoomManager();
@@ -116,7 +116,7 @@ function setupStarted(humans = 3) {
   assert.equal(room.addOrReconnectPlayer({ socketId: 'n', clientId: 'nc', nickname: 'Newcomer' }).success, false, 'and the room really is full');
 }
 
-// F6 control: once a match is live the listing still counts connected seats only.
+// control: once a match is live the listing still counts connected seats only.
 {
   const { room, game } = setupStarted(3);
   const away = game.players[2];
@@ -126,7 +126,7 @@ function setupStarted(humans = 3) {
   assert.equal(room.getDirectorySummary().seats, 2, 'a live match lists connected seats');
 }
 
-// S01-03: eliminated seats are revived for the rematch, so the post-game lobby
+// Eliminated seats are revived for the rematch, so the post-game lobby
 // must count them against capacity.
 {
   const manager = new RoomManager();
@@ -148,7 +148,7 @@ function setupStarted(humans = 3) {
   assert.equal(room.game.turnOrder.length, capacity, 'the rematch never exceeds maxPlayers');
 }
 
-// D9: the estate cash settles the creditor's own parked debt. The creditor was
+// The estate cash settles the creditor's own parked debt. The creditor was
 // gated on a debt it could not cover; the incoming estate cash may cover it
 // now, and the table must not stay blocked behind a settled seat.
 {

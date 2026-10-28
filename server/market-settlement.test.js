@@ -45,7 +45,7 @@ assert.equal(result.success, true);
 assert.deepEqual(player.marginPositions, {});
 // The forced liquidation closes the position, so the margin balance cannot
 // survive it. The $22 the sale and the collateral could not cover stays owed
-// to the house as an explicit obligation (E3).
+// to the house as an explicit obligation.
 assert.equal(player.marginBalance, 0);
 assert.deepEqual(player.shortPositions, {});
 assert.equal(player.reservedCash, 0);

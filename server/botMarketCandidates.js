@@ -1,15 +1,8 @@
-// Candidate generation for the staged-complexity market orders (margin, short,
-// options) and the short buy-in debt. The engine's own advert list
-// (marketExpansion.expansionCandidates) is a menu of what is legal in principle;
-// this layer decides what a bot should actually offer the planner and the AI:
-//   - an order the server will refuse right now (debt freeze, quota, pending
-//     obligation, loan-backed cash, empty borrow pool, unaffordable) is not offered;
-//   - a margin long or short is offered only on the instrument whose expected value
-//     after fees, borrow fee and risk reserve clearly beats the hurdle, so no
-//     position is opened for the fee schedule's loss;
-//   - a held short is always covered with the quantity the seat can fund, and a
-//     margin loan is repaid in full when cash allows;
-//   - forced buy-in debt gets a settle path, which no bot had before.
+// Candidate generation for staged-complexity market orders (margin, short, options) and short buy-in debt.
+// The engine's advert list (marketExpansion.expansionCandidates) is what is legal in principle; this layer decides what a bot offers:
+//   - no order the server would refuse right now (debt freeze, quota, pending obligation, loan-backed cash, empty borrow pool);
+//   - a margin long or short only where expected value after fees, borrow fee and reserve clears the hurdle;
+//   - a held short covered with what the seat can fund, a margin loan repaid in full when cash allows, and forced buy-in debt settled.
 import { MARKET_FEE_RATE } from './marketLogic.js';
 import {
   MARGIN_COLLATERAL_RATE,

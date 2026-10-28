@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assertProductionStoragePaths, resolveAuxiliaryStorePaths, resolveBackupDirectory, resolveDataDirectory, resolveRetiredStorePaths, resolveStorePaths } from './serverStorePaths.js';
+import { assertProductionStoragePaths, KNOWN_STORE_FILE_NAMES, resolveAuxiliaryStorePaths, resolveBackupDirectory, resolveDataDirectory, resolveRetiredStorePaths, resolveStorePaths } from './serverStorePaths.js';
 
 const root = path.resolve('tmp', 'poorup-wire-data');
 const paths = resolveStorePaths({ POORUP_DATA_DIR: `  ${root}  ` });
@@ -73,14 +73,42 @@ assert.throws(() => assertProductionStoragePaths({ ...production, POORUP_BACKUP_
 // A sibling directory that merely shares the application prefix is outside.
 assert.equal(assertProductionStoragePaths({ ...production, POORUP_DATA_DIR: `${appRoot}-data` }, { appRoot }).enforced, true);
 
-// S12-M3: the backup set must not overlap the live data directory, or the
+// Resolve aliases through existing symlink ancestors even when the configured
+// path itself does not exist. Production must reject aliases back into the app
+// root and detect data/backup overlap through those aliases.
+{
+  const aliasScratch = mkdtempSync(path.join(os.tmpdir(), 'poorup-storage-alias-'));
+  try {
+    const aliasApp = path.join(aliasScratch, 'application');
+    const external = path.join(aliasScratch, 'external');
+    const appAlias = path.join(aliasScratch, 'app-link');
+    const externalAlias = path.join(aliasScratch, 'external-link');
+    mkdirSync(path.join(aliasApp, 'server'), { recursive: true });
+    mkdirSync(external, { recursive: true });
+    symlinkSync(aliasApp, appAlias, 'junction');
+    symlinkSync(external, externalAlias, 'junction');
+    const brokenAlias = path.join(aliasScratch, 'broken-link');
+    symlinkSync(path.join(aliasScratch, 'missing-target'), brokenAlias, 'junction');
+    assert.throws(() => assertProductionStoragePaths({ NODE_ENV: 'production', POORUP_DATA_DIR: path.join(brokenAlias, 'child'), POORUP_BACKUP_DIR: path.join(external, 'backups') }, { appRoot: aliasApp }), /symbolic link|junction/i, 'dangling link ancestors fail closed');
+    const aliasProduction = { NODE_ENV: 'production', POORUP_DATA_DIR: path.join(external, 'data'), POORUP_BACKUP_DIR: path.join(external, 'backups') };
+    assert.throws(() => assertProductionStoragePaths({ ...aliasProduction, POORUP_DATA_DIR: path.join(appAlias, 'server', 'not-created') }, { appRoot: aliasApp }), /outside the application directory/, 'a missing descendant under an app-root junction is rejected');
+    assert.throws(() => assertProductionStoragePaths({ ...aliasProduction, POORUP_BACKUP_DIR: path.join(appAlias, 'server', 'not-created-backups') }, { appRoot: aliasApp }), /outside the application directory/, 'a missing backup descendant under an app-root junction is rejected');
+    assert.throws(() => assertProductionStoragePaths({ ...aliasProduction, POORUP_BACKUP_DIR: path.join(externalAlias, 'data', 'nested') }, { appRoot: aliasApp }), /must not overlap/, 'overlap through a backup-directory junction is rejected');
+    assert.throws(() => assertProductionStoragePaths({ ...aliasProduction, POORUP_DATA_DIR: path.join(externalAlias, 'backups', 'not-created') }, { appRoot: aliasApp }), /must not overlap/, 'overlap through a data-directory junction is rejected');
+  } finally {
+    rmSync(aliasScratch, { recursive: true, force: true });
+  }
+}
+assert.equal(KNOWN_STORE_FILE_NAMES.adminAudit, 'admin-audit.json', 'operator audit backups can be selected by restore tooling');
+
+// The backup set must not overlap the live data directory, or the
 // retention job treats live store files as aged backups.
 assert.throws(() => assertProductionStoragePaths({ ...production, POORUP_BACKUP_DIR: externalData }, { appRoot }), /must not overlap/);
 assert.throws(() => assertProductionStoragePaths({ ...production, POORUP_BACKUP_DIR: path.join(externalData, 'backups') }, { appRoot }), /must not overlap/);
 assert.throws(() => assertProductionStoragePaths({ ...production, POORUP_DATA_DIR: path.join(externalBackups, 'data') }, { appRoot }), /must not overlap/);
 assert.equal(assertProductionStoragePaths({ ...production, POORUP_BACKUP_DIR: `${externalData}-backups` }, { appRoot }).enforced, true, 'a sibling that shares the prefix does not overlap');
 
-// S1: the image's baked-in defaults must satisfy the same overlap guard as
+// The image's baked-in defaults must satisfy the same overlap guard as
 // runtime configuration, or every container boots into the refusal below.
 const dockerfile = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'Dockerfile'), 'utf8');
 const dockerEnv = (name) => {
@@ -103,8 +131,8 @@ assert.deepEqual(
   'Docker default storage paths must pass the production validator'
 );
 
-// The image used to keep stores directly in /var/lib/poorup. An operator who
-// still has that layout must not silently boot onto an empty nested data dir.
+// An operator whose stores sit directly in /var/lib/poorup (the older image
+// layout) must not silently boot onto an empty nested data dir.
 const legacyScratch = mkdtempSync(path.join(os.tmpdir(), 'poorup-legacy-layout-'));
 try {
   const legacyParent = path.join(legacyScratch, 'poorup');

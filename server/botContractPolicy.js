@@ -1,13 +1,7 @@
 import { playerFinanceEnabled } from './financeRules.js';
-// Contract terms a bot will sign (as borrower or equity seller) or lend on (as
-// lender). One module, so the borrower gate (botLogic.js), the lender counter
-// gate and AI candidate list (advisorLogic.js), the counter builder
-// (botCandidates.js) and the proposal templates (botApi.js) all read the same
-// numbers instead of drifting apart.
-//
-// These gates keep lending bounded and protect the bot's construction plans.
-// Accepted legacy debts still repay normally; new agreements require the
-// Advanced finance module, current rule metadata, and supported terms.
+// Contract terms a bot will sign (as borrower or equity seller) or lend on (as lender). One module keeps the
+// borrower gate, lender gate, AI candidate list, counter builder and proposal templates reading the same numbers.
+// Gates keep lending bounded and protect construction plans. Accepted legacy debts still repay normally; new agreements need the Advanced finance module, current rule metadata and supported terms.
 import { deedValue, ownedInGroup, MONOPOLY_PREMIUM_NUM, MONOPOLY_PREMIUM_DEN } from './botTradeValuation.js';
 
 // A borrower must be able to clear what it owes from the cash it holds.
@@ -31,13 +25,9 @@ export function contractReserve(game) {
   return Math.max(180, Number(game?.settings?.startingCash || 1500) * 0.2);
 }
 
-// The table obligations the engine refuses to work around: an open auction, a
-// purchase offer, a sponsored purchase, or another trade (contractLogic.js
-// TABLE_OBLIGATION_FIELDS, minus the contract that is being answered). A
-// pending payment is NOT one of them: the engine settles a parked debt with
-// the money and keeps debt-rescue deals legal (tradeApi.js). One predicate,
-// shared by the proposal collectors (botApi.js) and the counter builders
-// (botCandidates.js), so a bot never offers a deal the server will refuse.
+// The table obligations the engine refuses to work around: an open auction, purchase offer, sponsored purchase or
+// another trade (contractLogic.js TABLE_OBLIGATION_FIELDS, minus the contract being answered). A pending payment is not one of them:
+// the engine settles a parked debt with the money. One predicate shared by the proposal and counter builders, so a bot never offers a refused deal.
 export const TABLE_OBLIGATION_FIELDS = Object.freeze([
   'auction', 'pendingPurchaseOffer', 'pendingSponsoredPurchase', 'pendingTrade'
 ]);
@@ -138,7 +128,7 @@ function loanTermsAcceptable(offer, bot, { lender, game }) {
 }
 
 // New rent shares are finite, passive rights to rent. The owner can build
-// throughout the term; a completed set alone no longer makes the right unsafe.
+// throughout the term; a completed set alone does not make the right unsafe.
 export function equityTermsAcceptable(game, offer, bot) {
   if (!seatCanReceive(bot)) return false;
   if (offer.permanent === true || offer.equityControl !== 'passive') return false;
@@ -148,10 +138,8 @@ export function equityTermsAcceptable(game, offer, bot) {
   return amountOf(offer.amount) >= equityMinimumPrice(game, offer, tile);
 }
 
-// The bot is the recipient of `offer` (borrower, or the owner selling equity).
-// Equity-transfer offers ask a bot to BUY an existing slice, which no bot code
-// prices (the coverage table lists it as a human-only action), and unknown kinds
-// are likewise declined.
+// The bot is the recipient of `offer` (borrower, or the owner selling equity). Equity-transfer offers ask a bot to buy an
+// existing slice, which no bot code prices (the coverage table lists it as human-only), and unknown kinds are declined.
 export function borrowerAcceptsContract(offer, bot, { lender = null, game = null } = {}) {
   if (game && (!playerFinanceEnabled(game) || offer?.rulesVersion !== 2)) return false;
   switch (offer?.kind) {

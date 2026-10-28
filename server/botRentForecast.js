@@ -1,19 +1,15 @@
 import { PROPERTY_RENT_MULTIPLIERS, RAILROAD_RENT, UTILITY_DICE_MULTIPLIERS } from './gameData.js';
 
-// The "premium districts" every premium mechanism keys on. Hoisted above the
-// rule table because the two paths used to disagree on membership: the boom
-// hardcoded Dark Blue while premiumEventFactors also listed Metro Silver, and
-// since the boom suppresses the generic path it dropped Metro Silver's surge
-// entirely. Metro Gold is in neither list — a design question, not a bug.
+// The "premium districts" every premium mechanism keys on. Hoisted above the rule table so both paths agree on membership:
+// the boom hardcoded Dark Blue while premiumEventFactors listed Metro Silver, and the boom suppresses the generic path,
+// so Metro Silver's surge was dropped entirely. Metro Gold is in neither list: a design question, not a bug.
 const PREMIUM_GROUPS = ['Dark Blue', 'Metro Silver'];
 
 const DIRECT_EVENT_RULES = [
   { id: 'housing-bubble', factor: 0.65, matches: ({ tile }) => tile.type === 'property' },
   { id: 'airport-strike', factor: 0, matches: ({ tile }) => tile.type === 'railroad' },
-  // Deliberately NOT read via factorKey: rent.test.js pins
-  // 'tourism-skips-premium-multiplier' at 45 with premiumRentMultiplier: 2, so
-  // the boom must ignore the effect payload and use its own 1.3. The premium
-  // groups still come from PREMIUM_GROUPS so membership cannot drift.
+  // Not read via factorKey: rent.test.js pins 'tourism-skips-premium-multiplier' at 45 with premiumRentMultiplier 2,
+  // so the boom ignores the effect payload and uses its own 1.3. Premium groups still come from PREMIUM_GROUPS.
   { id: 'tourism-boom', factor: 1.3, matches: ({ tile }) => PREMIUM_GROUPS.includes(tile.group) },
   // factorKey reads the declared event effect so tuning the effect (e.g.
   // globalEventData anti-monopoly leaderRentMultiplier) reaches live rent
@@ -198,10 +194,9 @@ export function rentFactsFromGame(game, tile, diceTotal) {
   });
 }
 
-// One pass over the board answers every ownership question a rent lookup asks:
-// the tile's group (size and how much of it the owner holds) and the owner's
-// unmortgaged railroads and utilities. The planner calls this millions of times
-// per expert match, so it must not filter the board once per question.
+// One pass over the board answers every ownership question a rent lookup asks: the tile's group (size and how much
+// the owner holds) and the owner's unmortgaged railroads and utilities. The planner calls this millions of times per
+// expert match, so it must not filter the board once per question.
 function snapshotBoardCounts(board, group, ownerSeat) {
   const countsOwnedAssets = ownerSeat !== 'bank';
   let groupSize = 0;

@@ -1,7 +1,6 @@
-// Regression pins for the trade rework (docs/BOT-ENGINE-AUDIT-2026-10.md findings 4, 5, 6, 9):
-// group trades that finish sets, the corrected cash sign, a monopoly veto that nets what
-// comes back and no longer reads the buyer's wallet, rich trades behind the same veto,
-// set-safe counters, and a per-offer cool-off with no value-neutral swaps.
+// Regression pins for the trade rework: group trades that finish sets, the corrected cash sign,
+// a monopoly veto that nets what comes back (without reading the buyer's wallet), rich trades behind the
+// same veto, set-safe counters, and a per-offer cool-off with no value-neutral swaps.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { shouldAcceptTrade, recordDeclinedProposal } from './botLogic.js';
@@ -51,7 +50,7 @@ const asProposal = (bot, human, offer) => ({
   requestCash: offer.requestCash,
 });
 
-// --- (a) group trades -----------------------------------------------------------
+// (a) group trades
 
 check('a bot one deed short of a set offers for the missing deed, in cash or with another group\'s deed', () => {
   const { bot, human, own, tradesOf } = fixture();
@@ -103,7 +102,7 @@ check('an unaffordable completer is not offered: the bot keeps its reserve', () 
   assert.equal(tradesOf().length, 0, 'one dollar less would dip under the reserve');
 });
 
-// --- (b) rich trades ------------------------------------------------------------
+// (b) rich trades
 
 check('rich and group offers never finish a set for either seat below the monopoly premium', () => {
   let seen = 0;
@@ -130,7 +129,7 @@ check('rich and group offers never finish a set for either seat below the monopo
   assert.ok(seen > 0 && richSeen > 0, 'the fixtures exercise both collectors');
 });
 
-// --- (c) the veto -----------------------------------------------------------------
+// (c) the veto
 
 check('the veto nets the deeds the receiver hands back and ignores the receiver\'s cash', () => {
   const { game, bot, human, own } = fixture();
@@ -143,7 +142,7 @@ check('the veto nets the deeds the receiver hands back and ignores the receiver\
   assert.equal(vetoTrade(game, bare, bot.id).vetoed, true, 'a $99 buyer can no longer take a set: 100 is under the 114 premium');
   assert.equal(shouldAcceptTrade(bare, index => game.getTile(index), game), false);
   assert.equal(vetoTrade(game, { ...bare, giveCash: 114 }, bot.id).vetoed, false, 'the premium lifts the veto');
-  // The bot now checks the proposer can pay what it offers, so the $114 buyer must hold $114.
+  // The bot checks the proposer can pay what it offers, so the $114 buyer must hold $114.
   human.cash = 114;
   assert.equal(shouldAcceptTrade({ ...bare, giveCash: 114 }, index => game.getTile(index), game), true);
   const swap = { ...bare, giveCash: 0, givePropertyIndexes: [1], requestPropertyIndexes: [3] };
@@ -151,7 +150,7 @@ check('the veto nets the deeds the receiver hands back and ignores the receiver\
   assert.equal(monopolyRequirement(game, [3], [], human.id).needCash, 114);
 });
 
-// --- (d) counters -----------------------------------------------------------------
+// (d) counters
 
 function pendingToBot(game, bot, human, terms) {
   game.pendingTrade = {
@@ -234,7 +233,7 @@ check('a proposed trade clears the partner\'s own acceptance bar', () => {
   }
 });
 
-// --- (e) churn ----------------------------------------------------------------------
+// (e) churn
 
 check('a declined offer is cooled off for several rounds without blocking other deals', () => {
   const { game, bot, human, own, tradesOf } = fixture();

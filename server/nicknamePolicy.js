@@ -1,8 +1,6 @@
-// Player-visible text policy shared by room nicknames, account display names,
-// chat, and notification copy, so every surface strips the same hidden
-// characters and counts length the same way. Nicknames also become engine feed
-// lines ("<name> wins ..."), so they keep to a plain character set, and the
-// bot seat names and system labels are reserved so a human cannot wear them.
+// Player-visible text policy shared by room nicknames, account display names, chat and notification copy, so every surface strips
+// the same hidden characters and counts length the same way. Nicknames become engine feed lines ("<name> wins ..."), so they keep to
+// a plain character set, and bot seat names and system labels are reserved so a human cannot wear them.
 
 // Seat names the server gives bots (rooms.js ensureBots). Reserved for humans
 // too, so a player cannot make a chat or feed line look like a bot's.

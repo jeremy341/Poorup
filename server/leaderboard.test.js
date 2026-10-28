@@ -1,7 +1,6 @@
-// Characterization suite for the leaderboard read model. It pins the exact
-// rank order and value each metric yields for a fixed three-account fixture,
-// captured from the pre-refactor getLeaderboard/getWindowStats. The metric
-// ladder may be reshaped (ternary chain -> table) only while this stays green.
+// Characterization suite for the leaderboard read model. It pins the exact rank order and value each metric yields for a fixed
+// three-account fixture, captured from the pre-refactor getLeaderboard and getWindowStats. The metric ladder may be reshaped
+// (ternary chain to table) only while this stays green.
 import assert from 'assert';
 import fs from 'fs';
 import os from 'os';
@@ -51,10 +50,10 @@ function check(name, fn) {
   try {
     fn();
     results.push(true);
-    console.log(`PASS — ${name}`);
+    console.log(`PASS - ${name}`);
   } catch (error) {
     results.push(false);
-    console.log(`FAIL — ${name}: ${error.message}`);
+    console.log(`FAIL - ${name}: ${error.message}`);
   }
 }
 

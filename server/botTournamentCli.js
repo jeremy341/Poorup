@@ -28,7 +28,7 @@ function liveProviderSettings(env) {
 }
 
 // Number('') is 0, so blank entries are dropped before parsing; a malformed
-// entry fails loudly rather than silently shrinking the seed list (F-082).
+// entry fails loudly rather than silently shrinking the seed list.
 function explicitSeeds(value) {
   const entries = String(value || '').split(',').map(entry => entry.trim()).filter(Boolean);
   const seeds = entries.map(Number);
@@ -41,7 +41,7 @@ function explicitSeeds(value) {
   return seeds;
 }
 
-// An explicit list is used whole. It used to be cut to POORUP_BOT_EVAL_COUNT
+// An explicit list is used whole. It is not cut to POORUP_BOT_EVAL_COUNT
 // (default 1), so POORUP_BOT_EVAL_SEEDS=1,2,3 silently ran only seed 1.
 function seedsForRun(env, count) {
   const explicit = explicitSeeds(env.POORUP_BOT_EVAL_SEEDS);

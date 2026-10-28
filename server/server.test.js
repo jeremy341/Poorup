@@ -1,8 +1,6 @@
-// Wire-level smoke for the handler scaffold: a null payload on the events
-// that destructure it used to throw inside the socket.io listener and kill
-// the whole server process. These suites prove the scaffold answers with an
-// error ack instead, keeps the process alive, and that the normal socket
-// flow still works end to end.
+// Wire-level smoke for the handler scaffold: a null payload on events that destructure it must not throw inside the socket.io listener
+// or kill the process. These suites prove the scaffold answers with an error ack, keeps the process alive, and that the normal
+// socket flow still works end to end.
 import { spawn } from 'child_process';
 import fs from 'fs';
 import http from 'http';
@@ -52,7 +50,7 @@ function ask(socket, event, payload) {
 const results = [];
 function check(name, condition, details) {
   results.push({ name, ok: Boolean(condition) });
-  console.log(`${condition ? 'PASS' : 'FAIL'} — ${name}`);
+  console.log(`${condition ? 'PASS' : 'FAIL'} - ${name}`);
   if (!condition && details !== undefined) {
     console.error(JSON.stringify(details, null, 2));
   }
@@ -112,7 +110,7 @@ async function stopPhaseServer(server) {
 
 async function checkNullPayloadStorm(socket, child) {
   // The crash class: every handler that destructures its payload received a
-  // null and used to take the process down. Each must now ack, and the
+  // null and must not take the process down. Each must ack, and the
   // server must still be running afterwards.
   const hostileEvents = [
     'set-setting', 'set-player-appearance', 'purchase-property',

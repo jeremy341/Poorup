@@ -35,7 +35,7 @@ check('a healthy server reports healthy with every check explained', () => {
     assert.equal(typeof item.detail, 'string');
     assert.equal(['ok', 'warn', 'bad', 'unknown'].includes(item.state), true);
   });
-  // Restores are not instrumented, so that check is unknown and the number is null.
+  // Restores are not instrumented, which makes that check unknown and its number null.
   assert.equal(stateOf(status, 'restore'), 'unknown');
   assert.equal(status.health.restoreFailures, null);
   assert.equal(status.health.errorCount, 0);
@@ -122,7 +122,7 @@ check('with no runtime counters every metric-backed field is null or unknown, no
   assert.equal(stateOf(status, 'errors'), 'unknown');
 });
 
-// ---- rooms ----------------------------------------------------------------
+// rooms
 
 let seat = 0;
 const player = (overrides = {}) => ({ id: `player-id-${seat += 1}`, nickname: `Nick${seat}`, clientId: `client-${seat}`, accountId: `acct-${seat}`, isBot: false, disconnected: false, ...overrides });
@@ -219,7 +219,7 @@ check('lists newest rooms first and caps the list while totals stay complete', (
   assert.equal(result.rooms[0].ageSeconds < result.rooms[1].ageSeconds, true);
 });
 
-// ---- bots -----------------------------------------------------------------
+// bots
 
 const rollupWith = bots => ({ query: () => ({ generatedAt: new Date(NOW).toISOString(), dimensions: { x: { seasonId: 's', rulesetRevision: 1, balanceRevision: 1, boardVariant: 'standard-40', rulesetPreset: 'classic', marketComplexity: 'basic', bots } } }) });
 
@@ -256,7 +256,7 @@ check('an empty rollup yields null decision numbers instead of zeros', () => {
   assert.equal(buildOpsBots({ rollup: rollupWith({}), range: 'season', now: NOW }).range, 'month');
 });
 
-// ---- since-start counters -------------------------------------------------
+// since-start counters
 
 check('seat reconnects and bot fallbacks are null until recorded, then follow the counters', () => {
   const unrecorded = { ...goodMetrics, roomReconnects: null, botFallbacks: null };

@@ -13,7 +13,7 @@ export const DEFAULT_SUITE_MS = 5000;
 // The bot-policy smoke suite is the one oversized suite in the manifest. The
 // runner splits its fixed game window across shards (see
 // scripts/run-test-manifest.mjs), so its balancing estimate scales with the
-// per-shard share instead of pretending one shard pays the whole cost.
+// per-shard share, not one shard paying the whole cost.
 export const BOT_SIMULATION_SUITE = 'server/bot-simulation.test.js';
 export const BOT_SIMULATION_TOTAL_GAMES = 10;
 

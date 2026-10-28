@@ -1,7 +1,5 @@
-// Room-lifecycle socket handlers against the real runtime and RoomManager, with
-// fake timers: create-room from a seated socket, moving a live seat between
-// rooms, restore-session and set-player-appearance. Scenarios come from the
-// o01 / s17 / s10 / s08 audit reports.
+// Room-lifecycle socket handlers against the real runtime and RoomManager, with fake timers: create-room from a seated socket,
+// moving a live seat between rooms, restore-session and set-player-appearance. Scenarios come from the audit reports.
 import assert from 'node:assert/strict';
 import { createRuntime } from './socketRuntime.js';
 import { RoomManager } from './gameLogic.js';
@@ -54,7 +52,7 @@ function harness() {
   return { manager, runtime, wire, sockets };
 }
 
-// S17-01: a live socket that creates another room with a fresh clientId must
+// A live socket that creates another room with a fresh clientId must
 // not leave its previous lobby behind as a live, unreclaimable room.
 {
   const h = harness();
@@ -69,7 +67,7 @@ function harness() {
   console.log('PASS create-room releases the socket\'s previous lobby');
 }
 
-// o01 F3: a live seat in a started room moves to another lobby with the same
+// A live seat in a started room moves to another lobby with the same
 // clientId. leave-room and create-room must act on the seat the socket is in.
 {
   const h = harness();
@@ -91,7 +89,7 @@ function harness() {
   console.log('PASS leave-room prefers the room the socket is seated in');
 }
 
-// s10 S10-14: a restore without a token must not sign the socket out.
+// A restore without a token must not sign the socket out.
 {
   const h = harness();
   const first = h.wire('restore-1');
@@ -120,7 +118,7 @@ function harness() {
   console.log('PASS restore-session failures are counted for Status');
 }
 
-// s08 S08-02: a malformed or omitted face must not wipe the seat's face.
+// A malformed or omitted face must not wipe the seat's face.
 {
   const h = harness();
   const p = h.wire('face-p');
@@ -139,7 +137,7 @@ function harness() {
   console.log('PASS set-player-appearance validates the face instead of wiping it');
 }
 
-// o02 M1 / s10 S10-02: the per-address key is the proxy-aware address, and an
+// The per-address key is the proxy-aware address, and an
 // IPv6 client is bucketed by its /64.
 {
   const a = makeSocket('key-a', '2001:db8:aa:bb:1:2:3:4');
@@ -151,7 +149,7 @@ function harness() {
   console.log('PASS authAttemptKey buckets IPv6 by /64');
 }
 
-// s10 S10-17: probing private codes through create-room spends the join-failure budget.
+// Probing private codes through create-room spends the join-failure budget.
 {
   const h = harness();
   const owner = h.wire('code-owner', '198.51.100.20');

@@ -1,6 +1,5 @@
-// Regression suite for the second backend audit pass (B-05, B-06, B-07, B-09).
-// Every check pins one verified defect: a voluntary leave that froze the bank
-// loan on a dead seat, a disconnected ghost seat that could take 1st place,
+// Regression suite for the second backend audit pass. Each check pins one verified defect: a voluntary
+// leave that froze the bank loan on a dead seat, a disconnected ghost seat that could take 1st place,
 // and a board-variant downgrade that started an over-capacity table.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

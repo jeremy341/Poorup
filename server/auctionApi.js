@@ -1,8 +1,6 @@
-// Property auctions as a prototype mixin: the open-outcome flow that starts
-// when a deed is declined (or unaffordable), the bid mini-game, and the
-// timed close. gameLogic.js assigns this object onto GameState.prototype and
-// re-exports AUCTION_DURATION_MS for server.js; server/gameLogic.test.js pins
-// every rejection string and precedence.
+// Property auctions as a prototype mixin: the open-outcome flow that starts when a deed is declined
+// (or unaffordable), the bid mini-game, and the timed close. gameLogic.js assigns this object onto
+// GameState.prototype and re-exports AUCTION_DURATION_MS for server.js. server/gameLogic.test.js pins every rejection string.
 import { auctionWillingness, isAuctionRaise, AUCTION_BID_INCREMENTS } from './botAuctionPolicy.js';
 
 const AUCTION_DURATION_MS = 5000;
@@ -43,7 +41,7 @@ const auctionApi = {
   },
 
   // The active global event blocks NEW auctions. An auction that is already
-  // running keeps its clock and finishes normally (T13): freezing a live
+  // running keeps its clock and finishes normally: freezing a live
   // auction would strand the bids that are already on the table.
   auctionPausedByEvent() {
     if (this.globalEventActive('bank-run')) return true;
@@ -252,11 +250,9 @@ const auctionApi = {
     auction.propertyTile.houseCount = 0;
     auction.propertyTile.equityShares = [];
     if (!winner.properties.includes(auction.propertyTile.index)) winner.properties.push(auction.propertyTile.index);
-    // Auctions are another acquisition path. Keep the same completed-group
-    // facts as direct purchases and trades so rent rules and achievements do
-    // not lag behind the visible ownership state.
-    // The housing-bubble purchase fact belongs to the acquisition, not to the
-    // payment route: winning a deed during the bubble buys during the bubble.
+    // Auctions are another acquisition path: keep the same completed-group facts as direct purchases
+    // and trades, or rent rules and achievements lag the visible ownership state.
+    // The housing-bubble purchase fact belongs to the acquisition, not the payment route.
     if (this.globalEventActive('housing-bubble')) winner.boughtDuringHousingBubble = true;
     this.refreshPlayerGroups(winner);
   },

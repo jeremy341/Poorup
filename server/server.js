@@ -1,9 +1,6 @@
-// Server bootstrap: builds the HTTP+socket.io shell, the stores, and the
-// shared socket runtime, then delegates every wire handler to the domain
-// registration modules (account/room lifecycle, in-game verbs, social).
-// Static UI serving, PORT binding, and the crash guards live here only.
+// Server bootstrap: builds the HTTP and socket.io shell, the stores, and the shared socket runtime, then delegates every wire handler
+// to the domain registration modules (account and room lifecycle, in-game verbs, social). Static UI serving, PORT binding and crash guards live here only.
 import express from 'express';
-import fs from 'fs';
 import path from 'path';
 import http from 'http';
 import { fileURLToPath } from 'url';
@@ -25,7 +22,7 @@ import { TelemetryStore } from './telemetryModule.js';
 import { assertProductionCors, createCorsOrigin, isAllowedSocketOrigin, parseAllowedOrigins, resolveClientAddress, resolveHandshakeSession, resolveRetentionToken, tokensMatch } from './serverConfig.js';
 import { createSocketAdmission, createSocketRateLimiter } from './socketRateLimiter.js';
 import { assertRateLimitConfig, createHttpRateLimiter } from './httpRateLimiter.js';
-import { backupJsonStores } from './backupStore.js';
+import { backupJsonStores, isBackupStoreCandidate } from './backupStore.js';
 import { assertPersistenceMode } from './persistenceMode.js';
 import { bootMaintenanceMode, bootMaintenanceRecord, corruptMaintenanceMarker, createDrainController, SHUTDOWN_RELEASE_ID, shutdownDrainMessage } from './drainController.js';
 import { createMaintenanceAccess, registerMaintenanceAccessRoutes } from './maintenanceAccess.js';
@@ -41,7 +38,7 @@ import { createStaticAssets } from './staticAssets.js';
 import { asyncRoute, createHttpErrorHandler } from './httpErrors.js';
 import { renderAboutPage } from './aboutPage.js';
 import { renderErrorPage as errorPage } from './errorPage.js';
-import { loadJson, writeJson } from './storeIO.js';
+import { isQuarantinedStore, loadJson, writeJson } from './storeIO.js';
 import { createAuthoritativeStore } from './authoritativeStore.js';
 import { createPubSubAdapter } from './pubsubAdapter.js';
 import { allowPrivateEndpointsFromEnv, createAiProviderManager, createAiProviderStore } from './aiProviderConfig.js';
@@ -159,12 +156,9 @@ const maintenanceFile = dataDirectory ? path.join(dataDirectory, 'maintenance.js
 const persistedMaintenanceStore = maintenanceFile
   ? loadJson(maintenanceFile, value => value && typeof value === 'object' && typeof value.mode === 'string')
   : null;
-// A corrupt maintenance file is quarantined, which leaves no valid record
-// behind: the next boot would find no file at all and fall back to the
-// environment default with the site open. The corrupt bytes are replaced by
-// a durable closed marker, so the corruption fails closed on every restart
-// and not only on this one. When the marker cannot be made durable the
-// server refuses to start rather than serve an open table.
+// A corrupt maintenance file is quarantined, which leaves no valid record behind: the next boot would find no file and fall back
+// to the environment default with the site open. A durable closed marker replaces the corrupt bytes, so corruption fails closed on
+// every restart. If the marker cannot be made durable, the server refuses to start rather than serve an open table.
 const corruptMaintenance = persistedMaintenanceStore?.corrupt === true ? corruptMaintenanceMarker() : null;
 if (corruptMaintenance) {
   try {
@@ -210,9 +204,8 @@ const maintenance = createDrainController({
     return persisted;
   }
 });
-// Provider-neutral seams are intentionally inert for the current single
-// process runtime. They make the PostgreSQL/Redis migration explicit without
-// changing any socket payload or introducing a second room authority.
+// Provider-neutral seams are inert in the current single-process runtime. They make the PostgreSQL and Redis migration explicit
+// without changing any socket payload or introducing a second room authority.
 const authoritativeStore = createAuthoritativeStore({
   filePath: dataDirectory ? path.join(dataDirectory, 'rooms.json') : ''
 });
@@ -404,11 +397,9 @@ app.get('/account/export', (req, res) => {
     return res.status(500).json({ success: false, code: 'ACCOUNT_EXPORT_FAILED', error: 'Account export is temporarily unavailable.' });
   }
 });
-// Saves the signed-in player's face and colour. The sign-in token is exchanged for a
-// cookie session (which revokes the token), so a socket opened before sign-in can no
-// longer prove who it is; this endpoint authenticates with the cookie instead. Only
-// the two appearance fields are accepted, and the JSON content type keeps it out of
-// reach of cross-site form posts.
+// Saves the signed-in player's face and colour. The sign-in token is exchanged for a cookie session (which revokes the token), so a
+// socket opened before sign-in can no longer prove who it is; this endpoint authenticates with the cookie. Only the two appearance
+// fields are accepted, and the JSON content type keeps it out of reach of cross-site form posts.
 app.post('/account/profile', express.json({ limit: '8kb' }), (req, res) => {
   const account = httpAccountResolver(req);
   if (!account) return res.status(401).json({ success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in again.' });
@@ -552,13 +543,15 @@ function escapeHtmlText(value) {
 const storePaths = resolveStorePaths(process.env);
 const auxiliaryStorePaths = resolveAuxiliaryStorePaths(process.env);
 const retiredStorePaths = resolveRetiredStorePaths(process.env);
-// Every JSON store that holds game or account data is backed up from this set.
-// Deliberately excluded: sessions.json and recovery-tokens.json (restoring
-// them would resurrect revoked sessions and consumed single-use tokens),
-// maintenance.json (restoring it would re-impose a drain the operator has
-// since ended), and rooms.json (no runtime writer yet; add it here when one
-// exists).
-const allStorePaths = { ...storePaths, ...auxiliaryStorePaths, ...retiredStorePaths };
+// Every JSON store holding game or account data is backed up from this set, except sessions.json and recovery-tokens.json (restoring them
+// would resurrect revoked sessions and consumed single-use tokens), maintenance.json (it would re-impose an ended drain) and rooms.json (no runtime writer yet).
+// The operator audit trail is backed up too: without a copy, a lost or corrupt file erases every release, lockout and provider change record.
+const allStorePaths = {
+  ...storePaths,
+  ...auxiliaryStorePaths,
+  ...retiredStorePaths,
+  ...(dataDirectory ? { adminAudit: path.join(dataDirectory, 'admin-audit.json') } : {}),
+};
 const accountStore = new AccountStore(storePaths.accounts);
 const socialStore = new SocialStore(storePaths.social);
 const matchStore = new MatchStore(storePaths.matches);
@@ -585,10 +578,8 @@ io.use((socket, next) => {
   socket.data.maintenanceAccess = maintenanceAccess.grantFromCookieHeader(socket.handshake?.headers?.cookie || socket.request?.headers?.cookie || '');
   next();
 });
-// The provider key is trimmed before it is used: a key that is only whitespace
-// is no key at all, and the adapter must not report itself configured with one
-// (nor send it in an Authorization header). A key with a control character
-// cannot be sent in a header either, so it counts as no key as well.
+// The provider key is trimmed before use: a whitespace-only key is no key, and the adapter must not report itself configured with one
+// (nor send it in an Authorization header). A key with a control character cannot be sent in a header either, so it also counts as no key.
 const mailApiKey = (() => {
   const key = String(process.env.POORUP_MAIL_API_KEY || '').trim();
   return /[\u0000-\u001f\u007f]/.test(key) ? '' : key;
@@ -601,10 +592,8 @@ const accountRecovery = createAccountRecovery({
   publicOrigin: configuredPublicOrigin || '',
   filePath: dataDirectory ? path.join(dataDirectory, 'recovery-tokens.json') : ''
 });
-// Node's timers take their delay as a 32-bit signed integer: anything above
-// 2^31-1 ms is silently turned into 1 ms, so an oversized interval would run
-// the job on every tick instead of once in a while. Every interval this file
-// schedules is bounded before it is scheduled.
+// Node's timers take their delay as a 32-bit signed integer: anything above 2^31-1 ms silently becomes 1 ms, so an oversized interval
+// would run the job on every tick instead of once in a while. Every interval is bounded before it is scheduled.
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 // Bounds a delay that comes from the environment. A value the job cannot use
 // (not a number, zero or negative) is passed through untouched, so the job
@@ -624,7 +613,7 @@ if (backupDirectory) {
       // Fresh volume with no stores yet is vacuously fresh: there is
       // nothing to lose, so readiness must not 503 forever.
       const storeFiles = Object.values(allStorePaths).filter(value => typeof value === 'string');
-      const existingFiles = new Set(storeFiles.filter(file => { try { return fs.existsSync(file); } catch { return false; } }));
+      const existingFiles = new Set(storeFiles.filter(file => { try { return isBackupStoreCandidate(file); } catch { return isQuarantinedStore(file); } }));
       if (!existingFiles.size) {
         backupHealth = { ...backupHealth, fresh: true, lastRunAt: new Date().toISOString() };
         return;
@@ -689,6 +678,11 @@ app.use((_req, res) => res.status(404).type('html').send(errorPage('404 · Table
 app.use(createHttpErrorHandler({ metrics, errorPage }));
 
 const social = createSocialApi({ io, accountStore, socialStore, matchStore, achievementStore, sessionStore });
+const achievementMirrorReconciliation = social.reconcileAchievementMirrors();
+if (achievementMirrorReconciliation.failed) {
+  console.error(`Achievement mirror reconciliation incomplete: ${achievementMirrorReconciliation.failed} record(s) could not be repaired.`);
+}
+social.startAchievementReconciliation();
 const runtime = createRuntime({ io, roomManager, accountStore, socialStore, matchStore, achievementStore, telemetryStore, botAdvisor, social, maintenance, maintenanceAccess, metrics, authoritativeStore, pubsubAdapter });
 runtime.sessionStore = sessionStore;
 runtime.adminIds = adminAccountIds;
@@ -795,13 +789,13 @@ io.on('connection', (socket) => {
   // The peer key outlives the socket: a reconnect gets a new socket id but the
   // same address, so the peer budget keeps counting across reconnects.
   const peerKey = resolveClientAddress({ address: socket.handshake?.address, headers: socket.handshake?.headers, request: socket.request }, trustedProxyHops);
-  const safeOn = createSafeEmitter(socket, { allow: socketId => socketRateLimiter.allow(socketId, peerKey) });
+  const safeOn = createSafeEmitter(socket, {
+    allow: socketId => socketRateLimiter.allow(socketId, peerKey),
+    onAccepted: (socketId, eventName) => runtime.noteSocketEvent(socketId, eventName),
+  });
   // Times every handler for the admin status (P95 latency) and counts the ones
   // that throw (error rate) without changing what the handler does or returns.
   const on = (event, handler) => safeOn(event, instrumentHandler(metrics, handler));
-  // Every inbound event, not only the registered ones, keeps the seat's idle clock fresh (F-091).
-  socket.onAny(() => runtime.noteSocketEvent(socket.id));
-
   registerAccountSocketHandlers(on, socket, runtime);
   registerGameSocketHandlers(on, socket, runtime);
   registerSocialSocketHandlers(on, socket, runtime);
@@ -812,10 +806,8 @@ io.on('connection', (socket) => {
   metrics.setMetric('active-rounds', maintenance.activeRoundCount(), { scope: 'all' });
 
   socket.on('disconnect', () => {
-    // Intentionally no limiter.forget(): the per-peer event budget must survive
-    // reconnects for the rest of its window. The per-socket bucket dies with
-    // the socket, which is why the peer budget exists; handshake admission
-    // bounds how fast new sockets can be created.
+    // No limiter.forget(): the per-peer event budget must survive reconnects for the rest of its window. The per-socket bucket dies with
+    // the socket, which is why the peer budget exists; handshake admission bounds how fast new sockets can be created.
     runtime.handleSocketDisconnect(socket);
     metrics.setMetric('active-sockets', io.sockets.sockets.size, { scope: 'all' });
   });
@@ -823,8 +815,8 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
-  console.log('✅ Server is running!');
-  console.log('👉 Visit http://localhost:' + PORT);
+  console.log('Server is running!');
+  console.log('Visit http://localhost:' + PORT);
 });
 
 let shutdownStarted = false;
@@ -835,6 +827,7 @@ function shutdownDeadline() {
 
 function disposeRuntimeResources() {
   clearInterval(roomActivityTimer);
+  social.dispose?.();
   maintenance.dispose();
   retentionJob.stop();
   runtime.unsubscribeBotProviderStatus?.();
@@ -898,10 +891,8 @@ function gracefulShutdown(signal) {
 process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.once('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// Last-resort crash guards. Every known throw site is caught at its seam
-// (handler scaffold, bot timer try/catch). If an unknown exception still
-// escapes, log it loudly and terminate so the process supervisor can restart
-// from a clean state instead of serving corrupted room state.
+// Last-resort crash guards. Every known throw site is caught at its seam (handler scaffold, bot timer try/catch). An unknown exception
+// is logged loudly and the process terminates, so the supervisor restarts it from a clean state instead of serving corrupted room state.
 process.on('uncaughtException', (error) => {
   console.error('UNCAUGHT EXCEPTION:', error);
   process.exit(1);

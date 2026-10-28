@@ -3,10 +3,8 @@ import { listMatchRecordsForAccount, mergeMatchRecords } from './matchHistoryAda
 import { createSocialApi } from './socketSocialApi.js';
 import { registerSocialSocketHandlers } from './serverSocketSocial.js';
 
-// Characterization seam: both social history entry points must continue to
-// treat MatchStore as the newer source while keeping AccountStore history as
-// a compatibility fallback. This test drives the public socket handler and
-// records the wire-visible merge/projection behavior the adapter preserves.
+// Characterization seam: both social history entry points must treat MatchStore as the newer source, keeping AccountStore history
+// as a compatibility fallback. This test drives the public socket handler and records the wire-visible merge and projection behavior.
 function registeredHandlers({ accountStore, socialStore, matchStore, viewer = null }) {
   const handlers = new Map();
   const socket = { id: 'history-test-socket', data: {}, handshake: {} };

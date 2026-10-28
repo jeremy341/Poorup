@@ -12,13 +12,6 @@ function accountList(accountStore) {
   return [];
 }
 
-// A store can be rolled back only when it hands out a snapshot and accepts one
-// back. The others erase in one atomic step of their own, so a failure in a
-// later store cannot be undone for them.
-function canRestore(store) {
-  return typeof store?.snapshot === 'function' && (typeof store.restoreSnapshot === 'function' || typeof store.restore === 'function');
-}
-
 function seated(roomManager, accountId) {
   return [...(roomManager?.rooms?.values?.() || [])].some(room => [...(room?.game?.players || [])].some(player => player?.accountId === accountId && !player.bankrupt && !player.spectating));
 }
@@ -40,11 +33,26 @@ export function createAccountDeletionCoordinator({ accountStore, sessionStore, r
     return false;
   }
 
-  // One snapshot/restore/durable-write pattern for the deletion fields. The
-  // account store writes atomically, so a failed write leaves the previous
-  // snapshot on disk; the restore puts memory back in step with it and the
-  // re-persist makes the disk show the restored state even when the failure
-  // happened after a write had landed (F3).
+  function revokeOtherSessions(accountId, sessionId, sessionToken) {
+    let succeeded = true;
+    try {
+      sessionStore?.revokeAccountSessionsExcept?.(accountId, sessionId || null);
+    } catch {
+      succeeded = false;
+    }
+    // Bearer-token sessions live in a separate store and must be attempted even
+    // when cookie revocation fails. Keep only the requesting device's token.
+    try {
+      accountStore.revokeSessionsForAccount?.(accountId, true, typeof sessionToken === 'string' && sessionToken ? sessionToken : null);
+    } catch {
+      succeeded = false;
+    }
+    return succeeded;
+  }
+
+  // One snapshot/restore/durable-write pattern for the deletion fields. The account store
+  // writes atomically, so a failed write leaves the previous snapshot on disk. Restore
+  // resyncs memory, and re-persisting covers a failure that came after a write had landed.
   function restoreAccount(snapshot) {
     if (!snapshot) return;
     try {
@@ -53,7 +61,7 @@ export function createAccountDeletionCoordinator({ accountStore, sessionStore, r
     try { accountStore.persist?.(); } catch { /* the next write retries */ }
   }
 
-  async function request({ accountId, sessionId, currentPassword, typedPhrase, requestId = '', activeRoom = false } = {}) {
+  async function request({ accountId, sessionId, sessionToken = null, currentPassword, typedPhrase, requestId = '', activeRoom = false } = {}) {
     const account = getAccount(accountId);
     if (!account) return { success: false, code: 'ACCOUNT_CONFIRMATION_INVALID', error: 'Password confirmation failed.' };
     if (purgesInProgress.has(account.id)) return { success: false, code: 'DELETION_IN_PROGRESS', error: 'Account deletion is already running.' };
@@ -63,6 +71,7 @@ export function createAccountDeletionCoordinator({ accountStore, sessionStore, r
     if (!verify(account, currentPassword)) return { success: false, code: 'ACCOUNT_CONFIRMATION_INVALID', error: 'Password confirmation failed.' };
     if (account.deletionRequestedAt && account.deletionDueAt) {
       if (account.deletionRequestId && requestId && account.deletionRequestId !== String(requestId).slice(0, 100)) return { success: false, code: 'DELETION_REQUEST_STALE', error: 'That deletion request is no longer current.' };
+      if (!revokeOtherSessions(accountId, sessionId, sessionToken)) return { success: false, code: 'DELETION_NOT_COMPLETED', error: 'Account deletion was scheduled, but your other devices could not be signed out.' };
       return { success: true, state: 'pending', dueAt: account.deletionDueAt, requestId: account.deletionRequestId || null };
     }
     const timestamp = Number(now()) || Date.now();
@@ -84,12 +93,7 @@ export function createAccountDeletionCoordinator({ accountStore, sessionStore, r
     // The other devices are signed out only once the request is durable: a
     // failed write must not leave them signed out for a deletion that was not
     // scheduled. A failure here keeps the (durable) deletion.
-    let sessionsRevoked = true;
-    try {
-      sessionStore?.revokeAccountSessionsExcept?.(accountId, sessionId || null);
-    } catch {
-      sessionsRevoked = false;
-    }
+    const sessionsRevoked = revokeOtherSessions(accountId, sessionId, sessionToken);
     try { await mailAdapter?.send?.({ to: account.recoveryEmailVerified ? account.recoveryEmail : '', subject: 'Poorup account deletion requested', template: 'deletion-requested', variables: { dueAt: new Date(dueAt).toISOString(), username: account.username } }); } catch { /* deletion state is authoritative; mail is best effort */ }
     if (!sessionsRevoked) return { success: false, code: 'DELETION_NOT_COMPLETED', error: 'Account deletion was scheduled, but your other devices could not be signed out.' };
     return { success: true, state: 'pending', dueAt: account.deletionDueAt, requestId: account.deletionRequestId || null };
@@ -107,7 +111,7 @@ export function createAccountDeletionCoordinator({ accountStore, sessionStore, r
     if (account.deletionRequestId && requestId && account.deletionRequestId !== String(requestId).slice(0, 100)) return { success: false, code: 'DELETION_REQUEST_STALE', error: 'That deletion request is no longer current.' };
     if (!verify(account, currentPassword)) return { success: false, code: 'ACCOUNT_CONFIRMATION_INVALID', error: 'Password confirmation failed.' };
     // The cancellation is a state change on disk like any other: a write that
-    // fails must leave the account pending, not half-cancelled (F3).
+    // fails must leave the account pending, not half-cancelled.
     const accountSnapshot = accountStore.snapshot?.();
     account.deletionRequestedAt = null;
     account.deletionDueAt = null;
@@ -142,27 +146,21 @@ export function createAccountDeletionCoordinator({ accountStore, sessionStore, r
   }
 
   async function purgeAccountData(account, requestId) {
-    // The account store is not snapshotted: it is only written by the final
-    // synchronous purge below (which rolls itself back), and a whole-store
-    // restore after the awaits would drop accounts, sessions and results that
-    // other requests wrote in the meantime.
-    // The stores that can be rolled back go first (F4): a failure in a later
-    // store then still finds everything restorable, and the stores that erase
-    // in one atomic step of their own run only when the rest is done.
-    const orderedStores = [...linkedStores.filter(canRestore), ...linkedStores.filter(store => !canRestore(store))];
-    const snapshots = orderedStores.map(store => (typeof store.snapshot === 'function' ? { store, snapshot: store.snapshot() } : null)).filter(Boolean);
+    // Each store owns the atomicity of its purge. Do not restore whole-store snapshots
+    // after an await: a rollback would erase concurrent writes to unrelated accounts or records.
+    // Completed erasures stay, and this pending request retries the remaining stores.
     try {
-      for (const store of orderedStores) {
+      for (const store of linkedStores) {
         if (typeof store.purgeAccount === 'function') await store.purgeAccount(account.id, { displayName: account.displayName });
         else if (typeof store.anonymizeAccount === 'function') {
           const outcome = await store.anonymizeAccount(account.id);
           // A copy that could not be reached still holds the account, so the
-          // purge stays pending and is retried (E37-08, E24-11).
+          // purge stays pending and is retried.
           if (Number(outcome?.skipped) > 0) throw Object.assign(new Error('Backup erasure is incomplete.'), { reason: 'erasure-incomplete' });
         }
       }
-      // Re-check the request before the irreversible step; a request that was
-      // replaced or withdrawn must roll back instead of deleting the account.
+      // Re-check before deleting the account. If the request changed, retain
+      // completed erasures but do not delete the account under the stale request.
       if (!account.deletionRequestedAt || account.deletionRequestId !== requestId) throw new Error('deletion request changed during purge');
       // The sessions are revoked last: the revocation cannot be undone, so it
       // only happens once every store is erased and the account is about to
@@ -178,14 +176,8 @@ export function createAccountDeletionCoordinator({ accountStore, sessionStore, r
       try { await mailAdapter?.send?.({ to: account.recoveryEmailVerified ? account.recoveryEmail : '', subject: 'Poorup account deleted', template: 'account-deleted', variables: { username: account.username } }); } catch { /* purge does not depend on notification delivery */ }
       return { success: true };
     } catch (error) {
-      // Rolling a store back is best effort: a store that cannot be restored
-      // keeps the erasure, and the purge stays pending until every store is
-      // clean (F4).
-      snapshots.reverse().forEach(({ store, snapshot }) => {
-        try {
-          store.restoreSnapshot?.(snapshot) || store.restore?.(snapshot);
-        } catch { /* the erasure stays; the purge is retried */ }
-      });
+      // Completed stores keep their idempotent erasures; the account stays
+      // pending and retries until all stores and the final account purge work.
       return { success: false, code: 'DELETION_NOT_COMPLETED', reason: error?.reason || 'store-write-failed' };
     }
   }

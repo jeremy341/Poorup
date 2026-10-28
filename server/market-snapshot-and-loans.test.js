@@ -1,14 +1,6 @@
-// Regression suite for two audit findings.
-//
-// B-11  economyApi.marketSnapshot spread the position maps shallowly, so the
-//       returned economy payload aliased the live mutable position objects.
-//       marketLogic mutates them in place, and every cacheTransaction call site
-//       replays that payload verbatim on a duplicate requestId, so an already
-//       returned snapshot rewrote itself retroactively.
-//
-// B-14  loanLogic.premiumRateAfterEvents applied the inflation-spiral premium
-//       twice: once from a hardcoded 1.25 and again from the declared
-//       loanPremiumMultiplier, overcharging every loan originated during it.
+// Regression checks for two market and loan defects. economyApi.marketSnapshot spread position maps shallowly, so the payload aliased live objects.
+// marketLogic mutates them in place, and cacheTransaction replays that payload on a duplicate requestId, so a snapshot rewrote itself.
+// loanLogic.premiumRateAfterEvents applied the inflation-spiral premium twice (a hardcoded 1.25 and loanPremiumMultiplier).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
@@ -40,10 +32,8 @@ function loanRoom() {
   return { room, game: room.game, a: room.game.players[0], b: room.game.players[1] };
 }
 
-// Drive an event all the way to the ACTIVE phase the way the round ladder does,
-// so the pricing under test reads the declared effects object the engine built
-// (never a hand-written stand-in). Events with a policy ballot resolve once every
-// active seat has voted. The round turn is rewound afterwards so the borrowing
+// Drive an event to the ACTIVE phase the way the round ladder does, so the pricing reads the declared effects the engine built.
+// Events with a policy ballot resolve once every active seat has voted. The round turn is rewound afterwards, so the borrowing
 // seat is still the current player.
 function activateEvent(game, { id = null, comboId = null, choiceId = null } = {}) {
   const combo = comboId ? GLOBAL_EVENT_COMBINATIONS.find(entry => entry.id === comboId) : null;
@@ -62,7 +52,6 @@ function activateEvent(game, { id = null, comboId = null, choiceId = null } = {}
   return game.globalEvent;
 }
 
-// ---------------------------------------------------------------- B-11 -----
 
 test('B-11 marketSnapshot never aliases the live position objects', () => {
   const { room, game, a } = marketRoom('shorting');
@@ -240,7 +229,6 @@ test('B-11 a cached casino replay freezes balanceAfter and positions together', 
   assert.equal(game.economySnapshot(a.id).market.positions.brazil.quantity, 7);
 });
 
-// ---------------------------------------------------------------- B-14 -----
 
 test('B-14 no active event leaves the plain base premium', () => {
   const { game, a } = loanRoom();

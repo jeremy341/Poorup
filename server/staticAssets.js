@@ -1,7 +1,6 @@
-// Static delivery for the plain-client UI: Cache-Control per asset class,
-// content-hash ETags, and br/gzip compression from node:zlib with the encoded
-// bytes kept in memory (keyed by path + encoding, validated by mtime + size), so
-// a file is compressed once and every later request is a buffer copy or a 304.
+// Static delivery for the plain-client UI: Cache-Control per asset class, content-hash ETags, and br/gzip compression from node:zlib.
+// Encoded bytes are kept in memory, keyed by path and encoding and validated by mtime and size, so a file is compressed once and
+// every later request is a buffer copy or a 304.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';

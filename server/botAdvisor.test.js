@@ -118,8 +118,8 @@ assert.equal(promptContext.candidateCoverage.omittedCount, 0);
 assert.equal(typeof promptContext.strategicSummary.rentExposure, 'number');
 assert.deepEqual(promptContext.recentDecisions, []);
 assert.deepEqual(promptContext.decisionMemory, { decisions: 0, successes: 0, failures: 0, actionRates: [], phaseRates: [] });
-// Scores are marginal to standing still, so the projected roll (0) no longer
-// sorts above the unsupported build's curated score; find the projected entry.
+// Scores are marginal to standing still, so the projected roll (0) does not rank
+// above the unsupported build's curated score; find the projected entry.
 const projectedPrompt = promptContext.candidates.find(candidate => candidate.projectionStatus === 'projected');
 assert.ok(projectedPrompt, 'the shortlist carries a projected planner evaluation');
 assert.equal(projectedPrompt.planningHorizon, 1);
@@ -263,7 +263,7 @@ assert.equal((await pendingReconfiguration).fallbackReason, 'provider-reconfigur
 
 // A provider that was reconfigured while the answer was in flight is not a
 // failure of the new connection: the answer is dropped, the health of the new
-// provider is untouched, and the decision is not billed (W27/X3b).
+// provider is untouched, and the decision is not billed.
 let releaseMidFlight;
 let midFlightCalls = 0;
 const midFlight = new AiAdvisor({
@@ -491,7 +491,7 @@ assert.equal((await flaky.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-
 assert.equal((await flaky.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-refund', decisionSequence: 2 })).fallbackReason, 'network');
 
 // A usable JSON answer that names no legal candidate gave no decision to bill
-// for: the fallback is free and the budget is refunded (W27/X3c).
+// for: the fallback is free and the budget is refunded.
 let unboundCalls = 0;
 const unbound = new DeepSeekAdvisor({
   apiKey: 'test-key',
@@ -510,7 +510,7 @@ assert.equal(unboundCalls, 2);
 
 // An edit that does not touch the connection (a renamed profile) leaves the
 // health and the quota of the running provider alone; a rotated key is a new
-// connection and does clear it (W27/X3d).
+// connection and does clear it.
 const renamed = new AiAdvisor({ apiKey: 'test-key', fetchImpl: async () => ({}) });
 renamed.configureProvider({ apiKey: 'test-key', endpoint: 'https://provider.test/v1', model: 'model-a', protocol: 'chat' });
 renamed.registerFailure('quota');
@@ -531,7 +531,7 @@ const metroPrompt = JSON.parse(ai.advisorUserPrompt({
 assert.equal(metroPrompt.board.length, 52);
 
 // The payment phase names the tile in the choice id (mortgage:5, sell:9), so
-// the board the model sees is the board of those tiles (W27/L2).
+// the board the model sees is the board of those tiles.
 const paymentPrompt = JSON.parse(ai.advisorUserPrompt({
   phase: 'payment',
   botDifficulty: 'table',

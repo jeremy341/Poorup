@@ -1,8 +1,6 @@
-// The bankruptcy pipeline as a prototype mixin: the declaration entry point
-// and the ordered asset-settlement ladder for both elimination and debt
-// modes. gameLogic.js assigns this object onto GameState.prototype;
-// server/casino-bankruptcy.test.js pins the exact statement order, including
-// the market liquidation line landing before any deed moves.
+// The bankruptcy pipeline as a prototype mixin: the declaration entry point and the ordered
+// asset-settlement ladder for elimination and debt modes. gameLogic.js assigns this object onto
+// GameState.prototype. server/casino-bankruptcy.test.js pins the statement order, including the market liquidation before any deed moves.
 import { usesCollateralCredit, settleCollateralAtomically } from './collateralSettlement.js';
 import { AUCTION_DURATION_MS } from './auctionApi.js';
 import { MARKET_FEE_RATE } from './marketLogic.js';
@@ -33,19 +31,14 @@ const bankruptcyApi = {
   handleBankruptcy(player, creditor = null) {
     const prepared = this.prepareCollateralForExit(player);
     if (!prepared.success) return prepared;
-    // Every route into a bankruptcy (declared, AFK-expired, or an unsettled
-    // pending payment) lands here, so the departing seat's table obligations
-    // die here too: a pending trade, contract, or purchase offer it still
-    // holds gates every survivor until someone resolves it, and nobody can
-    // resolve a gate owned by a dead seat. Preparation must succeed before
-    // any of these obligations or the estate itself can be consumed.
+    // Every route into bankruptcy (declared, AFK-expired, or an unsettled pending payment) lands here,
+    // so the departing seat's obligations die here too. A pending trade, contract or offer it holds would
+    // gate every survivor, since nobody can resolve a gate owned by a dead seat. Preparation must succeed first.
     clearQuitObligations(this, player, creditor);
     this.markPlayerBankrupt(player);
-    // The ladder is the table's other debt beat, so it also pays what the
-    // claim ledger has matured. This runs after the seat is marked bankrupt:
-    // a claim whose borrower or lender is the departing seat is a write-off
-    // (its estate is swept below), never a payment out of a dead seat ahead of
-    // the estate's creditor.
+    // The ladder also pays what the claim ledger has matured. It runs after the seat is marked bankrupt,
+    // so a claim whose borrower or lender is the departing seat is a write-off (swept below), never a payment
+    // out of a dead seat ahead of the estate's creditor.
     settleDefaultClaims(this);
     this.liquidateMarketPositions(player);
     this.liquidateItems(player);
@@ -58,9 +51,8 @@ const bankruptcyApi = {
     return { success: true };
   },
 
-  // Commit every new secured agreement as one unit before marking the seat
-  // out, clearing its debt gates or distributing the general estate. A failed
-  // second agreement must restore the first agreement's transfers and claims.
+  // Commit every new secured agreement as one unit before marking the seat out, clearing its debt gates
+  // or distributing the general estate. A failed second agreement must restore the first one's transfers and claims.
   // Room-owned seat exits call this same seam before their irreversible steps.
   prepareCollateralForExit(player) {
     const bankLoan = usesCollateralCredit(player.bankLoan) && LOAN_OUTSTANDING_STATUSES.includes(player.bankLoan.status)
@@ -116,9 +108,8 @@ const bankruptcyApi = {
     // bankrupt: prune the seat so closes resolve on the timer, not never.
     if (this.auction) {
       this.auction.participants = (this.auction.participants || []).filter(id => id !== player.id);
-      // A bankrupt high bidder can never raise its own bid again; leaving the
-      // lead in place freezes the bid floor and voids the sale at close
-      // ("Auction ended without a valid winner"). Reset it exactly as the
+      // A bankrupt high bidder can never raise its bid again, and leaving the lead in place freezes the bid
+      // floor and voids the sale at close ("Auction ended without a valid winner"). Reset it exactly as the
       // disconnect path (revokeAuctionLeadIfLeader) already does.
       if (this.auction.highestBidderId === player.id) {
         this.auction.highestBidderId = null;
@@ -141,10 +132,9 @@ const bankruptcyApi = {
     return result;
   },
 
-  // Positions are force-sold at the current quote minus the market fee and
-  // floored into cash; zero-proceeding holdings are dropped silently. The
-  // per-position realized P&L (net proceeds over average cost) is recorded
-  // so post-game stats see the forced exit, not just voluntary sells.
+  // Positions are force-sold at the current quote minus the market fee, floored into cash.
+  // Zero-proceeding holdings are dropped silently. Realized P&L (net proceeds over average cost)
+  // is recorded so post-game stats see the forced exit, not just voluntary sells.
   liquidateMarketPositions(player) {
     this.liquidateAllMarketPositions(player);
     const entries = Object.entries(player.marketPositions || {});
@@ -169,12 +159,9 @@ const bankruptcyApi = {
     this.feedMessage(`${player.nickname}'s market positions were liquidated for $${Math.floor(marketLiquidation)}.`);
   },
 
-  // Whatever cash survives liquidation flows to the creditor before any
-  // deed is handed over. Every exit path that settles a seat reaches this
-  // helper (declared or AFK bankruptcy, voluntary leave, vote-kick, inactivity,
-  // disconnect expiry), so the no-solvent-creditor branch is the one place
-  // stranded cash is decided: it forfeits to the bank, zeroed and announced,
-  // rather than sitting on a departed seat outside the table's totals (F-031).
+  // Whatever cash survives liquidation flows to the creditor before any deed is handed over.
+  // Every exit path that settles a seat reaches this helper, so the no-solvent-creditor branch decides stranded cash:
+  // it forfeits to the bank, zeroed and announced, rather than sitting on a departed seat.
   sweepCashToCreditor(player, creditor) {
     if (creditor && !creditor.bankrupt) {
       if (player.cash <= 0) return;
@@ -188,11 +175,8 @@ const bankruptcyApi = {
     if (forfeited > 0) this.feedMessage(`${player.nickname} forfeits $${forfeited} to the bank.`);
   },
 
-  // The estate cash can be the missing piece of the creditor's own parked
-  // debt: the creditor was gated on a debt it could not cover, and the
-  // incoming cash may cover it now. A cash inflow retries the parked debt
-  // here, exactly as the rent and trade paths do (the same invariant T2
-  // pins on the other cash-inflow sites).
+  // The estate cash may cover the creditor's own parked debt, so a cash inflow retries it here,
+  // exactly as the rent and trade paths do. The same invariant pins the other cash-inflow sites.
   settleCreditorParkedDebt(creditor) {
     if (!creditor) return;
     const pending = this.pendingPayment;
@@ -237,12 +221,9 @@ const bankruptcyApi = {
     return contract.fromPlayerId === player.id;
   },
 
-  // A borrower's loan defaults (with the collateral seized while they still
-  // hold it); a lender's loan just terminates; an equity agreement
-  // terminates after its shares are stripped off the deed. A hybrid ends the
-  // same way as equity: its conversion shares are stripped if they exist,
-  // otherwise it simply terminates with no collateral to seize. Anything
-  // else is left untouched, exactly as the original if-ladder.
+  // A borrower's loan defaults (collateral seized while they still hold it). A lender's loan just terminates,
+  // and an equity agreement terminates after its shares are stripped off the deed. A hybrid ends like equity:
+  // its conversion shares are stripped if they exist, else it terminates with no collateral. Anything else is left untouched.
   settleBankruptContract(player, contract) {
     if (contract.kind === 'hybrid') return this.settleBankruptHybrid(player, contract);
     if (contract.kind === 'loan') return this.settleBankruptLoan(player, contract);
@@ -270,7 +251,7 @@ const bankruptcyApi = {
       this.writeOffCreditLoanResidual(player, contract);
       return;
     }
-    // The pending-payment filter guarantees one side is the bankrupt player,
+    // The pending-payment filter always leaves the bankrupt player on one side,
     // so a loan not owed by them is one they issued.
     if (contract.toPlayerId === player.id) {
       if (usesCollateralCredit(contract)) {
@@ -283,8 +264,8 @@ const bankruptcyApi = {
       this.seizeCollateralForLender(player, contract);
       return;
     }
-    // A lender who leaves cancels the loan without seizing anything (F-064:
-    // the settlement is kept, and the borrower is told about it).
+    // A lender who leaves cancels the loan without seizing anything.
+    // the settlement is kept, and the borrower is told about it.
     this.terminateContract(contract);
     this.announceLenderExit(player, contract);
   },
@@ -306,10 +287,9 @@ const bankruptcyApi = {
     }
   },
 
-  // The loan is cancelled: the borrower keeps the funds it already received,
-  // the balance still owed is forgiven, and the collateral is released. The
-  // room feed says so, and the borrower gets a private system message, queued
-  // here and delivered by the runtime's next room broadcast.
+  // The loan is cancelled: the borrower keeps the funds already received, the balance still owed is forgiven,
+  // and the collateral is released. The room feed says so, and the borrower gets a private system message,
+  // queued here and delivered by the runtime's next room broadcast.
   announceLenderExit(lender, contract) {
     const borrower = this.getPlayerById(contract.toPlayerId);
     if (!borrower) return;
@@ -377,7 +357,7 @@ const bankruptcyApi = {
   },
 
   // With a solvent creditor every deed is transferred in holding order; the
-  // collateral already seized during contract settling is no longer in the
+  // collateral already seized during contract settling is not in the
   // snapshot taken here.
   forfeitOrReleaseProperties(player, creditor) {
     const properties = [...player.properties];
@@ -403,13 +383,9 @@ const bankruptcyApi = {
     return true;
   },
 
-  // A7-08 (owner decision: keep; pinned by the "A7-08 pin" checks in
-  // casino-bankruptcy.test.js). A deed a bankruptcy releases with no solvent
-  // creditor returns to the market unbuilt and unmortgaged: its houses go back
-  // to the supply for no cash, and the mortgage is cleared without the seat
-  // repaying it. A solvent creditor takes the deed the same way (resetDeedTile
-  // in gameLogic.js). A bank seizure is deliberately different and liquidates
-  // houses at the half rate (loanLogic.js seizeLoanCollateral).
+  // Owner decision: keep. A deed released with no solvent creditor returns to the market unbuilt and
+  // unmortgaged, with houses sent to the supply for no cash; a solvent creditor takes it the same way.
+  // A bank seizure differs: it liquidates houses at the half rate (loanLogic.js seizeLoanCollateral).
   releasePropertyTile(player, tile) {
     this.terminateTileEquityShares?.(tile);
     tile.ownerId = null;
@@ -420,20 +396,15 @@ const bankruptcyApi = {
     player.properties = player.properties.filter(index => index !== tile.index);
   },
 
-  // A bankruptcy must not leave an outstanding bank loan frozen on the dead
-  // seat: the balance could never be paid (advanceBankLoan skips bankrupt
-  // players), the receivable would evaporate, and season scoring would
-  // record the loan as if it had never been serviced. Mirror the live
-  // default path: seize secured collateral (houses liquidated at the
-  // standard half-rate into the borrower's remaining cash) or record the
-  // write-off in the feed for unsecured loans.
+  // A bankruptcy must not leave a bank loan frozen on the dead seat: advanceBankLoan skips bankrupt players,
+  // so the receivable would vanish and season scoring would count a loan that was never serviced.
+  // Mirror the live default path: seize secured collateral at the half rate, or log a write-off for unsecured loans.
   settleBankLoanOnBankruptcy(player) {
     const loan = player.bankLoan;
     if (!loan) return;
-    // A loan already defaulted keeps its balance while the bank claim is queued
-    // behind the seat's other debt. The departing seat's queued claims were
-    // written off (or the head cleared) before this step, so nothing is left to
-    // collect: the loan stays terminal ('defaulted') with no balance.
+    // A loan already defaulted keeps its balance while the bank claim is queued behind the seat's other debt.
+    // The departing seat's queued claims were written off (or the head cleared) before this step, so nothing
+    // is left to collect: the loan stays terminal ('defaulted') with no balance.
     if (loan.status === 'defaulted') {
       const written = Math.max(0, Math.floor(Number(loan.remaining) || 0));
       if (usesCollateralCredit(loan)) {
@@ -476,20 +447,13 @@ const bankruptcyApi = {
     }
   },
 
-  // The last connected seat standing wins immediately; otherwise the bankrupt
-  // current player forfeits the turn. A seat still inside its reconnect grace
-  // is not connected, so it holds the table instead (as finishIfNoConnectedPlayers
-  // does), and a bankrupt current player hands the clock to a live seat so the
-  // table can resume when that seat returns.
-  // GameState.endGame owns the final table teardown and clears every pending
-  // obligation, including the payment queue. This mixin only decides whether
-  // a departing seat is eliminated or remains in debt before that shared
-  // end-game path runs.
+  // The last connected seat standing wins immediately. Otherwise a bankrupt current player forfeits the turn,
+  // and a seat inside its reconnect grace holds the table, as finishIfNoConnectedPlayers does.
+  // endGame owns the final teardown and clears every pending obligation. This only decides eliminated or in debt.
   concludeBankruptRound(player) {
-    // Liveness counts every seat that is still in the game: a seat parked on a
-    // debt can still mortgage, sell or go bankrupt, so it keeps the table
-    // alive. The debt flag decides who may be crowned and who may host (see
-    // endGame's winner selection and ensureRoomHost), not who is still seated.
+    // Liveness counts every seat still in the game: a seat parked on a debt can still mortgage, sell or go bankrupt,
+    // so it keeps the table alive. The debt flag decides who may be crowned and who may host (see endGame's
+    // winner selection and ensureRoomHost), not who is still seated.
     const connected = this.connectedNonBankruptPlayers();
     if (connected.length <= 1) {
       if (player.id === this.currentPlayerId) {

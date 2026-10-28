@@ -1,7 +1,6 @@
-// Regression checks for the bot snapshot literals: every field that claims to
-// describe live table state must actually be read from the live state. The
-// planner resolves seats and market books by key, so a literal or a mismatched
-// shape there lands as "unsupported" instead of an obviously wrong number.
+// Regression checks for the bot snapshot literals: every field that claims to describe live table state
+// must be read from the live state. The planner resolves seats and market books by key, so a mismatched
+// literal lands as "unsupported", not an obviously wrong number.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { buildBotStrategicContext } from './botStrategicContext.js';
@@ -50,7 +49,7 @@ function marketDigest(complexity) {
 
 // Two humans plus two lobby bots: the seated bots land at indexes 2 and 3, so
 // players[2] is a bot that is NOT the last seat - the arrangement whose
-// opponents[] labels used to disagree with its own board[] labels.
+// opponents[] labels must agree with the board[] labels.
 function fourSeatRoom() {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'h1', clientId: 'h1', nickname: 'Human One' });
@@ -72,7 +71,7 @@ check('the market digest reports the live short-inventory pool keyed by instrume
     'the digest must carry the live room-global pool, not a per-seat scalar');
   assert.equal(Object.keys(market.borrowableUnits).length, MARKET_INSTRUMENTS.length);
   // Shorting consumes that shared pool; the snapshot has to follow it down or
-  // the bot plans shorts the table can no longer fill.
+  // the bot plans shorts the table cannot fill.
   assert.equal(room.openShort('a', 'brazil', 2, 'b30a-open').success, true);
   assert.equal(game.marketShortInventory.brazil, 48, 'the live pool lost two units');
   const after = buildBotStrategicContext(game, game.players[0], 'pre-roll', 1).rulesDigest.market;

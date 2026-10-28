@@ -453,7 +453,7 @@ class GameState {
     this.players.forEach(player => {
       // A seat still inside its reconnect grace stays disconnected across a
       // rematch: its expiry timer is still armed, and clearing the flag here
-      // would leave a connected ghost that the timer can no longer release.
+      // would leave a connected ghost that the timer cannot release.
       const { disconnected, disconnectDeadline } = player;
       this.resetPlayerState(player);
       player.disconnected = disconnected;
@@ -681,10 +681,9 @@ class GameState {
     if (this.started) {
       return false;
     }
-    // Every retained seat consumes capacity, including bots. A room that
-    // counts only active humans can exceed its advertised seat limit after a
-    // round ends or when bots are retained for a rematch. Eliminated seats are
-    // revived by resetForNewGame, so before a match they hold capacity too.
+    // Every retained seat consumes capacity, bots included. A room that counts only active humans can exceed its advertised
+    // seat limit after a round ends or when bots are kept for a rematch. Eliminated seats are revived by resetForNewGame,
+    // so they hold capacity before a match too.
     return this.players.length < this.settings.maxPlayers;
   }
 
@@ -1001,7 +1000,7 @@ class GameState {
     }
   }
 
-  // The round limit (F-081) is announced twice before it lands.
+  // The round limit is announced twice before it lands.
   warnRoundLimit() {
     if (this.roundNumber !== ROUND_LIMIT - 50 && this.roundNumber !== ROUND_LIMIT - 10) return;
     this.feedMessage(`The game ends after round ${ROUND_LIMIT}; richest player wins.`);
@@ -1052,10 +1051,8 @@ class GameState {
     return Boolean(player) && !player.bankrupt && !player.inDebt && !this.hasPendingDebt(player.id);
   }
 
-  // Richest connected solvent seat by netWorth (netWorth.js: cash, deeds,
-  // buildings, market units, margin, shorts, options, loans and contracts, all
-  // marked to the current quote, less open debt). A tie goes to the seat earlier
-  // in turn order.
+  // Richest connected solvent seat by netWorth (netWorth.js), marked to the current quote, less open debt.
+  // A tie goes to the seat earlier in turn order.
   richestSolventSeat() {
     const orderedIds = [...new Set([...(this.turnOrder || []), ...this.players.map(player => player.id)])];
     let richest = null;
@@ -1116,11 +1113,9 @@ class GameState {
     return this.waitingSeat();
   }
 
-  // With nobody else able to play, a turn that ends while a seat is in its reconnect
-  // grace hands that seat the clock with a fresh turn. Leaving it on the seat that
-  // just finished wedged the table for good: that seat had already rolled, the
-  // returning seat was "not on turn", and nothing re-advanced the clock on return.
-  // Moving the clock around the end of the order still completes the round.
+  // With nobody else able to play, a turn ending while a seat is in its reconnect grace hands that seat the clock with a fresh turn.
+  // Leaving it on the finished seat wedged the table: that seat had already rolled, the returning seat was "not on turn", and nothing
+  // re-advanced the clock on return. Moving the clock around the end of the order still completes the round.
   parkTurnOnWaitingSeat(waiting) {
     const currentIndex = this.turnOrder.indexOf(this.currentPlayerId);
     const waitingIndex = this.turnOrder.indexOf(waiting.id);
@@ -1291,11 +1286,9 @@ class GameState {
     if (hooks.onPaid) hooks.onPaid(partial);
   }
 
-  // Every fact a rent credit touches: cash, the collection total, the payer
-  // sets and their running per-round max. Bank debts (null creditor) skip it
-  // entirely, as do bankrupt creditors: tile rent treats a bankrupt owner as
-  // vacant, so an in-flight debt never enriches a bankrupt seat either. The
-  // payer still settles; the money simply has nowhere to go.
+  // A rent credit touches cash, the collection total, the payer sets and their running per-round max. Bank debts (null creditor)
+  // skip it, as do bankrupt creditors: tile rent treats a bankrupt owner as vacant, so an in-flight debt never enriches one.
+  // The payer still settles; the money simply has nowhere to go.
   creditRentTo(creditor, payer, amount) {
     if (!creditor) return;
     if (creditor.bankrupt) return;
@@ -1357,17 +1350,14 @@ class GameState {
     }
   }
 
-  // Pays the parked debt in full from the debtor's cash. The live settle path
-  // reaches it through trySettlePendingPayment; the AFK/expiry path calls it
-  // directly, because a seat still inside its reconnect grace can cover its
-  // debt, and that payment must not turn into a whole-estate bankruptcy.
+  // Pays the parked debt in full from the debtor's cash. The live settle path reaches it through trySettlePendingPayment;
+  // the AFK and expiry path calls it directly, since a seat still in reconnect grace can cover its debt, and that payment
+  // must not turn into a whole-estate bankruptcy.
   collectPendingPayment(player) {
     if (!this.pendingPayment || !player || player.bankrupt) return false;
-    // Re-entrancy guard: collecting the head claim can credit a recipient
-    // (an equity rent share paid to the seat that owes the very rent), and
-    // that inflow retries the claim that is being collected right now. The
-    // retry must not collect the same rent a second time, and it must not
-    // clear the claim under the collection that is still running.
+    // Re-entrancy guard: collecting the head claim can credit a recipient (an equity rent share paid to the seat that owes the rent),
+    // and that inflow retries the claim being collected right now. The retry must not collect the same rent twice, and it must not
+    // clear the claim under the collection still running.
     if (this.collectingPendingPayment) return false;
     if (player.cash < this.pendingPayment.amountRemaining) {
       return false;
@@ -1429,10 +1419,9 @@ class GameState {
     this.syncDebtFlags();
   }
 
-  // Remainder path replays the debt hooks exactly once. Equity debts replay
-  // through their stored indexes in settlePendingEquityShares, so the generic
-  // hook only runs for non-equity debts (today: vacation-pool tax). Partial
-  // payments already ran the hook for their share via tenderPartialDebt.
+  // The remainder path replays the debt hooks exactly once. Equity debts replay through their stored indexes in
+  // settlePendingEquityShares, so the generic hook runs only for non-equity debts (today: vacation-pool tax). Partial payments
+  // already ran the hook for their share via tenderPartialDebt.
   settlePendingHooks(amount) {
     if (this.pendingPayment.equityTileIndex != null) return;
     const onPaid = this.pendingPaymentHooks?.onPaid;
@@ -1527,11 +1516,9 @@ class GameState {
   }
 
   endGame(crowned = null, { reason = null } = {}) {
-    // A disconnected seat is not an eligible winner. If every solvent seat
-    // has gone offline, finish without crowning a ghost; a supervisor can
-    // still retain the match record for diagnostics. The one exception is
-    // the last solvent seat whose reconnect grace ran out, which the runtime
-    // crowns explicitly (socketRuntime crownLoneSolventSeat).
+    // A disconnected seat is not an eligible winner. If every solvent seat is offline, finish without crowning a ghost;
+    // a supervisor can still retain the match record for diagnostics. The exception is the last solvent seat whose reconnect
+    // grace ran out, which the runtime crowns explicitly (socketRuntime crownLoneSolventSeat).
     const winner = crowned || this.connectedNonBankruptPlayers().find(player => this.isSolventSeat(player)) || null;
     // Keep the score basis from the moment the winner is selected. In
     // particular, round-limit winners are chosen on net worth before the
@@ -1547,13 +1534,13 @@ class GameState {
       }
     }
     // Close the table's open obligations before the final snapshot: a cancelled
-    // sponsorship refunds cash and a cleared claim no longer subtracts a debt
+    // sponsorship refunds cash and a cleared claim does not subtract a debt
     // the ending table will never collect.
     this.cancelSponsoredPurchase();
     this.pendingPaymentQueue = [];
     this.clearPendingPayment(false);
-    // Margin, short and option equity is settled here so that no debt or
-    // collateral is left open on a table that no longer runs.
+    // Margin, short and option equity is settled here, so no debt or
+    // collateral is left open on a table that does not run.
     this.players.forEach(player => {
       this.liquidateAllMarketPositions(player);
       this.liquidateItems(player);

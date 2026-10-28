@@ -81,6 +81,10 @@ export function registerAdminOpsRoutes(app, {
     return {};
   }
 
+  function auditHealth() {
+    try { return auditLog?.health?.() || { state: 'ok', since: null, preservedAs: null, message: null }; } catch { return { state: 'unreadable', since: null, preservedAs: null, message: 'The audit log state could not be read.' }; }
+  }
+
   router.use((_req, res, next) => { setAnalyticsNoStoreHeaders(res); next(); });
   // Sign-in is checked before the body is parsed, so an anonymous caller learns
   // nothing from a malformed payload.
@@ -89,23 +93,25 @@ export function registerAdminOpsRoutes(app, {
 
   router.get('/status', (_req, res) => {
     const runtime = readRuntime();
-    return res.json(buildOpsStatus({
-      now: now(),
-      runtime,
-      metrics: summarizeRuntimeMetrics(metrics),
-      backup: runtime.backup,
-      backupIntervalMs: runtime.backupIntervalMs,
-      storage: { storesLoaded: runtime.storesLoaded, dataDirectory: runtime.dataDirectory, rollup: rollup?.health?.() },
-      maintenance: maintenance?.snapshot?.() || null,
-      operatorPassword: operatorPassword === true,
-    }));
+    return res.json({
+      ...buildOpsStatus({
+        now: now(),
+        runtime,
+        metrics: summarizeRuntimeMetrics(metrics),
+        backup: runtime.backup,
+        backupIntervalMs: runtime.backupIntervalMs,
+        storage: { storesLoaded: runtime.storesLoaded, dataDirectory: runtime.dataDirectory, rollup: rollup?.health?.() },
+        maintenance: maintenance?.snapshot?.() || null,
+        operatorPassword: operatorPassword === true,
+      }),
+      // A corrupt or unreadable audit file is reported here, not hidden behind an empty-looking log.
+      auditLog: auditHealth(),
+    });
   });
 
-  // Same transitions as the token-protected /internal/maintenance. Differences,
-  // all about telling the operator the truth: a deadline that is unparseable or
-  // already past is a 400 (the internal route accepts it and drains at once),
-  // and asking for a drain while the table is in maintenance is a 409 because
-  // the controller would otherwise answer 200 and change nothing.
+  // Same transitions as the token-protected /internal/maintenance, with three differences:
+  // an unparseable or past deadline is a 400 (the internal route drains at once), and a drain
+  // requested during maintenance is a 409, since the controller would otherwise answer 200 and change nothing.
   router.post('/maintenance', writeGuard, (req, res) => {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const mode = typeof body.mode === 'string' ? body.mode.trim().toLowerCase() : '';
@@ -134,11 +140,9 @@ export function registerAdminOpsRoutes(app, {
     return res.json({ success: true, maintenance: snapshot, ...(unsaved ? { persisted: false } : {}), ...note });
   });
 
-  // The "under maintenance" panel. On: maintenance with the public site closed
-  // (sign-in by operator password or admin account). Off: the panel goes, the
-  // table stays in maintenance; reopen:true goes straight back to normal.
-  // Repeating either state answers 200 with the unchanged snapshot. The audit
-  // entry is on/off/reopen only: never the message or the release id.
+  // The "under maintenance" panel. On closes the public site (operator password or admin sign-in
+  // still works). Off drops the panel but keeps maintenance; reopen:true returns to normal. Repeating
+  // a state answers 200 with the unchanged snapshot. The audit entry records on/off/reopen only.
   router.post('/lockout', writeGuard, (req, res) => {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const reopen = body.reopen === undefined ? false : body.reopen;
@@ -173,7 +177,11 @@ export function registerAdminOpsRoutes(app, {
     return res.json(buildOpsBots({ rollup, range, providerStatus: providerManager?.status?.() || null, now: now(), metrics: summarizeRuntimeMetrics(metrics) }));
   });
 
-  router.get('/audit', (_req, res) => res.json({ success: true, entries: auditLog ? auditLog.list() : [] }));
+  // The log keeps the newest 500 entries; the console reads the newest 50 unless it asks for more (?limit=, up to 500).
+  router.get('/audit', (req, res) => {
+    const limit = Math.min(500, Math.max(1, Math.floor(Number(req.query?.limit)) || 50));
+    return res.json({ success: true, entries: auditLog ? auditLog.list().slice(0, limit) : [], health: auditHealth() });
+  });
 
   // Body-parser failures are the caller's fault; anything else goes to the
   // app's own error handler.

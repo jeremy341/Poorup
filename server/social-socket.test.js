@@ -1,7 +1,12 @@
-// Social socket layer fixes from the s10 / s12 / s17 audit reports: the shared
+// Social socket layer checks: the shared
 // rate buckets, live-socket re-validation, leaderboard cost and privacy, and
 // the deactivation / history-privacy gates on the public handlers.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { AccountStore } from './accountStore.js';
+import { SocialStore } from './socialStore.js';
 import { createSocialApi } from './socketSocialApi.js';
 import { registerSocialSocketHandlers } from './serverSocketSocial.js';
 
@@ -12,7 +17,7 @@ function withClock(start, run) {
   try { return run(value => { clock = value; }); } finally { Date.now = realNow; }
 }
 
-// S10-10 / S17-05: rate buckets of accounts and addresses that went quiet are swept.
+// Rate buckets of accounts and addresses that went quiet are swept.
 withClock(1_000_000, setClock => {
   const api = createSocialApi({ io: { sockets: { sockets: new Map() } }, accountStore: {}, socialStore: {}, matchStore: {}, achievementStore: {} });
   for (let index = 0; index < 3000; index += 1) api.allowSocialAction(`acct-${index}`, 'friend-request');
@@ -25,7 +30,7 @@ withClock(1_000_000, setClock => {
   console.log('PASS social rate buckets are swept once their window has passed');
 });
 
-// S10-04: a socket whose session was revoked stops receiving private pushes.
+// A socket whose session was revoked stops receiving private pushes.
 {
   const live = new Set(['hash-live']);
   const sessions = new Set(['sess-live']);
@@ -56,7 +61,7 @@ withClock(1_000_000, setClock => {
   console.log('PASS social pushes skip and sign out sockets whose session was revoked');
 }
 
-// s12 M2: a failing achievement write is handled instead of escaping into the settlement.
+// A failing achievement write is handled instead of escaping into the settlement.
 {
   const api = createSocialApi({
     io: { emit() {}, sockets: { sockets: new Map() } },
@@ -67,7 +72,7 @@ withClock(1_000_000, setClock => {
   console.log('PASS a failed achievement persist does not escape the settlement');
 }
 
-// H3: a notification persist failure after a verified unlock is best-effort;
+// A notification persist failure after a verified unlock is best-effort;
 // it must not escape into the settlement loop.
 {
   const api = createSocialApi({
@@ -85,7 +90,7 @@ withClock(1_000_000, setClock => {
   console.log('PASS a notification persist failure does not abort achievement settlement');
 }
 
-// H4: a legacy match record without a participants array is ignored.
+// A legacy match record without a participants array is ignored.
 {
   const api = createSocialApi({
     io: { sockets: { sockets: new Map() }, emit() {} },
@@ -97,7 +102,7 @@ withClock(1_000_000, setClock => {
   console.log('PASS a legacy record without participants does not crash recent players');
 }
 
-// H5: deactivated and blocked accounts never become recent-player rows.
+// Deactivated and blocked accounts never become recent-player rows.
 {
   const now = new Date().toISOString();
   const api = createSocialApi({
@@ -122,7 +127,7 @@ withClock(1_000_000, setClock => {
   console.log('PASS deactivated and blocked accounts are not recent players');
 }
 
-// ---- handler fixtures ------------------------------------------------------
+// handler fixtures
 
 function account(id, extra = {}) {
   return { id, username: id.replace('acct-', ''), displayName: id.toUpperCase(), color: '#d74438', avatarGrid: null, privacy: { history: 'public', achievements: 'friends', friendRequests: 'everyone', roomInvites: 'friends' }, ...extra };
@@ -186,8 +191,9 @@ function socialHarness({ viewer = null, accounts = [], friendships = {}, friends
 // Cached rows are rechecked against live achievement privacy on every reply,
 // including the rate-limited stale-cache path.
 {
-  const hidden = account('acct-cache-private');
-  const open = account('acct-cache-open');
+  const publicPrivacy = () => ({ privacy: { history: 'public', achievements: 'public', friendRequests: 'everyone', roomInvites: 'friends' } });
+  const hidden = account('acct-cache-private', publicPrivacy());
+  const open = account('acct-cache-open', publicPrivacy());
   const rows = [hidden, open].map((entry, index) => ({ accountId: entry.id, username: entry.username, displayName: entry.displayName, value: 10 - index, wins: 10 - index, achievements: 7, achievementScore: 70, mythical: 1 }));
   const h = socialHarness({ accounts: [hidden, open], privacy: { metrics: { wins: rows, achievements: rows } } });
   let cacheTime = 1000;
@@ -211,7 +217,7 @@ function socialHarness({ viewer = null, accounts = [], friendships = {}, friends
   assert.equal(stalePrivate.metrics.wins.find(row => row.accountId === 'cache-private').achievements, undefined, 'expired budget-limited cache still redacts private fields');
   assert.deepEqual(stalePrivate.metrics.achievements.map(row => row.accountId), ['cache-open']);
   assert.equal(h.calls.snapshot, 1, 'expired cache cannot recompute after the read budget is exhausted');
-  hidden.privacy.achievements = 'friends';
+  hidden.privacy.achievements = 'public';
   const fallback = h.ask('get-leaderboard-snapshot', { scope: 'all' });
   assert.equal(fallback.metrics.wins.find(row => row.accountId === 'cache-private').achievements, 7, 'stale fallback reflects privacy becoming public again');
   assert.deepEqual(fallback.metrics.achievements.map(row => row.accountId), ['cache-private', 'cache-open']);
@@ -221,7 +227,7 @@ function socialHarness({ viewer = null, accounts = [], friendships = {}, friends
 const PENDING = { success: false, code: 'ACCOUNT_DELETION_PENDING', error: 'Account deletion is pending.' };
 const NOT_FOUND = { success: false, error: 'Player not found.' };
 
-// S10-02: anonymous budgets key on the proxy-aware address, not the proxy's.
+// Anonymous budgets key on the proxy-aware address, not the proxy's.
 {
   const previous = process.env.POORUP_TRUST_PROXY_HOPS;
   process.env.POORUP_TRUST_PROXY_HOPS = '1';
@@ -238,7 +244,7 @@ const NOT_FOUND = { success: false, error: 'Player not found.' };
   console.log('PASS anonymous budgets use the proxy-aware client address');
 }
 
-// S10-01 / P0-2: leaderboards are cached, and recomputing is budgeted.
+// Leaderboards are cached, and recomputing is budgeted.
 {
   const h = socialHarness();
   h.ask('get-leaderboard-snapshot', { scope: 'month' });
@@ -260,10 +266,10 @@ const NOT_FOUND = { success: false, error: 'Player not found.' };
   console.log('PASS leaderboards are cached and recomputes are budgeted');
 }
 
-// S10-07: a private-achievements account is not ranked or described by achievements.
+// A private-achievements account is not ranked or described by achievements.
 {
   const hidden = account('acct-hidden', { privacy: { history: 'public', achievements: 'private', friendRequests: 'everyone', roomInvites: 'friends' } });
-  const open = account('acct-open');
+  const open = account('acct-open', { privacy: { history: 'public', achievements: 'public', friendRequests: 'everyone', roomInvites: 'friends' } });
   const rowFor = entry => ({ accountId: entry.id, username: entry.username, displayName: entry.displayName, value: 3, achievements: 4, achievementScore: 90, mythical: 1, wins: 2 });
   const h = socialHarness({ accounts: [hidden, open], privacy: { metrics: { wins: [rowFor(hidden), rowFor(open)], achievements: [rowFor(hidden), rowFor(open)], mythical: [rowFor(hidden)] } } });
   const ack = h.ask('get-leaderboard-snapshot', { scope: 'all' });
@@ -278,7 +284,7 @@ const NOT_FOUND = { success: false, error: 'Player not found.' };
   console.log('PASS private achievements stay off the leaderboard');
 }
 
-// S10-03 / S10-18: a deactivated account takes no seat through invites, and is not a target.
+// A deactivated account takes no seat through invites, and is not a target.
 {
   const deactivated = account('acct-gone', { accountDeactivated: true });
   const friend = account('acct-friend');
@@ -294,7 +300,7 @@ const NOT_FOUND = { success: false, error: 'Player not found.' };
   console.log('PASS deactivated accounts take no seat and receive no invites or requests');
 }
 
-// S10-05: a deactivated account's history and recent matches stay hidden.
+// A deactivated account's history and recent matches stay hidden.
 {
   const deactivated = account('acct-gone', { accountDeactivated: true });
   const h = socialHarness({ accounts: [deactivated] });
@@ -305,7 +311,7 @@ const NOT_FOUND = { success: false, error: 'Player not found.' };
   console.log('PASS a deactivated account\'s match history is not public');
 }
 
-// S10-06: history "private" holds on the player card for friends, as on get-match-history.
+// History "private" holds on the player card for friends, as on get-match-history.
 {
   const viewer = account('acct-viewer');
   const hidden = account('acct-hidden', { privacy: { history: 'private', achievements: 'friends', friendRequests: 'everyone', roomInvites: 'friends' } });
@@ -319,7 +325,7 @@ const NOT_FOUND = { success: false, error: 'Player not found.' };
   console.log('PASS the player card honours a private match history');
 }
 
-// S10-08: the moderation verbs are budgeted like the other social actions.
+// The moderation verbs are budgeted like the other social actions.
 {
   const viewer = account('acct-viewer');
   const other = account('acct-other');
@@ -334,7 +340,7 @@ const NOT_FOUND = { success: false, error: 'Player not found.' };
   console.log('PASS block, report, remove and cancel are budgeted');
 }
 
-// H8: notification reads spend the account budget, and an already-read
+// Notification reads spend the account budget, and an already-read
 // notification is not rewritten.
 {
   const viewer = account('acct-viewer');
@@ -352,7 +358,7 @@ const NOT_FOUND = { success: false, error: 'Player not found.' };
   console.log('PASS notification reads are budgeted and already-read rows are left alone');
 }
 
-// H8: signed-in player-card reads spend the per-account bucket too.
+// Signed-in player-card reads spend the per-account bucket too.
 {
   const viewer = account('acct-viewer');
   const target = account('acct-target');
@@ -365,7 +371,7 @@ const NOT_FOUND = { success: false, error: 'Player not found.' };
   console.log('PASS signed-in player-card reads are budgeted');
 }
 
-// H8: friends leaderboards recompute on demand, so each recompute is budgeted.
+// Friends leaderboards recompute on demand, so each recompute is budgeted.
 {
   const viewer = account('acct-viewer');
   const friend = account('acct-friend');
@@ -400,7 +406,7 @@ const NOT_FOUND = { success: false, error: 'Player not found.' };
 }
 
 // Perf: a social summary builds the friendship lookup once instead of scanning
-// the friendships collection for every friend card. Output must match the old
+// the friendships collection for every friend card. Output must match the
 // per-card algorithm (a store without the index helper takes that path).
 {
   const fs = await import('node:fs');
@@ -449,4 +455,33 @@ const NOT_FOUND = { success: false, error: 'Player not found.' };
   console.log('PASS social summary indexes friendships once');
 }
 
-console.log('social socket audit: 16 scenarios passed, 0 failed');
+// A player the target blocked cannot read the target's public match history either.
+{
+  const blockedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-blocked-history-'));
+  const accountStore = new AccountStore(path.join(blockedRoot, 'accounts.json'));
+  const socialStore = new SocialStore(path.join(blockedRoot, 'social.json'));
+  const io = { sockets: { sockets: new Map() }, in() { return { emit() {} }; }, emit() {} };
+  const social = createSocialApi({ io, accountStore, socialStore, matchStore: null, achievementStore: null, sessionStore: null });
+  const target = accountStore.register({ username: 'blocker_x', displayName: 'Blocker', password: 'blocker-pass-1' });
+  const viewer = accountStore.register({ username: 'blocked_y', displayName: 'Viewer', password: 'viewer-pass-1' });
+  accountStore.register({ username: 'bystander_z', displayName: 'Bystander', password: 'bystander-pass-1' });
+  const viewerLogin = accountStore.login({ username: 'blocked_y', password: 'viewer-pass-1' });
+  const bystanderLogin = accountStore.login({ username: 'bystander_z', password: 'bystander-pass-1' });
+  const targetAccount = accountStore.getAccountById(target.account.id);
+  targetAccount.privacy.history = 'public';
+  targetAccount.matchHistory = [{ matchId: 'm1', completedAt: new Date().toISOString(), roomVisibility: 'public', roundCount: 3, participants: [{ accountId: target.account.id, displayNameAtMatch: 'Blocker', finalPlacement: 1, propertyCount: 2 }] }];
+  assert.equal(socialStore.blockPlayer(target.account.id, viewer.account.id).success, true);
+  const handlers = new Map();
+  const socket = { id: 'sock-viewer', data: {}, handshake: { headers: {} }, request: { headers: {} }, rooms: new Set(), emit() {}, join() {}, leave() {}, on() {} };
+  registerSocialSocketHandlers((name, fn) => handlers.set(name, fn), socket, { accountStore, socialStore, matchStore: null, social, io, getRoomForSocket: () => null, roomManager: { getRoomBySocket: () => null } });
+  const call = (name, payload) => new Promise(resolve => handlers.get(name)(payload, resolve));
+  const blocked = await call('get-match-history', { sessionToken: viewerLogin.sessionToken, accountId: 'blocker_x' });
+  assert.equal(blocked.success, false, 'the blocked viewer gets no history');
+  assert.equal(blocked.history, undefined);
+  const open = await call('get-match-history', { sessionToken: bystanderLogin.sessionToken, accountId: 'blocker_x' });
+  assert.equal(open.success, true, 'an unblocked viewer still sees a public history');
+  fs.rmSync(blockedRoot, { recursive: true, force: true });
+  console.log('PASS a blocked viewer cannot read the blocker\'s match history');
+}
+
+console.log('social socket audit: 17 scenarios passed, 0 failed');

@@ -1,14 +1,6 @@
-// Planner accounting for the staged-complexity market positions (margin longs
-// and shorts). The planner scores an action by the mark-to-market net worth it
-// changes, so each position is carried exactly as the engine carries it
-// (marketExpansion.js): a short keeps its collateral, owes its units at the
-// quote and owes the borrow fee; a margin long keeps its units, its collateral
-// and its loan. Opening either one therefore moves net worth only by the fees
-// it pays, instead of booking the short's sale proceeds as profit (the old
-// +48 an open-short scored at a $100 quote, whose real value is about -5).
-//
-// Everything here is pure over the planner's cloned state; the market rules
-// themselves (rates, guards, forced liquidation) are owned by marketExpansion.js.
+// Planner accounting for staged-complexity market positions (margin longs and shorts). The planner scores an action by the mark-to-market
+// net worth it changes, so each position is carried as the engine carries it (marketExpansion.js): a short keeps its collateral and owes its units
+// at the quote plus the borrow fee; a margin long keeps its units, collateral and loan. Opening either moves net worth only by the fees paid.
 import { MARKET_FEE_RATE } from './marketLogic.js';
 import {
   MARGIN_COLLATERAL_RATE,
@@ -62,10 +54,8 @@ export function applyOpenMargin(state, candidate, context) {
   context.margin.collateral = number(context.margin.collateral) + collateral;
   const position = context.margin.positions[candidate.instrumentId] || { quantity: 0, averageCost: 0 };
   const oldQuantity = nonNegative(position.quantity);
-  // The engine capitalises the opening fee into the basis (marketExpansion.js
-  // openMargin), so a sale or a forced liquidation reports it as realized P&L.
-  // The projection has to carry the same basis, or it values the position
-  // higher than the engine holds it.
+  // The engine capitalises the opening fee into the basis (marketExpansion.js openMargin), so a sale or forced
+  // liquidation reports it as realized P&L. The projection must carry the same basis or it overvalues the position.
   position.averageCost = ((number(position.averageCost) * oldQuantity) + gross + number(context.fee)) / Math.max(1, oldQuantity + context.quantity);
   position.quantity = oldQuantity + context.quantity;
   context.margin.positions[candidate.instrumentId] = position;
@@ -156,10 +146,8 @@ export function applySettleShortDefault(state, candidate) {
   return true;
 }
 
-// Net worth carried by margin and short books at the projected quotes:
-// margin units + held collateral - the loan; short collateral - units owed at
-// the quote (plus the cover fee a forced or voluntary exit must pay) - the
-// borrow fee still to be charged.
+// Net worth carried by margin and short books at projected quotes: margin units + collateral - loan; short collateral
+// - units owed at the quote (plus the cover fee an exit must pay) - the borrow fee still to be charged.
 export function leveragedNetWorth(state) {
   const expansion = state.marketExpansion || {};
   const quotes = state.marketQuotes;
@@ -214,10 +202,8 @@ function shortHoldingCost(state, reserveFor) {
   return cost;
 }
 
-// Exposure the projected margin and short books carry: the volatility reserve of
-// every unit held, a short's tail, hold charge, unrealised loss and buy-in risk,
-// and a margin loan's liquidation risk. Charged to the baseline too, so exiting a
-// position (cover, repay) earns exactly the cost it removes.
+// Exposure carried by the projected margin and short books: the volatility reserve of every unit held, a short's tail,
+// hold charge and buy-in risk, and a margin loan's liquidation risk. Charged to the baseline too, so exiting earns exactly the cost it removes.
 export function leveragedHoldingCost(state, reserveFor) {
   return marginHoldingCost(state, reserveFor) + shortHoldingCost(state, reserveFor);
 }

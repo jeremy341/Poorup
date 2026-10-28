@@ -17,7 +17,7 @@ import {
 
 // mulberry32: a well-mixed deterministic PRNG. The previous linear congruential
 // generator alternated parity on every draw, and two consecutive dice reduced
-// with % 6 therefore never matched, so the simulator never rolled doubles (F-063).
+// with % 6 therefore never matched, so the simulator never rolled doubles.
 function mulberry32(initialState) {
   let state = initialState | 0;
   return () => {
@@ -28,10 +28,8 @@ function mulberry32(initialState) {
   };
 }
 
-// The PRNG state is 32 bits wide, so a seed outside the unsigned 32-bit range
-// was silently truncated into a different seed's stream: seed 2^32 and seed 0
-// produced the same match. A seed is validated and the validated value is the
-// one that is reported.
+// The PRNG state is 32 bits wide, so a seed outside the unsigned 32-bit range was silently truncated into another seed's
+// stream (seed 2^32 and seed 0 matched). Seeds are validated, and the validated value is the one reported.
 export const MAX_SIMULATION_SEED = 0xFFFFFFFF;
 
 export function normalizeSimulationSeed(seedValue) {
@@ -119,11 +117,9 @@ export function withSeededSimulationGlobals(seedValue, callback) {
   return queued;
 }
 
-// A match ends on its own at ROUND_LIMIT, so the step budget scales with it. A
-// 3-seat planner game spends about 3.7 steps per seat-round (3,000-3,500 steps
-// for 300 rounds); 12 per seat-round leaves roughly 3x headroom for auction
-// bursts. The old fixed 2,000-step budget censored every planner game before the
-// round limit (0 of 24 finished), so win rates described unfinished positions.
+// A match ends on its own at ROUND_LIMIT, so the step budget scales with it: a 3-seat planner game spends about 3.7 steps
+// per seat-round, and 12 per seat-round leaves about 3x headroom for auction bursts. A fixed 2,000-step budget censored
+// every planner game before the round limit (0 of 24 finished), so win rates described unfinished positions.
 export const STEPS_PER_SEAT_ROUND = 12;
 
 export function defaultStepLimit(seatCount) {
@@ -138,10 +134,8 @@ function resolveStepLimit(requested, seatCount) {
   return limit;
 }
 
-// Harness economy, not the shipped room default (F-083): casino, market and
-// globalEvents default ON, startingCash defaults to 500 (roomSettings default
-// is 1500), and seatCount is clamped to 2-3. Tournament numbers describe this
-// variant, so they are not evidence about a default table.
+// Harness economy, not the shipped room default: casino, market and globalEvents on, startingCash 500 (roomSettings default is 1500),
+// seatCount clamped to 2-3. Tournament numbers describe this variant, not a default table.
 export function createSimulationRoom({ boardVariant = 'standard-40', settings = {} } = {}) {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'simulation-host', clientId: 'simulation-host', nickname: 'SIM HOST', color: '#d74438', isBot: true, boardVariant });
@@ -249,10 +243,8 @@ function botIdForPolicy(players, policyByPlayer, policyId) {
   return players.find(player => player.isBot && policyByPlayer.get(player.id) === policyId)?.id || null;
 }
 
-// Advisor state that must not survive a match boundary. A shared advisor
-// otherwise carries the previous match's call budget, circuit breaker state
-// and counters into the next one, so a later match falls back to the
-// deterministic planner for reasons that have nothing to do with that match.
+// Advisor state that must not survive a match boundary. A shared advisor would carry the previous match's call budget, circuit
+// breaker state and counters into the next one, forcing fallbacks for reasons unrelated to that match.
 const ADVISOR_MATCH_STATE = {
   aiCalls: 0,
   fallbackCalls: 0,
@@ -280,10 +272,8 @@ function resetAdvisorForMatch(advisor) {
   return advisor;
 }
 
-// A policy may carry `createAdvisor`; each match then gets its own advisor, so
-// call timestamps, circuit state, budgets and counters never leak between
-// matches. A policy that only carries an advisor shares that instance, so its
-// per-match state is reset instead of inherited.
+// A policy may carry `createAdvisor`, giving each match its own advisor so call timestamps, circuit state, budgets and counters
+// never leak between matches. A policy that only carries an advisor shares it, so its per-match state is reset instead.
 function materializePolicy(policy) {
   if (typeof policy.createAdvisor === 'function') return { ...policy, advisor: policy.createAdvisor() };
   return { ...policy, advisor: resetAdvisorForMatch(policy.advisor) };
@@ -358,10 +348,8 @@ function createSimulationContext(options, advanceTime) {
   };
 }
 
-// Seats respond to an auction in a cycle, never in fixed seat order. A fixed
-// order let seat 0 always open and answer first (one seat won 11 of 12 auctions
-// at cash 1500). The opening seat advances one seat per auction, offset by the
-// match seed; after a bid the next responder is the seat after the bidder.
+// Seats respond to an auction in a cycle, never in fixed seat order: a fixed order let seat 0 always open and answer first
+// (one seat won 11 of 12 auctions at cash 1500). The opening seat advances one per auction, offset by the match seed.
 export function auctionResponseOrder(context, auction) {
   const { players } = context.room.game;
   const key = `${auction.startedAt || 0}:${auction.propertyTile?.index ?? 'x'}`;
@@ -421,10 +409,8 @@ async function runAuctionAction(context, bot, policy) {
   const auctionVersion = simulationAuctionIdentity(auction, bot);
   const projectedValue = auctionWillingness(auction, bot, game);
   const decisionSequence = Number(game.botDecisionSequence || 0);
-  // The live path (socketRuntime.beginBotAuctionBidUnlocked) hands the advisor
-  // the game and this same set of context fields. Without them the simulated
-  // auction decision ran on a blind baseline: the policy difficulty was
-  // ignored and the reserve was a flat floor.
+  // The live path (socketRuntime.beginBotAuctionBidUnlocked) passes the advisor the game and this same set of context fields.
+  // Without them the simulated auction ran on a blind baseline: the difficulty was ignored and the reserve was a flat floor.
   const decisionContext = {
     botId: bot.id,
     botBrain: policy.brain || 'no-ai',
@@ -622,7 +608,7 @@ function finalizeMatch(context) {
 export async function simulateBotMatch(options) {
   validatePolicyBySeat(options.policyBySeat);
   // The seed is validated and normalized once, so the match reports the seed
-  // that actually ran instead of the raw value that was truncated into it.
+  // that actually ran, not the raw value that was truncated into it.
   const seed = normalizeSimulationSeed(options.seed);
   const startedAt = performance.now();
   const result = await withSeededSimulationGlobals(seed, async ({ advanceTime }) => {

@@ -1,7 +1,5 @@
-// Host election is repaired whenever a seat returns, joins, is pruned, or is
-// eliminated. Before the repair, a dropped host left hostId null for good and a
-// bankrupt host kept the role, so set-setting/start-game were refused for every
-// remaining human.
+// Host election is repaired whenever a seat returns, joins, is pruned or is eliminated. Before the repair, a dropped host left
+// hostId null for good, and a bankrupt host kept the role, so set-setting and start-game were refused for every remaining human.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { createRuntime } from './socketRuntime.js';

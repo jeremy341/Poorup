@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createRetentionJob } from './retentionJob.js';
+import { TelemetryStore } from './telemetryModule.js';
 
 let calls = 0;
 const job = createRetentionJob({
@@ -12,7 +13,7 @@ const result = await job.runOnce();
 assert.deepEqual(result, { deletions: { processed: 2, succeeded: 2, failed: 0 }, analyticsPruned: 4, backupsPruned: 3, telemetryPruned: 0, failures: 0 });
 assert.equal(calls, 2);
 
-// N11a: Node clamps a delay above 2^31-1 ms to 1 ms, so a long configured
+// Node clamps a delay above 2^31-1 ms to 1 ms, so a long configured
 // interval would otherwise become a hot loop instead of a daily job.
 {
   const MAX_TIMER_MS = 2 ** 31 - 1;
@@ -29,7 +30,7 @@ assert.equal(calls, 2);
   assert.equal(delays[1], 60_000, 'below the floor it still runs at the one minute minimum');
 }
 
-// N11b: a quiet retention run must persist its prune, not leave it in memory.
+// A quiet retention run must persist its prune, not leave it in memory.
 {
   let pruneOptions = null;
   const job = createRetentionJob({
@@ -40,7 +41,7 @@ assert.equal(calls, 2);
   assert.equal(pruneOptions.flush, true, 'the retention run asks the store to flush the prune');
 }
 
-// N11d: an overlapping run answers with the same shape as a completed run.
+// An overlapping run answers with the same shape as a completed run.
 {
   let release;
   const gate = new Promise(resolve => { release = resolve; });
@@ -57,7 +58,7 @@ assert.equal(calls, 2);
   assert.equal(overlapping.telemetryPruned, 0);
 }
 
-// S12-M4: an empty, zero or non-numeric retention setting means "default", not
+// An empty, zero or non-numeric retention setting means "default", not
 // "delete everything older than now".
 {
   const DAY = 24 * 60 * 60 * 1000;
@@ -85,7 +86,7 @@ assert.equal(calls, 2);
   assert.equal(honoured.backups, 45 * DAY);
 }
 
-// S12-L3: one failing step does not skip the rest, and the failure is counted.
+// One failing step does not skip the rest, and the failure is counted.
 {
   const originalError = console.error;
   console.error = () => {};
@@ -108,5 +109,30 @@ assert.equal(calls, 2);
   } finally {
     console.error = originalError;
   }
+}
+for (const asynchronous of [false, true]) {
+  let fail = false;
+  const snapshots = [];
+  const store = new TelemetryStore('', { persist: snapshot => {
+    snapshots.push(snapshot);
+    if (fail) {
+      if (asynchronous) return Promise.reject(new Error('disk busy'));
+      throw new Error('disk busy');
+    }
+    return asynchronous ? Promise.resolve() : undefined;
+  }});
+  store.record('bankruptcy', { count: 1 });
+  await store.flush();
+  fail = true;
+  const oldError = console.error;
+  console.error = () => {};
+  let outcome;
+  try { outcome = await createRetentionJob({ telemetryStore: store, now: () => Date.now() + 400 * 86400000 }).runOnce(); }
+  finally { console.error = oldError; }
+  assert.equal(outcome.failures, 1, `${asynchronous ? 'async' : 'sync'} failure is reported`);
+  fail = false;
+  await store.flush();
+  assert.deepEqual(snapshots.at(-1), [], 'failed prune is retried');
+  await store.close();
 }
 console.log('retention job: 4 passed, 0 failed');

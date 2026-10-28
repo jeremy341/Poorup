@@ -1,7 +1,6 @@
-// Round limit (F-081). Some tables never produced a winner: the catch-up bonus
-// kept a poor seat solvent, so endGame never ran. A table that runs past
-// ROUND_LIMIT rounds now ends through endGame with the richest solvent seat as
-// the winner. Warnings go to the feed at ROUND_LIMIT - 50 and ROUND_LIMIT - 10.
+// Round limit. Some tables never produced a winner: the catch-up bonus kept a poor seat solvent, so endGame never ran.
+// A table running past ROUND_LIMIT ends through endGame, with the richest solvent seat as the winner.
+// Warnings go to the feed at ROUND_LIMIT - 50 and ROUND_LIMIT - 10.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { ROUND_LIMIT } from './gameData.js';

@@ -12,19 +12,16 @@ function textOrDefault(value, fallback) {
   return String(value || fallback);
 }
 
-// One net-worth definition for the whole server (netWorth.js): cash, deeds,
-// houses at resale, spot/margin/short/option exposure, bank loan, short
-// default debt, pending payments, loan and hybrid contracts, and default
-// claims. The tournament used to add up its own partial total, so a seat with
-// a contract, a short-default debt or a paid-off loan was worth more here
-// than in the engine that ranks the same seats (botTableBrain, gameLogic).
+// One net-worth definition for the whole server (netWorth.js): cash, deeds, houses at resale, spot and derivative exposure,
+// bank loan, short-default debt, pending payments, loan and hybrid contracts, and default claims. The tournament must not
+// add up its own partial total, so a seat with a contract, short-default debt or paid-off loan is valued as the engine ranks it.
 export function playerNetWorth(game, player) {
   return netWorth(game, player);
 }
 
 // The engine crowns the round-limit winner on the unclamped breakdown total
 // (gameLogic.endForRoundLimit), so the placement order uses the same number:
-// a seat deep in debt stays below a solvent seat instead of tying with it.
+// a seat deep in debt stays below a solvent seat and never ties with it.
 function seatWorthForOrder(game, player) {
   const breakdown = netWorthBreakdown(game, player);
   return breakdown ? breakdown.total : netWorth(game, player);
@@ -99,15 +96,9 @@ function bankruptciesByPolicy(game, seatsByPolicy) {
   ]));
 }
 
-// Market P&L is booked on the player's own book: a voluntary sell
-// (marketLogic.applyMarketSell), a forced margin liquidation
-// (marketExpansion.recordForcedMarginPnl) and a bankruptcy liquidation
-// (bankruptcyApi.liquidateMarketPositions) all add to
-// marketPositions[*].realizedPnl. The display ledger is a capped view of the
-// table (economyApi.recordMarketLedger keeps the newest 300 rows) and it never
-// records forced or derivative settlements, so replaying it silently dropped
-// trades. Aggregate the book, and add any explicit settlement rows the
-// ledger carries on top of it.
+// Market P&L is booked on the player's own book: voluntary sells, forced margin liquidations and bankruptcy liquidations all
+// add to marketPositions[*].realizedPnl. The display ledger is a capped view (newest 300 rows) that never records forced or
+// derivative settlements, so aggregate the book and add any explicit settlement rows the ledger carries on top.
 function marketPnlByPlayer(game) {
   const totals = new Map();
   for (const player of game.players || []) {

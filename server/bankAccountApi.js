@@ -1,9 +1,6 @@
 // Bank account tiers: an optional table rule (bankAccountUpgrades, off by default).
-// A player buys the next tier with spendable cash. A tier rebates a share of the
-// fees the player pays on optional services (market orders and flights). There is
-// no cap; the rates are kept low instead. Rent, taxes, loans, wagers and the
-// upgrade price never earn a rebate. All numbers live in BANK_ACCOUNT_TIERS so
-// they can be tuned in one place.
+// A player buys the next tier with spendable cash. A tier rebates a share of the fees paid on optional
+// services (market orders and flights). There is no cap, so rates stay low. Rent, taxes, loans, wagers and upgrades never rebate.
 import { normalizeRequestId } from './requestId.js';
 
 export const BANK_ACCOUNT_TIERS = Object.freeze([

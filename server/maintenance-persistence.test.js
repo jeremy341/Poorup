@@ -1,7 +1,5 @@
-// Boots the real server.js against a throwaway data directory and checks what
-// the maintenance state looks like after a restart. Covers F-011: a plain
-// SIGTERM must not leave the next boot refusing new rooms, while an operator
-// drain must still survive a restart (deploy-nest.sh depends on that).
+// Boots the real server.js against a throwaway data directory and checks the maintenance state after a restart. A plain SIGTERM
+// must not leave the next boot refusing new rooms, while an operator drain must survive a restart (deploy-nest.sh depends on that).
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -95,7 +93,7 @@ function record(name, run) {
   scenarios.push({ name, run });
 }
 
-// F-011 seam: the real SIGTERM listener, emitted in-process because Windows
+// Seam: the real SIGTERM listener, emitted in-process because Windows
 // cannot deliver SIGTERM by signal. The wrapper exits by itself once drained.
 const sigtermWrapper = `
 import(${JSON.stringify(pathToFileURL(serverEntry).href)});

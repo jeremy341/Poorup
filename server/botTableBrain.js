@@ -1,19 +1,14 @@
-// Table-wide strategic brain for bots (deterministic, testable).
-// Answers the "big picture" questions a smart player asks every turn:
-// who is winning, what threatens me, what is my path to victory, and am
-// I being teamed on. Pure functions over the live game object; every
-// helper degrades gracefully when methods are absent (unit-test stubs).
-// Consumed as score terms by the deterministic brain and as a prompt
-// section by the AI advisor. All money math is integer whole-dollars.
+// Table-wide strategic brain for bots (deterministic, testable). Answers the big-picture questions a player asks every turn:
+// who is winning, what threatens me, my path to victory, and whether I am being teamed on. Helpers degrade safely when methods are absent
+// (unit-test stubs). It feeds score terms to the deterministic brain and a prompt section to the AI advisor. Money math is integer whole dollars.
 
 import { rentAtLevel } from './botDevelopmentForecast.js';
 import { trafficPercent } from './botTradeValuation.js';
 import { TILE_SETS } from './boardRegistry.js';
 import { netWorth } from './netWorth.js';
 
-// Net worth has one definition (netWorth.js: cash, deeds, houses at resale,
-// spot units, margin, shorts, options, loans and contracts). Re-exported here
-// because the bot brain and its callers have always imported it from this module.
+// Net worth has one definition (netWorth.js: cash, deeds, houses at resale, spot units, margin, shorts, options, loans and contracts).
+// Re-exported here because the bot brain and its callers have always imported it from here.
 export { netWorth };
 
 function number(value, fallback = 0) {
@@ -38,11 +33,9 @@ export function standings(game) {
     .sort((a, b) => b.netWorth - a.netWorth || String(a.id).localeCompare(String(b.id)));
 }
 
-// Circuit normalization uses the live board size: threat is rent paid per
-// full circuit, so a Metro-52 perimeter dilutes per-tile threat relative to
-// the Standard-40 board. The canonical tile set is the authority; a real
-// game state's tiles array matches it, while hand-built test fixtures may
-// carry fewer tiles than the modeled board.
+// Circuit normalization uses the live board size: threat is rent paid per full circuit, so a Metro-52 perimeter dilutes
+// per-tile threat relative to the Standard-40 board. The canonical tile set is the authority; a real game's tiles match it,
+// while hand-built test fixtures may carry fewer tiles than the modeled board.
 function tileCount(game) {
   const variant = game?.boardVariant || 'standard-40';
   const canonical = TILE_SETS[variant === 'metro-52' ? 'metro-52' : 'standard-40'];
@@ -127,7 +120,7 @@ export function winPath(game, playerId) {
 }
 
 // Spoiler mode: I cannot plausibly win (leader worth 2x+ mine with 3+
-// seats left) — deny the frontrunner instead of gifting anyone.
+// seats left). Deny the frontrunner so no one is gifted.
 export function kingmakerState(game, playerId) {
   const table = standings(game);
   if (table.length < 3) return { spoiler: false, target: null };
@@ -200,5 +193,5 @@ export function tableBrain(game, playerId) {
 }
 
 // Re-exported so every consumer of the shared traffic table exposes the same
-// accessor; regression-b27-b29.test.js compares identity across the modules.
+// accessor; group-traffic-percent.test.js compares identity across the modules.
 export { trafficPercent };

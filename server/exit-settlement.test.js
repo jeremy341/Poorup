@@ -1,9 +1,6 @@
-// Exit settlement (audit F-018, F-028, F-029, F-030): a queued debtor settles
-// its claim like a head debtor, a rematch keeps a seat in reconnect grace
-// off the clock, a lone solvent seat in grace holds the table and is crowned
-// at expiry, and an AFK debtor who can cover pays the debt instead of going
-// bankrupt. Drives the public RoomManager/Room seams and the real runtime
-// timers with an injected clock.
+// Exit settlement: a queued debtor settles its claim like a head debtor, a rematch keeps a seat in reconnect grace off the clock,
+// a lone solvent seat in grace holds the table and is crowned at expiry, and an AFK debtor who can cover pays instead of going bankrupt.
+// Drives the public RoomManager and Room seams and the real runtime timers with an injected clock.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { createRuntime } from './socketRuntime.js';
@@ -16,10 +13,10 @@ function check(name, fn) {
   try {
     fn();
     passed += 1;
-    console.log(`PASS — ${name}`);
+    console.log(`PASS - ${name}`);
   } catch (error) {
     failures.push(name);
-    console.log(`FAIL — ${name}: ${error.message}`);
+    console.log(`FAIL - ${name}: ${error.message}`);
   }
 }
 
@@ -165,7 +162,7 @@ function liveTable(nicknames) {
   return { manager, room, game: room.game, seats, sockets, clock, runtime };
 }
 
-// --- F-018: a queued debtor settles its claim like a head debtor -----------
+// A queued debtor settles its claim like a head debtor.
 
 check('a bankrupt queued debtor settles its claim to the creditor like a head debtor', () => {
   const { room, game, A, B, C } = trio();
@@ -281,7 +278,7 @@ check('a head debtor that leaves writes off its own queued claims instead of dro
   assert.ok(texts.includes('B left the table. A pending payment was cancelled.'));
 });
 
-// --- F-028: a rematch keeps a grace seat disconnected --------------------
+// A rematch keeps a grace seat disconnected.
 
 check('a rematch keeps a seat still in its reconnect grace off the first turn and on its original timer', () => {
   const table = liveTable(['A', 'B', 'C']);
@@ -323,7 +320,7 @@ check('a seat that reconnects inside its grace after a rematch takes turns again
   assert.equal(reached, true, 'the reconnected seat is in the turn order');
 });
 
-// --- F-029: one definition of a connected seat ---------------------------
+// One definition of a connected seat.
 
 check('a sole solvent seat in grace holds the table after the other seats go bankrupt', () => {
   const table = liveTable(['A', 'B']);
@@ -374,7 +371,7 @@ check('a leave by the current seat waits for a solvent seat still in grace', () 
   assert.equal(table.game.lastWinner?.id, B.id);
 });
 
-// --- F-030: an AFK debtor who can cover pays the debt, not the estate ----
+// An AFK debtor who can cover pays the debt, not the estate.
 
 function afkDebtFixture(cash) {
   const table = liveTable(['A', 'B', 'C']);
@@ -419,11 +416,9 @@ check('a disconnected debtor who cannot cover still goes bankrupt to its credito
   assert.equal(game.pendingPayment, null);
 });
 
-// --- F-031 / A7-10 / D2b-04: a seat with no solvent creditor forfeits its cash --
-// Every exit path that settles a seat (declared or AFK bankruptcy, voluntary
-// leave, vote-kick, inactivity, disconnect expiry) reaches sweepCashToCreditor.
-// With no solvent creditor that cash goes to the bank: it is zeroed on the
-// departed seat and announced, so the table never strands money on a dead seat.
+// A seat with no solvent creditor forfeits its cash. Every exit path that settles a seat (declared or AFK bankruptcy, voluntary
+// leave, vote-kick, inactivity, disconnect expiry) reaches sweepCashToCreditor. With no solvent creditor the cash goes to the bank:
+// it is zeroed on the departed seat and announced, so the table never strands money on a dead seat.
 
 check('a voluntary leave with no debt forfeits the leaver cash to the bank with a feed line', () => {
   const { manager, game, A, B, C } = trio();
@@ -485,11 +480,9 @@ check('a disconnect that expires with no debt forfeits the seat cash to the bank
   assert.ok(feedTexts(table.game).includes('B forfeits $400 to the bank.'));
 });
 
-// --- F-064: a lender who leaves cancels its loan, and the borrower is told ----
-// The settlement is unchanged: the loan is cancelled, the borrower keeps the
-// funds it received, the balance still owed is forgiven, and the collateral is
-// released rather than seized. What is new is the announcement: the room feed
-// names the loan, and the borrower gets a private system message.
+// A lender who leaves cancels its loan, and the borrower is told. The settlement is unchanged: the loan is cancelled, the borrower
+// keeps the funds received, the balance still owed is forgiven, and the collateral is released rather than seized. What is new is
+// the announcement: the room feed names the loan, and the borrower gets a private system message.
 
 function plantLoan(game, lender, borrower, tile, status = 'active') {
   const loan = {
@@ -563,7 +556,7 @@ check('a lender leaving after its loan was repaid announces nothing about it', (
   assert.deepEqual(game.takeBorrowerNotices(), []);
 });
 
-// --- D3: the default-claim ledger cap never evicts an open claim -----------
+// The default-claim ledger cap never evicts an open claim
 // Open claims are live recovery records for lenders. The cap may trim settled
 // history, but a new default must not silently erase an unpaid claim.
 
@@ -610,7 +603,7 @@ check('the default-claim cap trims settled history before any open claim', () =>
   assert.deepEqual(game.defaultClaims.filter(entry => entry.status === 'open').map(entry => entry.id), [...openIds, claim.id]);
 });
 
-console.log(`exit settlement tests: ${passed + failures.length} checks — ${passed} passed, ${failures.length} failed`);
+console.log(`exit settlement tests: ${passed + failures.length} checks, ${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.error('FAILED:', failures.join(', '));
   process.exitCode = 1;

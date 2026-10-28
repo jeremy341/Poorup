@@ -1,7 +1,5 @@
-// Sponsored purchases: a voluntary, escrowed contribution that can only
-// settle into the currently open bank purchase offer. Contributions are
-// reserved immediately, then atomically returned or folded into the buyer's
-// purchase; no separate debt or equity relationship is created.
+// Sponsored purchases: a voluntary, escrowed contribution that can only settle into the currently open bank purchase offer.
+// Contributions are reserved at once, then atomically returned or folded into the buyer's purchase. No debt or equity relationship is created.
 import crypto from 'crypto';
 import { playerFinanceEnabled } from './financeRules.js';
 import { CONTRACT_RULES_VERSION, RENT_SHARE_VERSION, DEFAULT_RENT_SHARE_ROUNDS, FINANCE_DISABLED_ERROR, LEGACY_PENDING_ERROR, rentShareDeedType, newContractTermsError, deedHasShareInterest } from './rentShareRules.js';
@@ -290,13 +288,9 @@ function cachedSponsoredPurchase(game, replayKey, sponsorshipId) {
   return memo.result;
 }
 
-// Contributions are memoized per sponsor, per sponsorship and per attempt, so a
-// retried top-up reserves the cash once. A client sends a fresh contributionId
-// for every contribution attempt and reuses it only when it resends that same
-// attempt, so a second top-up of the same amount is a new reservation. A legacy
-// client sends only the sponsorship-level requestId, which it reuses for the
-// whole flow: that key keeps today's behaviour, where the memo also records the
-// settled amounts (the same amount is a retry, a different amount a new top-up).
+// Contributions are memoized per sponsor, sponsorship and attempt, so a retried top-up reserves cash once. Clients send a fresh
+// contributionId per attempt and reuse it only when resending that attempt. A legacy client sends only the sponsorship-level requestId,
+// which keeps the old behaviour: the memo also records settled amounts (same amount is a retry, a different one a new top-up).
 function sponsoredContributionReplayKey(sponsor, sponsorship, { requestId, contributionId }) {
   if (!sponsor || !sponsorship) return null;
   const base = `${sponsor.id}:sponsored-contribution:${sponsorship.id}`;
@@ -439,11 +433,9 @@ function settleSponsoredPurchaseAtomically({ game, buyer, ctx, contributions, ro
   }
 }
 
-// Pro-rata refunds of the escrow excess on a largest-remainder basis: every
-// sponsor takes the floor of their exact share and the leftover dollars go to
-// the largest fractional parts, so the sponsors absorb the rounding instead of
-// the buyer. Integer arithmetic throughout, and the shares always sum to
-// `excess` - the escrow can neither mint nor destroy a dollar.
+// Pro-rata refunds of the escrow excess use a largest-remainder basis: each sponsor takes the floor of their exact share, and leftover
+// dollars go to the largest fractional parts, so sponsors absorb the rounding rather than the buyer. Integer arithmetic throughout;
+// the shares always sum to `excess`, so the escrow can neither mint nor destroy a dollar.
 function sponsorRefundShares(contributions, total, excess) {
   if (!(total > 0) || !(excess > 0)) return contributions.map(() => 0);
   const shares = contributions.map(entry => Math.floor((Number(entry.amount) || 0) * excess / total));

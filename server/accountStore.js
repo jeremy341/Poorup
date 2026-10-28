@@ -11,7 +11,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_FILE = path.join(__dirname, 'data', 'accounts.json');
 // Absolute lifetime for legacy (non-cookie) session tokens, mirroring the
-// cookie store's absolute window. Cutover: no sliding refresh, no rehydrate.
+// cookie store's absolute window. There is no sliding refresh and no rehydrate.
 const LEGACY_SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 // Per-account password failure budget. It follows the account rather than the
 // address, so rotating peers cannot keep guessing one username. A successful
@@ -74,12 +74,8 @@ function hasCredentialShape(account, password) {
 
 const num = (value) => Number(value) || 0;
 
-// One resolver per leaderboard metric: reads the (windowed) stats object and
-// the two achievement-derived figures. Replaces a 15-deep nested ternary chain
-// so adding a rank type is one row here, not another ternary arm. The default
-// (unknown metric) is wins, matching the previous final `: Number(wins) || 0`.
-// Keep the server feature flag aligned with the client. New Patrol scores
-// use verified fields; prior records remain available separately.
+// One resolver per leaderboard metric. Adding a rank type is one row here. Unknown metrics fall back to wins.
+// Keep the server feature flag aligned with the client. New Patrol scores use verified fields; prior records remain available separately.
 export const PARLOR_PATROL_ENABLED = true;
 export const PARLOR_PATROL_OFF_MESSAGE = 'Parlor Patrol is resting for now. Your saved scores are safe.';
 
@@ -244,34 +240,40 @@ function sanitizeHistory(value) {
     .map(historyEntryView);
 }
 
-// Match history is intentionally capped for profile payloads, but settlement
-// idempotency cannot share that display window: an old match may be replayed
-// long after it falls out of the visible list. Keep a durable, private ledger
-// of recent match ids that have already contributed account stats.
+// Match history is capped for profile payloads, but settlement idempotency cannot share that
+// window: an old match can be replayed after it leaves the visible list. Keep a durable,
+// private ledger of recent match ids that already contributed account stats.
 const RECORDED_MATCH_ID_LIMIT = 500;
 function sanitizeRecordedMatchIds(value, legacyHistory = []) {
   const source = Array.isArray(value) ? value : legacyHistory.map(entry => entry?.matchId);
   // The ledger is copied into every accounts.json rewrite, so it keeps only the
-  // newest ids (E37-14). A replay older than that window is not recognised.
+  // newest ids. A replay older than that window is not recognised.
   return [...new Set(source
     .filter(entry => typeof entry === 'string' && entry.trim())
     .map(entry => entry.trim().slice(0, 80)))].slice(-RECORDED_MATCH_ID_LIMIT);
+}
+
+const PENDING_PATROL_ACHIEVEMENT_LIMIT = 100;
+function sanitizePendingPatrolAchievementSettlements(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(entry => entry && typeof entry === 'object' && typeof entry.id === 'string' && entry.id.trim())
+    .map(entry => ({
+      id: entry.id.trim().slice(0, 120),
+      score: clampInt(entry.score, Number.MAX_SAFE_INTEGER),
+      aceRuns: clampInt(entry.aceRuns, Number.MAX_SAFE_INTEGER),
+      cleanRun: entry.cleanRun === true
+    }))
+    .slice(-PENDING_PATROL_ACHIEVEMENT_LIMIT);
 }
 
 const nonNegative = (value) => Math.max(0, Number(value) || 0);
 
 const clippedList = (value, cap) => (Array.isArray(value) ? value.slice(0, cap) : []);
 
-// Placement has to follow the seat the game crowned, not the richest seat on
-// the table. A disconnected ghost seat keeps its cash after the game ends, and
-// ranking by cash alone handed that seat 1st place (and the winner's season
-// points) while `stats.wins` credited the win to the seat order the game ended
-// on -- the store contradicting itself inside one record. Ghost seats therefore
-// compete for no placement at all and sort behind every contested seat; inside
-// the contested seats the legacy ladder (bankrupt last, then cash) is unchanged.
-// The seat the game crowned owns 1st place even when the round limit was
-// decided on net worth and another seat still holds more cash, so the crown
-// outranks the cash ladder; the ghost/bankrupt tiers keep their own order.
+// Placement follows the seat the game crowned. Ranking by cash let a disconnected ghost seat
+// take 1st while stats.wins credited the real winner, so ghosts take no placement and sort last.
+// A crowned seat outranks the cash ladder even when another seat holds more cash.
 function matchDetailFields(matchMeta, participants) {
   if (!matchMeta.includeMatchDetails) return {};
   const fields = {
@@ -423,7 +425,7 @@ function accountAlreadyRecordedMatch(account, matchId) {
 }
 
 // The same fifteen deltas recomputed from stored match records, for
-// time-windowed views. Wins intentionally differ from the live ladder:
+// time-windowed views. Wins differ from the live ladder:
 // history replays use the recorded final placement, not winnerId.
 const WINDOW_STAT_UPDATES = {
   gamesPlayed: () => 1,
@@ -628,6 +630,9 @@ function buildBaseNormalizedAccount(handle, account) {
     achievements: Array.isArray(account.achievements) ? account.achievements.filter(entry => entry && typeof entry.id === 'string').slice(0, 100) : [],
     matchHistory: Array.isArray(account.matchHistory) ? account.matchHistory.filter(entry => entry && typeof entry === 'object').slice(0, 50).map(sanitizeMatch) : [],
     recordedMatchIds: sanitizeRecordedMatchIds(account.recordedMatchIds, account.matchHistory),
+    ...(Object.prototype.hasOwnProperty.call(account, 'pendingPatrolAchievementSettlements')
+      ? { pendingPatrolAchievementSettlements: sanitizePendingPatrolAchievementSettlements(account.pendingPatrolAchievementSettlements) }
+      : {}),
     privacy: sanitizePrivacy(account.privacy),
     recentClearedAt: typeof account.recentClearedAt === 'string' ? account.recentClearedAt : null
   };
@@ -646,10 +651,10 @@ export class AccountStore {
     this.idIndex = new Map();
     this.sessions = new Map();
     this.sessionHashes = new Map();
-    // Legacy token issuance timestamps (token and hash -> ms). Memory-only
+    // Legacy token issuance timestamps (token and hash to ms). Memory-only
     // like sessions itself; absolute TTL enforced in sessionAccount.
     this.sessionIssuedAt = new Map();
-    // Account id -> { startedAt, count }. Bounded by the account count.
+    // Account id: { startedAt, count }. Bounded by the account count.
     this.passwordFailures = new Map();
     // Record accounting for persist(): records on disk at load, records that
     // failed validation and are not yet moved aside, and the count of records
@@ -676,7 +681,7 @@ export class AccountStore {
         return;
       }
       this.accounts.set(handle, normalizeLoadedAccount(handle, account));
-      // Cutover: persisted session hashes are no longer rehydrated. Cookie
+      // Persisted session hashes are not rehydrated. Cookie
       // sessions (sessionStore records) survive restarts with their own
       // expiry; legacy tokens require a fresh login after a restart.
     });
@@ -687,7 +692,7 @@ export class AccountStore {
   }
 
   // The rejected records are moved aside before the store is rewritten, so the
-  // rewrite cannot erase them (E37-07). A rewrite that would drop records other
+  // rewrite cannot erase them. A rewrite that would drop records other
   // than the rejected ones and the purged accounts is refused.
   persist({ removed = 0 } = {}) {
     if (this.rejectedAtLoad.length) {
@@ -773,10 +778,9 @@ export class AccountStore {
 
   issueSession(account) {
     revokeLiveSessions(this, account.username);
-    // Remove every persisted hash for this account, not only the latest field
-    // on the record. This also cleans hashes written by older builds so a
-    // rotated or logged-out token can never be reanimated from the fallback
-    // index.
+    // Remove every persisted hash for the account, not just the latest field on the record.
+    // This also clears hashes from older builds, so a rotated or logged-out token cannot
+    // come back through the fallback index.
     revokePersistedSessionHashes(this, account.username);
     const token = createSessionToken();
     const tokenHash = hashSessionToken(token);
@@ -1096,12 +1100,9 @@ export class AccountStore {
       includeMatchDetails: matchMeta.includeMatchDetails === true
     }));
     const matchRecord = buildMatchRecord(matchId, matchMeta, participants);
-    // The stats, the history and the settlement ledger are written to memory
-    // first and to disk second. A failed write must not leave the memory
-    // believing the match was settled: the ledger would refuse the retry and
-    // the durable state would never catch up. Snapshot first, restore on
-    // failure -- the same invariant commitMutation enforces for the other
-    // mutating entry points.
+    // Memory is written before disk here. A failed write must not leave memory believing the match
+    // was settled, or the ledger would refuse the retry. Snapshot first and restore on failure,
+    // the same invariant commitMutation enforces for the other mutating entry points.
     const pending = activePlayers.some((player) => {
       if (!player.accountId) return false;
       const account = this.getAccountById(player.accountId);
@@ -1174,9 +1175,10 @@ export class AccountStore {
       return { success: true, created: false, achievement: entries.find((entry) => entry.id === achievementId) };
     }
     const entry = { id: achievementId, unlockedAt: typeof achievement.unlockedAt === 'string' ? achievement.unlockedAt : new Date().toISOString() };
-    account.achievements = [entry, ...entries].slice(0, 100);
-    this.persist();
-    return { success: true, created: true, achievement: entry };
+    return commitMutation(this, () => {
+      account.achievements = [entry, ...entries].slice(0, 100);
+      return { success: true, created: true, achievement: entry };
+    });
   }
 
   removeAchievement(accountId, achievementId) {
@@ -1185,24 +1187,74 @@ export class AccountStore {
     const entries = Array.isArray(account.achievements) ? account.achievements : [];
     const next = entries.filter(entry => entry?.id !== achievementId);
     if (next.length === entries.length) return false;
-    account.achievements = next;
-    this.persist();
-    return true;
+    return commitMutation(this, () => {
+      account.achievements = next;
+      return true;
+    });
   }
 
-  recordPatrolResult(accountId, { score = 0, misses = 0 } = {}) {
+  recordPatrolResult(accountId, { score = 0, misses = 0, settlementId = null, cleanRun = false } = {}) {
     if (!PARLOR_PATROL_ENABLED) return { success: false, error: PARLOR_PATROL_OFF_MESSAGE };
     const account = this.getAccountById(accountId);
     if (!account) return { success: false, error: 'Account not found.' };
     const safeScore = clampInt(score, Number.MAX_SAFE_INTEGER);
     const safeMisses = clampInt(misses, 999);
-    const stats = account.stats || (account.stats = {});
-    const previousBest = Math.max(0, Number(stats.patrolVerifiedBest) || 0);
-    const beatBest = safeScore > previousBest;
-    stats.patrolVerifiedBest = Math.max(previousBest, safeScore);
-    stats.patrolVerifiedAceRuns = Math.max(0, Number(stats.patrolVerifiedAceRuns) || 0) + (beatBest && previousBest > 0 ? 1 : 0);
-    this.persist();
-    return { success: true, score: safeScore, misses: safeMisses, best: stats.patrolVerifiedBest, aceRuns: stats.patrolVerifiedAceRuns };
+    const safeSettlementId = typeof settlementId === 'string' ? settlementId.trim().slice(0, 120) : '';
+    const pendingSettlements = sanitizePendingPatrolAchievementSettlements(account.pendingPatrolAchievementSettlements);
+    const prior = safeSettlementId && pendingSettlements
+      .find(entry => entry.id === safeSettlementId);
+    if (prior) {
+      const stats = account.stats || {};
+      return { success: true, score: prior.score, misses: safeMisses, best: Math.max(0, Number(stats.patrolVerifiedBest) || 0), aceRuns: prior.aceRuns, settlementId: safeSettlementId, replayed: true };
+    }
+    const priorBest = Math.max(0, Number(account.stats?.patrolVerifiedBest) || 0);
+    const projectedAceRuns = Math.max(0, Number(account.stats?.patrolVerifiedAceRuns) || 0)
+      + (safeScore > priorBest && priorBest > 0 ? 1 : 0);
+    const needsJournal = Boolean(safeSettlementId && (
+      safeScore >= 10 || safeScore >= 50 || (safeScore > 0 && cleanRun === true) || projectedAceRuns >= 3
+    ));
+    if (needsJournal && pendingSettlements.length >= PENDING_PATROL_ACHIEVEMENT_LIMIT) {
+      return { success: false, retryable: true, error: 'Patrol achievement recovery is busy. Please retry this finish.' };
+    }
+    return commitMutation(this, () => {
+      const stats = account.stats || (account.stats = {});
+      const previousBest = Math.max(0, Number(stats.patrolVerifiedBest) || 0);
+      const beatBest = safeScore > previousBest;
+      stats.patrolVerifiedBest = Math.max(previousBest, safeScore);
+      stats.patrolVerifiedAceRuns = Math.max(0, Number(stats.patrolVerifiedAceRuns) || 0) + (beatBest && previousBest > 0 ? 1 : 0);
+      const result = { success: true, score: safeScore, misses: safeMisses, best: stats.patrolVerifiedBest, aceRuns: stats.patrolVerifiedAceRuns };
+      const achievementIds = [
+        ...(safeScore >= 10 ? ['patrol-rookie'] : []),
+        ...(safeScore >= 50 ? ['patrol-regular'] : []),
+        ...(safeScore > 0 && cleanRun === true ? ['clean-run'] : []),
+        ...(result.aceRuns >= 3 ? ['patrol-ace'] : [])
+      ];
+      if (safeSettlementId && achievementIds.length) {
+        const pending = sanitizePendingPatrolAchievementSettlements(account.pendingPatrolAchievementSettlements);
+        account.pendingPatrolAchievementSettlements = [
+          ...pending.filter(entry => entry.id !== safeSettlementId),
+          { id: safeSettlementId, score: safeScore, aceRuns: result.aceRuns, cleanRun: cleanRun === true }
+        ];
+      }
+      if (safeSettlementId) result.settlementId = safeSettlementId;
+      return result;
+    });
+  }
+
+  getPendingPatrolAchievementSettlements(accountId) {
+    return sanitizePendingPatrolAchievementSettlements(this.getAccountById(accountId)?.pendingPatrolAchievementSettlements);
+  }
+
+  completePatrolAchievementSettlement(accountId, settlementId) {
+    const account = this.getAccountById(accountId);
+    const id = typeof settlementId === 'string' ? settlementId.trim().slice(0, 120) : '';
+    if (!account || !id) return { success: false, completed: false };
+    const pending = sanitizePendingPatrolAchievementSettlements(account.pendingPatrolAchievementSettlements);
+    if (!pending.some(entry => entry.id === id)) return { success: true, completed: false };
+    return commitMutation(this, () => {
+      account.pendingPatrolAchievementSettlements = pending.filter(entry => entry.id !== id);
+      return { success: true, completed: true };
+    });
   }
 
   getPublicAccountById(accountId) {
@@ -1220,9 +1272,12 @@ export class AccountStore {
     return this.accounts.get(handle) || null;
   }
 
-  getPublicPlayerCard(accountId, { includeAchievements = false } = {}) {
+  // includeAchievements is the friend-level reveal (friends-only accounts); a
+  // private account reveals its achievements to its owner alone (owner: true).
+  getPublicPlayerCard(accountId, { includeAchievements = false, owner = false } = {}) {
     const account = this.getAccountById(accountId);
     if (!account) return null;
+    if (includeAchievements && !owner && account.privacy?.achievements === 'private') includeAchievements = false;
     const publicView = publicAccount(account, false);
     return {
       id: publicView.id,
@@ -1243,9 +1298,9 @@ export class AccountStore {
     };
   }
 
-  // id -> live account. Every hit is re-checked against the map, so a purge,
+  // id maps to a live account. Every hit is re-checked against the map, so a purge,
   // rollback or replaced record can never be served from a stale entry; a miss
-  // rebuilds the index in one pass, which is what the old scan cost per call.
+  // rebuilds the index in one pass, so a lookup does not scan every account.
   getAccountById(accountId) {
     const hit = this.idIndex.get(accountId);
     if (hit && hit.id === accountId && this.accounts.get(hit.username) === hit) return hit;

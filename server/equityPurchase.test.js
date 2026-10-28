@@ -99,7 +99,7 @@ bankrupt.game.markPlayerBankrupt(bankrupt.buyer);
 assert.equal(bankrupt.investor.cash, 500);
 assert.equal(bankrupt.game.pendingSponsoredPurchase, null);
 
-// T18: the accept memo is bound to the offer it settled. Reusing the same
+// The accept memo is bound to the offer it settled. Reusing the same
 // request id on a later equity offer must settle that offer instead of
 // replaying the old success and leaving the new escrow unfilled.
 const alias = fixture();
@@ -124,7 +124,7 @@ assert.equal(secondTile.equityShares[0].holderId, alias.investor.id);
 assert.equal(alias.game.pendingSponsoredPurchase, null);
 assert.equal(alias.game.pendingPurchaseOffer, null);
 
-// T18: the client reuses one request id for the whole sponsorship flow, so a
+// The client reuses one request id for the whole sponsorship flow, so a
 // top-up is a new amount while a retry of the same amount replays the memo.
 const topUp = fixture();
 assert.equal(topUp.game.requestPurchaseSponsorship('s-buyer', { mode: 'equity', sharePct: 20, requestId: 'flow-topup' }).success, true);

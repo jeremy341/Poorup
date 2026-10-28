@@ -1,7 +1,5 @@
-// Persistence seam characterization: the exact behaviors that used to combine
-// into silent data loss are now pinned down — a corrupt store file must keep
-// its bytes in a quarantine sibling, the store must open empty beside it, and
-// the next successful persist() must never touch the quarantined original.
+// Persistence seam characterization: the behaviors that can combine into silent data loss are pinned. A corrupt store file keeps
+// its bytes in a quarantine sibling, the store opens empty beside it, and the next successful persist() never touches the quarantined original.
 import assert from 'assert';
 import fs from 'fs';
 import os from 'os';
@@ -19,10 +17,10 @@ function check(name, fn) {
   try {
     fn();
     results.push(true);
-    console.log(`PASS — ${name}`);
+    console.log(`PASS - ${name}`);
   } catch (error) {
     results.push(false);
-    console.log(`FAIL — ${name}: ${error.message}`);
+    console.log(`FAIL - ${name}: ${error.message}`);
   }
 }
 

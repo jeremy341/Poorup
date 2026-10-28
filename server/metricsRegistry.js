@@ -19,10 +19,8 @@ const MAX_LABEL_LENGTH = 40;
 const MAX_VALUE = 1_000_000_000;
 const SNAPSHOT_RANGES = ['hour', 'day', 'week', 'month'];
 
-// Bounded history that the plain counters cannot answer. Latency keeps the
-// most recent samples so a percentile is possible; the connection gauge keeps
-// one maximum per hour so "peak in the last 24 hours" is possible. Both live in
-// memory only and restart with the process.
+// Bounded history the plain counters cannot answer. Latency keeps the most recent samples so a percentile is possible; the connection
+// gauge keeps one maximum per hour so "peak in the last 24 hours" is possible. Both live in memory and restart with the process.
 const SAMPLED_COUNTERS = new Set(['action-latency-ms']);
 const PEAK_GAUGES = new Set(['active-sockets']);
 const MAX_SAMPLES = 1024;
@@ -155,10 +153,8 @@ export function createMetricsRegistry({ now = () => Date.now(), maxMetrics = 64 
     peaks.set(name, bins);
   }
 
-  // Percentile over the most recent recorded values (at most MAX_SAMPLES), not a
-  // time window: a quiet server reports older actions, a busy one only the
-  // latest. sampleSize lets the caller refuse to show a number built on a
-  // handful of values.
+  // Percentile over the most recent values (at most MAX_SAMPLES), not a time window: a quiet server reports older actions, a busy one
+  // only the latest. sampleSize lets callers refuse a number built on a handful of values.
   function quantile(name, fraction = 0.95) {
     const ring = samples.get(name) || [];
     if (!ring.length) return { value: null, sampleSize: 0 };
@@ -205,10 +201,8 @@ export function createMetricsRegistry({ now = () => Date.now(), maxMetrics = 64 
 }
 
 /**
- * Wraps an event handler so every call records its duration (action-latency-ms)
- * and every throw or rejected promise counts as an unhandled error (error-count).
- * The wrapper returns exactly what the handler returns and rethrows exactly what
- * it throws, so the caller's own error handling is untouched.
+ * Wraps an event handler so each call records its duration (action-latency-ms) and each throw or rejected promise counts
+ * as an unhandled error (error-count). The wrapper returns what the handler returns and rethrows what it throws.
  */
 export function instrumentHandler(registry, handler, clock = () => performance.now()) {
   return function instrumented(...args) {
@@ -238,9 +232,8 @@ export function instrumentHandler(registry, handler, clock = () => performance.n
 export const MIN_PERCENTILE_SAMPLES = 20;
 
 /**
- * HTTP request failures and failed player actions share the error-count
- * counter. The socket error rate has its own denominator (the player actions
- * handled), so the two sources are counted apart.
+ * HTTP request failures and failed player actions share the error-count counter. The socket error rate has its own
+ * denominator (player actions handled), so the two sources are counted apart.
  */
 function countErrorSource(entry, source) {
   const byLabels = entry?.byLabels;
@@ -256,9 +249,8 @@ function countErrorSource(entry, source) {
 }
 
 /**
- * The live numbers the admin console reads, in one place so the status route and
- * the analytics KPIs cannot disagree. Everything is since the process started;
- * a value the registry cannot know is null, never zero.
+ * The live numbers the admin console reads, in one place so the status route and analytics KPIs cannot disagree.
+ * Everything is since process start; a value the registry cannot know is null, never zero.
  */
 export function summarizeRuntimeMetrics(registry) {
   const metrics = registry?.snapshotMetrics?.('hour')?.metrics;

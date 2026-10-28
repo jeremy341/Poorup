@@ -1,4 +1,4 @@
-// Regression pins for the October bot-engine audit (docs/BOT-ENGINE-AUDIT-2026-10.md):
+// Regression pins for the October bot-engine audit:
 // small engine-contract mismatches that made bots spin, wait on an auction that
 // never comes, or lose an option to an id collision.
 import assert from 'node:assert/strict';
@@ -55,7 +55,7 @@ check('trade candidates name the partner seat the planner must project against',
   const opponents = game.players.filter(player => player.id !== bot.id);
   const partner = opponents[2];
   // The bot holds two Orange deeds and the third opponent holds the last one: a
-  // same-group 1-for-1 swap is no longer generated (it changed nothing), the set
+  // same-group 1-for-1 swap is not generated (it changed nothing), the set
   // completer is.
   const [mine, extra, theirs] = game.tiles.filter(tile => tile.group === 'Orange' && tile.price > 0).slice(0, 3);
   assert.ok(mine && extra && theirs, 'the board has an orange trio');

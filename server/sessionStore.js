@@ -7,7 +7,7 @@ export const DEFAULT_IDLE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const DEFAULT_ABSOLUTE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const TOUCH_PERSIST_INTERVAL_MS = 5 * 60 * 1000;
 // Expired records are otherwise kept until someone presents their cookie, so
-// they accumulate and every issue rewrites them to disk (E37-14).
+// they accumulate and every issue rewrites them to disk.
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 
 function tokenHash(value) {
@@ -287,7 +287,7 @@ export function createSessionStore({
   }
 
   // A legacy token may already have been consumed when logout arrives. Keep
-  // only its hash on exchanged sessions so that logout can revoke those
+  // only its hash on exchanged sessions, so logout can revoke those
   // sessions without signing out every device on the account.
   function revokeLegacyTokenSessions(legacyToken) {
     if (typeof legacyToken !== 'string' || !legacyToken) return 0;

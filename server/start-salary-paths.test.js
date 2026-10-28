@@ -1,14 +1,8 @@
-// Regression suite for the B-12 and B-13 economy-audit defects.
-//
-// B-12: the Start salary on the card paths re-derived the ladder and dropped
-// the last-place catch-up bonus, so the same outcome paid $200 via a card and
-// $300 via dice. Both card paths now funnel through the canonical helpers
-// (startPassReward / isLastPlaceByCash) and share the dice feed wording.
-//
-// B-13: propertyRules.js guarded equityShares for trade and mortgage but not
-// for build or sell, so the owner of a part-sold deed could still build and
-// sell it: paying 100% construction cost while booking zero rent and
-// transferring 100% of every rent roll to the equity holder.
+// Regression checks for economy defects.
+// The Start salary on card paths re-derived the ladder and dropped the last-place catch-up bonus, so the same outcome paid $200 by card
+// and $300 by dice. Both card paths use the canonical helpers (startPassReward, isLastPlaceByCash).
+// propertyRules guarded equityShares for trade and mortgage but not build or sell, so a part-sold deed's owner could build and sell it,
+// paying full construction cost while booking zero rent and handing the equity holder 100% of the rent roll.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
@@ -17,7 +11,7 @@ const SALARY = 200;
 const DOUBLE_GO_SALARY = 400;
 const CATCH_UP = 100;
 
-// ---------------------------------------------------------------- B-12 setup
+// Setup
 
 // A two-seat table driven entirely by the caller's cash positions, so the
 // catch-up rule (strictly last among 2+ live seats, ties pay nothing) is the
@@ -52,21 +46,21 @@ function collectStart(ctx, card = { action: 'collectStart', amount: SALARY }) {
   return ctx.player.cash;
 }
 
-// moveTo back across GO without landing on it: position 35 -> tile 3.
+// moveTo back across GO without landing on it: position 35 to tile 3.
 function moveAcrossStart(ctx, card = { action: 'moveTo', tileIndex: 3 }) {
   ctx.player.position = 35;
   ctx.game.applyCard(ctx.player, card, {});
   return ctx.player.cash;
 }
 
-// moveTo onto Start itself: position 35 -> tile 0.
+// moveTo onto Start itself: position 35 to tile 0.
 function moveOntoStart(ctx, card = { action: 'moveTo', tileIndex: 0 }) {
   ctx.player.position = 35;
   ctx.game.applyCard(ctx.player, card, {});
   return ctx.player.cash;
 }
 
-// ------------------------------------------------------------------ B-12 tests
+// Tests
 
 test('B-12 collectStart pays salary plus the catch-up bonus for the strictly-last seat', () => {
   const last = cardFixture({ playerCash: 100, rivalCash: 2000 });
@@ -193,7 +187,7 @@ test('B-12 low-tax election still applies the x0.8 discount, bonus on top', () =
   assert.equal(collectStart(doubleGoLowTax, { action: 'collectStart' }), 1000 + Math.floor(DOUBLE_GO_SALARY * 0.8));
 });
 
-// ------------------------------------------------------------------ B-13 setup
+// Setup
 
 function equityFixture() {
   const manager = new RoomManager();
@@ -256,12 +250,12 @@ function withLoanCollateral() {
   return ctx;
 }
 
-// ------------------------------------------------------------------ B-13 tests
+// Tests
 
 test('B-13 an outstanding equity share blocks building', () => {
   const ctx = withEquityShare();
   assert.equal(ctx.game.canBuildOnTile(ctx.owner, ctx.tile), false);
-  // Trade and mortgage already refused it; all four verbs now agree.
+  // Trade and mortgage already refused it; all four verbs agree.
   assert.equal(ctx.game.isTradeableTile(ctx.tile), false);
   assert.equal(ctx.game.canMortgageTile(ctx.owner, ctx.tile), false);
 });

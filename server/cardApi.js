@@ -1,10 +1,6 @@
-// Card draw and action handlers as a prototype mixin. A handler returns
-// either a real result (the movement cards that re-enter applyTile, or the
-// strike/rent early-outs) or the RESOLVE_TAIL sentinel meaning "run the
-// shared resolveTurnAfterAction tail and return undefined" — exactly the
-// break-vs-return split the original switch encoded. gameLogic.js assigns
-// this object onto GameState.prototype; server/applyCard.test.js pins every
-// card's effect and feed text.
+// Card draw and action handlers as a prototype mixin. A handler returns a real result (movement cards that re-enter applyTile,
+// or strike and rent early-outs) or RESOLVE_TAIL, meaning "run the shared resolveTurnAfterAction tail and return undefined".
+// gameLogic.js assigns this object onto GameState.prototype; server/applyCard.test.js pins every card's effect and feed text.
 import { randomInt } from './random.js';
 import { START_TILE_INDEX } from './gameData.js';
 import { decksForVariant } from './boardRegistry.js';
@@ -12,12 +8,9 @@ import { recordPresentationCash } from './gamePresentation.js';
 
 const RESOLVE_TAIL = Symbol('resolveTurnAfterAction');
 
-// Refills exclude Get-Out-of-Prison cards currently held by players: a held
-// card stays out of circulation until used, so the deck can never mint a
-// duplicate copy of it. Each deck owns one such card, so only the cards drawn
-// from THIS deck count (player.jailFreeOrigins); a held card with no recorded
-// origin counts against whichever deck refills. Bankrupt seats cannot use
-// their card and hold nothing back.
+// Refills exclude Get-Out-of-Prison cards that players hold: a held card stays out of circulation until used, so a deck
+// cannot mint a duplicate. Each deck owns one such card, so only cards drawn from THIS deck count (player.jailFreeOrigins);
+// a held card with no recorded origin counts against whichever deck refills. Bankrupt seats hold nothing back.
 function heldFromDeck(player, deckName) {
   if (player?.bankrupt) return 0;
   const count = Math.max(0, Math.floor(Number(player?.jailFreeCards) || 0));
@@ -101,11 +94,9 @@ const cardApi = {
     return outcome;
   },
 
-  // The cardReveal cash figure: the dynamic-delta actions read the real
-  // balance change (minus the pass-Start salary on movement cards); pay and
-  // collect actions report their nominal amount under the low-tax discount.
-  // collectStart reads the real delta too: it pays a Start crossing, so its
-  // figure must carry the same salary and catch-up bonus as the feed message.
+  // The cardReveal cash figure: dynamic-delta actions read the real balance change (minus the pass-Start salary on movement cards);
+  // pay and collect actions report their nominal amount under the low-tax discount. collectStart reads the real delta too, since it
+  // pays a Start crossing and its figure must carry the same salary and catch-up bonus as the feed message.
   cardCashAfterPlay(player, card, cashBefore) {
     const dynamicActions = ['repairs', 'payEach', 'collectFromEach', 'nearestRailroad', 'nearestUtility'];
     if (dynamicActions.includes(card.action)) {
@@ -121,10 +112,8 @@ const cardApi = {
     return player.cash - cashBefore;
   },
 
-  // The low-tax election cuts every card reward ("taxes fall, but card
-  // rewards are reduced"). One shared helper keeps the discount identical
-  // across the collect handlers, so a card can never pay the raw amount in
-  // one branch and the discounted amount in another.
+  // The low-tax election cuts every card reward ("taxes fall, but card rewards are reduced"). One shared helper keeps the discount
+  // identical across the collect handlers, so a card never pays the raw amount in one branch and the discounted one in another.
   cardRewardAmount(card, fallback = 0) {
     const amount = Number(card?.amount) || fallback;
     return this.isLowTaxElection() ? Math.floor(amount * 0.8) : amount;
@@ -145,10 +134,8 @@ const cardApi = {
     }
   },
 
-  // Salary + last-place catch-up bonus for a Start crossing, shared by both
-  // card paths so the ladder and the bonus cannot drift from the canonical
-  // dice path (gameLogic.js awardStartPass): GO must pay the same however it
-  // was crossed.
+  // Salary and last-place catch-up bonus for a Start crossing, shared by both card paths so the ladder cannot drift from the
+  // dice path (gameLogic.js awardStartPass): GO pays the same however it was crossed.
   payStartPass(player, exactStart) {
     const reward = this.startPassReward(exactStart);
     const bonus = this.startPassCatchUpBonus(player);
@@ -183,10 +170,8 @@ const cardApi = {
     return false;
   },
 
-  // A collectStart card is a direct "advance to Start", so the exact-start
-  // branch of the ladder applies: Double GO yields $400. The card's own
-  // amount and the low-tax discount stay authoritative; only the catch-up
-  // bonus is added on top.
+  // A collectStart card is a direct "advance to Start", so the exact-start branch applies: Double GO yields $400.
+  // The card's own amount and the low-tax discount stay authoritative; only the catch-up bonus is added on top.
   collectStartCard(player, card) {
     this.recordPresentationMove(player, START_TILE_INDEX, { cause: 'collectStart' });
     player.position = START_TILE_INDEX;
@@ -374,10 +359,8 @@ const cardApi = {
     return paid;
   },
 
-  // Cash arriving from a card must rescue a parked debt the way the
-  // property, loan and trade credits do: only the seat that owns the pending
-  // head settles it. The guard keeps a settling debt from re-entering the
-  // card path that triggered it.
+  // Cash arriving from a card rescues a parked debt the way property, loan and trade credits do: only the seat owning the pending head
+  // settles it. The guard stops a settling debt from re-entering the card path that triggered it.
   settleCardRecipientDebt(player) {
     if (!player) return;
     if (typeof this.trySettlePendingPayment !== 'function') return;
@@ -392,11 +375,9 @@ const cardApi = {
     }
   },
 
-  // F-016 (owner decision: keep the forgiveness; pinned by the "F-016 pin"
-  // check in audit-cards-match.test.js). Each payer hands over
-  // min(cash, amount) and the shortfall is forgiven: no debt is parked and no
-  // shortfall is announced. This is deliberately not the pay-each rule, which
-  // parks an unpaid share as a debt (payEachShare -> chargePlayer).
+  // Owner decision: keep the forgiveness (pinned by the collect-from-each check in card-rent-and-resolve.test.js). Each payer hands over
+  // min(cash, amount), and the shortfall is forgiven: no debt is parked and no shortfall is announced. This is not the pay-each rule,
+  // which parks an unpaid share as a debt (payEachShare calls chargePlayer).
   collectFromEachCard(player, card) {
     const amount = this.cardRewardAmount(card);
     const alive = this.activePlayers();
@@ -410,6 +391,10 @@ const cardApi = {
         player.cash += paid;
       }
     });
+    // The collected cash can rescue the collector's own parked debt, exactly
+    // as a pay-each share does for its recipient. Settle once, after every
+    // payer has paid, so the whole collection is available.
+    this.settleCardRecipientDebt(player);
     this.feedMessage(`${player.nickname} collected from each player.`);
     return RESOLVE_TAIL;
   },

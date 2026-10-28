@@ -25,7 +25,7 @@ batched.flush();
 assert.equal(writes, 1);
 batched.close();
 
-// S14-1: the shapes the game actually emits are recorded (ids are strings), while
+// The shapes the game actually emits are recorded (ids are strings), while
 // display names and objects in the same keys are still refused.
 {
   const versions = { seasonId: 'S1', boardVariant: 'standard-40', rulesetRevision: 1, balanceRevision: 1 };
@@ -70,6 +70,77 @@ batched.close();
   assert.equal(burst.pendingEvents.length, 0);
   burst.close();
 }
+
+// A failed retention write remains dirty and is retried by the next flush,
+// even when pruning removed every pending event.
+{
+  let fail = false;
+  const snapshots = [];
+  const retained = new TelemetryStore(path.join(dir, 'retention-retry.json'), {
+    persist: snapshot => {
+      snapshots.push(snapshot);
+      if (fail) throw new Error('disk busy');
+    },
+    flushIntervalMs: 0,
+  });
+  retained.record('bankruptcy', { count: 1 });
+  retained.flush();
+  snapshots.length = 0;
+  fail = true;
+  assert.throws(() => retained.prune(Date.now() + 1), /disk busy/);
+  fail = false;
+  retained.flush();
+  assert.equal(snapshots.length, 2, 'the failed prune snapshot is retried');
+  assert.deepEqual(snapshots[1], [], 'the pruned state reaches durable storage');
+  retained.close();
+}
+
+// A transient rollup failure retries without needing another telemetry event.
+{
+  let rollupFlushes = 0;
+  const rollupStore = {
+    record: () => ({ accepted: true }),
+    flush: () => {
+      rollupFlushes += 1;
+      return rollupFlushes === 1 ? Promise.reject(new Error('rollup unavailable')) : Promise.resolve({ flushed: true });
+    },
+  };
+  const retrying = new TelemetryStore(path.join(dir, 'rollup-retry.json'), {
+    rollupStore,
+    persist: () => {},
+    flushIntervalMs: 5,
+  });
+  retrying.record('bankruptcy', { count: 1 });
+  await assert.rejects(retrying.flush(), /rollup unavailable/);
+  await new Promise(resolve => setTimeout(resolve, 25));
+  assert.equal(rollupFlushes >= 2, true, 'the failed rollup write is retried by the timer');
+  await retrying.close();
+}
+
+// A prune that lands during an asynchronous write stays dirty through close.
+{
+  let release;
+  let writes = 0;
+  const snapshots = [];
+  const gate = new Promise(resolve => { release = resolve; });
+  const closing = new TelemetryStore('', {
+    persist: snapshot => {
+      writes += 1;
+      snapshots.push(snapshot);
+      return writes === 1 ? gate : undefined;
+    },
+    flushIntervalMs: 0,
+  });
+  closing.record('bankruptcy', { count: 1 });
+  const closePromise = closing.close();
+  const prunePromise = closing.prune(Date.now() + 1);
+  release();
+  assert.equal(await prunePromise, 1);
+  await closePromise;
+  assert.equal(writes, 2, 'close retries the pruned snapshot after the earlier write settles');
+  assert.deepEqual(snapshots[1], [], 'the final persisted snapshot reflects the prune');
+}
+
 store.close();
 fs.rmSync(dir, { recursive: true, force: true });
-console.log('telemetry module: 12 passed, 0 failed');
+console.log('telemetry module: all checks passed');

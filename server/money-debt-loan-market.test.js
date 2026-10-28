@@ -1,5 +1,5 @@
-// Regression suite for the money / debt / loan / contract / market audit fixes
-// (reports s01, s02, s04, s05, s07). Every check drives the public GameState
+// Regression checks for money, debt, loan, contract and market defects
+// Every check drives the public GameState
 // or Room verbs the socket handlers call.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -35,7 +35,7 @@ function seatedRoom(count = 3, overrides = {}) {
   return room;
 }
 
-// ---- S04-1: the departing debtor's cash belongs to its creditor ----------
+// The departing debtor's cash belongs to its creditor
 check('S04-1: a bankrupt debtor\'s cash goes to the creditor, not to a third-party default claim', () => {
   const room = seatedRoom(3);
   const game = room.game;
@@ -52,7 +52,7 @@ check('S04-1: a bankrupt debtor\'s cash goes to the creditor, not to a third-par
   assert.equal(game.defaultClaims[0].status, 'open', 'the claim stays an unpaid write-off record');
 });
 
-// ---- S04-2: claim sweep respects reserved cash and unpaid debts ----------
+// Claim sweep respects reserved cash and unpaid debts
 function claimFor(a, b, round = 2) {
   return { id: 'claim_x', contractId: 'x', lenderId: a.id, borrowerId: b.id, principal: 100, remaining: 100, status: 'open', createdRound: round };
 }
@@ -112,7 +112,7 @@ check('S04-2: a claim is still collected from a solvent seat with free cash', ()
   assert.equal(game.defaultClaims[0].status, 'settled');
 });
 
-// ---- S04-3: net worth counts debts parked in the payment queue -----------
+// Net worth counts debts parked in the payment queue
 check('S04-3: net worth subtracts a pending payment and any queued debts of the same seat', () => {
   const room = seatedRoom(3);
   const game = room.game;
@@ -186,7 +186,7 @@ check('S04-3: a lender does not count a receivable from a borrower who owes a pe
   assert.equal(netWorthBreakdown(game, a).contracts, 0);
 });
 
-// ---- S04-4: bank-loan premium has no float drift -------------------------
+// Bank-loan premium has no float drift
 check('S04-4: the bank-loan premium is the exact ceiling of principal x rate', () => {
   const room = seatedRoom(2, { rulesetOverrides: { bankLoans: true } });
   const game = room.game;
@@ -206,7 +206,7 @@ check('S04-4: the bank-loan premium is the exact ceiling of principal x rate', (
   assert.equal(premiumFor('extreme', stagflation), 360);
 });
 
-// ---- S04-6: bank account upgrade idempotency and debts -------------------
+// Bank account upgrade idempotency and debts
 check('S04-6: a padded request id replays the first upgrade instead of buying a second tier', () => {
   const room = seatedRoom(2, { rulesetOverrides: { bankAccountUpgrades: true } });
   const game = room.game;
@@ -231,7 +231,7 @@ check('S04-6: a seat that owes a pending payment cannot spend its cash on an upg
   assert.equal(a.bankAccount?.tier ?? 1, 1);
 });
 
-// ---- S07-1: the round-limit winner is picked after positions settle ------
+// The round-limit winner is picked after positions settle
 check('S07-1: the round-limit winner is the richest seat after market settlement', () => {
   const room = seatedRoom(2, { rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }, marketComplexity: 'margin' });
   const game = room.game;
@@ -247,7 +247,7 @@ check('S07-1: the round-limit winner is the richest seat after market settlement
   assert.equal(game.lastWinner.id, b.id);
 });
 
-// ---- S07: market verbs ---------------------------------------------------
+// Market verbs
 function marketRoom(complexity) {
   const room = seatedRoom(2, { rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }, marketComplexity: complexity });
   return room;
@@ -302,7 +302,7 @@ check('S07-5: a forced liquidation produces a telemetry event the store accepts'
   }
 });
 
-// ---- S04-7: short buy-in debt settlement ---------------------------------
+// Short buy-in debt settlement
 check('S04-7: a rejected short-default payment is not replayed under the same request id', () => {
   const room = marketRoom('shorting');
   const game = room.game;
@@ -329,7 +329,7 @@ check('S04-7: short-default repayment never dips into a leading auction bid', ()
   assert.equal(a.shortDefaultDebt, 70);
 });
 
-// ---- S07-8: a stale crisis-buy reference is dropped with its position ----
+// A stale crisis-buy reference is dropped with its position
 check('S07-8: a crisis buy sold off at a loss does not seed a later profit flag', () => {
   const room = marketRoom('basic');
   const game = room.game;
@@ -351,7 +351,7 @@ check('S07-8: a crisis buy sold off at a loss does not seed a later profit flag'
   assert.equal(a.crisisMarketProfit, false, 'selling at 50 after buying at 60 is a loss');
 });
 
-// ---- S01-01 / S01-02: rescue cash settles the parked debts ---------------
+// Rescue cash settles the parked debts
 function rentDebtRoom(count = 2, overrides = {}) {
   const room = seatedRoom(count, overrides);
   const game = room.game;
@@ -434,7 +434,7 @@ check('S01-02: a queued debt the debtor cannot cover yet stays parked', () => {
   assert.equal(game.pendingPaymentQueue.length, 1, 'the head was promoted and one claim waits behind it');
 });
 
-// ---- S02 F1 (bankruptcyLogic half): the creditor leaves a parked debt ----
+// The creditor leaves a parked debt (bankruptcyLogic half)
 check('S02-F1: a creditor declaring bankruptcy resolves the debtor roll its debt was holding', () => {
   const { room, game, a, b } = rentDebtRoom(3);
   assert.equal(game.pendingPayment.creditorId, b.id);
@@ -458,7 +458,7 @@ check('S02-F1: a creditor leaving an off-turn debt does not resolve the current 
   assert.equal(game.currentPlayerId, a.id);
 });
 
-// ---- S05-01: contract terms start when the offer is accepted -------------
+// Contract terms start when the offer is accepted
 function ownDeed(game, player, index) {
   game.getTile(index).ownerId = player.id;
   player.properties.push(index);
@@ -519,7 +519,7 @@ check('S05-01: permanent new equity is rejected and saved permanent equity remai
   assert.equal(game.getTile(1).equityShares[0].share, 40);
 });
 
-// ---- S05-03: an unanswered contract offer lapses -------------------------
+// An unanswered contract offer lapses
 check('S05-03: an unanswered contract offer expires and releases the table', () => {
   const room = seatedRoom(3);
   const game = room.game;
@@ -555,7 +555,7 @@ check('S05-03: an unanswered equity-share transfer expires too', () => {
   assert.equal(game.pendingPlayerContract, null);
 });
 
-// ---- S05-04 / S05-05: sponsorship summary and equity top-up --------------
+// Sponsorship summary and equity top-up
 function sponsorFixture() {
   const room = seatedRoom(3);
   const game = room.game;
@@ -601,7 +601,7 @@ check('S05-05: gift sponsors still cannot contribute twice', () => {
   assert.equal(game.contributeToSponsoredPurchase('s-b', { amount: 10 }).success, false);
 });
 
-// ---- S01-03: lobby capacity counts every retained seat -------------------
+// Lobby capacity counts every retained seat
 check('S01-03: a post-game lobby with eliminated seats retained is full at maxPlayers', () => {
   const room = seatedRoom(4);
   const game = room.game;
@@ -624,7 +624,7 @@ check('S01-03: a running or fresh table keeps its existing join rules', () => {
   assert.equal(lobby.game.canJoin(), true);
 });
 
-// ---- S18-2: a bot buyer's request cannot park the table on a idle human --
+// A bot buyer's request cannot park the table on a idle human
 check('S18-2: a bot buyer cancels an open request once no bot can fund it and the window has passed', () => {
   const room = seatedRoom(3);
   const game = room.game;
@@ -666,7 +666,7 @@ check('S18-2: a request a bot can still fund is never cancelled for age alone', 
   assert.equal(sponsorshipBuyerShouldCancel(game, buyer, game.pendingSponsoredPurchase), false);
 });
 
-// ---- S06-01: per-seat trade counters reset for a rematch -----------------
+// Per-seat trade counters reset for a rematch
 check('S06-01: a rematch starts every seat at zero completed trades', () => {
   const room = seatedRoom(2);
   const game = room.game;
@@ -681,7 +681,7 @@ check('S06-01: a rematch starts every seat at zero completed trades', () => {
   assert.equal(b.tradesCompleted, 0);
 });
 
-// ---- S06-05: revoking a leading bid restores the response window ---------
+// Revoking a leading bid restores the response window
 check('S06-05: a bankrupt leading bidder revoked bid gives the others a fresh bid window', () => {
   const room = seatedRoom(3);
   const game = room.game;
@@ -704,7 +704,7 @@ check('S06-05: a bankruptcy that does not hold the lead leaves the auction clock
   assert.equal(game.auction.endsAt, endsAt);
 });
 
-// ---- S05-06: equity is only sold on unencumbered deeds -------------------
+// Equity is only sold on unencumbered deeds
 function hybridOnDeed(basket) {
   const room = seatedRoom(3);
   const game = room.game;

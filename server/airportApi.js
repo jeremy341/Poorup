@@ -1,11 +1,6 @@
-// Airport flights. A player standing on an airport can pay to fly to another
-// one instead of rolling. The fare is decided by who owns what:
-//   1. the destination is owned  -> its ARRIVAL fee is the fare;
-//   2. otherwise the origin is owned -> its DEPARTURE fee is the fare;
-//   3. otherwise the DEFAULT fare, paid to the bank.
-// The fare is paid to the owner whose fee set it. A traveller who owns that
-// airport flies free. Mortgaged airports act as unowned. Owners edit their two
-// fees at any time; the server prices every flight at the moment it is booked.
+// Airport flights. A player on an airport can pay to fly to another one instead of rolling.
+// The fare is the destination's arrival fee if owned, else the origin's departure fee if owned, else the default fee paid to the bank.
+// The owner whose fee set the fare is paid it and flies free. Mortgaged airports count as unowned.
 export const AIRPORT_DEFAULT_FARE = 100;
 export const AIRPORT_MAX_FEE = 200;
 
@@ -107,11 +102,9 @@ export const airportApi = {
     if (payee) payee.cash += fare;
     this.creditBankCashback(player, fare, 'FLIGHT');
 
-    // Flying is the turn's move: no roll, no extra roll, and the Start salary
-    // is never collected on a flight.
-    // A flight is a teleport: the position is assigned directly, so no tile is
-    // walked and Start is never crossed. lastFlight tells clients to snap the
-    // token instead of animating a walk, and clears when the turn changes.
+    // Flying is the turn's move: no roll, no extra roll, and no Start salary.
+    // The position is assigned directly, so no tile is walked and Start is never crossed.
+    // lastFlight tells clients to snap the token instead of animating a walk.
     this.lastFlight = { playerId: player.id, from: origin.index, to: destination.index };
     player.position = destination.index;
     this.trackRailroadVisit(player, destination);

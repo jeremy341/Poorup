@@ -1,10 +1,6 @@
-// B-35: room creation and the room-setting setter were two independent
-// validators for the same decision, so a payload could be legal through one
-// door and illegal through the other. These tests assert the cross-door
-// equivalence itself, which nothing pinned before.
-//
-// B-36b: marketComplexity is both a preset default and a ruleset meta key, so
-// the first write on a legacy room was reverted by the preset re-normalize.
+// Room creation and the room-setting setter were two independent validators for the same decision, so a payload could pass one door
+// and fail the other. These tests assert the cross-door equivalence, which nothing pinned before. marketComplexity is both a preset
+// default and a ruleset meta key, so the first write on a legacy room was reverted by the preset re-normalize.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
@@ -185,7 +181,7 @@ test('B-35 maxPlayers is not a creation override and its dead range config is go
 });
 
 test('B-36b every add-on key is carry-forwardable', () => {
-  // OPTIONAL_SYSTEM_KEYS drives the legacy -> ruleset carry-forward. It is
+  // OPTIONAL_SYSTEM_KEYS drives the legacy to ruleset carry-forward. It is
   // derived from ADD_ON_DEFAULTS so a new add-on key cannot silently be
   // reverted by the first meta write.
   for (const key of Object.keys(ADD_ON_DEFAULTS)) {
@@ -254,7 +250,7 @@ test("B-36b an Advanced room's optional systems survive the first ruleset meta w
 });
 
 test('B-36a: add-on overrides accumulate and a later toggle keeps the earlier ones', () => {
-  // Presets used to clear overrides on a switch. With no presets, every
+  // Presets do not clear overrides on a switch. With no presets, every
   // add-on choice stays on the table until the host changes it.
   const room = newRoom({ rulesetOverrides: [{ key: 'bankLoans', value: true }] });
   room.setRoomSetting('casino', false);

@@ -1,9 +1,6 @@
-// The account and room-lifecycle socket domain: registration/login/session
-// restore, public-room browsing, and the create/join/leave/set-setting/
-// start-game handlers. The original create-room Bumpy Road and the cc10+
-// join/leave bodies became single-purpose guard chains in the propertyApi.js
-// style; every ack payload, system-message text, and emit order is
-// wire-identical (server/rooms.test.js pins the error strings and order).
+// The account and room-lifecycle socket domain: registration, login, session restore, public-room browsing, and the create, join,
+// leave, set-setting and start-game handlers. Their guard chains follow the propertyApi.js style. Every ack payload, system message
+// and emit order is wire-identical (server/rooms.test.js pins the error strings and order).
 import {
   normalizeClientId,
   normalizeRequestId,
@@ -39,7 +36,7 @@ function canonicalValue(value) {
 }
 
 function createRoomFingerprint(request, clientId) {
-  // Deliberately fingerprints only normalized room fields. Session tokens and
+  // Fingerprints only normalized room fields. Session tokens and
   // other credentials never enter the replay cache.
   return JSON.stringify(canonicalValue({ clientId, request }));
 }
@@ -93,10 +90,8 @@ export function authAttemptKey(socket) {
   return (address && peerBucketKey(address)) || String(socket.id || 'unknown');
 }
 
-// Every password-checking event (login, register, delete request/cancel,
-// recovery-email request) spends this per-address budget. A success never
-// refunds it: an attacker could otherwise interleave a login to an account it
-// owns between guesses at someone else's password.
+// Every password-checking event (login, register, delete request or cancel, recovery-email request) spends this per-address budget.
+// A success never refunds it: an attacker could otherwise interleave a login to an account they own between guesses at someone else's password.
 function allowAuthAttempt(socket) {
   const now = Date.now();
   const bucket = windowBucket(authAttempts, authAttemptKey(socket), now, AUTH_ATTEMPT_WINDOW_MS);
@@ -106,7 +101,7 @@ function allowAuthAttempt(socket) {
 }
 
 // Username availability answers "is this name registered", so it is walked at
-// socket speed unless each address has its own budget (E24-10).
+// socket speed unless each address has its own budget.
 const USERNAME_CHECK_WINDOW_MS = 60_000;
 const USERNAME_CHECK_LIMIT = 30;
 const USERNAME_CHECK_LIMITED = 'Too many username checks. Try again shortly.';
@@ -226,7 +221,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     if (!allowAuthAttempt(socket)) return reply(callback, { success: false, error: AUTH_ATTEMPT_LIMITED });
     const room = roomManager.getRoomBySocket(socket.id);
     const result = typeof accountRights.requestDeletion === 'function'
-      ? await accountRights.requestDeletion({ accountId: account.id, sessionId: socket.data.sessionId || null, currentPassword: payload.currentPassword, typedPhrase: payload.typedPhrase, requestId: payload.requestId, activeRoom: Boolean(room) })
+      ? await accountRights.requestDeletion({ accountId: account.id, sessionId: socket.data.sessionId || null, sessionToken: payload.sessionToken || null, currentPassword: payload.currentPassword, typedPhrase: payload.typedPhrase, requestId: payload.requestId, activeRoom: Boolean(room) })
       : { success: false, code: 'ACCOUNT_DELETION_UNAVAILABLE', error: 'Account deletion is not configured.' };
     if (result?.success) socket.emit('account-lifecycle', { state: 'deletion-pending', dueAt: result.dueAt || null, requestId: result.requestId || null });
     return reply(callback, result);
@@ -301,7 +296,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   }
 
   function bindAccountToLobbySeat(account) {
-    // A pending deletion may sign in to cancel it, but never takes a table seat (E24-09).
+    // A pending deletion may sign in to cancel it, but never takes a table seat.
     if (!account?.id || account.accountDeactivated === true) return;
     const room = roomManager.getRoomBySocket(socket.id);
     const player = room?.getPlayerBySocket(socket.id);
@@ -452,10 +447,8 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     if (validationError) return reply(callback, { success: false, error: validationError });
     const conflict = privateCodeConflict(request, clientId, account);
     if (conflict) return reply(callback, { success: false, error: conflict });
-    // One seat per clientId and per account across rooms, exactly as the join
-    // guard enforces it: a seat held elsewhere is never duplicated. The check
-    // runs before any seat is released, so a refused request never drops a
-    // seat that is still in its disconnect grace and never settles another
+    // One seat per clientId and per account across rooms, as the join guard enforces it: a seat held elsewhere is never duplicated.
+    // The check runs before any seat is released, so a refused request never drops a seat still in disconnect grace or settles another
     // socket's seat as a bankruptcy. This socket's own live seat may move.
     const heldElsewhere = roomManager.identitySeatElsewhere(null, {
       clientId,
@@ -525,10 +518,9 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     return Boolean(player?.socketId && player.socketId !== socket.id && !player.disconnected);
   }
 
-  // A room with no human seat must not lock its private code for the full GC
-  // grace period, so it is reclaimed. A seat still in its grace window belongs
-  // to a person who can restore it, so that room keeps the code. A clientId or
-  // account the room kicked may not reclaim its code either.
+  // A room with no human seat must not lock its private code for the full GC grace period, so it is reclaimed. A seat still in its
+  // grace window belongs to a person who can restore it, and that room keeps the code. A clientId or account the room kicked may not
+  // reclaim the code either.
   function privateCodeConflict(request, clientId, account) {
     if (!request.requestedRoomCode) return null;
     const existingRoom = roomManager.getRoom(request.requestedRoomCode);
@@ -571,18 +563,16 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     return true;
   }
 
-  // A room action carries a clientId for tab-restart recovery, but that value
-  // must not let an unrelated socket evict somebody else's seat. The current
-  // socket may release its own seat; an authenticated account may also
-  // release its own disconnected seat after a tab restart. Guest seats have
-  // no durable identity and therefore require the owning socket.
+  // A room action carries a clientId for tab-restart recovery, but that value must not let an unrelated socket evict someone else's seat.
+  // The current socket may release its own seat, and an authenticated account may release its own disconnected seat after a tab restart.
+  // Guest seats have no durable identity, so they require the owning socket.
   function canManageSeat(room, player, account) {
     if (!room || !player) return false;
     const mappedRoom = roomManager.getRoomBySocket(socket.id);
     const mappedPlayer = mappedRoom?.getPlayerBySocket(socket.id);
     if (mappedRoom === room && mappedPlayer?.id === player.id) return true;
     // A socket seated in another room may not release a seat there: that would
-    // strand its own live seat behind a mapping that no longer names it.
+    // strand its own live seat behind a mapping that does not name it.
     if (mappedRoom && mappedRoom !== room) return false;
     if (!account?.id) return false;
     if (player.accountId !== account.id) return false;
@@ -620,8 +610,8 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     const departedId = departing?.id;
     const nickname = departing?.nickname || 'A player';
     const wasPublic = currentRoom?.visibility === 'public';
-    // Reassign the host on lobby AND started rooms — the older cleanup
-    // copies only did it in one branch and left orphan lobbies.
+    // Reassign the host on lobby AND started rooms, so a branch that skips it
+    // cannot leave an orphan lobby.
     if (departedId) {
       runtime.reassignHostIfNeeded(oldRoom, departedId);
     }

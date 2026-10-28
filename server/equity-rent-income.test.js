@@ -1,15 +1,6 @@
-// Regression suite for B-18: equity rent income scored as zero.
-//
-// settleEquityPayout booked the holder's payout as raw cash and on the
-// per-contract ledger, so a part-sold deed never reached the player-level rent
-// facts that season scoring, the leaderboard and the rent-reaper achievement
-// all read. A 100% equity landlord scored 0 rent for income they actually
-// received, while the deed owner was scored the full rent even though the
-// share was drained out of their cash afterwards.
-//
-// Rent is now credited to whoever keeps the money: the holder goes through
-// creditRentTo (cash + rentCollected + the payer sets + the round max) and the
-// owner's own rentCollected is reduced by the payout it gave away.
+// Regression suite for equity rent income scored as zero. settleEquityPayout booked the holder's payout as raw cash and on the
+// per-contract ledger, so a part-sold deed never reached the player-level rent facts that scoring reads.
+// Rent is credited to whoever keeps the money: the holder goes through creditRentTo, and the owner's rentCollected is reduced by the payout given away.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
@@ -44,7 +35,7 @@ function equityRoom(sharePct) {
   return { room, game, lender, owner, tile, contract };
 }
 
-// --- the defect itself ------------------------------------------------------
+// the defect itself
 
 test('B-18 the equity holder scores the rent it receives', () => {
   const ctx = equityRoom(50);
@@ -79,7 +70,7 @@ test('B-18 the per-contract ledger still accrues the payout', () => {
   assert.equal(ctx.contract.rentCollected, Math.floor(baseRent * 0.5));
 });
 
-// --- conservation -----------------------------------------------------------
+// conservation
 
 test('B-18 player rent totals still add up to the rent charged', () => {
   const ctx = equityRoom(50);
@@ -103,7 +94,7 @@ test('B-18 scoring the holder did not change the cash that moved', () => {
   assert.equal(ctx.owner.cash, ownerBefore + baseRent - share);
 });
 
-// --- the achievements / leaderboard consumers -------------------------------
+// the achievements / leaderboard consumers
 
 test('B-18 equity rent counts toward the payer sets and the rent-reaper max', () => {
   const ctx = equityRoom(50);
@@ -116,12 +107,12 @@ test('B-18 equity rent counts toward the payer sets and the rent-reaper max', ()
     'the holder earns a round participation count from equity rent');
 });
 
-// --- B-21 carry-forward still holds, and stays consistent -------------------
+// Carry-forward still holds, and stays consistent.
 
 test('B-18 a short owner carries the share without driving rent scoring negative', () => {
   const ctx = equityRoom(100);
   const baseRent = ctx.game.calculateRent(ctx.tile);
-  // Starve the owner so the share cannot be paid in full: this is the B-21 path.
+  // Starve the owner so the share cannot be paid in full: this is the carry-forward path.
   ctx.owner.cash = 3;
   const owed = Math.floor(baseRent * 1);
   assert.ok(owed > 3, 'precondition: the owner cannot cover the whole share');
@@ -136,10 +127,8 @@ test('B-18 a short owner carries the share without driving rent scoring negative
 test('B-18 a later full payment settles the carry and balances the books', () => {
   const ctx = equityRoom(100);
   const owed = 100;
-  // Drive the share settlement directly with a broke owner. Going through
-  // handleBuyableTile would credit the owner the rent first, and at a 100%
-  // share they could then always cover it - which is why the B-21 regression
-  // exercises this path directly too.
+  // Drive the share settlement directly with a broke owner. Going through handleBuyableTile would credit the owner the rent first,
+  // and at a 100% share they could then always cover it, so the carry-forward regression exercises this path directly.
   ctx.owner.cash = 0;
   ctx.game.settleEquityShares(ctx.tile, ctx.owner, owed, ctx.lender);
   assert.equal(ctx.contract.unpaidRentShare, owed, 'precondition: the unpaid remainder is carried on the contract');
@@ -157,7 +146,7 @@ test('B-18 a later full payment settles the carry and balances the books', () =>
   assert.equal(ctx.lender.rentCollected, owed * 2, 'the holder scored both settlements in full');
 });
 
-// --- controls ---------------------------------------------------------------
+// controls
 
 test('B-18 a tile with no equity share is untouched', () => {
   const room = makeRoom();

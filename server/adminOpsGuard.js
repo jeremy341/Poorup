@@ -1,5 +1,5 @@
 // One admin guard for every operator route (/admin/ai/* and /admin/ops/*).
-// It is the guard aiProviderRoutes.js always had, moved here unchanged so the
+// It is the guard aiProviderRoutes.js uses, shared here so the
 // two route families cannot drift apart:
 //   401  no account session
 //   403  signed in but not on the admin allow-list
@@ -18,10 +18,9 @@ export function sameOrigin(req, configuredOrigin = '') {
   return origin === `${protocol}://${req.get?.('host')}`;
 }
 
-// Router-level error handler for express.json: any 4xx the body parser raised
-// (bad JSON, too large, unsupported Content-Encoding, aborted upload) is the
-// caller's fault, so it answers as JSON with that status and is not counted as
-// a server error. Anything else goes on to the app's own handler.
+// Router-level error handler for express.json. A 4xx from the body parser (bad JSON, too large,
+// unsupported encoding, aborted upload) is the caller's fault: answer it as JSON with that status
+// and do not count it as a server error. Anything else goes to the app's own handler.
 export function jsonBodyErrorHandler(error, _req, res, next) {
   const status = Number(error?.status || error?.statusCode);
   if (res.headersSent || !(status >= 400 && status < 500)) return next(error);
@@ -29,10 +28,9 @@ export function jsonBodyErrorHandler(error, _req, res, next) {
   return res.status(status).json({ success: false, error: message });
 }
 
-// The write budget belongs to the operator, not to a route family: /admin/ai/*
-// and /admin/ops/* are two guards over the same accounts, so a per-guard map
-// would let one operator change twice as much as the limit allows. The map is
-// module scope so every guard instance consults the same windows.
+// The write budget belongs to the operator, not to a route family. /admin/ai/* and /admin/ops/*
+// are two guards over the same accounts, so a per-guard map would double the allowed writes.
+// The map is module scope so every guard instance shares the same windows.
 const writeBudgets = new Map();
 // Two guards can be handed different clocks (a family may run on its own
 // clock). A window that starts more than half a window ahead of ours belongs

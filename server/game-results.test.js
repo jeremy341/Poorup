@@ -1,9 +1,6 @@
-// Characterization suite for AccountStore.recordGameResults: pins placement
-// order, matchRecord clipping/clamping, and the exact per-account stat deltas
-// for a fixture that exercises every source (clamps, string numbers, NaN,
-// missing accounts, casino/market/contract summaries). Goldens were captured
-// from the pre-refactor implementation; the reducer-table extraction must
-// keep them byte-identical.
+// Characterization suite for AccountStore.recordGameResults: pins placement order, matchRecord clipping and clamping, and exact
+// per-account stat deltas for a fixture covering every source (clamps, string numbers, NaN, missing accounts, casino, market and contract summaries).
+// Goldens come from the pre-refactor implementation; the reducer table must keep them byte-identical.
 import assert from 'assert';
 import fs from 'fs';
 import os from 'os';
@@ -173,7 +170,7 @@ check('old match replays stay idempotent after the visible history window rolls 
   assert.equal(byName('alice').stats.gamesPlayed, before);
 });
 
-// E37-14: the settlement ledger is bounded, so a long-lived account does not
+// The settlement ledger is bounded, so a long-lived account does not
 // grow its record (and every accounts.json rewrite) without limit, while a
 // replay of a recent match is still refused.
 check('recorded match ids are capped and the newest replay is still refused', () => {

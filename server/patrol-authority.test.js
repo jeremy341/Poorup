@@ -12,14 +12,62 @@ const http = createServer();
 const io = new Server(http);
 const saved = [];
 const achievements = [];
-const accounts = new Map([['a', { id: 'a' }], ['b', { id: 'b' }]]);
+let failNextPatrolSave = false;
+let failNextAchievementSave = false;
+let failNextAchievementRollback = false;
+let failNextAchievementUnlock = false;
+const achievementMirrors = new Set();
+const achievementUnlocks = new Map();
+const achievementRetryTimers = [];
+const accounts = new Map([['a', { id: 'a' }], ['b', { id: 'b' }], ['c', { id: 'c' }]]);
 const accountStore = {
-  recordPatrolResult(id, result) { saved.push({ id, ...result }); return { success: true, ...result, best: result.score, aceRuns: 0 }; },
-  getAccountSnapshot: id => ({ id })
+  recordPatrolResult(id, result) { if (failNextPatrolSave) { failNextPatrolSave = false; throw new Error('Save failed'); } saved.push({ id, ...result }); return { success: true, ...result, best: result.score, aceRuns: 0 }; },
+  recordAchievement(accountId, achievement) {
+    if (failNextAchievementSave) { failNextAchievementSave = false; throw new Error('Achievement mirror save failed'); }
+    const key = `${accountId}:${achievement.id}`;
+    const created = !achievementMirrors.has(key);
+    achievementMirrors.add(key);
+    return { success: true, created };
+  },
+  getAccountSnapshot: id => ({ id }),
+  getAccountById: id => accounts.get(id) || null,
+  getPublicAccountById: id => ({ id, displayName: id.toUpperCase() })
 };
-const social = createSocialApi({ io, accountStore, socialStore: {}, matchStore: {}, achievementStore: {} });
+const social = createSocialApi({
+  io,
+  accountStore,
+  socialStore: { addNotification() {} },
+  matchStore: {},
+  achievementStore: {
+    unlock(record) {
+      if (failNextAchievementUnlock) { failNextAchievementUnlock = false; throw new Error('Achievement unlock save failed'); }
+      const key = `${record.accountId}:${record.achievementId}`;
+      const existing = achievementUnlocks.get(key);
+      if (existing) return { created: false, record: existing };
+      const created = { ...record, unlockedAt: '2026-10-28T00:00:00.000Z' };
+      achievementUnlocks.set(key, created);
+      return { created: true, record: created };
+    },
+    remove(accountId, achievementId) {
+      if (failNextAchievementRollback) { failNextAchievementRollback = false; throw new Error('Achievement rollback failed'); }
+      return achievementUnlocks.delete(`${accountId}:${achievementId}`);
+    }
+  },
+  setTimeoutFn(callback, delay) {
+    const timer = { delay, cleared: false, fired: false, unref() {} };
+    timer.callback = () => { timer.fired = true; return callback(); };
+    achievementRetryTimers.push(timer);
+    return timer;
+  },
+  clearTimeoutFn(timer) { if (timer) timer.cleared = true; }
+});
 social.accountForSocket = socket => accounts.get(socket.handshake.auth.account) || null;
-social.recordVerifiedAchievement = candidate => { achievements.push(candidate.achievementId); return true; };
+const recordVerifiedAchievement = social.recordVerifiedAchievement.bind(social);
+social.recordVerifiedAchievement = (candidate, gameId) => {
+  const created = recordVerifiedAchievement(candidate, gameId);
+  if (created) achievements.push(candidate.achievementId);
+  return created;
+};
 io.on('connection', socket => registerSocialSocketHandlers((event, handler) => socket.on(event, handler), socket, { io, accountStore, socialStore: {}, matchStore: {}, social }));
 await new Promise(resolve => http.listen(0, '127.0.0.1', resolve));
 const url = `http://127.0.0.1:${http.address().port}`;
@@ -97,6 +145,8 @@ try {
   const end = await ask(a, 'finish-patrol-run', { runToken, score: 999999, misses: 0 });
   assert.equal(end.score, 125, 'submission cannot inflate score');
   assert.equal(saved.at(-1).score, 125);
+  assert.equal(saved.at(-1).settlementId, runToken, 'the run token and score enter the durable award journal together');
+  assert.equal(saved.at(-1).cleanRun, false);
   assert.ok(achievements.includes('patrol-rookie'));
   assert.ok(!achievements.includes('clean-run'), 'early exit does not award clean-run');
   const savesAfterFirstFinish = saved.length;
@@ -106,6 +156,57 @@ try {
   assert.equal((await ask(b, 'finish-patrol-run', { runToken })).success, false, 'another account cannot retrieve a result');
   assert.equal(saved.length, savesAfterFirstFinish, 'retry does not record twice');
   assert.equal(achievements.length, awardsAfterFirstFinish, 'retry does not re-award');
+
+  // A persisted unlock whose account mirror and rollback both fail must be
+  // retried by the server queue; a successful patrol finish is not contingent
+  // on the client resending finish-patrol-run.
+  const awardRecoveryStart = await startReady(b);
+  const awardRecoveryTarget = awardRecoveryStart.targets[0];
+  await ask(b, 'hit-patrol-target', { runToken: awardRecoveryStart.runToken, targetId: awardRecoveryTarget.id });
+  failNextAchievementSave = true;
+  failNextAchievementRollback = true;
+  const awardRecoveryEnd = await ask(b, 'finish-patrol-run', { runToken: awardRecoveryStart.runToken });
+  assert.equal(awardRecoveryEnd.success, true);
+  const recoveredAwardKey = 'b:patrol-rookie';
+  assert.equal(achievementUnlocks.has(recoveredAwardKey), true, 'rollback failure leaves a durable source unlock');
+  assert.equal(achievementMirrors.has(recoveredAwardKey), false, 'the initial mirror write failed');
+  const retryTimer = achievementRetryTimers.find(timer => timer.delay === 1000 && !timer.cleared && !timer.fired);
+  assert.ok(retryTimer, 'the failed patrol achievement has a bounded server retry scheduled');
+  retryTimer.callback();
+  assert.equal(achievementMirrors.has(recoveredAwardKey), true, 'the queued retry repairs the account mirror without client replay');
+  assert.deepEqual(await ask(b, 'finish-patrol-run', { runToken: awardRecoveryStart.runToken }), awardRecoveryEnd);
+
+  const c = await client('c');
+  const purgedStart = await startReady(c);
+  await ask(c, 'hit-patrol-target', { runToken: purgedStart.runToken, targetId: purgedStart.targets[0].id });
+  failNextAchievementUnlock = true;
+  assert.equal((await ask(c, 'finish-patrol-run', { runToken: purgedStart.runToken })).success, true);
+  const purgedRetry = achievementRetryTimers.find(timer => timer.delay === 1000 && !timer.cleared && !timer.fired);
+  assert.ok(purgedRetry, 'a transient unlock-store failure schedules retry');
+  accounts.delete('c');
+  const unlocksBeforePurgedRetry = achievementUnlocks.size;
+  purgedRetry.callback();
+  assert.equal(achievementUnlocks.size, unlocksBeforePurgedRetry, 'a retry does not create an achievement for a purged account');
+
+  const retrySocket = await client('a');
+  const retryStart = await startReady(retrySocket);
+  const retryRun = social.patrolRuns.get(retryStart.runToken);
+  retryRun.targets.get(retryStart.targets[0].id).actionableAt = Date.now();
+  await ask(retrySocket, 'hit-patrol-target', { runToken: retryStart.runToken, targetId: retryStart.targets[0].id });
+  const savesBeforeRetry = saved.length;
+  const awardsBeforeRetry = achievements.length;
+  failNextPatrolSave = true;
+  assert.equal((await ask(retrySocket, 'finish-patrol-run', { runToken: retryStart.runToken })).success, false);
+  assert.equal(social.patrolRuns.has(retryStart.runToken), true, 'failed settlement retains the run');
+  assert.equal(retryRun.ended, true, 'failed settlement freezes play');
+  retrySocket.disconnect();
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal((await ask(b, 'finish-patrol-run', { runToken: retryStart.runToken })).success, false);
+  const retryEnd = await ask(a, 'finish-patrol-run', { runToken: retryStart.runToken });
+  assert.equal(retryEnd.score, 125);
+  assert.deepEqual(await ask(a, 'finish-patrol-run', { runToken: retryStart.runToken }), retryEnd);
+  assert.equal(saved.length, savesBeforeRetry + 1, 'retry saves exactly once');
+  assert.equal(achievements.length, awardsBeforeRetry, 'retrying a score does not re-award already unlocked achievements');
 
   const lostSender = await client('a');
   const lost = await startReady(lostSender);
@@ -261,8 +362,8 @@ try {
     assert.equal(reloaded.accounts.get('verified').stats.patrolVerifiedBest, 100025, 'verified provenance survives reload');
     assert.equal(reloaded.accounts.get('verified').stats.patrolBest, 80000, 'legacy score survives reload');
   } finally {
-    if (fs.existsSync(storePath)) fs.unlinkSync(storePath);
-    fs.rmdirSync(dir);
+    // Backup writes can leave <store>.<pid>.<id>.tmp files behind; remove the whole directory.
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 
   const offerStart = await ask(b, 'start-patrol-run');

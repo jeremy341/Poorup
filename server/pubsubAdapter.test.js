@@ -13,7 +13,7 @@ assert.equal(bus.publish('room-state', { value: BigInt(1) }).success, false);
 bus.close();
 assert.equal(bus.publish('room-state', {}).success, false);
 
-// S12-L1: a repeated unsubscribe must not remove a topic another subscriber re-created.
+// A repeated unsubscribe must not remove a topic another subscriber re-created.
 {
   const adapter = createPubSubAdapter();
   const stale = adapter.subscribe('lobby', () => {});
@@ -26,7 +26,7 @@ assert.equal(bus.publish('room-state', {}).success, false);
   assert.equal(adapter.topicCount(), 1);
 }
 
-// S12-L2: null is a valid payload, and a topic over the limit is rejected, not truncated into another topic.
+// Null is a valid payload, and a topic over the limit is rejected, not truncated into another topic.
 {
   const adapter = createPubSubAdapter();
   const seen = [];

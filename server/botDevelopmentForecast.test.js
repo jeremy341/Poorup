@@ -70,7 +70,7 @@ check('gain-to-3 needs no cost data', () => {
 });
 
 check('forecast sees the developed hotel threat, ignores mortgaged', () => {
-  // Dark Blue-37 at 4 houses: 35*80=2800, tier 90% -> 2520.
+  // Dark Blue-37 at 4 houses: 35*80=2800, tier 90% gives 2520.
   assert.equal(forecastMaxHit(BOARD), 2520);
   assert.equal(forecastMaxHit([]), 0);
 });

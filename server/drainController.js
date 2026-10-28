@@ -18,12 +18,9 @@ export function shutdownDrainMessage(signal) {
   return `${signal} · SERVER RESTARTING`;
 }
 
-// Drains persisted by older builds on SIGTERM carry releaseId "shutdown", or
-// the restart message when POORUP_RELEASE_ID was set. Neither is an operator
-// decision, so boot must not inherit them. The markers only describe a
-// shutdown drain: a maintenance window that happens to carry the same release
-// id or message is an operator decision (a lockout, a deploy window) and is
-// kept.
+// Drains persisted by older builds on SIGTERM carry releaseId "shutdown", or the restart message when POORUP_RELEASE_ID was set.
+// Neither is an operator decision, so boot must not inherit them. The markers only describe a shutdown drain: a maintenance window
+// with the same release id or message is an operator decision (a lockout, a deploy window) and is kept.
 function isLegacyShutdownDrain(persisted) {
   if (normalizeMaintenanceMode(persisted?.mode) !== 'draining') return false;
   if (persisted?.releaseId === SHUTDOWN_RELEASE_ID) return true;
@@ -67,10 +64,8 @@ function assertValidEnvMode(envMode) {
   throw new Error(`POORUP_MAINTENANCE_MODE=${JSON.stringify(String(envMode))} is not a recognised mode; use one of: ${MAINTENANCE_MODES.join(', ')} (or leave it unset).`);
 }
 
-// Chooses the boot-time mode: a persisted operator state wins over the env
-// default, except for stale shutdown records which fall through to the env.
-// A record that cannot be trusted leaves the site closed. An unrecognised env
-// default throws, whether or not a persisted record would have won.
+// Chooses the boot-time mode: a persisted operator state wins over the env default, except stale shutdown records, which fall through.
+// A record that cannot be trusted leaves the site closed. An unrecognised env default throws, whether or not a record would have won.
 export function bootMaintenanceMode(persisted, envMode) {
   assertValidEnvMode(envMode);
   const { record, present, corrupt } = resolvePersistedRecord(persisted);
@@ -82,10 +77,8 @@ export function bootMaintenanceMode(persisted, envMode) {
   return mode;
 }
 
-// The persisted record boot should restore, or null when the env default
-// applies (no record, a corrupt record, or a stale shutdown drain). Release
-// id, message, deadline and lockout come back with the mode so a restart
-// does not drop them.
+// The persisted record boot should restore, or null when the env default applies (no record, a corrupt record, or a stale shutdown drain).
+// Release id, message, deadline and lockout come back with the mode so a restart does not drop them.
 export function bootMaintenanceRecord(persisted) {
   const { record, present, corrupt } = resolvePersistedRecord(persisted);
   if (!present || corrupt) return null;
@@ -99,12 +92,9 @@ export function bootMaintenanceRecord(persisted) {
 // was recovered rather than chosen.
 export const CORRUPT_RECOVERY_MESSAGE = 'MAINTENANCE IN PROGRESS · RECOVERED FROM CORRUPT STATE';
 
-// The durable marker that takes the place of a quarantined maintenance file.
-// The corrupt bytes leave no valid record behind, so without a marker the
-// next boot finds no file at all and falls back to the environment default
-// with the site open. The marker boots closed, exactly like the corrupt boot
-// it replaces, and it carries no lockout: recovering the state does not
-// change who may join.
+// The durable marker that replaces a quarantined maintenance file. The corrupt bytes leave no valid record, so without a marker the
+// next boot would find no file and fall back to the open env default. The marker boots closed, like the corrupt boot it replaces,
+// and carries no lockout: recovering the state does not change who may join.
 export function corruptMaintenanceMarker() {
   return createMaintenanceSnapshot({ mode: 'maintenance', message: CORRUPT_RECOVERY_MESSAGE });
 }
@@ -147,6 +137,7 @@ export function createDrainController({
   // state ahead of it, so the difference is retried until it lands: the disk
   // must never come back older (and so more open) than the live site.
   let lastDurable = null;
+  let retryState = null;
   let persistTimer = null;
   // Whether the pending deadline transition may be written to disk. A shutdown
   // drain is published with persist:false and its deadline must stay that way.
@@ -203,16 +194,19 @@ export function createDrainController({
   // more open than the live site.
   function armPersistRetry(state) {
     clearPersistRetry();
+    retryState = state;
     persistTimer = schedule(() => {
       persistTimer = null;
-      // A newer state took over; that one owns the write.
-      if (current !== state) return;
+      // A newer durable state took over; an ephemeral shutdown publication
+      // does not replace the state that still needs to reach disk.
+      if (retryState !== state) return;
       if (onChange(state, { persist: true }) === false) {
         armPersistRetry(state);
         return;
       }
       lastDurable = state;
       persistFailed = false;
+      retryState = null;
     }, PERSIST_RETRY_MS);
     persistTimer?.unref?.();
   }
@@ -221,13 +215,17 @@ export function createDrainController({
     const next = snapshot();
     current = next;
     const persisted = onChange(next, { persist });
-    persistFailed = persisted === false;
-    if (persistFailed) {
-      // A shutdown drain is never written, so it is never retried either.
-      if (persist) armPersistRetry(next);
-    } else {
-      lastDurable = next;
-      clearPersistRetry();
+    // Process-only shutdown state is visible to sockets, but it must neither
+    // become the durable target nor clear a retry for an operator change.
+    if (persist) {
+      persistFailed = persisted === false;
+      if (persistFailed) {
+        armPersistRetry(next);
+      } else {
+        lastDurable = next;
+        retryState = null;
+        clearPersistRetry();
+      }
     }
     return next;
   }
@@ -264,11 +262,9 @@ export function createDrainController({
     return publish({ persist });
   }
 
-  // Re-entering maintenance (a new message, a deploy script) keeps a lockout
-  // that is already on; only setLockout(false) or finishMaintenance lifts it.
-  // A deadline is carried only by the deadline-driven transition and by
-  // restating maintenance that already has one; entering by hand from a drain
-  // or normal mode leaves no stale deadline behind.
+  // Re-entering maintenance (a new message, a deploy script) keeps a lockout that is already on; only setLockout(false) or
+  // finishMaintenance lifts it. A deadline is carried only by the deadline-driven transition and by restating maintenance that
+  // already has one. Entering by hand from a drain or normal mode leaves no stale deadline behind.
   function enterMaintenance({ releaseId = current.releaseId, deadline = current.mode === 'maintenance' ? current.drainDeadline : null, message = 'MAINTENANCE IN PROGRESS', lockout = current.lockout, persist = true } = {}) {
     clearDeadlineTimer();
     current = createMaintenanceSnapshot({ mode: 'maintenance', lockout, releaseId, drainDeadline: deadline, message, activeRounds: activeRoundCount() });
@@ -307,7 +303,7 @@ export function createDrainController({
     setLockout,
     lastPersistFailed: () => persistFailed,
     // The last state known to be on disk. A boot that cannot trust the file
-    // uses this instead of guessing.
+    // uses this, not a guess.
     lastDurableSnapshot: () => lastDurable,
     // A drain finishes on a count that was actually read and is zero. An
     // unreadable count is unknown, and unknown is not drained.

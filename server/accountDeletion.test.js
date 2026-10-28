@@ -5,6 +5,7 @@ import path from 'node:path';
 import { AccountStore } from './accountStore.js';
 import { MatchStore } from './matchStore.js';
 import { createAccountDeletionCoordinator } from './accountDeletion.js';
+import { createSessionStore } from './sessionStore.js';
 
 let now = Date.parse('2026-09-17T12:00:00.000Z');
 let persistCount = 0;
@@ -57,7 +58,7 @@ assert.equal(due.succeeded, 1);
 assert.equal(removed.length >= 4, true);
 assert.equal(persistCount > 0, true);
 
-// F-046: malformed or blocked requests are refused before any scrypt work, so
+// Malformed or blocked requests are refused before any scrypt work, so
 // a session holder cannot use delete requests as a password-hash load source.
 let scryptCalls = 0;
 const probeAccount = { id: 'acct-2', username: 'probe', passwordHash: 'hash', passwordSalt: 'salt', deletionRequestedAt: null, deletionDueAt: null, accountDeactivated: false };
@@ -79,7 +80,7 @@ assert.equal(scryptCalls, 0, 'cheap request checks run before the password hash'
 assert.equal((await probe.request({ accountId: 'acct-2', currentPassword: 'wrong', typedPhrase: 'DELETE ACCOUNT' })).code, 'ACCOUNT_CONFIRMATION_INVALID');
 assert.equal(scryptCalls, 1);
 
-// F-045: a cancel that lands while the purge awaits its notice mail must be
+// A cancel that lands while the purge awaits its notice mail must be
 // refused, not reported as success followed by an irreversible delete.
 let releaseMail;
 const mailGate = new Promise(resolve => { releaseMail = resolve; });
@@ -109,9 +110,8 @@ releaseMail();
 assert.equal((await purging).succeeded, 1);
 assert.deepEqual(raceRemoved, ['acct-3']);
 
-// E24-07 / E24-08 / E37-08 / E24-11: every linked store is erased with the
-// display name, analytics rows are included, and a backup copy that cannot be
-// reached keeps the purge pending until it can be scrubbed.
+// Every linked store is erased, including the display name and analytics rows.
+// A backup copy that cannot be reached keeps the purge pending until it can be scrubbed.
 const erasureCalls = [];
 let unreachableCopies = 1;
 const erasureAccount = { id: 'acct-4', username: 'erased', displayName: 'Erased', passwordHash: 'hash', passwordSalt: 'salt', recoveryEmailVerified: false, deletionRequestedAt: null, deletionDueAt: null, deletionRequestId: null, accountDeactivated: false };
@@ -142,8 +142,8 @@ unreachableCopies = 0;
 const completed = await erasing.runDue();
 assert.equal(completed.succeeded, 1);
 assert.deepEqual(erasureRemoved, ['acct-4']);
-// S11-01: a purge that fails after an await rolls back its own work only. An
-// account registered while a linked store was busy must survive the rollback.
+// A purge that fails after an await must not roll back unrelated
+// account-store writes that landed while the linked store was busy.
 {
   const realRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-deletion-rollback-'));
   const realStore = new AccountStore(path.join(realRoot, 'accounts.json'));
@@ -170,7 +170,34 @@ assert.deepEqual(erasureRemoved, ['acct-4']);
   assert.ok(realStore.getAccountById(victim.account.id)?.deletionRequestedAt, 'the failed purge leaves the request pending');
   fs.rmSync(realRoot, { recursive: true, force: true });
 }
-// F3: a deletion request that cannot be written must not sign the other
+// A coordinator rollback must not restore an old whole-store snapshot
+// over an unrelated write that lands while a linked store is awaiting I/O.
+{
+  const concurrentAccount = { id: 'acct-s11', username: 's11', passwordHash: 'hash', passwordSalt: 'salt', deletionRequestedAt: '2026-01-01T00:00:00.000Z', deletionDueAt: '2026-01-02T00:00:00.000Z', deletionRequestId: 's11', accountDeactivated: true };
+  let rows = ['existing'];
+  let releasePurge;
+  const gate = new Promise(resolve => { releasePurge = resolve; });
+  const coordinator = createAccountDeletionCoordinator({
+    now: () => now,
+    accountStore: { getAccountById: id => id === concurrentAccount.id ? concurrentAccount : null },
+    roomManager: { rooms: new Map() },
+    stores: [
+      {
+        snapshot: () => [...rows],
+        restoreSnapshot: snapshot => { rows = [...snapshot]; },
+        purgeAccount: async () => { rows = rows.filter(row => row !== 'existing'); await gate; },
+      },
+      { purgeAccount: async () => { throw new Error('later store failed'); } },
+    ],
+  });
+  const running = coordinator.purge(concurrentAccount);
+  await new Promise(resolve => setImmediate(resolve));
+  rows.push('concurrent-write');
+  releasePurge();
+  assert.equal((await running).success, false);
+  assert.deepEqual(rows, ['concurrent-write'], 'the concurrent store write survives failed erasure while completed erasure stays applied');
+}
+// A deletion request that cannot be written must not sign the other
 // devices out, and must not leave the account scheduled on disk. The disk model
 // below is what a restart would read back.
 {
@@ -199,22 +226,25 @@ assert.deepEqual(erasureRemoved, ['acct-4']);
   assert.deepEqual(revoked, [], 'the other devices stay signed in when the request was not persisted');
 }
 
-// F3: a session revocation that fails after the request was persisted keeps
+// A session revocation that fails after the request was persisted keeps
 // the scheduled deletion (it is durable) and reports the failure.
 {
   const pending = { id: 'acct-f3c', username: 'f3c', passwordHash: 'hash', passwordSalt: 'salt', deletionRequestedAt: null, deletionDueAt: null, accountDeactivated: false };
   const disk = { deletionRequestedAt: null, accountDeactivated: false };
+  const cookieAttempts = [];
+  let failBearerRevocation = true;
   const coordinator = createAccountDeletionCoordinator({
     now: () => now,
     accountStore: {
       getAccountById: id => (id === pending.id ? pending : null),
       verifyPassword: () => true,
       persist: () => { disk.deletionRequestedAt = pending.deletionRequestedAt; disk.accountDeactivated = pending.accountDeactivated; },
+      revokeSessionsForAccount: (...args) => { if (failBearerRevocation) throw new Error('accounts.json busy'); return 1; },
       setAccountDeactivated: (value, flag) => { value.accountDeactivated = flag; },
       snapshot: () => ({ ...pending }),
       restoreSnapshot: snapshot => Object.assign(pending, snapshot),
     },
-    sessionStore: { revokeAccountSessionsExcept: () => { throw new Error('sessions.json is busy'); } },
+    sessionStore: { revokeAccountSessionsExcept: (...args) => { cookieAttempts.push(args); return 1; } },
     roomManager: { rooms: new Map() },
   });
   const result = await coordinator.request({ accountId: 'acct-f3c', currentPassword: 'pw', typedPhrase: 'DELETE ACCOUNT', requestId: 'f3c' });
@@ -224,9 +254,13 @@ assert.deepEqual(erasureRemoved, ['acct-4']);
   assert.ok(disk.deletionRequestedAt, 'the durable deletion request is kept');
   assert.ok(pending.deletionRequestedAt, 'and stays pending in memory');
   assert.equal(pending.accountDeactivated, true);
+  failBearerRevocation = false;
+  const retried = await coordinator.request({ accountId: 'acct-f3c', currentPassword: 'pw', typedPhrase: 'DELETE ACCOUNT', requestId: 'f3c' });
+  assert.equal(retried.success, true, 'retry completes the failed bearer-session revocation');
+  assert.equal(cookieAttempts.length, 2, 'retry reruns cookie-session revocation too, which is safe to repeat');
 }
 
-// F3: a cancel whose write fails leaves the account pending instead of
+// A cancel whose write fails leaves the account pending instead of
 // half-cancelled, and a cancel that can be written goes through.
 {
   const pending = { id: 'acct-f3b', username: 'f3b', passwordHash: 'hash', passwordSalt: 'salt', deletionRequestedAt: '2027-06-01T00:00:00.000Z', deletionDueAt: '2030-01-01T00:00:00.000Z', deletionRequestId: 'r1', accountDeactivated: true };
@@ -255,7 +289,7 @@ assert.deepEqual(erasureRemoved, ['acct-4']);
   assert.equal(pending.accountDeactivated, false);
 }
 
-// F5: once the deadline has passed a purge may have erased stores that cannot
+// Once the deadline has passed a purge may have erased stores that cannot
 // be rolled back, so a cancel is refused and the deletion stays pending.
 {
   let unreachable = 1;
@@ -288,7 +322,7 @@ assert.deepEqual(erasureRemoved, ['acct-4']);
   assert.equal((await coordinator.purge(stale)).success, true, 'the pending deletion is retried to completion');
 }
 
-// F4: the session revocation and the account purge are the last steps, so a
+// The session revocation and the account purge are the last steps, so a
 // store that fails leaves the account signed in and undeleted.
 {
   const order = [];
@@ -311,7 +345,7 @@ assert.deepEqual(erasureRemoved, ['acct-4']);
   assert.deepEqual(order, [['store', 'acct-f4']], 'the sessions are not revoked when a store fails');
 }
 
-// F4: a purge that succeeds erases the stores, then revokes the sessions,
+// A purge that succeeds erases the stores, then revokes the sessions,
 // then deletes the account.
 {
   const order = [];
@@ -333,7 +367,7 @@ assert.deepEqual(erasureRemoved, ['acct-4']);
   assert.deepEqual(order, [['store', 'acct-f4b'], ['sessions', 'acct-f4b'], ['account', 'acct-f4b']]);
 }
 
-// F02: deletion must scrub each embedded account-history copy in the same
+// Deletion must scrub each embedded account-history copy in the same
 // durable boundary as the account purge and central MatchStore anonymization.
 {
   const eraseRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-account-history-erasure-'));
@@ -382,8 +416,8 @@ assert.deepEqual(erasureRemoved, ['acct-4']);
   accounts.persist = originalPersist;
   assert.ok(accounts.getAccountById(victim.account.id), 'the victim account remains after the account-store transaction rolls back');
   assert.equal(accounts.getAccountById(victim.account.id).consumedPasswordResetGeneration, 7, 'rollback retains the reset watermark');
-  assert.equal(accounts.getAccountById(survivor.account.id).matchHistory[0].participants.find(player => player.accountId === victim.account.id).displayNameAtMatch, 'Victim Display', 'the survivor copy is restored after a later purge failure');
-  assert.equal(matches.get(record.matchId).participants.find(player => player.accountId === victim.account.id).displayNameAtMatch, 'Victim Display', 'the central match is restored with it');
+  assert.equal(accounts.getAccountById(survivor.account.id).matchHistory[0].participants.find(player => player.accountId === victim.account.id).displayNameAtMatch, 'Victim Display', 'the account-store transaction rolls itself back');
+  assert.equal(matches.get(record.matchId).participants.some(player => player.displayNameAtMatch === 'Victim Display'), false, 'completed linked erasure stays in place after a later account-store failure');
   assert.equal(JSON.parse(fs.readFileSync(accountPath, 'utf8')).find(row => row.id === victim.account.id).consumedPasswordResetGeneration, 7, 'the watermark remains durable after rollback');
 
   assert.equal((await coordinator.runDue()).succeeded, 1, 'the same pending erasure can retry');
@@ -405,4 +439,51 @@ assert.deepEqual(erasureRemoved, ['acct-4']);
   fs.rmSync(eraseRoot, { recursive: true, force: true });
 }
 
-console.log('account deletion: 28 passed, 0 failed');
+{
+  // A deletion request signs out bearer-token devices too, not only cookie sessions; the requester keeps its own token.
+  const legacyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-deletion-legacy-'));
+  const store = new AccountStore(path.join(legacyRoot, 'accounts.json'));
+  store.register({ username: 'legacy_owner', displayName: 'Legacy', password: 'legacy-pass-123' });
+  // Device A signs in and exchanges its bearer token for a cookie session; device B then signs in and keeps its bearer token.
+  const loginA = store.login({ username: 'legacy_owner', password: 'legacy-pass-123' });
+  const cookieSessions = createSessionStore({ filePath: '', secure: false, sweepIntervalMs: 3_600_000 });
+  const exchanged = cookieSessions.exchangeLegacy(loginA.sessionToken, token => store.sessionAccount(token)?.id || null);
+  store.revokeSessionToken(loginA.sessionToken);
+  const deviceB = store.login({ username: 'legacy_owner', password: 'legacy-pass-123' });
+  assert.equal(Boolean(store.sessionAccount(deviceB.sessionToken)), true, 'device B starts signed in');
+  const legacyCoordinator = createAccountDeletionCoordinator({
+    now: () => now,
+    accountStore: store,
+    sessionStore: cookieSessions,
+    roomManager: { rooms: new Map() },
+    mailAdapter: { send: async () => ({ success: true }) },
+  });
+  const requested = await legacyCoordinator.request({ accountId: loginA.account.id, sessionId: exchanged.sessionId, currentPassword: 'legacy-pass-123', typedPhrase: 'DELETE ACCOUNT', requestId: 'legacy-1' });
+  assert.equal(requested.success, true);
+  assert.equal(cookieSessions.resolve(exchanged.cookieValue) ? true : false, true, 'the requesting device keeps its cookie session');
+  assert.equal(Boolean(store.sessionAccount(deviceB.sessionToken)), false, 'a bearer-token device other than the requester is signed out');
+  fs.rmSync(legacyRoot, { recursive: true, force: true });
+}
+
+console.log('account deletion: 30 passed, 0 failed');
+
+{
+  const pending = { id: 'cookie-first', username: 'cookie-first', deletionRequestedAt: null, deletionDueAt: null };
+  let cookieFails = true;
+  const calls = [];
+  const coordinator = createAccountDeletionCoordinator({
+    now: () => now,
+    accountStore: {
+      getAccountById: () => pending, verifyPassword: () => true, persist: () => {},
+      revokeSessionsForAccount: () => { calls.push('bearer'); },
+    },
+    sessionStore: { revokeAccountSessionsExcept: () => { calls.push('cookie'); if (cookieFails) throw new Error('cookie write failed'); } },
+    roomManager: { rooms: new Map() },
+  });
+  const request = { accountId: pending.id, currentPassword: 'pw', typedPhrase: 'DELETE ACCOUNT', requestId: 'cookie-first' };
+  assert.equal((await coordinator.request(request)).success, false);
+  assert.deepEqual(calls, ['cookie', 'bearer'], 'bearer revocation is attempted even when cookie revocation fails');
+  cookieFails = false;
+  assert.equal((await coordinator.request(request)).success, true);
+  assert.deepEqual(calls, ['cookie', 'bearer', 'cookie', 'bearer'], 'retry repeats both revocations');
+}

@@ -1,10 +1,6 @@
-// Room settings vocabulary: the defaults, the per-key normalizer table, and
-// the numeric clamp helpers. A raw client value passes through its key's
-// normalizer before being stored on both the room and its game. A normalizer
-// returns SETTING_REJECTED to leave the stored value untouched — the old early
-// `return`s. Keys with no entry keep the generic rule: a setting that is
-// currently boolean parses the four truthy spellings, a string is trimmed,
-// and anything else is stored as received.
+// Room settings vocabulary: defaults, the per-key normalizer table, and the numeric clamp helpers. A raw client value passes through its
+// key's normalizer before it is stored on the room and its game. A normalizer returns SETTING_REJECTED to leave the stored value untouched.
+// Keys with no entry use the generic rule: booleans parse the four truthy spellings, strings are trimmed, anything else is stored as received.
 const DEFAULT_ROOM_SETTINGS = {
   rulesProfile: 'standard',
   playerFinance: false,
@@ -28,7 +24,7 @@ const DEFAULT_ROOM_SETTINGS = {
   startingCash: 1500,
   bankLoans: false,
   bankLoanSeverity: 'predatory',
-  // Global headlines are intentionally a single on/off rule. Rarity,
+  // Global headlines are a single on/off rule. Rarity,
   // severity, duration, and combinations are derived from the game clock.
   globalEvents: false,
   casino: false,
@@ -82,7 +78,7 @@ const ROOM_BOT_DIFFICULTIES = ['house', 'table', 'expert'];
 const ROOM_BOARD_VARIANTS = ['standard-40', 'metro-52'];
 const ROOM_MARKET_COMPLEXITIES = ['basic', 'margin', 'shorting', 'derivatives'];
 const ROOM_BANK_LOAN_SEVERITIES = ['fair', 'predatory', 'extreme'];
-// Legacy clients may still send these fields; the server owns scaling now.
+// Legacy clients may still send these fields; the server owns scaling.
 const LEGACY_SCALED_SETTINGS = ['globalEventDuration', 'globalEventMax'];
 
 function toFiniteSettingNumber(value) {
@@ -132,10 +128,8 @@ function normalizeBotDifficulty(value) {
   return ROOM_BOT_DIFFICULTIES.includes(lowered) ? lowered : 'table';
 }
 
-// Player-facing presets: fixed brain × difficulty bundles. Easy is pure
-// deterministic code, Medium adds the AI advisor, Hard enables the full
-// stack (table brain, search, mind, advisor). Difficulty never weakens
-// safety floors — only search depth, noise, and book access.
+// Player-facing presets: fixed brain and difficulty bundles. Easy is pure deterministic code, Medium adds the AI advisor, and Hard enables
+// the full stack (table brain, search, mind, advisor). Difficulty never weakens safety floors: it changes only search depth, noise and book access.
 const BOT_PRESETS = {
   easy: { botBrain: 'no-ai', botDifficulty: 'house' },
   medium: { botBrain: 'ai', botDifficulty: 'table' },
@@ -163,7 +157,7 @@ function normalizeBankLoanSeverity(value) {
 }
 
 // Keys a room may store as ruleset overrides. This mirrors
-// HISTORICAL_OVERRIDE_KEYS in rulesetRegistry.js, which imports this module and
+// HISTORICAL_OVERRIDE_KEYS in rulesetRegistry.js, which imports from here and
 // so cannot be imported back; roomSettings.test.js pins the two lists together.
 const ROOM_OVERRIDE_KEYS = new Set([
   'playerFinance',
@@ -234,7 +228,7 @@ const ROOM_SETTING_NORMALIZERS = {
     : SETTING_REJECTED),
   rulesetRevision: positiveIntegerSetting,
   // Bankrupt mode is retained only for snapshot compatibility; the game has
-  // one authoritative elimination/spectator path now.
+  // one authoritative elimination/spectator path.
   bankruptMode: () => 'elim',
   bankLoanSeverity: normalizeBankLoanSeverity,
   globalEventDuration: value => snapFlooredSetting(value, 10, 10, 5),

@@ -49,7 +49,7 @@ export function createRetentionJob({ deletionCoordinator, recovery, analyticsRol
       else if (typeof analyticsRollupStore?.pruneOlderThan === 'function') analyticsPruned = await step('analytics', async () => Number(await analyticsRollupStore.pruneOlderThan(timestamp - analyticsWindow)) || 0);
       if (typeof backupStore?.pruneByAge === 'function') backupsPruned = await step('backups', async () => Number(await backupStore.pruneByAge({ olderThan: timestamp - backupWindow })) || 0);
       let telemetryPruned = 0;
-      if (typeof telemetryStore?.prune === 'function') telemetryPruned = await step('telemetry', async () => Number(telemetryStore.prune(timestamp - analyticsWindow)) || 0);
+      if (typeof telemetryStore?.prune === 'function') telemetryPruned = await step('telemetry', async () => Number(await telemetryStore.prune(timestamp - analyticsWindow)) || 0);
       const failures = (Number(deletions.failed) || 0) + stepFailures;
       lastRun = new Date(timestamp).toISOString();
       return { deletions, analyticsPruned, backupsPruned, telemetryPruned, failures };

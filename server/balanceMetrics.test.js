@@ -93,7 +93,7 @@ assert.equal(incompleteSummary.independentCompletedClusters, 29, 'incomplete see
 assert.equal(incompleteSummary.intervalStatus, 'insufficient-sample');
 assert.equal(incompleteSummary.winRateDeltaCI95, null);
 
-// S14-7: median and p95 use the textbook definitions, not an upward-biased index.
+// Median and p95 use the textbook definitions, not an upward-biased index.
 {
   const rowsOf = rounds => rounds.map(round => ({ ended: true, completed: true, winnerSeat: 0, round, steps: round }));
   assert.equal(summarizeBalanceCampaign(rowsOf([10, 20])).duration.rounds.median, 15, 'median of two values is their mean');
@@ -102,17 +102,17 @@ assert.equal(incompleteSummary.winRateDeltaCI95, null);
   const hundred = summarizeBalanceCampaign(rowsOf(Array.from({ length: 100 }, (_, index) => index + 1))).duration.rounds;
   assert.equal(hundred.median, 50.5);
   assert.equal(hundred.p95, 95, 'nearest-rank p95 of 1..100');
-  assert.equal(summarizeBalanceCampaign(rowsOf([])).duration.rounds.median, 0);
+  assert.equal(summarizeBalanceCampaign(rowsOf([])).duration.rounds.median, null, 'no samples is no data, not a median of 0');
 }
 
-// S14-8: a completed row without a winner seat gets an explicit bucket instead of "undefined".
+// A completed row without a winner seat gets an explicit bucket instead of "undefined".
 {
   const shares = summarizeBalanceCampaign([{ completed: true, round: 1, steps: 1 }, { completed: true, winnerSeat: 2, round: 1, steps: 1 }]).winnerShareBySeat;
   assert.deepEqual(Object.keys(shares).sort(), ['2', 'none']);
   assert.equal(shares.none, 0.5);
 }
 
-// F-005: per-seat income divides by seats, not by distinct policies. Four seats
+// Per-seat income divides by seats, not by distinct policies. Four seats
 // on two policies earn 400 total rent, which is 100 per seat, not 200.
 const sharedPolicyIncome = summarizeBalanceCampaign([{
   ended: true,

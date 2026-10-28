@@ -11,14 +11,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listBackupCopies, restoreJsonBackup } from '../server/backupStore.js';
-import { KNOWN_STORE_FILE_NAMES, resolveDataDirectory } from '../server/serverStorePaths.js';
+import { KNOWN_STORE_FILE_NAMES, resolveCanonicalPath, resolveDataDirectory } from '../server/serverStorePaths.js';
 
 const USAGE = 'Usage: node scripts/restore-backup.mjs --backup-dir <dir> --store <name> (--list | [--at <ISO timestamp|latest>] --to <target-data-dir> [--force])';
 const VALUE_FLAGS = new Set(['--backup-dir', '--store', '--at', '--to']);
 const BOOLEAN_FLAGS = new Set(['--force', '--list']);
 
 // Without POORUP_DATA_DIR the server keeps its stores in <repo>/server/data,
-// so that directory is the live one and has to be protected just the same.
+// That directory is the live one and has to be protected just the same.
 const DEFAULT_LIVE_DATA_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'server', 'data');
 
 class UsageError extends Error {}
@@ -52,8 +52,8 @@ function isWithinDirectory(target, directory) {
 }
 
 // The directory the running server stores its data in. A missing
-// POORUP_DATA_DIR used to leave the guard blind, so a restore into the
-// default live directory was allowed without --force (X6).
+// POORUP_DATA_DIR falls back to the default live directory, so a restore into
+// it still requires --force.
 export function resolveLiveDataDirectory(env = process.env, { defaultLiveDir = DEFAULT_LIVE_DATA_DIR } = {}) {
   return resolveDataDirectory(env) || path.resolve(defaultLiveDir);
 }
@@ -120,9 +120,12 @@ export function runRestore(argv, { env = process.env, stdout = console.log, stde
 
   const targetDir = path.resolve(options.to);
   const destination = path.join(targetDir, fileName);
-  const liveDir = resolveLiveDataDirectory(env, { defaultLiveDir });
-  const targetIsLive = isWithinDirectory(targetDir, liveDir);
-  if (targetIsLive && !(targetDir === liveDir && options.force)) {
+  const configuredLiveDir = resolveLiveDataDirectory(env, { defaultLiveDir });
+  const liveDir = resolveCanonicalPath(configuredLiveDir);
+  const canonicalTargetDir = resolveCanonicalPath(targetDir);
+  const targetIsLive = isWithinDirectory(canonicalTargetDir, liveDir);
+  const exactConfiguredLiveDir = path.relative(configuredLiveDir, targetDir) === '';
+  if (targetIsLive && !(exactConfiguredLiveDir && path.relative(liveDir, canonicalTargetDir) === '' && options.force)) {
     stderr(`Refusing to write into the live data directory ${liveDir}. Stop the server and restore into a staging directory, or pass --force with --to set to that exact directory.`);
     return 1;
   }

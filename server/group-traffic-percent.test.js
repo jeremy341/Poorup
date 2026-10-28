@@ -1,18 +1,7 @@
-// Regression suite for the B-27 and B-29 economy-audit defects.
-//
-// B-27: GROUP_TRAFFIC_PERCENT was byte-identically duplicated in
-// botTradeValuation.js, botDevelopmentForecast.js, and botTableBrain.js, and
-// all three copies enumerated only the eight classic groups. Metro-52 ships
-// Metro Gold and Metro Silver (boardRegistry.js GROUPS), so the highest-priced
-// group on the board silently inherited the 100 fall-through and was valued
-// exactly like Green. The table is now a single canonical export, both
-// consumers import it, and the missing metro tiers are present.
-//
-// B-29: the tourism boom's direct rule hardcoded `tile.group === 'Dark Blue'`
-// while premiumEventFactors listed both premium groups — and suppressed itself
-// for tourism-boom — so Metro Silver matched neither path and lost the surge
-// the event declares (premiumRentMultiplier 1.3). One PREMIUM_GROUPS constant
-// now feeds both sites.
+// Regression checks for economy defects.
+// GROUP_TRAFFIC_PERCENT was duplicated in three files and enumerated only the eight classic groups, so Metro Gold and Metro Silver
+// silently inherited the 100 fall-through. The table is one canonical export that both consumers import, with the metro tiers present.
+// The tourism boom hardcoded Dark Blue, so Metro Silver lost its surge; one PREMIUM_GROUPS constant feeds both sites.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
@@ -41,7 +30,7 @@ const ACCESSORS = Object.freeze({
   botTableBrain: brainTrafficPercent,
 });
 
-// ------------------------------------------------------------------ B-27 tests
+// Tests
 
 test('B-27 the metro groups resolve to their own tier, not the 100 fall-through', () => {
   assert.notEqual(GROUP_TRAFFIC_PERCENT['Metro Gold'], 100, 'Metro Gold must not inherit the Green-tier default');
@@ -96,11 +85,8 @@ test('B-27 every group boardRegistry.GROUPS declares has a non-default tier', ()
 });
 
 test('B-27 every group that ships on a board tile has an explicit tier key', () => {
-  // The registry is the contract, but the board data is the runtime truth: any
-  // group a tile actually carries must be tiered, so a future board cannot
-  // re-open this defect through a new tile rather than a new registry entry.
-  // Presence — not a non-default value — is the assertion here: Green really is
-  // the 100 tier, while a missing key would be indistinguishable from it.
+  // The registry is the contract, but board data is the runtime truth: any group a tile carries must be tiered, so a future board
+  // cannot reopen this defect through a new tile. Presence is the assertion: Green really is the 100 tier, and a missing key looks the same.
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'b27-a', clientId: 'b27-a', nickname: 'A', boardVariant: 'metro-52' });
   const boardGroups = [...new Set(room.game.tiles.map(tile => tile.group).filter(Boolean))];
@@ -137,8 +123,7 @@ test('B-27 the metro tiers reach the money the bots actually price', () => {
   assert.equal(deedValue({}, { index: 24, price: 420, group: metroSilver }), 369, 'floor(420 * 88%)');
   assert.equal(houseDeltaPerCircuit({ rent: 38, houseCount: 0, group: metroSilver }), 133, 'floor((190-38) * 88%)');
   assert.equal(houseDeltaPerCircuit({ rent: 34, houseCount: 0, group: metroGold }), 130, 'floor((170-34) * 96%)');
-  // An opponent's Metro Silver deed is now forecast below its face rent instead
-  // of at it, which is the whole point of tiering it.
+  // An opponent's Metro Silver deed is forecast below its face rent, not at it, which is the whole point of tiering it.
   const board = [{ index: 24, group: metroSilver, ownerSeat: 'opponent-1', rent: 42, houseCount: 0, mortgaged: false }];
   assert.equal(forecastMaxHit(board), 36, 'floor(42 * 88%), was floor(42 * 100%) = 42');
 });
@@ -162,7 +147,7 @@ test('B-27 botTableBrain threat math reads the shared metro tier', () => {
   );
 });
 
-// ------------------------------------------------------------------ B-29 setup
+// Setup
 
 function startedRoom(options = {}) {
   const manager = new RoomManager();
@@ -191,7 +176,7 @@ function tripleRent(game, tile) {
 }
 
 // Metro-52, one deed from each metro group owned by seat 1. Seoul ($38) is the
-// base rent behind the B-29 report; Lagos ($34) is the control.
+// base rent behind the report; Lagos ($34) is the control.
 function metroRoom(event) {
   const game = startedRoom({ boardVariant: 'metro-52' });
   const seoul = own(game, game.getTile(tileIndexById('metro-52', 'seoul')));
@@ -205,7 +190,7 @@ function metroRoom(event) {
 const TOURISM_BOOM_EFFECTS = { airportRentMultiplier: 1.5, premiumRentMultiplier: 1.3, marketPriceMultiplier: 1.15 };
 const TRAVEL_CHAOS_EFFECTS = { airportRentMultiplier: 0, premiumRentMultiplier: 1.55, airportCardsBlocked: true };
 
-// ------------------------------------------------------------------ B-29 tests
+// Tests
 
 test('B-29 tourism-boom surges Metro Silver by the same x1.3 as Dark Blue', () => {
   const metro = metroRoom({ id: 'tourism-boom', extra: { effects: TOURISM_BOOM_EFFECTS } });
@@ -217,7 +202,7 @@ test('B-29 tourism-boom surges Metro Silver by the same x1.3 as Dark Blue', () =
   assert.equal(darkBlue.rent, 35);
   const silver = tripleRent(metro.game, metro.seoul);
   const blue = tripleRent(standard, darkBlue);
-  assert.equal(silver.live, 49, 'floor(38 * 1.3) — the dropped multiplier the audit measured is gone');
+  assert.equal(silver.live, 49, 'floor(38 * 1.3): the dropped multiplier the audit measured is gone');
   assert.equal(blue.live, 45, 'Dark Blue keeps its pinned 35 * 1.3');
   // Undo the whole-dollar floor and both districts carry the identical boost.
   assert.equal(Math.round((silver.live / metro.seoul.rent) * 100) / 100, 1.29);
@@ -247,7 +232,7 @@ test('B-29 Metro Gold is still not premium under either event', () => {
   const boom = metroRoom({ id: 'tourism-boom', extra: { effects: TOURISM_BOOM_EFFECTS } });
   assert.equal(boom.lagos.rent, 34);
   const boomGold = tripleRent(boom.game, boom.lagos);
-  assert.equal(boomGold.live, 34, 'Metro Gold is in neither premium list — design, not bug');
+  assert.equal(boomGold.live, 34, 'Metro Gold is in neither premium list: design, not bug');
   assert.equal(boomGold.forecast, 34);
   assert.equal(boomGold.fromSnapshot, 34);
 

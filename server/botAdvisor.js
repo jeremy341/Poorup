@@ -1,7 +1,6 @@
-// Bot decision providers: the deterministic house brain is always available;
-// the AI advisor only ranks an already-legal candidate list and can never write
-// directly to GameState. Provider failures, quota exhaustion, malformed output,
-// and timeouts return to the deterministic path immediately.
+// Bot decision providers: the deterministic house brain is always available. The AI advisor only ranks
+// an already-legal candidate list and never writes to GameState directly. Provider failures, quota
+// exhaustion, malformed output and timeouts fall back to the deterministic path immediately.
 import { NO_AI_POLICY_VERSION, normalizeRolloutBudget, planningHorizon, rankCandidates } from './botFuturePlanner.js';
 import { deriveProviderEndpoint, detectProtocolFromUrl, environmentProviderProfile, extractProviderText } from './aiProviderConfig.js';
 import { BOT_CONTEXT_VERSION } from './botStrategicContext.js';
@@ -10,7 +9,7 @@ import { performance } from 'node:perf_hooks';
 // deterministic brain remains the immediate fallback if this budget expires.
 const DEFAULT_TIMEOUT_MS = 4000;
 const DEFAULT_MAX_DECISIONS_PER_GAME = 240;
-// Process-wide provider spend ceiling over a rolling hour (C35-05). Operators
+// Process-wide provider spend ceiling over a rolling hour. Operators
 // set POORUP_AI_CALLS_PER_HOUR; this default only keeps an unset host bounded.
 const DEFAULT_MAX_CALLS_PER_HOUR = 6000;
 const CALL_BUDGET_WINDOW_MS = 60 * 60 * 1000;
@@ -72,12 +71,9 @@ function hasCandidateId(entry, candidateId) {
 
 function shortlistScore(candidate, evaluations) {
   const evaluation = candidateEvaluation(candidate, evaluations);
-  // An 'unsupported' planner evaluation carries no information — it scores
-  // 0 by construction. Letting that 0 override the curated candidate score
-  // collapsed every auction decision to declaration order (the bid candidate
-  // is declared first), so the stub — and any AI-advised bot — always bid
-  // regardless of affordability and the tournament stalled on rejected bids.
-  // Unplanned ('neutral') and synthetic evaluations keep the original chain.
+  // An 'unsupported' planner evaluation carries no information and scores 0 by construction.
+  // Letting that 0 override the curated score sorted every auction to declaration order (bid first), so bots
+  // bid regardless of affordability and the tournament stalled. Unplanned and synthetic evaluations are unaffected.
   const unsupported = evaluation?.projectionStatus === 'unsupported';
   const score = Number(unsupported
     ? (candidate?.futureScore ?? candidate?.score)
@@ -331,7 +327,7 @@ function addBoardIndex(indexes, value) {
 
 // A payment choice names its tile in the choice id (mortgage:5, sell:9): the
 // candidates carry no tile of their own, so the board of that phase is read
-// from the choice (W27/L2).
+// from the choice.
 function paymentChoiceTileIndex(candidate) {
   const fromChoice = /^(?:mortgage|sell):(\d+)$/.exec(String(candidate?.choiceId || ''));
   if (fromChoice) return Number(fromChoice[1]);
@@ -404,10 +400,9 @@ function scrubDecisionHistory(context) {
   };
 }
 
-// Option-ID bias (Zheng et al., ICLR 2024): the shortlist is ordered best-first, so a
-// model that echoes the first option looked like good play. The order the model sees
-// is a seeded shuffle (reproducible per room and decision), the token is mapped back
-// to the real candidate, and the position of every answer is counted.
+// Option-ID bias (Zheng et al., ICLR 2024): the shortlist is best-first, so a model that echoes the first
+// option looked like good play. The order the model sees is a seeded shuffle (per room and decision), and
+// the token maps back to the real candidate. The position of every answer is counted.
 function hashSeed(text) {
   let hash = 2166136261;
   for (const char of String(text)) {
@@ -701,7 +696,7 @@ function advisorRequestFailure(error) {
 }
 
 // The transport itself is never unguarded: a bare advisor refuses to send, and
-// only the provider manager installs the SSRF-guarded fetch (F-025).
+// only the provider manager installs the SSRF-guarded fetch.
 function refuseUnguardedFetch() {
   throw new Error('AI provider transport is not configured.');
 }
@@ -745,11 +740,9 @@ function isInfrastructureFailure(reason) {
   return ['timeout', 'network', 'provider', 'rate-limit', 'live-call-cap'].includes(reason);
 }
 
-// The identity of the provider connection: a different key, endpoint, model or
-// protocol is a different provider. An edit that leaves all four alone (a
-// renamed profile, a changed decision budget) does not describe a new
-// connection, so the health and the quota of the running provider still
-// describe it (W27/X3d).
+// The identity of the provider connection: a different key, endpoint, model or protocol is a different provider.
+// An edit leaving all four alone (a renamed profile, a changed decision budget) is not a new connection, so the
+// health and quota of the running provider still describe it.
 function providerConnection(advisor) {
   return JSON.stringify([advisor.apiKey || '', advisor.endpoint || '', advisor.model || '', advisor.protocol || '']);
 }
@@ -888,8 +881,8 @@ export class AiAdvisor {
   }
 
   // Only idle games are forgotten, oldest first. Dropping a live game's entry
-  // used to reset its spent budget, so a long game regained its full allowance
-  // whenever enough other games were created (C35-04).
+  // must not reset its spent budget, or a long game regains its full allowance
+  // whenever enough other games were created.
   evictIdleGameBudgets() {
     if (this.decisionCounts.size <= GAME_BUDGET_CAP) return;
     const cutoff = Date.now() - GAME_BUDGET_IDLE_MS;
@@ -909,7 +902,7 @@ export class AiAdvisor {
     if (used > 0) game.bots.set(botKey, used - 1);
   }
 
-  // Rolling hour of provider calls across every game in this process (C35-05).
+  // Rolling hour of provider calls across every game in this process.
   consumeProcessBudget() {
     const now = Date.now();
     while (this.callTimestamps.length && this.callTimestamps[0] <= now - CALL_BUDGET_WINDOW_MS) this.callTimestamps.shift();
@@ -1003,7 +996,7 @@ export class AiAdvisor {
     if (Number.isFinite(Number(config.timeoutMs))) this.timeoutMs = Math.max(1_000, Math.min(60_000, Math.floor(Number(config.timeoutMs))));
     if (Number.isFinite(Number(config.maxDecisionsPerGame))) this.maxDecisionsPerGame = Math.max(1, Math.min(10_000, Math.floor(Number(config.maxDecisionsPerGame))));
     // Only a different connection invalidates the answers that are in flight
-    // and the health of the provider that was running (W27/X3d).
+    // and the health of the provider that was running.
     if (providerConnection(this) !== previousConnection) {
       this.configurationRevision += 1;
       this.resetProviderHealth();
@@ -1023,7 +1016,6 @@ export class AiAdvisor {
     const reason = response.reason || 'provider';
     // A provider that was reconfigured under the answer is not a failure of
     // the new connection: no failure is registered and the decision is free
-    // (W27/X3b).
     if (reason === 'provider-reconfigured') {
       this.refundGameBudget(context.gameId, context.botId);
       return this.fallbackDecision(context, reason, startedAt);
@@ -1118,11 +1110,11 @@ export class AiAdvisor {
     try {
       const response = await this.sendAdvisorRequest(protocol, providerContext, controller);
       // Awaited so the body read and its JSON errors land in this try, and the
-      // abort timer stays armed until the body is consumed (F-021, F-022).
+      // abort timer stays armed until the body is consumed.
       return await this.advisorResponseResult(response, serialized, protocol, configurationRevision);
     } catch (error) {
       // The provider was reconfigured while the request was in flight: the
-      // failure belongs to the old connection, not to the new one (W27/X3b).
+      // failure belongs to the old connection, not to the new one.
       if (configurationRevision !== this.configurationRevision) return { decision: null, reason: 'provider-reconfigured', refund: true };
       const reason = advisorRequestFailure(error);
       return { decision: null, reason, refund: reason === 'invalid-response' };
@@ -1144,17 +1136,16 @@ export class AiAdvisor {
   }
 
   async advisorResponseResult(response, serialized, protocol, configurationRevision) {
-    // The provider was reconfigured while this answer was in flight: the
-    // answer says nothing about the new connection, so it is neither a failure
-    // of it nor a billable decision (W27/X3b). Checked before the status, so a
-    // stale answer cannot open the circuit of the new provider.
+    // The provider was reconfigured while this answer was in flight, so it says nothing about the new connection.
+    // It is neither a failure of the new provider nor a billable decision. Checked before the status, so a stale
+    // answer cannot open the circuit of the new provider.
     if (configurationRevision !== this.configurationRevision) return { decision: null, reason: 'provider-reconfigured', refund: true };
     if (!response?.ok) return { decision: null, reason: classifyHttpFailure(response?.status), retryAfterMs: retryAfterMs(response) };
     const payload = await response.json();
     const decision = this.parseAdvisorPayload(payload, serialized.snapshot.candidates, protocol);
     const liveCandidate = decision && serialized.tokenToCandidate.get(decision.actionId);
     // A usable answer that names no legal candidate gave no decision to bill
-    // for: the decision falls back and the budget is refunded (W27/X3c).
+    // for: the decision falls back and the budget is refunded.
     if (!liveCandidate) return { decision: null, reason: 'invalid-response', refund: true };
     const position = this.recordOptionPosition(serialized, decision.actionId);
     return {
@@ -1197,7 +1188,7 @@ export const DeepSeekAdvisor = AiAdvisor;
 export function createBotAdvisor(env = process.env) {
   const requested = String(env?.POORUP_BOT_BRAIN || env?.POORUP_BOT_ADVISOR || 'auto').trim().toLowerCase();
   if (requested === 'no-ai' || requested === 'deterministic') return new DeterministicAdvisor({ defaultMode: 'no-ai' });
-  // Seeded only from an environment profile that validated (F-025). A profile
+  // Seeded only from an environment profile that validated. A profile
   // that fails validation leaves the advisor unconfigured; the provider manager
   // then decides, and nothing is sent with the key through an unguarded path.
   const profile = environmentProviderProfile(env);

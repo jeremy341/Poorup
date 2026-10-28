@@ -336,7 +336,7 @@ check('a failed persist keeps the last durable state and is retried until it lan
   assert.equal(controller.lastPersistFailed(), true);
   assert.equal(controller.lastDurableSnapshot().mode, 'normal', 'the durable state did not move');
   failing = false;
-  timers[0].callback();
+  timers.find(timer => timer.delay === 1000).callback();
   assert.equal(controller.lastPersistFailed(), false);
   assert.equal(controller.lastDurableSnapshot().mode, 'maintenance');
   assert.deepEqual(writes.map(entry => entry.mode), ['maintenance', 'maintenance']);
@@ -354,4 +354,32 @@ check('a failed persist is reported until the next successful one', () => {
   const silent = createDrainController({ now: () => 1000, onChange: () => {} });
   silent.beginDrain({ deadline: 5000 });
   assert.equal(silent.lastPersistFailed(), false, 'an onChange that returns nothing is not a failure');
+});
+
+check('an ephemeral shutdown drain does not replace a pending durable retry', () => {
+  let failing = true;
+  const writes = [];
+  const timers = [];
+  const controller = createDrainController({
+    now: () => 1000,
+    onChange: (snapshot, options) => {
+      writes.push({ mode: snapshot.mode, persist: options?.persist });
+      return options?.persist === false || !failing;
+    },
+    schedule: (callback, delay) => { timers.push({ callback, delay }); return timers.length; },
+    cancel: () => {},
+  });
+  controller.beginDrain({ releaseId: 'operator', deadline: 4000, message: 'durable drain' });
+  assert.equal(controller.lastPersistFailed(), true);
+  controller.beginDrain({ releaseId: 'shutdown', deadline: 5000, persist: false });
+  assert.equal(controller.lastDurableSnapshot().mode, 'normal', 'the failed operator drain write is still outstanding');
+  failing = false;
+  timers.find(timer => timer.delay === 1000).callback();
+  assert.deepEqual(writes, [
+    { mode: 'draining', persist: true },
+    { mode: 'draining', persist: false },
+    { mode: 'draining', persist: true },
+  ], 'retry writes the durable maintenance state, not the process-only shutdown drain');
+  assert.equal(controller.lastDurableSnapshot().releaseId, 'operator');
+  controller.dispose();
 });

@@ -1,10 +1,6 @@
-// Landing resolution as a prototype mixin: what happens when a player's
-// movement ends on a tile. gameLogic.js assigns this object onto
-// GameState.prototype. The original applyTile if/switch ladder became a
-// type-keyed resolver table plus per-landing methods, preserving every feed
-// string, guard order, and side-effect sequence pinned by
-// server/gameLogic.test.js, server/applyCard.test.js and
-// server/casino-bankruptcy.test.js.
+// Landing resolution as a prototype mixin: what happens when a player's movement ends on a tile. gameLogic.js assigns this object
+// onto GameState.prototype. The original applyTile if/switch ladder became a type-keyed resolver table plus per-landing methods,
+// preserving every feed string, guard order and side-effect sequence pinned by gameLogic.test.js, applyCard.test.js and casino-bankruptcy.test.js.
 
 // Landing outcome per tile type, exactly the old switch cases. Types with no
 // entry (and a missing tile) fall through to the shared resolve-tail branch.
