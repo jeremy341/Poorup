@@ -628,12 +628,13 @@ test('missing ready acknowledgements time out near but before each target flight
       const offer = { id: 'no-ack', kind, direction: 'right', lane: 32, duration, wave: 1, deliveryPending: true, offeredAt: now, readyBy: now + 10000, spawnedAt: null, actionableAt: null, expiresAt: null };
       const base = { success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [offer], ended: false, paused: false };
       window.watchdogStart = null; window.watchdogFinish = null; window.watchdogAttempts = 0;
+      const serverHandlers = {
+        'start-patrol-run': (payload, callback) => callback(base),
+        'ready-patrol-target': () => { window.watchdogAttempts++; window.watchdogStart = window.watchdogStart || performance.now(); },
+        'finish-patrol-run': (payload, callback) => { window.watchdogFinish = performance.now(); callback({ success: true, score: 0, best: 0 }); },
+      };
       patrol.configureNightShift({ ...window.patrolNoopDeps(),
-        emitServer(event, payload, callback) {
-          if (event === 'start-patrol-run') callback(base);
-          if (event === 'ready-patrol-target') { window.watchdogAttempts++; if (!window.watchdogStart) window.watchdogStart = performance.now(); }
-          if (event === 'finish-patrol-run') { window.watchdogFinish = performance.now(); callback({ success: true, score: 0, best: 0 }); }
-        } });
+        emitServer(event, payload, callback) { serverHandlers[event]?.(payload, callback); } });
       patrol.startNightShift();
     }, { kind, duration });
     await expect.poll(() => page.evaluate(() => window.watchdogFinish), { timeout: 10000 }).not.toBeNull();

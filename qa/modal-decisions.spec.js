@@ -17,6 +17,19 @@ async function installFixture(page) {
   await page.evaluate(()=>window.__installIpadModalCapture());
 }
 
+async function expectLegacyContractActions(page, kind) {
+  if(kind==='equity'){
+    await expect(page.locator('[data-financing-repay]')).toHaveCount(0);
+    return;
+  }
+  await expect(page.locator('[data-financing-repay]')).toHaveCount(1);
+  await expect(page.locator('#financing-card')).toContainText('$345');
+  const repay=page.locator('[data-financing-repay]');
+  await repay.focus();
+  await expect(repay).toBeInViewport();
+  expect((await repay.boundingBox()).height).toBeGreaterThanOrEqual(44);
+}
+
 test('loan and rent-share composers retain sizing while legacy active contracts retain actions',async({page})=>{
   await installFixture(page);
   const widths={};
@@ -39,15 +52,7 @@ test('loan and rent-share composers retain sizing while legacy active contracts 
     },kind);
     await expect(page.locator('#financing-card')).toContainText(kind==='equity'?'INVESTOR':'LENDER');
     await expect(page.locator('#financing-card')).toContainText('GUEST');
-    if(kind==='equity')await expect(page.locator('[data-financing-repay]')).toHaveCount(0);
-    else {
-      await expect(page.locator('[data-financing-repay]')).toHaveCount(1);
-      await expect(page.locator('#financing-card')).toContainText('$345');
-      const repay=page.locator('[data-financing-repay]');
-      await repay.focus();
-      await expect(repay).toBeInViewport();
-      expect((await repay.boundingBox()).height).toBeGreaterThanOrEqual(44);
-    }
+    await expectLegacyContractActions(page, kind);
     const card=await page.locator('#financing-card').boundingBox();
     expect(card.x).toBeGreaterThanOrEqual(0);expect(card.y).toBeGreaterThanOrEqual(0);
     expect(card.y+card.height).toBeLessThanOrEqual(page.viewportSize().height+1);

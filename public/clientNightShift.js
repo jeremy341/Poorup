@@ -6,14 +6,12 @@ import { $, REDUCED_MOTION } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { hydrateSprites } from "./clientSprites.js";
 import { PARLOR_PATROL_ENABLED } from "./clientParlorPatrolFlag.js";
+import { PATROL_ART, configureTargetPlacement, effectDimensions, effectSrc, paintTargetArt, pickTargetDuration, pickTargetKind, pulseWaveBanner, targetClassName, waveSpawnInterval } from "./clientNightShiftArt.js";
+import { clearPersistedPendingSettlement, persistPendingSettlement, pendingSettlementCreatedAt, readPendingSettlementRecord } from "./clientNightShiftPending.js";
 
 const NIGHT_SHIFT_WAVE_MS = 60000;
 const NIGHT_SHIFT_START_HEARTS = 3;
 const NIGHT_SHIFT_BEST_KEY = "poorup.night-shift.best.v1";
-const NIGHT_SHIFT_PENDING_KEY_PREFIX = "poorup.night-shift.pending.v1.";
-const NIGHT_SHIFT_PENDING_TTL_MS = 6 * 60_000;
-// One art root for every Night Shift sprite, so the asset paths stay grouped.
-const PATROL_ART = "/assets/parlor-patrol/";
 let nightShiftWaveTimer = null;
 let nightShiftTickTimer = null;
 let nightShiftStartTimer = null;
@@ -40,88 +38,6 @@ try { nightShiftState.best = Number(localStorage.getItem(NIGHT_SHIFT_BEST_KEY)) 
 
 function patrolAccountId() {
   return String(state.account?.account?.id || "").trim();
-}
-
-function pendingSettlementAccountKey(accountId) {
-  const encodedAccountId = encodeURIComponent(accountId).replace(/\./g, "%2E");
-  return `${NIGHT_SHIFT_PENDING_KEY_PREFIX}${encodedAccountId}`;
-}
-
-function pendingSettlementKey(accountId, token) {
-  return `${pendingSettlementAccountKey(accountId)}.${encodeURIComponent(token)}`;
-}
-
-function pendingSettlementCreatedAt(saved) {
-  const createdAt = Number(saved?.createdAt);
-  return Number.isFinite(createdAt) && createdAt > 0
-    ? createdAt
-    : Math.max(0, Number(saved?.expiresAt) - NIGHT_SHIFT_PENDING_TTL_MS);
-}
-
-function eachPendingSettlementKey(accountId, visit) {
-  for (const storageName of ["sessionStorage", "localStorage"]) {
-    try {
-      const storage = globalThis[storageName];
-      if (!storage) continue;
-      const legacyKey = pendingSettlementAccountKey(accountId);
-      const tokenKeyPrefix = `${legacyKey}.`;
-      for (let index = storage.length - 1; index >= 0; index -= 1) {
-        const key = storage.key(index);
-        if (key !== legacyKey && !key?.startsWith(tokenKeyPrefix)) continue;
-        visit(storage, key);
-      }
-    } catch { /* storage unavailable: try the other storage area */ }
-  }
-}
-
-function isLivePendingSettlement(saved, accountId) {
-  return saved?.accountId === accountId
-    && typeof saved.runToken === "string"
-    && saved.runToken.length > 0
-    && Number.isFinite(Number(saved.expiresAt))
-    && Number(saved.expiresAt) > Date.now();
-}
-
-function readPendingSettlementRecord(accountId) {
-  const records = [];
-  eachPendingSettlementKey(accountId, (storage, key) => {
-    const raw = storage.getItem(key);
-    if (!raw) return;
-    const saved = JSON.parse(raw);
-    if (isLivePendingSettlement(saved, accountId)) {
-      records.push({ ...saved, createdAt: pendingSettlementCreatedAt(saved) });
-    } else {
-      storage.removeItem(key);
-    }
-  });
-  return records.sort((left, right) => right.createdAt - left.createdAt)[0] || null;
-}
-
-function persistPendingSettlement(settlement) {
-  if (!settlement?.token || !settlement.accountId) return;
-  const key = pendingSettlementKey(settlement.accountId, settlement.token);
-  const createdAt = Number(settlement.createdAt) || Date.now();
-  const value = JSON.stringify({
-    accountId: settlement.accountId,
-    runToken: settlement.token,
-    createdAt,
-    expiresAt: Date.now() + NIGHT_SHIFT_PENDING_TTL_MS,
-  });
-  try {
-    globalThis.sessionStorage.setItem(key, value);
-    try { globalThis.localStorage.removeItem(key); } catch { /* old fallback may remain until expiry */ }
-    return;
-  } catch { /* fall back to durable same-origin storage */ }
-  try { globalThis.localStorage.setItem(key, value); } catch { /* same-page reconnect retry still works */ }
-}
-
-function clearPersistedPendingSettlement(settlement) {
-  if (!settlement?.token || !settlement.accountId) return;
-  eachPendingSettlementKey(settlement.accountId, (storage, key) => {
-    const saved = JSON.parse(storage.getItem(key) || "null");
-    const olderThanSettlement = pendingSettlementCreatedAt(saved) <= Number(settlement.createdAt || 0);
-    if (saved?.runToken === settlement.token || olderThanSettlement) storage.removeItem(key);
-  });
 }
 
 function restorePendingSettlement() {
@@ -382,18 +298,6 @@ function scheduleNightShiftTarget(target, duration) {
   armTargetTimers(timers);
 }
 
-function effectSrc(kind) {
-  if (kind === "airplane") return `${PATROL_ART}airplane-explosion-10-frames.svg`;
-  if (kind === "drone") return `${PATROL_ART}drone-explosion-10-frames.svg`;
-  return `${PATROL_ART}impact-8-frames.svg`;
-}
-
-function effectDimensions(kind, aircraft) {
-  if (kind === "airplane") return [128, 112];
-  if (aircraft) return [112, 112];
-  return [64, 64];
-}
-
 function spawnNightShiftEffect(x, y, kind = "impact") {
   const effects = $("#night-effects");
   if (!effects) return;
@@ -414,72 +318,45 @@ function spawnNightShiftEffect(x, y, kind = "impact") {
   setTimeout(() => effect.remove(), aircraft ? 900 : 720);
 }
 
-function pickWaveTargetKind(wave, roll) {
-  if (wave >= 4 && roll < 0.12) return "airplane";
-  if (wave >= 3 && roll < 0.24) return "beacon";
-  if (wave >= 2 && roll < 0.44) return "drone";
-  return "helicopter";
-}
-
-function pickTargetKind(wave, spawnNumber, roll) {
-  if (wave !== 1) return pickWaveTargetKind(wave, roll);
-  if (spawnNumber === 2) return "drone";
-  return pickWaveTargetKind(wave, roll);
-}
-
-function pickTargetDuration(kind, wave) {
-  if (kind === "airplane") return Math.max(2800, 5000 - wave * 180);
-  if (kind === "drone") return Math.max(3400, 5900 - wave * 220);
-  return Math.max(4200, 7600 - wave * 260);
-}
-
-function targetSrc(kind, direction) {
-  if (kind === "beacon") return `${PATROL_ART}beacon-6-frames.svg`;
-  if (kind === "drone") return `${PATROL_ART}drone-8-frames.svg`;
-  if (kind === "airplane") return `${PATROL_ART}airplane-10-frames.svg`;
-  if (direction === "left") return `${PATROL_ART}helicopter-left-16-frames.svg`;
-  return `${PATROL_ART}helicopter-16-frames.svg`;
-}
-
-function targetSize(kind) {
-  if (kind === "beacon") return [48, 48];
-  if (kind === "drone") return [96, 64];
-  if (kind === "airplane") return [112, 64];
-  return [128, 64];
-}
-
-function configureTargetPlacement(target, kind, isDrop, lane) {
-  if (kind === "airplane") target.classList.replace("night-target-beacon", "night-target-airplane");
-  if (!isDrop) {
-    target.style.top = `${lane}%`;
-    return;
-  }
-  target.style.setProperty("--night-drop-left", `${[18, 32, 48, 64, 78][Math.floor(Math.random() * 5)]}%`);
-}
-
-function paintTargetArt(target, kind, direction) {
-  const src = targetSrc(kind, direction);
-  const size = targetSize(kind);
-  target.style.width = `${size[0]}px`;
-  target.style.height = `${size[1]}px`;
-  target.innerHTML = `<img src="${src}" alt="" width="${size[0]}" height="${size[1]}">`;
-  if (kind === "airplane" && direction === "left") target.querySelector("img")?.style.setProperty("transform", "scaleX(-1)");
-}
-
 function targetDirection(serverTarget) {
   // Alternate lanes so a short play session always exercises both edges.
   return serverTarget?.direction || (nightShiftState.targetSeq % 2 === 0 ? "left" : "right");
-}
-
-function targetClassName(kind, direction, isDrop) {
-  if (isDrop) return "night-target night-target-drop night-target-beacon is-flight";
-  return `night-target night-target-${direction} night-target-${kind} is-flight`;
 }
 
 function markGuestTargetPending(wave) {
   const outcome = nightShiftGuestWaves.get(wave) || { pending: 0, missed: false };
   outcome.pending += 1;
   nightShiftGuestWaves.set(wave, outcome);
+}
+
+function sizeTargetForLayer(target, layer, duration) {
+  target.style.setProperty("--night-flight-duration", `${duration}ms`);
+  target.style.setProperty("--night-stage-width", `${layer.clientWidth}px`);
+  target.style.setProperty("--night-stage-height", `${layer.clientHeight}px`);
+}
+
+// Server-authored targets stay inert until the server offer makes them actionable.
+function applyServerTargetState(target, serverTarget) {
+  if (!serverTarget) return;
+  target.style.animationDelay = "0ms";
+  target.dataset.actionable = "0";
+  target.style.pointerEvents = "none";
+}
+
+function describeSpawnedTarget(target, serverTarget, kind, direction, duration) {
+  target.dataset.direction = direction;
+  target.dataset.kind = kind;
+  target.dataset.duration = String(duration);
+  target.dataset.wave = String(serverTarget?.wave || nightShiftState.wave);
+  target.dataset.targetId = serverTarget ? String(serverTarget.id) : String(++nightShiftState.targetSeq);
+  target.setAttribute("aria-label", `Tag Night Shift ${kind}, wave ${nightShiftState.wave}`);
+}
+
+function wireNightShiftTarget(target) {
+  // Pointer-down gives the arcade target immediate feedback before a moving
+  // button can travel between pointer press and the browser's click release.
+  target.addEventListener("pointerdown", (event) => hitNightShiftTarget(target, event));
+  target.addEventListener("click", (event) => hitNightShiftTarget(target, event));
 }
 
 function spawnNightShiftTarget(serverTarget = null, serverTime = 0) {
@@ -498,26 +375,15 @@ function spawnNightShiftTarget(serverTarget = null, serverTime = 0) {
   const isDrop = kind === "beacon" || kind === "airplane";
   target.className = targetClassName(kind, direction, isDrop);
   configureTargetPlacement(target, kind, isDrop, lane);
-  target.style.setProperty("--night-flight-duration", `${duration}ms`);
-  target.style.setProperty("--night-stage-width", `${layer.clientWidth}px`);
-  target.style.setProperty("--night-stage-height", `${layer.clientHeight}px`);
-  if (serverTarget) target.style.animationDelay = "0ms";
-  target.dataset.direction = direction;
-  target.dataset.kind = kind;
-  target.dataset.duration = String(duration);
-  if (serverTarget) { target.dataset.actionable = "0"; target.style.pointerEvents = "none"; }
-  target.dataset.wave = String(serverTarget?.wave || nightShiftState.wave);
+  sizeTargetForLayer(target, layer, duration);
+  applyServerTargetState(target, serverTarget);
+  describeSpawnedTarget(target, serverTarget, kind, direction, duration);
   if (!serverTarget) markGuestTargetPending(nightShiftState.wave);
-  target.dataset.targetId = serverTarget ? String(serverTarget.id) : String(++nightShiftState.targetSeq);
-  target.setAttribute("aria-label", `Tag Night Shift ${kind}, wave ${nightShiftState.wave}`);
   paintTargetArt(target, kind, direction);
-  // Pointer-down gives the arcade target immediate feedback before a moving
-  // button can travel between pointer press and the browser's click release.
-  target.addEventListener("pointerdown", (event) => hitNightShiftTarget(target, event));
-  target.addEventListener("click", (event) => hitNightShiftTarget(target, event));
+  wireNightShiftTarget(target);
   layer.appendChild(target);
   if (serverTarget) syncServerTargetAnimation(target, serverTarget, serverTime);
-  if (!serverTarget) scheduleNightShiftTarget(target, duration);
+  else scheduleNightShiftTarget(target, duration);
 }
 
 // Spawn timers live as { due, timer } queue entries: hiding the tab freezes
@@ -554,20 +420,6 @@ function advanceNightShiftWave() {
   nightShiftState.wave += 1;
   closeGuestWaves();
   beginNightShiftWave();
-}
-
-function pulseWaveBanner(text) {
-  const banner = $("#night-wave-banner");
-  if (!banner) return;
-  banner.textContent = text;
-  banner.classList.remove("is-announcing");
-  void banner.offsetWidth;
-  banner.classList.add("is-announcing");
-}
-
-function waveSpawnInterval(wave) {
-  if (wave === 1) return 3000;
-  return Math.max(850, 5000 - wave * 220);
 }
 
 function beginNightShiftWave() {
@@ -666,23 +518,28 @@ function settlementRequestIsStale(settlement, requestGeneration) {
   return nightShiftSettlement !== settlement || settlement.requestGeneration !== requestGeneration;
 }
 
-function handleFinishAck(settlement, response, attempt, attempts, retrySend) {
-  if (!response?.success && attempt === 1 && attempts > 1) return;
-  if (!response?.success && response?.retryable && attempt === 1 && attempts === 1) {
+function handleFailedFinishAck(settlement, response, attempt, attempts, retrySend) {
+  if (attempt === 1 && attempts > 1) return;
+  if (response?.retryable && attempt === 1 && attempts === 1) {
     clearTimeout(settlement.timer);
     retrySend();
     return;
   }
-  if (!response?.success && response?.retryable && attempts > 1) {
+  if (response?.retryable && attempts > 1) {
     const error = String(response.error || "Could not save this patrol.").slice(0, 63);
     awaitSettlementReconnect(settlement, `${error} Press Shift+P or reconnect to retry.`);
     return;
   }
-  if (!response?.success && attempts > 1) {
+  if (attempts > 1) {
     finishSettlement(settlement, { success: false, error: "Could not confirm that the patrol score was saved." });
     return;
   }
   finishSettlement(settlement, response);
+}
+
+function handleFinishAck(settlement, response, attempt, attempts, retrySend) {
+  if (response?.success) finishSettlement(settlement, response);
+  else handleFailedFinishAck(settlement, response, attempt, attempts, retrySend);
 }
 
 function sendSettlement(settlement, token) {
@@ -1012,6 +869,23 @@ function armReadyWatchdog(element, id, offer) {
   offer.watchdog = setTimeout(() => onReadyWatchdog(element, id, offer), watchdogDelay);
 }
 
+function handleServerTargetReadyAck(element, id, offer, generation, sentAt, response) {
+  if (generation !== nightShiftGeneration || !nightShiftState.active || nightShiftServerOffers.get(id) !== offer) return;
+  if (!response?.success) {
+    if (document.hidden || element.dataset.hit || element.dataset.pending) return;
+    endNightShift("NETWORK INTERRUPTION · SAVING SCORE");
+    return;
+  }
+  observePatrolClock(response, sentAt);
+  applyPatrolState(response);
+}
+
+function markReadyWindowOpen(element, id, offer, generation, visibilityGeneration) {
+  if (!readyWindowStillOpen(element, id, offer, generation, visibilityGeneration)) return;
+  element.dataset.actionable = "1";
+  element.style.pointerEvents = "auto";
+}
+
 function sendServerTargetReady(element, id, offer) {
   if (!nightShiftState.active || document.hidden || !element.isConnected) return;
   offer.readySent = true;
@@ -1021,19 +895,9 @@ function sendServerTargetReady(element, id, offer) {
   const sentAt = Date.now();
   armReadyWatchdog(element, id, offer);
   host.emitServer("ready-patrol-target", { runToken: nightShiftState.serverRunToken, targetId: id }, (response) => {
-    if (generation !== nightShiftGeneration || !nightShiftState.active || nightShiftServerOffers.get(id) !== offer) return;
-    if (!response?.success) {
-      if (document.hidden || element.dataset.hit || element.dataset.pending) return;
-      endNightShift("NETWORK INTERRUPTION · SAVING SCORE");
-      return;
-    }
-    observePatrolClock(response, sentAt);
-    applyPatrolState(response);
+    handleServerTargetReadyAck(element, id, offer, generation, sentAt, response);
   });
-  if (readyWindowStillOpen(element, id, offer, generation, visibilityGeneration)) {
-    element.dataset.actionable = "1";
-    element.style.pointerEvents = "auto";
-  }
+  markReadyWindowOpen(element, id, offer, generation, visibilityGeneration);
 }
 
 function setServerTargetGate(element, target, serverTime, paused) {
@@ -1108,28 +972,38 @@ function syncServerTarget(element, target, serverNow, paused) {
   setServerTargetGate(element, target, serverNow, paused);
 }
 
-export function applyPatrolState(response) {
-  if (!nightShiftState.active || !nightShiftServerRun || response?.runToken !== nightShiftState.serverRunToken) return;
-  if (!Number.isFinite(response.revision) || response.revision <= nightShiftServerRevision) return;
-  nightShiftServerRevision = response.revision;
-  const serverNow = estimatedPatrolTime(response);
+function applyServerRunCounters(response, serverNow) {
   nightShiftState.wave = response.wave;
   nightShiftState.score = response.score;
   nightShiftState.hearts = response.hearts;
   nightShiftState.misses = response.misses;
   nightShiftState.endsAt = Date.now() + Math.max(0, response.endsAt - serverNow);
+}
+
+function syncOneServerTarget(layer, target, serverNow, paused) {
+  if (!layer?.querySelectorAll) return;
+  let element = findTargetElement(layer, target.id);
+  if (!element) {
+    spawnNightShiftTarget(target, serverNow);
+    element = findTargetElement(layer, target.id);
+  }
+  if (element && !element.dataset.hit) syncServerTarget(element, target, serverNow, paused);
+}
+
+function syncServerTargetList(response, serverNow) {
   const layer = $("#night-targets");
   const targets = liveServerTargets(response, serverNow);
   pruneUnlistedServerTargets(layer, new Set(targets.map((target) => String(target.id))));
-  for (const target of targets) {
-    if (!layer?.querySelectorAll) break;
-    let element = findTargetElement(layer, target.id);
-    if (!element) {
-      spawnNightShiftTarget(target, serverNow);
-      element = findTargetElement(layer, target.id);
-    }
-    if (element && !element.dataset.hit) syncServerTarget(element, target, serverNow, response.paused);
-  }
+  for (const target of targets) syncOneServerTarget(layer, target, serverNow, response.paused);
+}
+
+export function applyPatrolState(response) {
+  if (!nightShiftState.active || !nightShiftServerRun || response?.runToken !== nightShiftState.serverRunToken) return;
+  if (!Number.isFinite(response.revision) || response.revision <= nightShiftServerRevision) return;
+  nightShiftServerRevision = response.revision;
+  const serverNow = estimatedPatrolTime(response);
+  applyServerRunCounters(response, serverNow);
+  syncServerTargetList(response, serverNow);
   renderNightShiftHud(response.paused ? "NIGHT SHIFT PAUSED" : "TAG THE FLY-BYS BEFORE THEY REACH THE BORDER");
   if (response.ended) endNightShift(response.endReason === "delivery-timeout" ? "NETWORK INTERRUPTION · SAVING SCORE" : "SHIFT LOST · NO HEARTS LEFT");
 }
@@ -1238,18 +1112,25 @@ function armNightShiftStartTimeout(generation) {
   }, 8000);
 }
 
+function settleUnsentStartAck(pending, response) {
+  if (response?.success && response.runToken) sendSettlement(pending, response.runToken);
+  else finishSettlement(pending, { success: false, error: response?.error || "Could not start or save the patrol." });
+}
+
+// The start acknowledgement arrived after the exit timeout. Release
+// the old token without touching any newer run's local state.
+function releaseStaleStartToken(response) {
+  if (!response?.success || !response.runToken) return;
+  host.emitServer("finish-patrol-run", { runToken: response.runToken }, () => {});
+}
+
 function releaseLateStartAck(generation, response) {
   const pending = nightShiftSettlement;
   if (pending?.generation === generation && !pending.sent) {
-    if (response?.success && response.runToken) sendSettlement(pending, response.runToken);
-    else finishSettlement(pending, { success: false, error: response?.error || "Could not start or save the patrol." });
+    settleUnsentStartAck(pending, response);
     return;
   }
-  // The start acknowledgement arrived after the exit timeout. Release
-  // the old token without touching any newer run's local state.
-  if (response?.success && response.runToken) {
-    host.emitServer("finish-patrol-run", { runToken: response.runToken }, () => {});
-  }
+  releaseStaleStartToken(response);
 }
 
 function requestServerRunStart(generation) {
@@ -1267,16 +1148,16 @@ function requestServerRunStart(generation) {
   });
 }
 
-export function startNightShift() {
-  if (!PARLOR_PATROL_ENABLED) return;
-  if (state.phase !== "home") return;
-  if (nightShiftState.active) return;
+// Returns true when a previous run is still settling, so the new start waits.
+function holdIfSettlementPending() {
   if (nightShiftSettlement && nightShiftSettlement.accountId !== patrolAccountId()) nightShiftSettlement = null;
   if (!nightShiftSettlement) restorePendingSettlement();
-  if (nightShiftSettlement) {
-    holdForPendingSettlement();
-    return;
-  }
+  if (!nightShiftSettlement) return false;
+  holdForPendingSettlement();
+  return true;
+}
+
+function beginNightShiftRun() {
   // A stale room session may still emit snapshots while the player is Home.
   // Keep this local arcade layer isolated until the player explicitly joins again.
   clearNightShiftTimers();
@@ -1292,6 +1173,14 @@ export function startNightShift() {
   if (!nightShiftState.active) return;
   nightShiftTickTimer = setInterval(() => renderNightShiftHud(), 200);
   if (!nightShiftServerRun) beginNightShiftWave();
+}
+
+export function startNightShift() {
+  if (!PARLOR_PATROL_ENABLED) return;
+  if (state.phase !== "home") return;
+  if (nightShiftState.active) return;
+  if (holdIfSettlementPending()) return;
+  beginNightShiftRun();
 }
 
 export function stopNightShift() {

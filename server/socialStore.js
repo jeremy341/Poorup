@@ -330,19 +330,22 @@ function remainingDeclineCooldown(declined) {
     : DECLINED_REQUEST_COOLDOWN_MS;
 }
 
-function startRemovalCooldown(store, existing, accountId) {
-  if (existing.status === 'requested') {
-    if (existing.requesterId === accountId) {
-      store.startRequestCooldown(existing.requesterId, existing.addresseeId);
-    } else {
-      store.startRequestCooldown(existing.requesterId, existing.addresseeId, Date.now(), DECLINED_REQUEST_COOLDOWN_MS);
-    }
+function startRequestedRemovalCooldown(store, existing, accountId) {
+  if (existing.requesterId === accountId) {
+    store.startRequestCooldown(existing.requesterId, existing.addresseeId);
     return;
   }
-  if (existing.status === 'declined') {
-    const remaining = remainingDeclineCooldown(existing);
-    if (remaining > 0) store.startRequestCooldown(existing.requesterId, existing.addresseeId, Date.now(), remaining);
-  }
+  store.startRequestCooldown(existing.requesterId, existing.addresseeId, Date.now(), DECLINED_REQUEST_COOLDOWN_MS);
+}
+
+function startDeclinedRemovalCooldown(store, existing) {
+  const remaining = remainingDeclineCooldown(existing);
+  if (remaining > 0) store.startRequestCooldown(existing.requesterId, existing.addresseeId, Date.now(), remaining);
+}
+
+function startRemovalCooldown(store, existing, accountId) {
+  if (existing.status === 'requested') startRequestedRemovalCooldown(store, existing, accountId);
+  else if (existing.status === 'declined') startDeclinedRemovalCooldown(store, existing);
 }
 
 export class SocialStore {

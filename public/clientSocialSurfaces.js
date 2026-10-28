@@ -477,12 +477,21 @@ function socialHeroMarkup(view) {
   return `<div class="${view.hero.shellClass}">${view.hero.closeBtn}<section class="social-hero panel noise"><div class="social-hero-mark"><img src="/assets/social-network.svg" alt="" width="32" height="32"></div><div class="social-hero-copy"><span class="t-micro g400">PARLOR SOCIAL · PLAYER INDEX</span><h2 class="t-section g100" id="social-${view.surfaceKey}-title">People who keep the table moving</h2><p class="t-body ink-2" id="social-${view.surfaceKey}-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><div class="social-hero-stats"><div><span class="t-micro ink-3">FRIENDS</span><strong class="t-label f20 g100">${view.hero.friendsCount}</strong></div><div><span class="t-micro ink-3">PENDING</span><strong class="t-label f20 g300">${view.pending}</strong></div><div><span class="t-micro ink-3">INBOX</span><strong class="t-label f20 green">${view.hero.inboxCount}</strong></div></div></section>${view.syncStatus}<div class="social-guest-shell${guestClass}"><div class="social-guest-content" data-social-guest-content${guestContentState}>${socialSearchMarkup(view)}${socialNetworkMarkup(view)}</div>${gate}</div></div>`;
 }
 
+function focusedSocialPlayerId(card, active) {
+  if (!card.contains?.(active)) return null;
+  return active.closest?.("[data-social-player]")?.dataset.socialPlayer ?? null;
+}
+
+function socialRequestFocusWanted(card, active) {
+  if (!card.contains?.(active)) return false;
+  return Boolean(active.dataset?.friendshipId || active.matches?.(".social-feed"));
+}
+
 function captureSocialFocus(card) {
   const active = document.activeElement;
-  const inside = Boolean(card.contains?.(active));
   return {
-    playerId: inside ? active?.closest?.("[data-social-player]")?.dataset?.socialPlayer : null,
-    requestFocus: inside && Boolean(active?.dataset?.friendshipId || active?.matches?.(".social-feed")),
+    playerId: focusedSocialPlayerId(card, active),
+    requestFocus: socialRequestFocusWanted(card, active),
     friendshipId: active?.dataset?.friendshipId,
     action: active?.dataset?.socialRequest,
     cancel: active?.hasAttribute?.("data-social-request-cancel"),

@@ -3,41 +3,67 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import { test } from 'node:test';
 
-function harness(sessionValues = new Map(), accountId = 'patrol-account', retryPendingSettlement = null, storageOptions = {}) {
-  let source = fs.readFileSync(new URL('./clientNightShift.js', import.meta.url), 'utf8')
+// The night-shift logic is split across three modules that share one vm
+// context, so their sources are concatenated after their imports are removed.
+const NIGHT_SHIFT_MODULES = ['./clientNightShiftPending.js', './clientNightShiftArt.js', './clientNightShift.js'];
+
+function moduleSource(file) {
+  return fs.readFileSync(new URL(file, import.meta.url), 'utf8')
     .replace(/^import .*;\r?\n/gm, '')
     .replace(/^export \{.*\};\r?\n/gm, '')
     .replace(/^export /gm, '');
-  source += '\n;globalThis.api = { configureNightShift, startNightShift, stopNightShift, nightShiftState, applyPatrolState, handlePatrolDisconnect: typeof handlePatrolDisconnect === "undefined" ? null : handlePatrolDisconnect, handlePatrolReconnect: typeof handlePatrolReconnect === "undefined" ? null : handlePatrolReconnect };';
+}
+
+// Reads and writes fail together when `failing` is set. Only sessionStorage also
+// fails on `length` and `key`, which is how the browser behaves in those modes.
+function fakeStorage(values, label, failing, { failingReads = false } = {}) {
+  const fail = () => { if (failing) throw new Error(`${label} unavailable`); };
+  return {
+    getItem(key) { fail(); return values.get(key) || null; },
+    setItem(key, value) { fail(); values.set(key, String(value)); },
+    removeItem(key) { fail(); values.delete(key); },
+    get length() { if (failingReads) fail(); return values.size; },
+    key(index) { if (failingReads) fail(); return [...values.keys()][index] || null; },
+  };
+}
+
+function fakeTimers() {
+  const timers = [];
+  return {
+    timers,
+    setTimeout(fn, delay) { timers.push({ fn, delay, active: true }); return timers.length; },
+    clearTimeout(id) { if (timers[id - 1]) timers[id - 1].active = false; },
+  };
+}
+
+function fakeClassList() {
+  const classNames = new Set();
+  return {
+    add(name) { classNames.add(name); },
+    remove(name) { classNames.delete(name); },
+    contains(name) { return classNames.has(name); },
+  };
+}
+
+function harness(sessionValues = new Map(), accountId = 'patrol-account', retryPendingSettlement = null, storageOptions = {}) {
+  const source = NIGHT_SHIFT_MODULES.map(moduleSource).join('\n')
+    + '\n;globalThis.api = { configureNightShift, startNightShift, stopNightShift, nightShiftState, applyPatrolState, handlePatrolDisconnect: typeof handlePatrolDisconnect === "undefined" ? null : handlePatrolDisconnect, handlePatrolReconnect: typeof handlePatrolReconnect === "undefined" ? null : handlePatrolReconnect };';
   const callbacks = [];
   const finishCallbacks = [];
   const finishPackets = [];
-  const timers = [];
+  const { timers, setTimeout, clearTimeout } = fakeTimers();
   let intervals = 0;
-  const classNames = new Set();
-  const classes = { add(name) { classNames.add(name); }, remove(name) { classNames.delete(name); }, contains(name) { return classNames.has(name); } };
+  const classes = fakeClassList();
   const listeners = {};
   const document = { body: { classList: classes }, hidden: false, querySelector() { return null; }, addEventListener(name, fn) { listeners[name] = fn; } };
   const localValues = storageOptions.localValues || new Map();
-  const storage = {
-    getItem(key) { if (storageOptions.localStorageUnavailable) throw new Error('localStorage unavailable'); return localValues.get(key) || null; },
-    setItem(key, value) { if (storageOptions.localStorageUnavailable) throw new Error('localStorage unavailable'); localValues.set(key, String(value)); },
-    removeItem(key) { if (storageOptions.localStorageUnavailable) throw new Error('localStorage unavailable'); localValues.delete(key); },
-    get length() { return localValues.size; },
-    key(index) { return [...localValues.keys()][index] || null; },
-  };
-  const sessionStorage = {
-    getItem(key) { if (storageOptions.sessionStorageUnavailable) throw new Error('sessionStorage unavailable'); return sessionValues.get(key) || null; },
-    setItem(key, value) { if (storageOptions.sessionStorageUnavailable) throw new Error('sessionStorage unavailable'); sessionValues.set(key, String(value)); },
-    removeItem(key) { if (storageOptions.sessionStorageUnavailable) throw new Error('sessionStorage unavailable'); sessionValues.delete(key); },
-    get length() { if (storageOptions.sessionStorageUnavailable) throw new Error('sessionStorage unavailable'); return sessionValues.size; },
-    key(index) { if (storageOptions.sessionStorageUnavailable) throw new Error('sessionStorage unavailable'); return [...sessionValues.keys()][index] || null; },
-  };
-  const context = { document, localStorage: storage, sessionStorage, state: { phase: 'home', account: { account: { id: accountId } } }, $: () => null, REDUCED_MOTION: false, PARLOR_PATROL_ENABLED: true, hydrateSprites() {}, setTimeout(fn, delay) { timers.push({ fn, delay, active: true }); return timers.length; }, clearTimeout(id) { if (timers[id - 1]) timers[id - 1].active = false; }, setInterval() { intervals += 1; return 1; }, clearInterval() {}, Date, Math, Map };
+  const localStorage = fakeStorage(localValues, 'localStorage', storageOptions.localStorageUnavailable);
+  const sessionStorage = fakeStorage(sessionValues, 'sessionStorage', storageOptions.sessionStorageUnavailable, { failingReads: true });
+  const context = { document, localStorage, sessionStorage, state: { phase: 'home', account: { account: { id: accountId } } }, $: () => null, REDUCED_MOTION: false, PARLOR_PATROL_ENABLED: true, hydrateSprites() {}, setTimeout, clearTimeout, setInterval() { intervals += 1; return 1; }, clearInterval() {}, Date, Math, Map };
   vm.runInNewContext(source, context);
   const noop = () => {};
   context.api.configureNightShift({ emitServer(event, payload, callback) { if (event === 'start-patrol-run') callbacks.push(callback); if (event === 'finish-patrol-run') { finishCallbacks.push(callback); finishPackets.push(payload); } }, stopHomeHelicopter: noop, stopHomeClock: noop, renderPatrolHud: noop, startHomeClock: noop, scheduleHomeHelicopter: noop, parlorNotice: noop, unlockAchievement: noop, retryPendingSettlement: retryPendingSettlement || (() => context.api.handlePatrolReconnect()) });
-  return { ...context.api, callbacks, finishCallbacks, finishPackets, timers, document, listeners, classes, storage, sessionStorage, localValues, clientState: context.state, getIntervals: () => intervals };
+  return { ...context.api, callbacks, finishCallbacks, finishPackets, timers, document, listeners, classes, storage: localStorage, sessionStorage, localValues, clientState: context.state, getIntervals: () => intervals };
 }
 
 test('a delayed start response cannot attach its token to a newer run', () => {
