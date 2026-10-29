@@ -61,11 +61,14 @@ test('emergency credit presents the complete bank terms and returns focus on can
       import('/clientState.js'), import('/clientBankLoanUi.js'), import('/clientSurfaces.js'),
     ]);
     state.phase = 'playing';
+    // Bank loans are an opt-in room setting, so the emergency offer only opens when it is on.
+    state.settings = { ...state.settings, bankLoans: true };
     bank.configureBankLoanUi({
       getOffer: () => ({ available: true, principal: 300, premium: 45, totalDue: 345, dueRound: 4, cureRound: 5, collateralName: 'Salvador', severity: 'standard' }),
       openSurface: surfaces.openSurface, closeSurface: surfaces.closeSurface,
     });
-    window.__reopenBankOffer = () => bank.openBankLoanOffer(document.querySelector('#open-create-btn'));
+    // Live room sync can reset the opt-in setting; re-apply it on every open.
+    window.__reopenBankOffer = () => { state.settings = { ...state.settings, bankLoans: true }; return bank.openBankLoanOffer(document.querySelector('#open-create-btn')); };
     window.__reopenBankOffer();
   });
   const card = page.locator('#bank-loan-card');
@@ -135,7 +138,8 @@ for (const boardVariant of ['standard-40', 'metro-52']) {
       const overlap = name.left < dice.right && name.right > dice.left && name.top < dice.bottom && name.bottom > dice.top;
       expect(overlap, 'current turn name stays above the dice').toBe(false);
       expect(boxes.document).toEqual(boxes.viewport);
-      expect(boxes.board.width).toBeGreaterThanOrEqual(Math.min(boxes.stage.width, boxes.stage.height) * 0.94);
+      // Boards stop growing at 1600px on very large screens, so "fills the center" means the smaller of the stage and that cap.
+      expect(boxes.board.width).toBeGreaterThanOrEqual(Math.min(boxes.stage.width, boxes.stage.height, 1600) * 0.94);
       expect(boxes.board.bottom).toBeLessThanOrEqual(boxes.viewport[1] + 1);
       if (testInfo.project.use.hasTouch) expect(boxes.roll.height).toBeGreaterThanOrEqual(44);
       await page.screenshot({ path: testInfo.outputPath(`${boardVariant}-board.png`), animations: 'disabled' });
