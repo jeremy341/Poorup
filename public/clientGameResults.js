@@ -2,13 +2,21 @@ function playerServerId(player) {
   return player?.serverId || player?.id || null;
 }
 
+// Placements are only recorded for a game that has ended with a winner.
+function placementsRecorded(game) {
+  return !game?.started && Number(game?.roundNumber) > 0 && Boolean(game?.lastWinner?.id);
+}
+
+function isValidPlacement(value) {
+  return Number.isInteger(value) && value > 0;
+}
+
 function normalizeFinalPlacements(game) {
   const source = game?.finalPlacements;
-  if (game?.started || !(Number(game?.roundNumber) > 0) || !game?.lastWinner?.id
-      || !source || typeof source !== 'object' || Array.isArray(source)) return null;
+  if (!placementsRecorded(game) || !source || typeof source !== 'object' || Array.isArray(source)) return null;
   const placements = {};
   for (const [id, value] of Object.entries(source)) {
-    if (id && Number.isInteger(value) && value > 0) placements[id] = value;
+    if (id && isValidPlacement(value)) placements[id] = value;
   }
   return Object.keys(placements).length ? placements : null;
 }
@@ -25,14 +33,23 @@ function placementFor(player, finalPlacements) {
 }
 
 // Ranked seats first, by placement; then the legacy tier, the winner, and cash.
-function compareRankedRows(a, b) {
+// Placed seats order by their placement; the cash fallback only applies between unplaced seats.
+function comparePlacedRows(a, b) {
   if (a.placement !== null && b.placement !== null) return a.placement - b.placement || a._index - b._index;
-  if (a.placement !== null) return -1;
-  if (b.placement !== null) return 1;
+  return a.placement !== null ? -1 : 1;
+}
+
+function compareUnplacedRows(a, b) {
   const tierDifference = legacyPlacement(a) - legacyPlacement(b);
   if (tierDifference) return tierDifference;
   if (a.isWinner !== b.isWinner) return a.isWinner ? -1 : 1;
   return (Number(b.cash) || 0) - (Number(a.cash) || 0) || a._index - b._index;
+}
+
+// Ranked seats first, by placement; then the legacy tier, the winner, and cash.
+function compareRankedRows(a, b) {
+  if (a.placement !== null || b.placement !== null) return comparePlacedRows(a, b);
+  return compareUnplacedRows(a, b);
 }
 
 function rankGameOverPlayers(players, finalPlacements = null, winnerId = null) {
@@ -45,17 +62,17 @@ function rankGameOverPlayers(players, finalPlacements = null, winnerId = null) {
 }
 
 function gameOverScore(player, endReason) {
-  const label = endReason === 'round-limit' ? 'NET WORTH' : 'CASH';
-  const raw = endReason === 'round-limit' ? player?.finalNetWorth : player?.cash;
-  return { label, value: typeof raw === 'number' && Number.isFinite(raw) ? raw : null };
+  const roundLimit = endReason === 'round-limit';
+  const raw = roundLimit ? player?.finalNetWorth : player?.cash;
+  return { label: roundLimit ? 'NET WORTH' : 'CASH', value: typeof raw === 'number' && Number.isFinite(raw) ? raw : null };
 }
 
+// The first flag that holds names the seat's status; a seat with none of them finished.
+const GAME_OVER_STATUSES = [['isWinner', 'WINNER'], ['bankrupt', 'OUT'], ['disconnected', 'LEFT'], ['spectating', 'RETIRED']];
+
 function gameOverPlayerStatus(player) {
-  if (player.isWinner) return 'WINNER';
-  if (player.bankrupt) return 'OUT';
-  if (player.disconnected) return 'LEFT';
-  if (player.spectating) return 'RETIRED';
-  return 'FINISHED';
+  const match = GAME_OVER_STATUSES.find(([flag]) => player[flag]);
+  return match ? match[1] : 'FINISHED';
 }
 
 export { normalizeFinalPlacements, rankGameOverPlayers, gameOverScore, gameOverPlayerStatus };
