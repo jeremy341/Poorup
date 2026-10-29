@@ -101,44 +101,51 @@ function enterAboutFromHistory(marker) {
   document.querySelector('#about-heading')?.focus({ preventScroll: true });
 }
 
+// Adds the About entry to one global nav, in the menu when there is one, else the header's right side.
+function appendAboutLink(nav) {
+  const header = nav.closest('header');
+  if (header.hasAttribute('data-page-header')) return;
+  const menu = header.querySelector('#home-menu');
+  const container = menu || header.querySelector('.hdr-right');
+  if (!container || header.closest('#view-about')) return;
+  const link = document.createElement('a');
+  link.href = '/about';
+  link.dataset.aboutLink = '';
+  link.setAttribute('aria-label', 'About Poorup');
+  link.title = 'About Poorup';
+  link.className = menu ? 'btn-dark home-menu-item about-menu-entry' : 'btn-dark audio-toggle about-info-link';
+  link.innerHTML = menu ? '<span class="t-label f12">ABOUT POORUP</span>' : '<span data-sprite="help" data-size="3" aria-hidden="true"></span>';
+  container.append(link);
+}
+
+function handleAboutClick(event) {
+  const plain = isPlainPrimaryClick(event);
+  const link = event.target.closest('a[href="/about"], [data-about-link]');
+  if (link && plain) {
+    event.preventDefault();
+    openAboutSurface();
+  } else if (event.target.closest('[data-about-back]')) returnToPreviousView();
+  else if (plain && event.target.closest('#view-about a[href^="#about-"]')) scrollToAboutAnchor(event);
+  const entry = event.target.closest('#about-page-content [data-home-tab], #about-page-content [data-top-surface]');
+  if (entry && plain) {
+    event.preventDefault();
+    if (entry.dataset.homeTab) openHomeTab(entry);
+    else openTopSurface(entry);
+  }
+}
+
+function handleAboutPopState(event) {
+  const marker = event.state?.poorupAbout;
+  if (location.pathname === '/about') enterAboutFromHistory(marker);
+  else if (marker && VIEWS.has(marker.view)) restoreView(marker.view);
+  else if (currentView() === 'about') restoreView(returnView);
+}
+
 export function bindAboutUi() {
   if (bound) return;
   bound = true;
-  document.querySelectorAll('[data-global-nav]').forEach(nav => {
-    const header = nav.closest('header');
-    if (header.hasAttribute('data-page-header')) return;
-    const menu = header.querySelector('#home-menu');
-    const container = menu || header.querySelector('.hdr-right');
-    if (!container || header.closest('#view-about')) return;
-    const link = document.createElement('a');
-    link.href = '/about';
-    link.dataset.aboutLink = '';
-    link.setAttribute('aria-label', 'About Poorup');
-    link.title = 'About Poorup';
-    link.className = menu ? 'btn-dark home-menu-item about-menu-entry' : 'btn-dark audio-toggle about-info-link';
-    link.innerHTML = menu ? '<span class="t-label f12">ABOUT POORUP</span>' : '<span data-sprite="help" data-size="3" aria-hidden="true"></span>';
-    container.append(link);
-  });
+  document.querySelectorAll('[data-global-nav]').forEach(appendAboutLink);
   hydrateSprites();
-  document.addEventListener('click', event => {
-    const plain = isPlainPrimaryClick(event);
-    const link = event.target.closest('a[href="/about"], [data-about-link]');
-    if (link && plain) {
-      event.preventDefault();
-      openAboutSurface();
-    } else if (event.target.closest('[data-about-back]')) returnToPreviousView();
-    else if (plain && event.target.closest('#view-about a[href^="#about-"]')) scrollToAboutAnchor(event);
-    const entry = event.target.closest('#about-page-content [data-home-tab], #about-page-content [data-top-surface]');
-    if (entry && plain) {
-      event.preventDefault();
-      if (entry.dataset.homeTab) openHomeTab(entry);
-      else openTopSurface(entry);
-    }
-  });
-  window.addEventListener('popstate', event => {
-    const marker = event.state?.poorupAbout;
-    if (location.pathname === '/about') enterAboutFromHistory(marker);
-    else if (marker && VIEWS.has(marker.view)) restoreView(marker.view);
-    else if (currentView() === 'about') restoreView(returnView);
-  });
+  document.addEventListener('click', handleAboutClick);
+  window.addEventListener('popstate', handleAboutPopState);
 }
