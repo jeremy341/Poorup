@@ -308,24 +308,41 @@ export function chartSVG(model, spec, { label = "", describedBy = "" } = {}) {
 }
 
 /** Markup for the hover/keyboard readout at category `index`: crosshair, point rings and a value box. */
+// Where the readout is anchored: over the point for a column chart, over the row for a bar chart.
+function hoverAnchor(model, index) {
+  const yAxis = model.axis === "y";
+  return {
+    x: yAxis ? model.plot.x + model.plot.w / 2 : model.xs[index],
+    y: yAxis ? model.ys[index] : model.plot.y + 4,
+  };
+}
+
+// The readout box beside the anchor, flipped to the left near the right edge and kept inside the chart.
+function hoverBox(model, lines, anchor) {
+  const boxW = Math.max(...lines.map(line => line.length)) * CHAR + 16;
+  const boxH = lines.length * 14 + 10;
+  const flip = anchor.x + 14 + boxW > model.width - 4;
+  const boxX = clamp(flip ? anchor.x - 14 - boxW : anchor.x + 14, 4, model.width - boxW - 4);
+  const boxY = clamp(model.axis === "y" ? anchor.y - boxH / 2 : anchor.y, 4, model.height - boxH - 4);
+  return { x: boxX, y: boxY, w: boxW, h: boxH };
+}
+
+// The vertical cursor and the rings on each series at this index. Only line charts on a column axis get them.
+function hoverCursorMarkup(model, index, anchorX) {
+  if (model.axis !== "x" || model.kind === "bar") return "";
+  return `<line class="pc-cursor" x1="${r(anchorX)}" y1="${r(model.plot.y)}" x2="${r(anchorX)}" y2="${r(model.plot.y + model.plot.h)}"/>`
+    + model.lines.map(line => (line.points[index] ? `<rect class="pc-ring pc-tone-${line.tone}" x="${r(line.points[index].x - 5)}" y="${r(line.points[index].y - 5)}" width="10" height="10"/>` : "")).join("");
+}
+
 export function hoverMarkup(model, spec, index) {
   if (model.empty || index < 0 || index >= spec.labels.length) return "";
   const lines = [spec.labels[index], ...spec.series.map(series => (spec.series.length > 1 ? `${series.name}: ` : "") + formatValue(series.raw[index], spec.unit))];
   spec.markers.filter(marker => marker.index === index && marker.label).forEach(marker => lines.push(marker.label));
-  const boxW = Math.max(...lines.map(line => line.length)) * CHAR + 16;
-  const boxH = lines.length * 14 + 10;
-  const anchorX = model.axis === "y" ? model.plot.x + model.plot.w / 2 : model.xs[index];
-  const anchorY = model.axis === "y" ? model.ys[index] : model.plot.y + 4;
-  const flip = anchorX + 14 + boxW > model.width - 4;
-  const boxX = clamp(flip ? anchorX - 14 - boxW : anchorX + 14, 4, model.width - boxW - 4);
-  const boxY = clamp(model.axis === "y" ? anchorY - boxH / 2 : anchorY, 4, model.height - boxH - 4);
-  let cursor = "";
-  if (model.axis === "x" && model.kind !== "bar") {
-    cursor = `<line class="pc-cursor" x1="${r(anchorX)}" y1="${r(model.plot.y)}" x2="${r(anchorX)}" y2="${r(model.plot.y + model.plot.h)}"/>`
-      + model.lines.map((line, seriesIndex) => (line.points[index] ? `<rect class="pc-ring pc-tone-${line.tone}" x="${r(line.points[index].x - 5)}" y="${r(line.points[index].y - 5)}" width="10" height="10"/>` : "")).join("");
-  }
-  const text = lines.map((line, row) => `<text x="${r(boxX + 8)}" y="${r(boxY + 14 + row * 14)}">${esc(line)}</text>`).join("");
-  return `${cursor}<g class="pc-readout"><rect x="${r(boxX)}" y="${r(boxY)}" width="${r(boxW)}" height="${r(boxH)}"/>${text}</g>`;
+  const anchor = hoverAnchor(model, index);
+  const box = hoverBox(model, lines, anchor);
+  const cursor = hoverCursorMarkup(model, index, anchor.x);
+  const text = lines.map((line, row) => `<text x="${r(box.x + 8)}" y="${r(box.y + 14 + row * 14)}">${esc(line)}</text>`).join("");
+  return `${cursor}<g class="pc-readout"><rect x="${r(box.x)}" y="${r(box.y)}" width="${r(box.w)}" height="${r(box.h)}"/>${text}</g>`;
 }
 
 /** Plain-text equivalent of the readout, for the live region. */

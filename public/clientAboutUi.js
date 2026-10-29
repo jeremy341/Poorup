@@ -88,6 +88,19 @@ function scrollToAboutAnchor(event) {
   target?.focus({ preventScroll: true });
 }
 
+// A return URL is kept only when it is a plain same-site path.
+function safeReturnUrl(value) {
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : '/';
+}
+
+// Opening the About page from history: remember where to go back to, then show it.
+function enterAboutFromHistory(marker) {
+  returnView = VIEWS.has(marker?.returnView) ? marker.returnView : 'home';
+  returnUrl = safeReturnUrl(marker?.returnUrl);
+  showView('about');
+  document.querySelector('#about-heading')?.focus({ preventScroll: true });
+}
+
 export function bindAboutUi() {
   if (bound) return;
   bound = true;
@@ -124,12 +137,8 @@ export function bindAboutUi() {
   });
   window.addEventListener('popstate', event => {
     const marker = event.state?.poorupAbout;
-    if (location.pathname === '/about') {
-      returnView = VIEWS.has(marker?.returnView) ? marker.returnView : 'home';
-      returnUrl = typeof marker?.returnUrl === 'string' && marker.returnUrl.startsWith('/') && !marker.returnUrl.startsWith('//') ? marker.returnUrl : '/';
-      showView('about');
-      document.querySelector('#about-heading')?.focus({ preventScroll: true });
-    } else if (marker && VIEWS.has(marker.view)) restoreView(marker.view);
+    if (location.pathname === '/about') enterAboutFromHistory(marker);
+    else if (marker && VIEWS.has(marker.view)) restoreView(marker.view);
     else if (currentView() === 'about') restoreView(returnView);
   });
 }

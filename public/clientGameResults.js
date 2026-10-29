@@ -7,13 +7,17 @@ function placementsRecorded(game) {
   return !game?.started && Number(game?.roundNumber) > 0 && Boolean(game?.lastWinner?.id);
 }
 
+function isPlacementMap(source) {
+  return Boolean(source) && typeof source === 'object' && !Array.isArray(source);
+}
+
 function isValidPlacement(value) {
   return Number.isInteger(value) && value > 0;
 }
 
 function normalizeFinalPlacements(game) {
   const source = game?.finalPlacements;
-  if (!placementsRecorded(game) || !source || typeof source !== 'object' || Array.isArray(source)) return null;
+  if (!placementsRecorded(game) || !isPlacementMap(source)) return null;
   const placements = {};
   for (const [id, value] of Object.entries(source)) {
     if (id && isValidPlacement(value)) placements[id] = value;
