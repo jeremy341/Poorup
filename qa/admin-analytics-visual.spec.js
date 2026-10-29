@@ -149,6 +149,8 @@ test.describe('admin analytics visual contract', () => {
     const engine = page.locator('#analytics-panel-status .analytics-chart-engine');
     const tiles = page.locator('#admin-analytics-grid');
     const strip = page.locator('.admin-views');
+    // The chart may still be rendering under load, so wait for it before measuring.
+    await expect(engine).toBeVisible();
     const [engineBox, tilesBox, stripBox, workspace] = await Promise.all([engine.boundingBox(), tiles.boundingBox(), strip.boundingBox(), page.locator('.admin-workspace').boundingBox()]);
     expect(tilesBox.y + tilesBox.height).toBeLessThanOrEqual(stripBox.y + 1);
     expect(stripBox.y + stripBox.height).toBeLessThanOrEqual(engineBox.y + 1);

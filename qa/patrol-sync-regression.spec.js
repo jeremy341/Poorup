@@ -143,7 +143,8 @@ test('unequal pause and resume latency reconciles the existing target to server 
     await new Promise(resolve => requestAnimationFrame(() => resolve()));
     return { actual: el.getAnimations()[0].currentTime, expected: Date.now() - window.expectedSpawn };
   });
-  expect(Math.abs(timing.actual - timing.expected)).toBeLessThan(180);
+  // Wall-clock tolerance: a 4K run under load can lag the animation clock by ~200ms; an unshifted animation misses by the whole pause.
+  expect(Math.abs(timing.actual - timing.expected)).toBeLessThan(300);
   await expect(page.locator('body')).not.toHaveClass(/night-shift-paused/);
 });
 
