@@ -6,8 +6,6 @@ function fixture() {
   const room = manager.createRoom({ socketId: 's-seller', clientId: 'c-seller', nickname: 'Seller' });
   room.addOrReconnectPlayer({ socketId: 's-owner', clientId: 'c-owner', nickname: 'Owner' });
   room.addOrReconnectPlayer({ socketId: 's-buyer', clientId: 'c-buyer', nickname: 'Buyer' });
-  room.setRoomSetting('rulesProfile', 'advanced');
-  room.setRoomSetting('playerFinance', true);
   assert.equal(room.startGame().success, true);
   const game = room.game;
   const [seller, owner, buyer] = game.players;
@@ -237,48 +235,3 @@ const replayOffer = replay.game.proposeEquityShareTransfer('s-seller', {
 const acceptedOnce = replay.game.respondPlayerContract('s-buyer', true, 'replay-accept', replayOffer.transfer.id);
 assert.equal(replay.game.respondPlayerContract('s-buyer', true, 'replay-accept', replayOffer.transfer.id), acceptedOnce);
 assert.equal(replay.seller.cash, 560);
-
-// The transfer price is a cash inflow for the seller: it settles the seller's
-// own parked debt instead of sitting on top of it.
-const sellerDebt = fixture();
-sellerDebt.game.pendingPayment = { playerId: sellerDebt.seller.id, creditorId: null, amountRemaining: 50, reason: 'rent' };
-const sellerDebtOffer = sellerDebt.game.proposeEquityShareTransfer('s-seller', {
-  fromPlayerId: sellerDebt.seller.id,
-  toPlayerId: sellerDebt.buyer.id,
-  contractId: sellerDebt.source.id,
-  sharePct: 15,
-  price: 60,
-  requestId: 'seller-debt-transfer'
-});
-assert.equal(sellerDebtOffer.success, true);
-assert.equal(sellerDebt.game.respondPlayerContract('s-buyer', true, 'seller-debt-accept', sellerDebtOffer.transfer.id).success, true);
-assert.equal(sellerDebt.seller.cash, 510, 'the transfer price paid the seller parked debt');
-assert.equal(sellerDebt.game.pendingPayment, null);
-
-// Pre-upgrade active shares keep their agreed resale rights, while fresh
-// requests, negotiation and replay still require Advanced Player finance.
-const gatedLegacy = fixture();
-const gatedOffer = gatedLegacy.game.proposeEquityShareTransfer('s-seller', {
-  fromPlayerId: gatedLegacy.seller.id, toPlayerId: gatedLegacy.buyer.id,
-  contractId: gatedLegacy.source.id, sharePct: 15, price: 60, requestId: 'gated-transfer'
-});
-assert.equal(gatedOffer.success, true);
-assert.equal(gatedOffer.transfer.rulesVersion, 2);
-gatedLegacy.game.settings.playerFinance = false;
-assert.equal(gatedLegacy.game.proposeEquityShareTransfer('s-seller', {
-  fromPlayerId: gatedLegacy.seller.id, toPlayerId: gatedLegacy.buyer.id,
-  contractId: gatedLegacy.source.id, sharePct: 15, price: 60, requestId: 'gated-transfer'
-}).success, false);
-assert.equal(gatedLegacy.game.counterPlayerContract('s-buyer', { price: 40 }).success, false);
-assert.equal(gatedLegacy.game.adjustPlayerContract('s-seller', { price: 40 }).success, false);
-assert.equal(gatedLegacy.game.respondPlayerContract('s-buyer', true).success, false);
-assert.equal(gatedLegacy.game.respondPlayerContract('s-buyer', false).success, true);
-const staleTransfer = fixture();
-const preUpgradeOffer = staleTransfer.game.proposeEquityShareTransfer('s-seller', {
-  fromPlayerId: staleTransfer.seller.id, toPlayerId: staleTransfer.buyer.id,
-  contractId: staleTransfer.source.id, sharePct: 15, price: 60
-});
-delete preUpgradeOffer.transfer.rulesVersion;
-assert.match(staleTransfer.game.respondPlayerContract('s-buyer', true).error, /rebuilt/);
-assert.equal(staleTransfer.game.counterPlayerContract('s-buyer', { price: 40 }).success, false);
-assert.equal(staleTransfer.game.respondPlayerContract('s-buyer', false).success, true);

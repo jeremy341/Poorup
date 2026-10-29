@@ -1,14 +1,18 @@
-// AUCTION: the forced-buy/auction bidding UI. Renders the auction card and its live countdown,
-// and owns the interval that drives it. Socket-bound calls (emitServer, say, renderChat) arrive
-// via configureAuctionUi. renderAuction's markup must match the main.js template.
+/* ============================================================
+   AUCTION: the forced-buy/auction flow's bidding UI. Renders the
+   auction card and its live countdown, and owns the interval that
+   drives it. The tile-popup render helpers are imported; the
+   socket-bound calls (emitServer, say, renderChat) arrive via
+   configureAuctionUi. renderAuction's markup is the exact old
+   main.js template.
+   ============================================================ */
 import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { TILES } from "./clientBoardData.js";
 import { avatarHTML } from "./clientSprites.js";
-import { AUCTION_MS } from "./clientStateSync.js";
+import { AUCTION_MS, snoozeAuctionSurface } from "./clientStateSync.js";
 import { accentOf, popIconHTML, kindLabel } from "./clientPopupUi.js";
 import { closeSurface } from "./clientSurfaces.js";
-import { emitIntent } from "./clientRequestController.js";
 
 let host = { emitServer: noop, say: noop, renderChat: noop, captureActionStatusNode: () => null, announceActionStatus: noop };
 
@@ -19,7 +23,7 @@ export function configureAuctionUi(hooks) {
 }
 
 const BID_STEPS = [1, 20, 100];
-// Single clock for auction deadlines. Matches the server's frame
+// Audit #18: single clock for auction deadlines. Matches the server's frame
 // once a snapshot has arrived (offset 0 before the first one).
 function serverNow() { return Date.now() + (state.serverTimeOffset || 0); }
 let auctionTimer = null;
@@ -77,17 +81,11 @@ export function stopAuctionTimer() {
 
 export function startAuction(tile, control = document.activeElement, onFailure = noop) {
   const statusNode = host.captureActionStatusNode(control);
-  emitIntent(host.emitServer, `decline-property:${tile.i}`, "decline-property", { tileIndex: tile.i }, {
-    onResponse: (response) => {
-      if (response?.success === false) {
-        const retryStatusNode = onFailure();
-        host.announceActionStatus(response.error || "The auction could not be opened.", retryStatusNode || statusNode);
-      }
-    },
-    onTimeout: () => {
+  host.emitServer("decline-property", { tileIndex: tile.i }, (response) => {
+    if (response?.success === false) {
       const retryStatusNode = onFailure();
-      host.announceActionStatus("The auction could not be confirmed. Try again.", retryStatusNode || statusNode);
-    },
+      host.announceActionStatus(response.error || "The auction could not be opened.", retryStatusNode || statusNode);
+    }
   });
 }
 
@@ -179,9 +177,9 @@ export function renderAuction() {
 
       <div class="auction-bids">
         ${BID_STEPS.map((inc) => `
-          <button class="btn-dark auction-bid-btn" data-bid="${inc}">
-            <span class="t-label">BID</span>
-            <span class="t-micro">+${inc} RAISE</span>
+          <button class="cta-red auction-bid-btn" data-bid="${inc}">
+            <span class="t-label">+${inc}</span>
+            <span class="t-micro">RAISE</span>
           </button>`).join("")}
       </div>
 
@@ -195,8 +193,11 @@ export function renderAuction() {
   card.querySelectorAll("[data-bid]").forEach((btn) => {
     btn.addEventListener("click", () => humanBid(Number(btn.dataset.bid), btn));
   });
-  // closeSurface confirms, then snoozes this auction (Esc takes the same path).
-  $("#auction-close")?.addEventListener("click", () => closeSurface("#auction-modal"));
+  $("#auction-close")?.addEventListener("click", () => {
+    // Dismissing a live auction snoozes re-rendering instead of fighting it.
+    snoozeAuctionSurface();
+    closeSurface("#auction-modal");
+  });
   updateAuctionLive();
   restoreAuctionFocus(focusKey);
 }
@@ -216,11 +217,6 @@ function renderAuctionTimer(remaining) {
 function renderAuctionBid(a) {
   const bidEl = $("#auction-bid");
   if (bidEl) bidEl.textContent = `${a.bid}`;
-  // Each raise button names the resulting bid, not just the increment.
-  $("#auction-card")?.querySelectorAll("[data-bid] .t-label").forEach((label) => {
-    const inc = Number(label.closest("[data-bid]").dataset.bid);
-    label.textContent = `BID $${(a.bid + inc).toLocaleString()}`;
-  });
 }
 
 function findAuctionLeader(a) {
@@ -260,9 +256,7 @@ function renderAuctionStatus(a) {
 function disableAuctionBids(me, a) {
   $("#auction-card")?.querySelectorAll("[data-bid]").forEach((btn) => {
     const inc = Number(btn.dataset.bid);
-    // aria-disabled (not disabled) keeps keyboard focus on the pressed bid
-    // button while its request is pending; clicks are ignored in humanBid.
-    btn.setAttribute("aria-disabled", String(auctionActionPending || me.cash < a.bid + inc));
+    btn.disabled = auctionActionPending || me.cash < a.bid + inc;
     btn.title = `Raise to $${(a.bid + inc).toLocaleString()} · you hold $${Number(me.cash || 0).toLocaleString()}`;
   });
 }
@@ -289,16 +283,10 @@ function auctionPlayerRow(p, a) {
       </div>`;
 }
 
-const renderedPlayerLists = new WeakMap();
-
 function renderAuctionPlayers(a) {
   const listEl = $("#auction-players");
   if (!listEl) return;
-  // The countdown ticks ~16x/s; only rebuild (and re-hydrate avatars) on change.
-  const html = state.players.map((p) => auctionPlayerRow(p, a)).join("");
-  if (renderedPlayerLists.get(listEl) === html) return;
-  renderedPlayerLists.set(listEl, html);
-  listEl.innerHTML = html;
+  listEl.innerHTML = state.players.map((p) => auctionPlayerRow(p, a)).join("");
 }
 
 function updateAuctionLive() {

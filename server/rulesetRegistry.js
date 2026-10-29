@@ -1,42 +1,55 @@
-// Ruleset and board contracts live in one small registry, so rooms, summaries, bots, history and the client all resolve the same immutable configuration.
-// Pure: no socket, store or GameState imports. Room creation and the room-setting setter both decide what a legal value is, and
-// the vocabularies live in roomSettings.js, so the two doors cannot drift into disagreeing about the same payload.
+// Ruleset and board contracts live in one small registry so rooms, summaries,
+// bots, history, and the client all resolve the same immutable configuration.
+// This is deliberately pure: it has no socket, store, or GameState imports.
+// Room creation and the room-setting setter both decide what a legal value is.
+// The vocabularies live in roomSettings.js and are imported here so the two
+// doors cannot drift into disagreeing about the same payload.
 import {
   GLOBAL_EVENT_ON_VALUES,
   ROOM_FLAG_TRUE_VALUES,
+  ROOM_HOTEL_LIMITS,
+  ROOM_HOUSE_LIMITS,
   SETTING_REJECTED,
   boundedInteger,
-  floorSettingAtZero,
-  isPlainOverrideValue,
-  normalizeItemRewards,
-  stripRetiredRoomSettings
+  floorSettingAtZero
 } from './roomSettings.js';
 
-const RULESET_REVISION = 2;
+const RULESET_REVISION = 1;
 const BALANCE_REVISION = 1;
+const RULESET_PRESETS = ['classic', 'after-hours', 'custom'];
+const RULESET_BASES = ['classic', 'after-hours'];
 const BOARD_VARIANTS = ['standard-40', 'metro-52', 'grand-64'];
 const EXPOSED_BOARD_VARIANTS = ['standard-40', 'metro-52'];
 const MARKET_COMPLEXITIES = ['basic', 'margin', 'shorting', 'derivatives'];
 const BANK_LOAN_SEVERITIES = ['fair', 'predatory', 'extreme'];
 
-// The optional Poorup systems. Every table starts with all of them off; a host
-// turns each one on through a room override. Legacy room settings are kept in
-// the underlying room object, while the effective map is the authority.
-const ADD_ON_DEFAULTS = Object.freeze({
-  itemRewards: false,
-  bankLoans: false,
-  casino: false,
-  market: false,
-  marketComplexity: 'basic',
-  globalEvents: false,
-  flights: false,
-  bankAccountUpgrades: false
+const PRESET_DEFAULTS = Object.freeze({
+  classic: Object.freeze({
+    bankLoans: false,
+    casino: false,
+    market: false,
+    marketComplexity: 'basic',
+    globalEvents: false
+  }),
+  'after-hours': Object.freeze({
+    bankLoans: true,
+    casino: true,
+    market: true,
+    marketComplexity: 'basic',
+    globalEvents: true
+  })
 });
 
-const OPTIONAL_SYSTEM_KEYS = Object.keys(ADD_ON_DEFAULTS);
-// marketComplexity is an add-on key too but is not a flag, so the boolean
+// These are the optional Poorup systems plus every other key a preset owns.
+// Legacy room settings are retained in the underlying room object, while the
+// effective map is the authority for a room created through the ruleset flow.
+// The list is derived from the preset defaults themselves: every key a preset
+// writes must also be carry-forwardable across the legacy -> ruleset
+// transition, or the first meta write silently reverts it to the preset.
+const OPTIONAL_SYSTEM_KEYS = Object.keys(PRESET_DEFAULTS.classic);
+// marketComplexity is a preset key too but is not a flag, so the boolean
 // overrides table takes its members from this filtered view.
-const OPTIONAL_BOOLEAN_SYSTEM_KEYS = OPTIONAL_SYSTEM_KEYS.filter(key => typeof ADD_ON_DEFAULTS[key] === 'boolean');
+const OPTIONAL_BOOLEAN_SYSTEM_KEYS = OPTIONAL_SYSTEM_KEYS.filter(key => typeof PRESET_DEFAULTS.classic[key] === 'boolean');
 
 const BOARD_VARIANT_META = Object.freeze({
   'standard-40': Object.freeze({
@@ -76,7 +89,6 @@ const BOARD_VARIANT_META = Object.freeze({
 
 const KNOWN_OVERRIDE_KEYS = new Set([
   ...OPTIONAL_SYSTEM_KEYS,
-  'playerFinance',
   'doubleRent',
   'vacationCash',
   'auction',
@@ -86,6 +98,8 @@ const KNOWN_OVERRIDE_KEYS = new Set([
   'mortgage',
   'evenBuild',
   'randomizePlayerOrder',
+  'houseLimit',
+  'hotelLimit',
   'bankruptMode',
   'bankLoanSeverity',
   'startingCash',
@@ -97,7 +111,6 @@ const HISTORICAL_OVERRIDE_KEYS = new Set([...KNOWN_OVERRIDE_KEYS, 'turnTimer']);
 
 const BOOLEAN_OVERRIDE_KEYS = new Set([
   ...OPTIONAL_BOOLEAN_SYSTEM_KEYS,
-  'playerFinance',
   'doubleRent',
   'vacationCash',
   'auction',
@@ -108,10 +121,27 @@ const BOOLEAN_OVERRIDE_KEYS = new Set([
   'evenBuild',
   'randomizePlayerOrder'
 ]);
+// Building limits are enumerated ladders, not ranges: the setter tests
+// membership of these exact lists, so creation does too instead of accepting
+// the whole 0..100 span (which made `houseLimit: 0` registry-legal).
+const BUILDING_LIMIT_LADDERS = new Map([
+  ['houseLimit', ROOM_HOUSE_LIMITS],
+  ['hotelLimit', ROOM_HOTEL_LIMITS]
+]);
 const NUMERIC_OVERRIDE_KEYS = new Set(['startingCash']);
 const NUMERIC_OVERRIDE_LIMITS = Object.freeze({
   startingCash: [0, 1_000_000]
 });
+
+function safePreset(value, fallback = 'classic') {
+  const normalized = String(value || '').trim().toLowerCase();
+  return RULESET_PRESETS.includes(normalized) ? normalized : fallback;
+}
+
+function safeBase(value, fallback = 'classic') {
+  const normalized = String(value || '').trim().toLowerCase();
+  return RULESET_BASES.includes(normalized) ? normalized : fallback;
+}
 
 function safeBoardVariant(value, fallback = 'standard-40') {
   const normalized = String(value || '').trim().toLowerCase();
@@ -131,11 +161,16 @@ function primitive(value) {
   return String(value);
 }
 
+// Mirrors normalizeBuildingLimit in roomSettings.js: an `unlimited` sentinel
+// passes through, anything else must be a whole number on the curated ladder.
+// Returns null for off-ladder values so normalizeOverrides drops them.
+function normalizeOverrideBuildingLimit(allowedValues, value) {
+  if (typeof value === 'string' && value.trim().toLowerCase() === 'unlimited') return 'unlimited';
+  const parsed = boundedInteger(value, { min: 0, max: 100, fallback: null });
+  return parsed !== null && allowedValues.includes(parsed) ? parsed : null;
+}
+
 function normalizedOverrideValue(key, value) {
-  if (key === 'itemRewards') {
-    const normalized = normalizeItemRewards(value);
-    return normalized === SETTING_REJECTED ? null : normalized;
-  }
   if (key === 'bankruptMode') return 'elim';
   if (key === 'bankLoanSeverity') {
     const normalized = String(value || '').trim().toLowerCase();
@@ -143,15 +178,18 @@ function normalizedOverrideValue(key, value) {
   }
   if (BOOLEAN_OVERRIDE_KEYS.has(key)) {
     // Truthiness is the setter's vocabulary, not a second spelling list: the
-    // extended globalEvents spellings are the one place the two doors can
+    // extended globalEvents spellings are the one place the two doors used to
     // invert, turning 'rare' ON through the setter and OFF through creation.
     const truthyValues = key === 'globalEvents' ? GLOBAL_EVENT_ON_VALUES : ROOM_FLAG_TRUE_VALUES;
     return truthyValues.includes(value);
   }
   if (key === 'turnTimer') return boundedInteger(value, { min: 0, max: 3_600, fallback: null });
+  if (BUILDING_LIMIT_LADDERS.has(key)) return normalizeOverrideBuildingLimit(BUILDING_LIMIT_LADDERS.get(key), value);
   if (key === 'bots') {
-    // The setter clamps bots against the room's live seat count, which a pure registry cannot see. Creation therefore applies the same zero floor
-    // and lets effectiveSettingsFor clamp against the board's seat ceiling. A range check here would reject what the setter silently clamps.
+    // The setter clamps bots against the room's live seat count, which a pure
+    // registry cannot see, so creation applies the same zero floor and lets
+    // effectiveSettingsFor clamp against the board's seat ceiling. A range
+    // check here rejected what the setter silently clamps.
     const floored = floorSettingAtZero(value);
     return floored === SETTING_REJECTED ? null : floored;
   }
@@ -175,8 +213,6 @@ function normalizeOverrides(overrides) {
   const normalized = {};
   Object.keys(source).sort().forEach(key => {
     if (!HISTORICAL_OVERRIDE_KEYS.has(key)) return;
-    const raw = source[key];
-    if (!isPlainOverrideValue(raw)) return;
     const value = normalizedOverrideValue(key, source[key]);
     if (value !== null && value !== undefined) normalized[key] = value;
   });
@@ -187,25 +223,24 @@ function overrideList(overrides) {
   return Object.keys(overrides).sort().map(key => ({ key, value: overrides[key] }));
 }
 
-function effectiveSettingsFor({ rulesetOverrides, settings = {}, boardVariant = 'standard-40' } = {}) {
+function effectiveSettingsFor({ rulesetPreset = 'classic', rulesetBase, rulesetOverrides, settings = {}, boardVariant = 'standard-40' } = {}) {
+  const requestedPreset = safePreset(rulesetPreset);
+  const base = safeBase(rulesetBase || (requestedPreset === 'after-hours' ? 'after-hours' : 'classic'));
   const overrides = normalizeOverrides(rulesetOverrides);
-  const effective = stripRetiredRoomSettings(settings);
-  ['rulesetOverrides', 'boardVariant', 'rulesetRevision', 'balanceRevision', 'effectiveSettings', 'digest', 'globalEventDuration', 'globalEventMax', 'botPersonality'].forEach(key => delete effective[key]);
+  const effective = { ...settings };
+  ['rulesetPreset', 'rulesetBase', 'rulesetOverrides', 'boardVariant', 'rulesetRevision', 'balanceRevision', 'effectiveSettings', 'digest', 'globalEventDuration', 'globalEventMax', 'botPersonality'].forEach(key => delete effective[key]);
   if (Object.hasOwn(effective, 'botBrain')) {
     const brain = String(effective.botBrain || '').trim().toLowerCase().replace('_', '-');
     effective.botBrain = brain === 'no-ai' ? 'no-ai' : 'ai';
   }
-  Object.entries(ADD_ON_DEFAULTS).forEach(([key, value]) => {
+  const presetDefaults = PRESET_DEFAULTS[base] || PRESET_DEFAULTS.classic;
+  Object.entries(presetDefaults).forEach(([key, value]) => {
+    // A Custom room inherits its selected base before applying explicit
+    // overrides; it must not accidentally fall back to legacy Classic flags.
     effective[key] = value;
   });
-  Object.assign(effective, overrides);
-  // Profiles choose starting defaults; explicit settings and normalized
-  // overrides remain authoritative for each independently configurable rule.
-  // The profile itself is metadata, so it cannot be smuggled as an override.
-  effective.rulesProfile = settings.rulesProfile === 'advanced' ? 'advanced' : 'standard';
-  effective.playerFinance = Object.hasOwn(overrides, 'playerFinance') ? overrides.playerFinance
-    : Object.hasOwn(settings, 'playerFinance') ? ROOM_FLAG_TRUE_VALUES.includes(settings.playerFinance)
-      : effective.rulesProfile === 'advanced';
+  if (requestedPreset === 'custom') Object.assign(effective, overrides);
+  else Object.assign(effective, overrides);
   // Bankruptcy is a single authoritative elimination/spectator lifecycle;
   // legacy snapshots cannot re-enable the removed debt-deal mode.
   effective.bankruptMode = 'elim';
@@ -229,17 +264,18 @@ function stableSerialize(value) {
 }
 
 function createRulesetDigest(input = {}) {
+  const preset = safePreset(input.rulesetPreset);
+  const base = safeBase(input.rulesetBase || (preset === 'after-hours' ? 'after-hours' : 'classic'));
   const boardVariant = safeBoardVariant(input.boardVariant);
   const overrides = normalizeOverrides(input.rulesetOverrides);
-  const effectiveSettings = effectiveSettingsFor({
-    ...input,
-    settings: input.effectiveSettings || input.settings || {},
-    boardVariant,
-    rulesetOverrides: overrides
-  });
+  const effectiveSettings = input.effectiveSettings
+    ? { ...input.effectiveSettings }
+    : effectiveSettingsFor({ ...input, rulesetPreset: preset, rulesetBase: base, boardVariant, rulesetOverrides: overrides });
   return stableSerialize({
     revision: Number(input.rulesetRevision) || RULESET_REVISION,
     balanceRevision: BALANCE_REVISION,
+    rulesetPreset: preset,
+    rulesetBase: base,
     rulesetOverrides: overrideList(overrides),
     boardVariant,
     effectiveSettings
@@ -247,16 +283,20 @@ function createRulesetDigest(input = {}) {
 }
 
 function resolveRuleset(input = {}) {
+  const rulesetPreset = safePreset(input.rulesetPreset);
+  const rulesetBase = safeBase(input.rulesetBase || (rulesetPreset === 'after-hours' ? 'after-hours' : 'classic'));
   const boardVariant = safeBoardVariant(input.boardVariant);
   const rulesetOverrides = normalizeOverrides(input.rulesetOverrides);
-  const effectiveSettings = effectiveSettingsFor({ ...input, boardVariant, rulesetOverrides });
+  const effectiveSettings = effectiveSettingsFor({ ...input, rulesetPreset, rulesetBase, boardVariant, rulesetOverrides });
   const resolved = {
+    rulesetPreset,
+    rulesetBase,
     rulesetOverrides: overrideList(rulesetOverrides),
     boardVariant,
     rulesetRevision: RULESET_REVISION,
     balanceRevision: BALANCE_REVISION,
     effectiveSettings,
-    digest: createRulesetDigest({ rulesetOverrides, boardVariant, rulesetRevision: RULESET_REVISION, effectiveSettings })
+    digest: createRulesetDigest({ rulesetPreset, rulesetBase, rulesetOverrides, boardVariant, rulesetRevision: RULESET_REVISION, effectiveSettings })
   };
   return Object.freeze({ ...resolved, effectiveSettings: Object.freeze({ ...effectiveSettings }), rulesetOverrides: Object.freeze([...resolved.rulesetOverrides]) });
 }
@@ -268,6 +308,7 @@ function boardVariantMeta(value) {
 export class RulesetRegistry {
   resolve(input = {}) { return resolveRuleset(input); }
   digest(input = {}) { return createRulesetDigest(input); }
+  presets() { return RULESET_PRESETS.slice(); }
   boards() { return EXPOSED_BOARD_VARIANTS.map(id => ({ ...BOARD_VARIANT_META[id] })); }
 }
 
@@ -279,8 +320,10 @@ export {
   KNOWN_OVERRIDE_KEYS,
   HISTORICAL_OVERRIDE_KEYS,
   MARKET_COMPLEXITIES,
-  ADD_ON_DEFAULTS,
   OPTIONAL_SYSTEM_KEYS,
+  PRESET_DEFAULTS,
+  RULESET_BASES,
+  RULESET_PRESETS,
   RULESET_REVISION,
   boardVariantMeta,
   createRulesetDigest,
@@ -289,5 +332,6 @@ export {
   resolveRuleset,
   safeBoardVariant,
   safeMarketComplexity,
+  safePreset,
   stableSerialize
 };

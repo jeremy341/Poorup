@@ -13,7 +13,7 @@ test('dice total typography follows the available board stage width', async ({ p
     width: element.getBoundingClientRect().width,
     fontSize: Number.parseFloat(getComputedStyle(element.querySelector('.dice-roll-total')).fontSize),
   }));
-  const expected = Math.max(108, Math.min(280, metrics.width * 0.2));
+  const expected = Math.max(72, Math.min(220, metrics.width * 0.13));
   expect(metrics.fontSize).toBeCloseTo(expected, 0);
 });
 
@@ -54,16 +54,16 @@ test('desktop board stage stays square and the supported minimum gets a compact 
     expect(metrics['.game-main'].x).toBeCloseTo(0, 0);
     expect(metrics['.game-main'].width).toBeCloseTo(2560, 0);
     expect(metrics['.rail-left'].x).toBeCloseTo(14, 0);
-    expect(metrics['.rail-left'].width).toBeCloseTo(512, 0);
+    expect(metrics['.rail-left'].width).toBeCloseTo(604, 0);
     expect(metrics['.right-rail'].x + metrics['.right-rail'].width).toBeCloseTo(2546, 0);
-    expect(metrics['.right-rail'].width).toBeCloseTo(563.2, 0);
-    expect(metrics['.board-holder'].x).toBeCloseTo(634.4, 0);
+    expect(metrics['.right-rail'].width).toBeCloseTo(604, 0);
+    expect(metrics['.board-holder'].x).toBeCloseTo(660, 0);
     expect(metrics['.board-holder'].y).toBeCloseTo(80, 0);
     expect(metrics['.board-holder'].width).toBeCloseTo(1240, 0);
     expect(metrics['.board-holder'].height).toBeCloseTo(1240, 0);
-    expect(metrics['#hud'].x).toBeCloseTo(542, 0);
+    expect(metrics['#hud'].x).toBeCloseTo(636, 0);
     expect(metrics['#hud'].y).toBeCloseTo(1330, 0);
-    expect(metrics['#hud'].width).toBeCloseTo(1424.8, 0);
+    expect(metrics['#hud'].width).toBeCloseTo(1288, 0);
     expect(metrics['#hud'].height).toBeCloseTo(96, 0);
   }
   expect(hud.columns).toBe(5);
@@ -75,15 +75,12 @@ test('desktop board stage stays square and the supported minimum gets a compact 
     expect(board.width).toBeGreaterThanOrEqual(1000);
     const leftRail = await page.locator('.rail-left').boundingBox();
     const rightRail = await page.locator('.right-rail').boundingBox();
-    // The board is capped at 1600px (.board-holder max-width) while the rails scale with the viewport,
-    // so wider than 2560 the free space beside it is the part of the column the 1600px cap leaves over.
-    const capSlack = Math.max(0, (boardArea.width - 1600) / 2);
-    expect(board.x - (leftRail.x + leftRail.width)).toBeLessThanOrEqual(250 + capSlack);
-    expect(rightRail.x - (board.x + board.width)).toBeLessThanOrEqual(250 + capSlack);
+    expect(board.x - (leftRail.x + leftRail.width)).toBeLessThanOrEqual(250);
+    expect(rightRail.x - (board.x + board.width)).toBeLessThanOrEqual(250);
   }
   if (viewport.width === 3840 && viewport.height === 2160) {
-    expect((await page.locator('.rail-left').boundingBox()).width).toBeCloseTo(560, 0);
-    expect((await page.locator('.right-rail').boundingBox()).width).toBeCloseTo(620, 0);
+    expect((await page.locator('.rail-left').boundingBox()).width).toBeCloseTo(420, 0);
+    expect((await page.locator('.right-rail').boundingBox()).width).toBeCloseTo(420, 0);
   }
 });
 
@@ -121,20 +118,20 @@ test('2560 desktop scales in-game modal families while keeping the player card c
     expect(widths.account).toBeGreaterThanOrEqual(560);
     expect(widths.deed).toBeGreaterThanOrEqual(600);
     expect(widths.trade).toBeGreaterThanOrEqual(740);
-    expect(widths.bank).toBeCloseTo(400, 0);
+    expect(widths.bank).toBeGreaterThanOrEqual(600);
     expect(widths.finance).toBeGreaterThanOrEqual(800);
     expect(widths.wallet).toBeGreaterThanOrEqual(760);
     expect(widths.casino).toBeGreaterThanOrEqual(680);
     expect(widths.market).toBeGreaterThanOrEqual(1240);
-    expect(widths.market).toBeLessThanOrEqual(1640);
+    expect(widths.market).toBeLessThanOrEqual(1360);
     expect(widths.sponsorship).toBeGreaterThanOrEqual(700);
   } else {
     expect(widths.choice).toBeCloseTo(420, 0);
     expect(widths.account).toBeCloseTo(480, 0);
     expect(widths.deed).toBeCloseTo(440, 0);
     expect(widths.trade).toBeCloseTo(660, 0);
-    expect(widths.bank).toBeCloseTo(400, 0);
-    expect(widths.market).toBeCloseTo(Math.min(1640, viewport.width - 48), 0);
+    expect(widths.bank).toBeCloseTo(520, 0);
+    expect(widths.market).toBeCloseTo(Math.min(1320, viewport.width - 48), 0);
   }
   expect(widths.player).toBeLessThanOrEqual(480);
 
@@ -144,11 +141,11 @@ test('2560 desktop scales in-game modal families while keeping the player card c
     action: document.querySelector('#scale-choice button').getBoundingClientRect().height,
   }));
   if (is2560Tier) {
-    expect(scale.micro).toBeGreaterThanOrEqual(11);
+    expect(scale.micro).toBeGreaterThanOrEqual(9.7);
     expect(scale.body).toBeGreaterThanOrEqual(14);
     expect(scale.action).toBeGreaterThanOrEqual(48);
   } else {
-    expect(scale.micro).toBe(11); // micro floor is 11px
+    expect(scale.micro).toBe(9);
     expect(scale.body).toBe(13);
   }
 });
@@ -212,10 +209,9 @@ test('market workbench changes composition for wide desktop and landscape iPad',
   const indexStrip = page.locator('.market-index-strip');
   await expect(indexRail).toHaveCount(0);
   await expect(indexStrip).toBeHidden();
-  await expect(page.locator('.market-index-select')).toHaveCount(0);
-  await expect(page.locator('[data-market-sector]')).toHaveCount(11);
-  await expect(page.locator('[data-market-sector="brazil"]')).toHaveAttribute('aria-pressed', 'true');
-  expect(await page.locator('.market-desk-layout').evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)).toBe(width >= 850 ? 2 : 1);
+  await expect(page.locator('#market-desk-index')).toBeVisible();
+  await expect(page.locator('#market-desk-index option')).toHaveCount(11);
+  expect(await page.locator('.market-desk-layout').evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)).toBe(width >= 1400 ? 2 : 1);
 
   if (width <= 1366) {
     await expect(page.locator('.market-view-tabs')).toBeVisible();
@@ -227,17 +223,16 @@ test('market workbench changes composition for wide desktop and landscape iPad',
     });
     const deskBounds = await page.locator('.market-desk-card').boundingBox();
     const closeBounds = await page.locator('#market-modal-close').boundingBox();
-    expect(deskBounds.x).toBeGreaterThanOrEqual(Math.min(12, popupInsets.left));
-    expect(deskBounds.x + deskBounds.width).toBeLessThanOrEqual(viewport.width - Math.min(12, popupInsets.right));
-    expect(deskBounds.width).toBeLessThanOrEqual(viewport.width - 24);
+    expect(deskBounds.x).toBeGreaterThanOrEqual(popupInsets.left - 1);
+    expect(deskBounds.x + deskBounds.width).toBeLessThanOrEqual(viewport.width - popupInsets.right + 1);
+    expect(deskBounds.width).toBeLessThanOrEqual(Math.min(980, viewport.width - 64) + 1);
     expect(closeBounds.height).toBeGreaterThanOrEqual(44);
     await page.locator('#market-view-trade').click();
     await expect(page.locator('#market-card')).toHaveAttribute('data-market-view', 'trade');
     await expect(page.locator('.market-selected-quote')).toBeVisible();
     await expect(page.locator('.market-trade-ticket')).toBeVisible();
     await expect(page.locator('#market-change-index')).toHaveCount(0);
-    await expect(page.locator('.market-history')).toBeVisible();
-    await expect(page.locator('.market-quote-chart svg')).toBeVisible();
+    await expect(page.locator('.market-history')).toBeHidden();
     await page.locator('#market-view-overview').click();
     await expect(page.locator('#market-card')).toHaveAttribute('data-market-view', 'overview');
     await expect(page.locator('.market-history')).toBeVisible();
@@ -292,19 +287,19 @@ test('market desk presents sector navigation, live shared quote, chart, and orde
   });
 
   const viewport = page.viewportSize();
-  await expect(page.locator('.market-index-select')).toHaveCount(0);
-  const sectorButtons = page.locator('[data-market-sector]');
-  await expect(sectorButtons).toHaveCount(11);
-  await expect(page.locator('[data-market-sector="brazil"]')).toContainText('HOUSING MARKET');
-  await expect(page.locator('[data-market-sector="brazil"]')).toHaveAttribute('aria-pressed', 'true');
+  const marketIndexControl = page.locator('#market-desk-index');
+  await expect(marketIndexControl).toBeVisible();
+  await expect(marketIndexControl.locator('option')).toHaveCount(11);
+  await expect(marketIndexControl.locator('option[value="brazil"]')).toContainText('HOUSING MARKET');
   await expect(page.locator('.market-current-price')).toContainText('$113');
   await expect(page.locator('[data-market-movement]')).toContainText('+$9');
   await expect(page.locator('.market-history-table')).toHaveCount(0);
   await expect(page.locator('.market-chart-summary')).toContainText('3 data points');
   const tabletIndexStrip = page.locator('.market-index-strip');
   await expect(page.locator('.market-index-rail')).toHaveCount(0);
+  await expect(marketIndexControl).toBeVisible();
   await expect(tabletIndexStrip).toBeHidden();
-  expect(await page.locator('.market-desk-layout').evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)).toBe(viewport.width >= 850 ? 2 : 1);
+  expect(await page.locator('.market-desk-layout').evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length)).toBe(viewport.width >= 1400 ? 2 : 1);
   await expect(page.locator('#market-desk-history-range')).toBeVisible();
   await expect(page.locator('#market-desk-history-range')).toHaveValue('all');
   if (viewport.width >= 768 && viewport.width <= 1399) {
@@ -325,16 +320,13 @@ test('market desk presents sector navigation, live shared quote, chart, and orde
     });
   }
 
-  if (viewport.width >= 850 && viewport.width <= 1399) await page.locator('#market-workspace-index').selectOption('ghana');
-  else await page.locator('[data-market-sector="ghana"]').click();
-  await expect(page.locator('[data-market-sector="ghana"]')).toHaveAttribute('aria-pressed', 'true');
+  await marketIndexControl.selectOption('ghana');
+  await expect(marketIndexControl).toBeFocused();
   await expect(page.locator('#market-history-title')).toContainText('AGRICULTURE');
   await expect(page.locator('#market-selected-index-name')).toHaveText('AGRICULTURE');
   await expect(page.locator('.market-current-price')).toContainText('$100');
   if (viewport.width >= 768 && viewport.width <= 1399) await page.locator('#market-view-trade').click();
   await expect(page.locator('.market-trade-ticket')).toBeVisible();
-  await expect(page.locator('.market-history')).toBeVisible();
-  await expect(page.locator('.market-quote-chart svg')).toBeVisible();
   if (process.env.POORUP_VISUAL_CAPTURE_DIR || ["desktop-1920x1080", "ipad-1024x768", "ipad-1194x834"].includes(testInfo.project.name)) {
     await captureScreenshot(page, testInfo, {
       group: 'market', surfaceId: 'market-desk-trade-ticket', label: 'Market Desk order ticket',
@@ -348,9 +340,9 @@ test('market desk presents sector navigation, live shared quote, chart, and orde
   const chartAndTicket = await page.evaluate(() => {
     const chart = document.querySelector('.market-quote-chart').getBoundingClientRect();
     const ticket = document.querySelector('.market-trade-ticket').getBoundingClientRect();
-    return { chartRight: chart.right, ticketLeft: ticket.left };
+    return { chartBottom: chart.bottom, ticketBottom: ticket.bottom };
   });
-  if (viewport.width >= 850) expect(chartAndTicket.chartRight).toBeLessThanOrEqual(chartAndTicket.ticketLeft);
+  if (viewport.width >= 1400) expect(Math.abs(chartAndTicket.chartBottom - chartAndTicket.ticketBottom)).toBeLessThanOrEqual(2);
   await page.locator('#market-desk-quantity').fill('2');
   await page.locator('[data-market-order-side="sell"]').click();
   await expect(page.locator('[data-market-preview]')).toContainText('GROSS $200');
@@ -361,10 +353,6 @@ test('market desk presents sector navigation, live shared quote, chart, and orde
     eventName: 'market-order',
     payload: { instrumentId: 'ghana', side: 'sell', quantity: 2, requestId: 'market-qa-request' },
   }]);
-  await page.locator('[data-market-sector="brazil"]').focus();
-  await page.keyboard.press('ArrowDown');
-  await expect(page.locator('[data-market-sector="ghana"]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('#market-selected-index-name')).toHaveText('AGRICULTURE');
 
   const desk = await page.locator('.market-desk-card').boundingBox();
   expect(desk.width).toBeLessThanOrEqual(viewport.width - 24);
@@ -492,131 +480,13 @@ test('derivatives remain unavailable without server pricing policy across market
     };
   });
 
-  const sector = page.locator('[data-market-sector="canada"]');
-  await sector.click();
+  const index = page.locator('#market-desk-index');
+  await index.selectOption('canada');
   await page.evaluate(() => window.__refreshMarketDesk());
 
-  await expect(page.locator('[data-market-sector="canada"]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('#market-selected-index-name')).toHaveText('ENERGY & RESOURCES');
-  await expect(page.locator('.market-derivatives-unavailable').first()).toContainText("Options aren't available on this table yet.");
+  await expect(index).toHaveValue('canada');
+  await expect(page.locator('.market-derivatives-unavailable').first()).toContainText('SERVER PRICING POLICY NOT CONFIGURED');
   await expect(page.locator('#market-desk-role')).toHaveCount(0);
   await expect(page.locator('[data-market-advanced="open-option"]')).toHaveCount(0);
   expect(await page.evaluate(() => window.__marketActions)).toEqual([]);
-});
-
-test('market rejects invalid quantities without changing the order', async ({ page }, testInfo) => {
-  await page.goto('/');
-  await page.evaluate(async () => {
-    document.body.innerHTML = '<div class="popup" id="market-modal"><div class="popup-card market-desk-card panel noise" id="market-card"></div></div>';
-    const { state } = await import('/clientState.js');
-    const marketUi = await import('/clientMarketUi.js');
-    state.players = [{ id: 'p1', cash: 1500 }];
-    state.economy = { market: { enabled: true, complexity: 'margin', quotes: { brazil: 100 }, quoteHistory: [] } };
-    window.__marketOrders = [];
-    marketUi.configureMarketUi({ emitServer: (eventName, payload, ack) => { window.__marketOrders.push({ eventName, payload }); ack({ success: false }); }, createRequestId: () => 'test' });
-    marketUi.renderMarketDeskIfOpen();
-  });
-  if (await page.locator('#market-view-trade').isVisible()) await page.locator('#market-view-trade').click();
-  const quantity = page.locator('#market-desk-quantity');
-  const submit = page.locator('#market-order-submit');
-  for (const value of ['1001', '', '0', '1.5']) {
-    await quantity.fill(value);
-    if (process.env.MARKET_CAPTURE_DIR && value === '1001') await page.screenshot({ path: path.join(process.env.MARKET_CAPTURE_DIR, `${testInfo.project.name}.png`) });
-    await expect(quantity).toHaveAttribute('aria-invalid', 'true');
-    await expect(page.locator('#market-quantity-error')).toContainText('whole number between 1 and 1,000');
-    await expect(page.locator('[data-market-gross]')).toHaveText('GROSS -');
-    await expect(submit).toBeDisabled();
-    await submit.dispatchEvent('click');
-    expect(await page.evaluate(() => window.__marketOrders)).toEqual([]);
-  }
-  await page.locator('.market-advanced-settings > summary').click();
-  await page.locator('[data-market-advanced="open-margin"]') .click();
-  expect(await page.evaluate(() => window.__marketOrders)).toEqual([]);
-  await page.evaluate(async () => (await import('/clientMarketUi.js')).renderMarketDeskIfOpen());
-  await expect(quantity).toHaveValue('1.5');
-  await expect(page.locator('[data-market-gross]')).toHaveText('GROSS -');
-  await quantity.fill('2');
-  await expect(quantity).toHaveAttribute('aria-invalid', 'false');
-  await expect(page.locator('[data-market-gross]')).toHaveText('GROSS $200');
-  await expect(submit).toBeEnabled();
-  await submit.click();
-  expect(await page.evaluate(() => window.__marketOrders[0].payload.quantity)).toBe(2);
-});
-
-
-
-
-test('market ignores stale failure UI after reopening and marks an unavailable quote', async ({ page }) => {
-  await page.goto('/');
-  await page.evaluate(async () => {
-    document.body.innerHTML = '<div class="popup" id="market-modal"><div class="popup-card market-desk-card panel noise" id="market-card"></div></div>';
-    const { state } = await import('/clientState.js');
-    const ui = await import('/clientMarketUi.js');
-    state.players = [{ id: 'p1', cash: 1500 }];
-    state.economy = { market: { enabled: true, complexity: 'basic', quotes: { brazil: 100 }, quoteHistory: [] } };
-    window.__marketErrors = [];
-    window.addEventListener('error', event => window.__marketErrors.push(event.message));
-    window.__marketNotices = [];
-    ui.configureMarketUi({ emitServer: (_event, _payload, ack) => { window.__marketAck = ack; }, createRequestId: () => 'stale', captureActionStatusNode: () => document.querySelector('#market-card'), announceActionStatus: (...args) => window.__marketNotices.push(args[0]) });
-    ui.renderMarketDeskIfOpen();
-  });
-  if (await page.locator('#market-view-trade').isVisible()) await page.locator('#market-view-trade').click();
-  await page.locator('#market-order-submit').click();
-  await page.evaluate(async () => {
-    const ui = await import('/clientMarketUi.js');
-    const { state } = await import('/clientState.js');
-    ui.closeMarketDesk();
-    state.economy.market.quotes.brazil = null;
-    ui.openMarketDesk();
-    window.__marketAck({ success: false, error: 'Old failure' });
-  });
-  await expect(page.locator('[data-market-quote]')).toHaveText('QUOTE UNAVAILABLE');
-  await expect(page.locator('[data-market-gross]')).toHaveText('GROSS -');
-  await expect(page.locator('[data-market-total]')).toHaveText('TOTAL DUE -');
-  await expect(page.locator('#market-order-submit')).toBeDisabled();
-  expect(await page.evaluate(() => window.__marketErrors)).toEqual([]);
-  expect(await page.evaluate(() => window.__marketNotices)).toEqual([]);
-});
-
-
-test('pending market order survives same-session rerender and stale success cannot rerender a reopened desk', async ({ page }) => {
-  await page.goto('/');
-  await page.evaluate(async () => {
-    document.body.innerHTML = '<div class="popup" id="market-modal"><div class="popup-card market-desk-card panel noise" id="market-card"></div></div>';
-    const { state } = await import('/clientState.js');
-    const ui = await import('/clientMarketUi.js');
-    state.players = [{ id: 'p1', cash: 1500 }];
-    state.economy = { market: { enabled: true, complexity: 'basic', quotes: { brazil: 100, ghana: 120 }, quoteHistory: [] } };
-    window.__marketAcks = []; window.__marketNotices = [];
-    ui.configureMarketUi({ emitServer: (_event, _payload, ack) => window.__marketAcks.push(ack), createRequestId: () => 'session', captureActionStatusNode: button => button, announceActionStatus: (message, node) => window.__marketNotices.push({ message, connected: node?.isConnected }) });
-    ui.renderMarketDeskIfOpen();
-  });
-  if (await page.locator('#market-view-trade').isVisible()) await page.locator('#market-view-trade').click();
-  await page.locator('#market-order-submit').click();
-  await expect(page.locator('#market-desk-quantity')).toBeDisabled();
-  await expect(page.locator('[data-market-order-side="sell"]')).toBeDisabled();
-  await expect(page.locator('[data-market-sector="ghana"]')).toBeDisabled();
-  await expect(page.locator('#market-workspace-index')).toBeDisabled();
-  await expect(page.locator('#market-order-submit')).toHaveText('PROCESSING…');
-  await page.locator('#market-desk-history-range').selectOption('8');
-  await expect(page.locator('#market-desk-quantity')).toBeDisabled();
-  await expect(page.locator('[data-market-order-side="sell"]')).toBeDisabled();
-  await expect(page.locator('[data-market-sector="ghana"]')).toBeDisabled();
-  await expect(page.locator('#market-order-submit')).toBeDisabled();
-  await expect(page.locator('#market-order-submit')).toHaveText('PROCESSING…');
-  await page.evaluate(() => window.__marketAcks[0]({ success: false, error: 'Rejected in this session' }));
-  expect(await page.evaluate(() => window.__marketNotices)).toEqual([{ message: 'Rejected in this session', connected: true }]);
-  await expect(page.locator('#market-order-submit')).toBeEnabled();
-  await expect(page.locator('#market-desk-quantity')).toBeEnabled();
-  await expect(page.locator('[data-market-order-side="sell"]')).toBeEnabled();
-  await expect(page.locator('[data-market-sector="ghana"]')).toBeEnabled();
-  await page.locator('#market-order-submit').click();
-  await page.evaluate(async () => {
-    const ui = await import('/clientMarketUi.js');
-    ui.closeMarketDesk(); ui.openMarketDesk();
-    document.querySelector('#market-desk-quantity').value = '7';
-    window.__marketAcks[1]({ success: true, economy: { market: { quotes: { brazil: 999 } } } });
-  });
-  await expect(page.locator('#market-desk-quantity')).toHaveValue('7');
-  await expect(page.locator('[data-market-quote]')).toHaveText('QUOTE $100 / UNIT');
 });

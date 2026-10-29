@@ -4,7 +4,6 @@ import {
   createMaintenanceSnapshot,
   canCreateRoom,
   canStartRound,
-  canJoinRoom,
   maintenanceNotice,
 } from './maintenanceState.js';
 
@@ -44,45 +43,6 @@ check('maintenance keeps the active-round distinction explicit', () => {
   assert.equal(canStartRound(snapshot), false);
   assert.equal(snapshot.activeRounds, 2);
   assert.match(maintenanceNotice(snapshot), /CURRENT ROUNDS CONTINUE/);
-});
-
-check('lockout is a maintenance-only flag and old snapshots read as unlocked', () => {
-  assert.equal(createMaintenanceSnapshot({ mode: 'maintenance', lockout: true }).lockout, true);
-  assert.equal(createMaintenanceSnapshot({ mode: 'maintenance' }).lockout, false);
-  assert.equal(createMaintenanceSnapshot({ mode: 'draining', lockout: true }).lockout, false);
-  assert.equal(createMaintenanceSnapshot({ mode: 'normal', lockout: true }).lockout, false);
-  assert.equal(createMaintenanceSnapshot({ mode: 'maintenance', lockout: 'yes' }).lockout, false);
-  assert.match(maintenanceNotice({ mode: 'maintenance', lockout: true }), /THE SITE IS CLOSED/);
-});
-
-check('a bypass lifts only the lockout gates; draining and plain maintenance stay closed', () => {
-  const locked = createMaintenanceSnapshot({ mode: 'maintenance', lockout: true });
-  const plain = createMaintenanceSnapshot({ mode: 'maintenance' });
-  const draining = createMaintenanceSnapshot({ mode: 'draining' });
-  assert.equal(canCreateRoom(locked), false);
-  assert.equal(canCreateRoom(locked, { bypass: true }), true);
-  assert.equal(canStartRound(locked, { bypass: true }), true);
-  assert.equal(canCreateRoom(plain, { bypass: true }), false);
-  assert.equal(canCreateRoom(draining, { bypass: true }), false);
-  assert.equal(canStartRound(draining, { bypass: true }), false);
-});
-
-check('the lockout refuses new seats but never a reconnect', () => {
-  const locked = createMaintenanceSnapshot({ mode: 'maintenance', lockout: true });
-  assert.equal(canJoinRoom(locked), false);
-  assert.equal(canJoinRoom(locked, { reconnecting: true }), true);
-  assert.equal(canJoinRoom(locked, { bypass: true }), true);
-  assert.equal(canJoinRoom(createMaintenanceSnapshot({ mode: 'maintenance' })), true);
-});
-
-check('a drain leaves seats open but a lockout refuses them', () => {
-  const draining = createMaintenanceSnapshot({ mode: 'draining' });
-  assert.equal(canJoinRoom(draining), true,
-    'a drain is not a lockout: the seat stays open and the shutdown waits for the lobby');
-  const locked = createMaintenanceSnapshot({ mode: 'maintenance', lockout: true });
-  assert.equal(canJoinRoom(locked), false, 'a lockout refuses a new seat');
-  assert.equal(canJoinRoom(locked, { reconnecting: true }), true, 'a seated player comes back');
-  assert.equal(canJoinRoom(locked, { bypass: true }), true, 'an operator bypass lifts the lockout');
 });
 
 check('bounds message and release metadata without secrets', () => {

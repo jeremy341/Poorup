@@ -1,6 +1,5 @@
 import { BOT_ADVISOR_PROMPT_VERSION } from './botAdvisor.js';
 import { createDefaultPolicySet } from './botTournamentPolicies.js';
-import { MAX_SIMULATION_SEED } from './botTournamentSimulation.js';
 
 function boundedInteger(value, fallback, maximum) {
   const parsed = Number(value);
@@ -27,25 +26,12 @@ function liveProviderSettings(env) {
   return { live, maxCalls };
 }
 
-// Number('') is 0, so blank entries are dropped before parsing; a malformed
-// entry fails loudly rather than silently shrinking the seed list.
-function explicitSeeds(value) {
-  const entries = String(value || '').split(',').map(entry => entry.trim()).filter(Boolean);
-  const seeds = entries.map(Number);
-  if (!seeds.every(Number.isSafeInteger)) throw new Error('POORUP_BOT_EVAL_SEEDS must be a comma-separated list of safe integers.');
-  // The simulator seeds a 32-bit PRNG: a seed outside the unsigned 32-bit
-  // range would be truncated into a different seed's stream.
-  if (!seeds.every(seed => seed >= 0 && seed <= MAX_SIMULATION_SEED)) {
-    throw new Error(`POORUP_BOT_EVAL_SEEDS must be a comma-separated list of unsigned 32-bit seeds (0-${MAX_SIMULATION_SEED}).`);
-  }
-  return seeds;
-}
-
-// An explicit list is used whole. It is not cut to POORUP_BOT_EVAL_COUNT
-// (default 1), so POORUP_BOT_EVAL_SEEDS=1,2,3 silently ran only seed 1.
 function seedsForRun(env, count) {
-  const explicit = explicitSeeds(env.POORUP_BOT_EVAL_SEEDS);
-  return explicit.length ? explicit : Array.from({ length: count }, (_, index) => index + 1);
+  const explicit = String(env.POORUP_BOT_EVAL_SEEDS || '')
+    .split(',')
+    .map(value => Number(value.trim()))
+    .filter(Number.isSafeInteger);
+  return explicit.length ? explicit.slice(0, count) : Array.from({ length: count }, (_, index) => index + 1);
 }
 
 function combinationsStartingAt(policies, firstIndex) {
@@ -64,21 +50,16 @@ function displayModel(env) {
   return env.POORUP_AI_MODEL || env.DEEPSEEK_MODEL || 'deepseek-v4-flash (stub)';
 }
 
-// Stub providers are rebuilt for every match, so their call total is the sum of
-// the per-match counts rather than a counter on one long-lived advisor.
-function stubProviderCalls(report) {
-  return report?.strategyMetricsByPolicy?.['ai-stub']?.providerCalls ?? 0;
-}
-
-function campaignResult({ env, live, maxCalls, tracker, seeds, stepLimit, report }) {
+function campaignResult({ env, live, maxCalls, tracker, policies, seeds, stepLimit, report }) {
+  const stubAdvisor = policies.find(policy => policy.policyId === 'ai-stub').advisor;
   return {
     model: displayModel(env),
     promptVersion: BOT_ADVISOR_PROMPT_VERSION,
     liveAi: live,
     liveCallCap: live ? maxCalls : 0,
-    actualCalls: live ? tracker.calls : stubProviderCalls(report),
+    actualCalls: live ? tracker.calls : stubAdvisor.aiCalls,
     seeds,
-    stepLimit: stepLimit ?? report?.matches?.[0]?.stepLimit ?? null,
+    stepLimit,
     ...report,
   };
 }
@@ -86,13 +67,11 @@ function campaignResult({ env, live, maxCalls, tracker, seeds, stepLimit, report
 export async function runTournamentCli({ runBotTournament, createCappedFetch, env = process.env, write = value => console.log(value) }) {
   const { live, maxCalls } = liveProviderSettings(env);
   const tracker = live ? createCappedFetch({ maxCalls, fetchImpl: globalThis.fetch }) : null;
-  // The advisor must read the environment the CLI validated, not process.env.
-  const policies = createDefaultPolicySet({ fetchImpl: tracker?.fetchImpl, env });
+  const policies = createDefaultPolicySet({ fetchImpl: tracker?.fetchImpl });
   const count = boundedInteger(env.POORUP_BOT_EVAL_COUNT, 1, 100);
-  // Unset means "scale with the round limit" (defaultStepLimit in the simulation).
-  const stepLimit = env.POORUP_BOT_EVAL_STEP_LIMIT ? boundedInteger(env.POORUP_BOT_EVAL_STEP_LIMIT, undefined, 1_000_000) : undefined;
+  const stepLimit = boundedInteger(env.POORUP_BOT_EVAL_STEP_LIMIT, 20_000, 100_000);
   const seeds = seedsForRun(env, count);
   const policySets = policyTriples(policies);
   const report = await runBotTournament({ seeds, policySets, seatRotations: [0, 1, 2], stepLimit, callCapTracker: tracker });
-  write(JSON.stringify(campaignResult({ env, live, maxCalls, tracker, seeds, stepLimit, report }), null, 2));
+  write(JSON.stringify(campaignResult({ env, live, maxCalls, tracker, policies, seeds, stepLimit, report }), null, 2));
 }

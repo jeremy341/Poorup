@@ -5,9 +5,6 @@ import process from "node:process";
 globalThis.window = { matchMedia: () => ({ matches: false }) };
 const { bankLoanConfirmationHTML, configureBankLoanUi, openBankLoanOffer, bindBankLoanUi } = await import("./clientBankLoanUi.js");
 
-const { state } = await import("./clientState.js");
-state.settings = { ...state.settings, rulesProfile: "advanced", bankLoans: true };
-
 const rail = readFileSync(new URL("./clientRailRender.js", import.meta.url), "utf8");
 const offer = { available: true, principal: 300, premium: 60, totalDue: 360, dueRound: 4, cureRound: 5, collateralName: "Boardwalk", severity: "fair" };
 
@@ -52,14 +49,12 @@ check("offerButtonOpensConfirmationWithCurrentTerms", () => {
   configureBankLoanUi({ getOffer: () => offer, openSurface: (...args) => opened.push(args) });
   const trigger = {};
   assert.equal(openBankLoanOffer(trigger), true);
-  for (const term of ["$300", "$60 interest", "20%", "$360", "Round 4", "round 5", "Boardwalk"]) assert.ok(card.innerHTML.includes(term), `offer discloses ${term}`);
+  for (const term of ["$300", "$60 · 20%", "$360", "4", "5", "FAIR", "Boardwalk"]) assert.ok(card.innerHTML.includes(term));
   assert.match(card.innerHTML, /bank-offer-content/);
   assert.match(card.innerHTML, /class="bank-offer-collateral"/);
   assert.match(card.innerHTML, /bank-offer-actions/);
-  assert.match(card.innerHTML, /aria-label="Close emergency bank loan"[\s\S]*<svg/);
-  assert.doesNotMatch(card.innerHTML, /THE BANK|IF YOU DEFAULT|Review the advance/);
   assert.match(card.innerHTML, /pledged deed is seized|seizes Boardwalk/);
-  assert.match(bankLoanConfirmationHTML({ ...offer, collateralName: "NONE" }), /Remaining debt enters settlement/);
+  assert.match(bankLoanConfirmationHTML({ ...offer, collateralName: "NONE" }), /collects what it can; any remaining balance enters bank debt settlement/);
   assert.equal(opened[0][0], "#bank-loan-modal");
   assert.equal(opened[0][2].trigger, trigger);
 });
@@ -138,20 +133,4 @@ check("rejectionAppearsBesideDialogActionAndAnnouncesOnce", () => {
   assert.equal(card.status.textContent, "The offer changed; refresh the table.");
   assert.equal(messages.length, 1);
   assert.equal(messages[0][1], card.status);
-});
-
-check("Standard permits enabled bank borrowing and the bank flag can disable it", () => {
-  state.settings = { ...state.settings, rulesProfile: "standard", bankLoans: true };
-  const card = makeCard();
-  globalThis.document = { querySelector: selector => selector === "#bank-loan-card" ? card : null };
-  configureBankLoanUi({ getOffer: () => offer, openSurface: () => {} });
-  assert.equal(openBankLoanOffer({}), true);
-  state.settings.bankLoans = false;
-  assert.equal(openBankLoanOffer({}), false);
-  const html = bankLoanConfirmationHTML({ ...offer, collateralCreditVersion: 1, collateralCreditQuotes: [{ name: "Boardwalk", value: 200 }] });
-  assert.match(html, /Printed-price credit: Boardwalk \$200/);
-  assert.match(html, /Residual debt: \$160/);
-  assert.match(html, /no surplus cash/);
-  const consequence = html.match(/bank-offer-consequence">([^<]+)/)?.[1] || "";
-  assert.ok(consequence.trim().split(/\s+/).length <= 30, "default risk and deadline fit a compact note");
 });

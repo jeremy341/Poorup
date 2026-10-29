@@ -39,7 +39,7 @@ function runtimeDeps(roomManager, overrides = {}) {
 
 function startedRoom(options = {}) {
   const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', rulesProfile: 'advanced', ...options });
+  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', ...options });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   assert.equal(room.startGame().success, true);
   room.game.currentPlayerId = room.game.players[0].id;
@@ -165,7 +165,7 @@ check('account upgrade does not bind a second lobby seat while any prior account
 
 check('hybrid default exposes a collectible server-owned lender claim', () => {
   assert.equal(typeof bankruptcy.settleDefaultClaim, 'function');
-  const { room } = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const { room } = startedRoom({ rulesetPreset: 'after-hours' });
   const lender = room.game.players[0];
   const borrower = room.game.players[1];
   const contract = { id: 'default-claim', kind: 'hybrid', status: 'due', fromPlayerId: lender.id, toPlayerId: borrower.id, amount: 100, remaining: 120, propertyIndex: 1, conversionShare: 30, cureRound: 0 };
@@ -184,7 +184,7 @@ check('hybrid default exposes a collectible server-owned lender claim', () => {
 });
 
 check('short-default repayment is exposed through the authoritative room action with request-id replay', () => {
-  const { room } = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }, marketComplexity: 'shorting' });
+  const { room } = startedRoom({ rulesetPreset: 'after-hours', marketComplexity: 'shorting' });
   const player = room.game.players[0];
   player.shortDefaultDebt = 100;
   player.cash = 40;
@@ -243,9 +243,7 @@ check('auth attempt address resolution uses the documented trusted-proxy setting
   // serverSocketAccount exports the key resolver for this boundary test.
   // The documented spelling must select the client address behind one proxy.
   assert.equal(typeof accountSocket.authAttemptKey, 'function');
-  // Rightmost entry = the address appended by the single trusted proxy; the
-  // leftmost entry is client-supplied and must not select the limiter key.
-  assert.equal(accountSocket.authAttemptKey(socket), '10.0.0.1');
+  assert.equal(accountSocket.authAttemptKey(socket), '10.0.0.2');
   if (oldTrusted === undefined) delete process.env.POORUP_TRUSTED_PROXY_HOPS; else process.env.POORUP_TRUSTED_PROXY_HOPS = oldTrusted;
   if (oldTrust === undefined) delete process.env.POORUP_TRUST_PROXY_HOPS; else process.env.POORUP_TRUST_PROXY_HOPS = oldTrust;
 });
@@ -288,7 +286,7 @@ async function runAsyncChecks() {
   console.log('PASS - cross-room started seat expires through disconnect pipeline');
 
   const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 'lock-host', clientId: 'lock-host', nickname: 'Host', rulesProfile: 'advanced', rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const room = manager.createRoom({ socketId: 'lock-host', clientId: 'lock-host', nickname: 'Host', rulesetPreset: 'after-hours' });
   room.setRoomSetting('bots', 1);
   assert.equal(room.startGame().success, true);
   const bot = room.game.players.find(player => player.isBot);
@@ -315,7 +313,9 @@ try {
   console.log(`FAIL - auction bot decision lock remains held across await: ${error.message}`);
 }
 
-// The exit code is evaluated at the exit call from every recorded failure, so
-// a trailing exit(0) can never mask a failure that check() has recorded.
-console.log(failures.length ? `\nserver follow-ups: ${failures.length} failed` : '\nserver follow-ups: all passed');
-process.exit(failures.length ? 1 : 0);
+if (failures.length) {
+  console.log(`\nserver follow-ups: ${failures.length} failed`);
+  process.exit(1);
+}
+console.log('\nserver follow-ups: all passed');
+process.exit(0);

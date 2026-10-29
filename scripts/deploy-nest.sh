@@ -38,25 +38,7 @@ fi
 
 npm ci --omit=dev --prefix "$RELEASE_DIR"
 
-# The maintenance token reaches curl through a 0600 header file rather than argv,
-# so it never appears in `ps` output or the process table of the SSH session.
-MAINTENANCE_HEADER="$(mktemp)"
-chmod 600 "$MAINTENANCE_HEADER"
-trap 'rm -f "$MAINTENANCE_HEADER"' EXIT
-printf 'x-poorup-maintenance-token: %s\n' "$MAINTENANCE_TOKEN" > "$MAINTENANCE_HEADER"
-
-post_maintenance() {
-  curl --fail --silent --show-error --max-time 10 -X POST "$MAINTENANCE_URL" -H "content-type: application/json" -H "@$MAINTENANCE_HEADER" --data-binary "$1" >/dev/null
-}
-
-# A fresh backup is required only where backups are configured. /readyz reports
-# backupFresh:null (and backupConfigured:false) on a host with no backup
-# directory, and that host must still pass the gate.
-backups_ready() {
-  printf '%s' "$1" | grep -q '"backupFresh":true' || printf '%s' "$1" | grep -q '"backupConfigured":false'
-}
-
-post_maintenance "{\"mode\":\"draining\",\"releaseId\":\"$RELEASE_SHA\"}"
+curl --fail --silent --show-error --max-time 10 -X POST "$MAINTENANCE_URL" -H "content-type: application/json" -H "x-poorup-maintenance-token: $MAINTENANCE_TOKEN" --data-binary "{\"mode\":\"draining\",\"releaseId\":\"$RELEASE_SHA\"}" >/dev/null
 
 DRAIN_TIMEOUT_SECONDS="${DRAIN_TIMEOUT_SECONDS:-1800}"
 drain_complete=false
@@ -72,19 +54,8 @@ for attempt in $(seq 1 "$DRAIN_TIMEOUT_SECONDS"); do
   sleep 1
 done
 if [ "$drain_complete" != true ]; then
-  # Return to normal before failing: a deploy that gives up must not leave the
-  # parlor paused until someone notices. The next updater tick retries.
-  echo "Active rounds did not drain before the deployment deadline; returning to normal service without deploying"
-  post_maintenance '{"mode":"normal"}' || echo "Warning: could not return to normal service; check /readyz and the maintenance state"
+  echo "Active rounds did not drain before the deployment deadline"
   exit 1
-fi
-
-# Waiting lobbies cannot start while draining (start-game is refused), so they
-# cannot be waited out. The reload drops them; players receive the maintenance
-# state at drain start and the restart notice at shutdown.
-waiting_lobbies="$(printf '%s' "$ready_body" | sed -n 's/.*"waitingRooms":\([0-9][0-9]*\).*/\1/p')"
-if [ -n "$waiting_lobbies" ] && [ "$waiting_lobbies" != 0 ]; then
-  echo "Notice: $waiting_lobbies waiting lobby(ies) will be dropped by this reload"
 fi
 
 if [ -L "$CURRENT_LINK" ]; then
@@ -94,8 +65,7 @@ ln -sfn "$RELEASE_DIR" "$CURRENT_LINK"
 
 # Stamp the release id so /healthz and /readyz report this SHA after reload
 # (the fresh process boots into the persisted draining snapshot, whose own
-# releaseId field is empty by construction). rollback-nest.sh restores the
-# previous id if this release fails its health gate.
+# releaseId field is empty by construction).
 SHARED_ENV_FILE="${SHARED_ENV_FILE:-$APP_ROOT/shared/poorup.env}"
 if [ -f "$SHARED_ENV_FILE" ]; then
   if grep -q '^POORUP_RELEASE_ID=' "$SHARED_ENV_FILE"; then
@@ -109,15 +79,14 @@ pm2 startOrReload "$CURRENT_LINK/ecosystem.config.cjs" --update-env
 pm2 save
 
 # The fresh process boots into the persisted draining mode, so /readyz answers
-# 503 here. Gate on the body instead: stores loaded, backups fresh (or
-# not configured), still draining, and reporting this release. Only then return
-# to normal.
+# 503 here by design. Gate on the body instead: stores loaded, backup fresh,
+# still draining, and reporting this release. Only then return to normal.
 healthy=false
 for attempt in $(seq 1 30); do
   if curl --fail --silent --show-error --max-time 5 "$HEALTH_URL" >/dev/null; then
     ready_body="$(curl --silent --show-error --max-time 5 "$READY_URL" || true)"
     if printf '%s' "$ready_body" | grep -q '"storeLoaded":true' \
-      && backups_ready "$ready_body" \
+      && printf '%s' "$ready_body" | grep -q '"backupFresh":true' \
       && printf '%s' "$ready_body" | grep -q '"acceptingNewRounds":false' \
       && printf '%s' "$ready_body" | grep -q "\"releaseId\":\"$RELEASE_SHA\""; then
       healthy=true
@@ -125,21 +94,17 @@ for attempt in $(seq 1 30); do
     fi
   fi
   if [ "$attempt" -eq 30 ]; then
-    echo "New release failed health checks; recording $RELEASE_SHA as failed and rolling back"
-    # Recorded so nest-auto-update.sh does not drain and redeploy the same SHA
-    # every tick. Push a new commit, or remove the marker, to retry.
-    mkdir -p "$APP_ROOT/shared/failed-releases"
-    : > "$APP_ROOT/shared/failed-releases/$RELEASE_SHA"
+    echo "New release failed health checks; rolling back"
     "$CURRENT_LINK/scripts/rollback-nest.sh"
     exit 1
   fi
   sleep 1
 done
 
-post_maintenance "{\"mode\":\"normal\",\"releaseId\":\"$RELEASE_SHA\"}"
+curl --fail --silent --show-error --max-time 10 -X POST "$MAINTENANCE_URL" -H "content-type: application/json" -H "x-poorup-maintenance-token: $MAINTENANCE_TOKEN" --data-binary "{\"mode\":\"normal\",\"releaseId\":\"$RELEASE_SHA\"}" >/dev/null
 
 # Keep the pull-timer entrypoint in sync with the deployed release so updater
-# improvements ship automatically with the code. Do not use plain `cp` here:
+# improvements ship automatically with the code. This MUST NOT use plain `cp`:
 # the running updater is this very file family, and truncating it in place
 # tears the interpreter's reads mid-run (observed live as a syntax error
 # after an otherwise successful deploy). Skip when identical; otherwise write

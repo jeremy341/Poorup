@@ -1,5 +1,5 @@
 // Static board data and the pure helpers that only reshape it. Every value
-// here is the verbatim board table;
+// here is the verbatim table that used to live at the top of gameLogic.js;
 // server/gameLogic.test.js and the room suites pin the tile and deck texts.
 import { randomInt } from './random.js';
 
@@ -17,18 +17,10 @@ const PROPERTY_HOUSE_COST_BY_GROUP = {
   'Metro Silver': 200
 };
 const PROPERTY_RENT_MULTIPLIERS = [1, 5, 15, 45, 80, 125];
-// Indexed by airports owned (1..n). Standard-40 has four airports; Metro-52 has
-// six, so the ladder continues the doubling to 300 and 400.
-const RAILROAD_RENT = [25, 50, 100, 200, 300, 400];
-// Utility rent is this multiple of the dice total, indexed by utilities owned.
-// Metro-52 has four utilities; standard-40 has two.
-const UTILITY_DICE_MULTIPLIERS = [4, 10, 14, 18];
+const RAILROAD_RENT = [25, 50, 100, 200];
 const JAIL_FINE = 50;
 const JAIL_MAX_TURNS = 3;
 const START_TILE_INDEX = 0;
-// A table still running after this many rounds ends with the richest solvent
-// seat as the winner. Warnings are fed at ROUND_LIMIT - 50 and - 10.
-const ROUND_LIMIT = 300;
 
 const DEFAULT_TILES = [
   { index: 0, name: 'Start', type: 'start' },
@@ -81,34 +73,34 @@ const SURPRISE_DECK = [
   { text: 'Advance to the next Airport and pay double rent if owned', action: 'nearestRailroad', multiplier: 2 },
   { text: 'Advance to the next Airport and pay double rent if owned', action: 'nearestRailroad', multiplier: 2 },
   { text: 'Advance to the next Utility and pay ten times the dice roll if owned', action: 'nearestUtility', multiplier: 10 },
-  { text: 'Bank dividend: collect $50', action: 'collect', amount: 50 },
+  { text: 'Bank dividend — collect $50', action: 'collect', amount: 50 },
   { text: 'Keep this card until needed: Get Out of Prison', action: 'jailFree' },
   { text: 'Move back three spaces', action: 'moveBack', steps: 3 },
   { text: 'Go directly to Prison', action: 'goToJail' },
-  { text: 'Building repairs: pay $25 per house and $100 per hotel', action: 'repairs', houseCost: 25, hotelCost: 100 },
-  { text: 'Speeding fine: pay $15', action: 'pay', amount: 15 },
+  { text: 'Building repairs — pay $25 per house and $100 per hotel', action: 'repairs', houseCost: 25, hotelCost: 100 },
+  { text: 'Speeding fine — pay $15', action: 'pay', amount: 15 },
   { text: 'Advance to ACC Airport', action: 'moveTo', tileIndex: 5 },
-  { text: 'Elected chairperson: pay each player $50', action: 'payEach', amount: 50 },
-  { text: 'Building loan matures: collect $150', action: 'collect', amount: 150 }
+  { text: 'Elected chairperson — pay each player $50', action: 'payEach', amount: 50 },
+  { text: 'Building loan matures — collect $150', action: 'collect', amount: 150 }
 ];
 
 const TREASURE_DECK = [
   { text: 'Advance to Start and collect $200', action: 'collectStart', amount: 200 },
-  { text: 'Bank error: collect $200', action: 'collect', amount: 200 },
-  { text: "Doctor's fee: pay $50", action: 'pay', amount: 50 },
-  { text: 'Investment sale: collect $50', action: 'collect', amount: 50 },
+  { text: 'Bank error — collect $200', action: 'collect', amount: 200 },
+  { text: "Doctor's fee — pay $50", action: 'pay', amount: 50 },
+  { text: 'Investment sale — collect $50', action: 'collect', amount: 50 },
   { text: 'Keep this card until needed: Get Out of Prison', action: 'jailFree' },
   { text: 'Go directly to Prison', action: 'goToJail' },
-  { text: 'Parlor show: collect $50 from each player', action: 'collectFromEach', amount: 50 },
-  { text: 'Tax refund: collect $20', action: 'collect', amount: 20 },
-  { text: 'Insurance matures: collect $100', action: 'collect', amount: 100 },
-  { text: 'Hospital fee: pay $100', action: 'pay', amount: 100 },
-  { text: 'School tax: pay $150', action: 'pay', amount: 150 },
-  { text: 'Consulting fee: collect $25', action: 'collect', amount: 25 },
-  { text: 'Street repairs: pay $40 per house and $115 per hotel', action: 'repairs', houseCost: 40, hotelCost: 115 },
-  { text: 'Holiday fund matures: collect $100', action: 'collect', amount: 100 },
-  { text: 'Beauty contest: collect $10', action: 'collect', amount: 10 },
-  { text: 'Inheritance: collect $100', action: 'collect', amount: 100 }
+  { text: 'Parlor show — collect $50 from each player', action: 'collectFromEach', amount: 50 },
+  { text: 'Tax refund — collect $20', action: 'collect', amount: 20 },
+  { text: 'Insurance matures — collect $100', action: 'collect', amount: 100 },
+  { text: 'Hospital fee — pay $100', action: 'pay', amount: 100 },
+  { text: 'School tax — pay $150', action: 'pay', amount: 150 },
+  { text: 'Consulting fee — collect $25', action: 'collect', amount: 25 },
+  { text: 'Street repairs — pay $40 per house and $115 per hotel', action: 'repairs', houseCost: 40, hotelCost: 115 },
+  { text: 'Holiday fund matures — collect $100', action: 'collect', amount: 100 },
+  { text: 'Beauty contest — collect $10', action: 'collect', amount: 10 },
+  { text: 'Inheritance — collect $100', action: 'collect', amount: 100 }
 ];
 
 function rollDice() {
@@ -124,7 +116,7 @@ function shuffleArray(array) {
 }
 
 function cloneTiles() {
-  return DEFAULT_TILES.map(tile => ({ ...tile, ownerId: null, mortgaged: false, houseCount: 0, equityShares: [], purchasePricePaid: null }));
+  return DEFAULT_TILES.map(tile => ({ ...tile, ownerId: null, mortgaged: false, houseCount: 0, equityShares: [] }));
 }
 
 export {
@@ -133,12 +125,10 @@ export {
   JAIL_MAX_TURNS,
   PROPERTY_HOUSE_COST_BY_GROUP,
   PROPERTY_RENT_MULTIPLIERS,
-  ROUND_LIMIT,
   RAILROAD_RENT,
   START_TILE_INDEX,
   SURPRISE_DECK,
   TREASURE_DECK,
-  UTILITY_DICE_MULTIPLIERS,
   cloneTiles,
   rollDice,
   shuffleArray

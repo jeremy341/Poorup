@@ -1,20 +1,21 @@
-// GAME MODAL SURFACES: forced-buy choice, bot trade offers, bankruptcy and round-over cards,
-// and the Chance/Chest reveal, gallery and ?preview= hook. The entry module injects emitServer,
-// say, renderChat, renderAll, buyTile and startGame. Markup and socket payloads must match main.js.
+/* ============================================================
+   GAME MODAL SURFACES: the forced-buy choice card, the bot trade
+   offer inbox, the bankruptcy / voluntary-exit / round-over cards,
+   and the Chance/Chest card reveal + gallery (plus the ?preview=
+   design hook). emitServer, say, renderChat, renderAll, buyTile
+   and startGame are injected by the entry module; markup and
+   socket payloads are the exact old main.js templates.
+   ============================================================ */
 import { $, esc } from "./clientDom.js";
-import { closeButtonHTML } from "./clientCloseButton.js";
 import { state } from "./clientState.js";
-import { playerFinanceEnabled } from "./clientFinanceRules.js";
 import { TILES, CHANCE_EVENTS, CHEST_EVENTS } from "./clientBoardData.js";
 import { cardFaceHTML } from "./clientCardsRender.js";
-import { closeSurface, focusSurface, openConfirmModal, openSurface, syncSurfaceA11y } from "./clientSurfaces.js";
-import { emitIntent } from "./clientRequestController.js";
+import { avatarHTML } from "./clientSprites.js";
+import { closeSurface, openSurface, syncSurfaceA11y } from "./clientSurfaces.js";
 import { accentOf, kindLabel, popIconHTML, popRow } from "./clientPopupUi.js";
 import { startAuction } from "./clientAuctionUi.js";
 import { goHome } from "./clientLobbyUi.js";
 import { dismissTradeOffer, isTradeOfferDismissed } from "./clientTradeOfferDismissal.js";
-import { tradeReviewSideHTML } from "./clientTradeUi.js";
-import { rankGameOverPlayers, gameOverScore, gameOverPlayerStatus } from "./clientGameResults.js";
 
 let host = {
   emitServer: noop,
@@ -33,7 +34,6 @@ let host = {
   recordActivity: noop,
 };
 let activeOffer = null;
-let inlineChoiceTile = null;
 
 function noop() {}
 
@@ -60,7 +60,6 @@ function openChoiceModal(tile) {
           <div class="t-micro g400">${kindLabel(tile)}</div>
           <h3 class="t-section choice-title" id="choice-card-title">${tile.name}</h3>
         </div>
-        <button class="btn-dark choice-dismiss" id="choice-dismiss" type="button" aria-label="Close choice; the decision stays pending"><span class="t-label f11">X</span></button>
       </div>
       <p class="t-body ink-2 choice-copy">${auctionMode ? "You landed on an unowned lot. Buy it at the listed price, or send it to auction." : "You landed on an unowned lot. Buy it or pass."}</p>
       <div class="choice-rows">
@@ -68,6 +67,10 @@ function openChoiceModal(tile) {
         ${popRow("YOUR CASH", `$${me.cash.toLocaleString()}`, canAfford ? "green" : "red")}
       </div>
       <div class="choice-actions">
+        <button class="cta-red choice-btn choice-buy" id="choice-buy" ${canAfford ? "" : "disabled"}>
+          <span class="t-label">BUY</span>
+          <span class="t-micro">${auctionMode ? "BUY DEED" : `$${price}`}</span>
+        </button>
         ${auctionMode
           ? `<button class="btn-dark choice-btn" id="choice-auction">
               <span class="t-label">AUCTION</span>
@@ -76,12 +79,8 @@ function openChoiceModal(tile) {
           : `<button class="btn-dark choice-btn" id="choice-pass">
               <span class="t-label">PASS</span>
               <span class="t-micro">DECLINE</span>
-            </button>${tile.canSeekSponsorship && playerFinanceEnabled(state.settings) ? `<button class="btn-dark choice-btn" id="choice-sponsor"><span class="t-label">PURCHASE FUNDING</span><span class="t-micro">GIFT OR RENT SHARE</span></button>` : ""}`
+            </button>${tile.canSeekSponsorship ? `<button class="btn-dark choice-btn" id="choice-sponsor"><span class="t-label">SEEK SPONSORS</span><span class="t-micro">FORCED BUY</span></button>` : ""}`
         }
-        <button class="cta-red choice-btn choice-buy" id="choice-buy" ${canAfford ? "" : "disabled"}>
-          <span class="t-label">BUY</span>
-          <span class="t-micro">${auctionMode ? "BUY DEED" : `$${price}`}</span>
-        </button>
       </div>
       <p class="t-micro ink-3 choice-note">${auctionMode ? (canAfford ? "YOU MUST CHOOSE ONE TO CONTINUE" : "TOO POOR TO BUY · MUST AUCTION") : "Close this card to revisit the choice; PASS is the explicit decline."}</p>
     </div>`;
@@ -90,11 +89,10 @@ function openChoiceModal(tile) {
   const scrim = $("#choice-scrim");
   if (scrim) {
     scrim.classList.toggle("popup-scrim-locked", auctionMode);
-    // A locked auction choice can still be dismissed once the shared controller
-    // confirms the required decision is pending.
+    // Even a locked auction choice can be intentionally dismissed after the
+    // shared controller confirms that the required decision remains pending.
     scrim.onclick = closeChoiceModalWithoutAction;
   }
-  $("#choice-dismiss").addEventListener("click", closeChoiceModalWithoutAction);
   const buyBtn = $("#choice-buy");
   if (buyBtn) buyBtn.addEventListener("click", event => {
     const statusNode = host.captureActionStatusNode(event.currentTarget);
@@ -125,92 +123,6 @@ function openChoiceModal(tile) {
   }
 }
 
-/* ---- inline purchase choice -------------------------------------------
-   Live play resolves a vacant-lot landing from a button row in the board
-   centre (BUY | AUCTION or PASS) instead of a dimming modal. The modal
-   above stays for the design-capture fixtures. */
-function pendingChoiceTile() {
-  if (state.pendingBuyTile == null) return null;
-  if (inlineChoiceTile?.i === state.pendingBuyTile) return inlineChoiceTile;
-  return TILES[state.pendingBuyTile] || null;
-}
-
-export function presentPurchaseChoice(tile) {
-  inlineChoiceTile = tile;
-  host.renderAll();
-  $("#hud-choice-buy")?.focus({ preventScroll: true });
-}
-
-function choiceRowHTML(tile) {
-  const me = state.players[0];
-  const price = tile.price ?? 0;
-  const canAfford = Number(me?.cash ?? 0) >= price;
-  const auctionMode = Boolean(state.settings?.auction);
-  const buy = `<button class="cta-red hud-choice-btn" id="hud-choice-buy" type="button" data-choice="buy" ${canAfford ? "" : "disabled"}><span class="t-label">BUY $${price.toLocaleString()}</span></button>`;
-  const second = auctionMode
-    ? '<button class="btn-dark hud-choice-btn" id="hud-choice-auction" type="button" data-choice="auction"><span class="t-label">AUCTION</span></button>'
-    : '<button class="btn-dark hud-choice-btn" id="hud-choice-pass" type="button" data-choice="pass"><span class="t-label">PASS</span></button>';
-  const sponsor = !auctionMode && tile.canSeekSponsorship && playerFinanceEnabled(state.settings)
-    ? '<button class="btn-dark hud-choice-btn" id="hud-choice-sponsor" type="button" data-choice="sponsor"><span class="t-label">FUNDING</span></button>'
-    : "";
-  const label = `<p class="hud-choice-title t-label">${esc(tile.name)}${canAfford || !auctionMode ? "" : " · TOO POOR TO BUY"}</p>`;
-  return label + '<div class="hud-choice-buttons">' + buy + second + sponsor + '</div>';
-}
-
-function settleInlineChoice() {
-  state.pendingBuyTile = null;
-  inlineChoiceTile = null;
-  closeSurface("#choice-modal");
-  renderInlineChoice();
-  afterLandingResolved();
-}
-
-function onInlineChoiceClick(event) {
-  const button = event.target.closest("[data-choice]");
-  const tile = pendingChoiceTile();
-  if (!button || !tile || button.disabled) return;
-  const kind = button.dataset.choice;
-  if (kind === "buy") {
-    const statusNode = host.captureActionStatusNode(button);
-    host.buyTile(tile, statusNode, settleInlineChoice);
-  } else if (kind === "auction") {
-    state.pendingBuyTile = null;
-    renderInlineChoice();
-    startAuction(tile, button, () => {
-      state.pendingBuyTile = tile.i;
-      presentPurchaseChoice(tile);
-      return host.captureActionStatusNode($("#hud-choice-buy"));
-    });
-  } else if (kind === "pass") {
-    closeChoiceModalAsPass();
-  } else if (kind === "sponsor") {
-    host.openSponsorshipRequest(state.pendingBuyTile);
-  }
-}
-
-let renderedChoiceSignature = "";
-let choiceRowBound = false;
-
-export function renderInlineChoice() {
-  const row = $("#hud-choice-row");
-  const roll = $("#roll-btn");
-  if (!row) return;
-  const tile = pendingChoiceTile();
-  const show = Boolean(tile) && state.phase === "playing" && !state.auction && !state.sponsorship;
-  row.hidden = !show;
-  if (roll) roll.hidden = show;
-  if (!choiceRowBound) {
-    choiceRowBound = true;
-    row.addEventListener("click", onInlineChoiceClick);
-  }
-  if (!show) { renderedChoiceSignature = ""; return; }
-  const me = state.players[0];
-  const signature = [tile.i, tile.price, Number(me?.cash ?? 0) >= (tile.price ?? 0), state.settings?.auction, tile.canSeekSponsorship].join("|");
-  if (signature === renderedChoiceSignature) return;
-  renderedChoiceSignature = signature;
-  row.innerHTML = choiceRowHTML(tile);
-}
-
 /** After a buy/auction decision the human's turn continues normally. */
 function afterLandingResolved() {
   host.renderAll();
@@ -221,23 +133,15 @@ function closeChoiceModalAsPass() {
   const statusNode = host.captureActionStatusNode(document.activeElement);
   const tile = state.pendingBuyTile != null ? TILES[state.pendingBuyTile] : null;
   if (tile) {
-    // One PASS per intent: a double click / Enter repeat must not send a second
-    // decline whose failure would reopen a card for an already-resolved deed.
-    emitIntent(host.emitServer, `decline-property:${tile.i}`, "decline-property", { tileIndex: tile.i }, {
-      onResponse: (response) => {
-        if (response?.success === false) {
-          // Only reopen while the purchase is still genuinely pending.
-          if (state.pendingBuyTile !== tile.i) return;
-          presentPurchaseChoice(tile);
-          host.announceActionStatus(response.error || "The deed could not be declined.", host.captureActionStatusNode($("#choice-pass") || document.activeElement) || statusNode);
-          return;
-        }
-        state.pendingBuyTile = null;
-        inlineChoiceTile = null;
-        closeSurface("#choice-modal");
-        afterLandingResolved();
-      },
-      onTimeout: () => host.announceActionStatus("The pass could not be confirmed. Try again.", statusNode),
+    host.emitServer("decline-property", { tileIndex: tile.i }, (response) => {
+      if (response?.success === false) {
+        openChoiceModal(tile);
+        host.announceActionStatus(response.error || "The deed could not be declined.", host.captureActionStatusNode($("#choice-pass") || document.activeElement) || statusNode);
+        return;
+      }
+      state.pendingBuyTile = null;
+      closeSurface("#choice-modal");
+      afterLandingResolved();
     });
     return;
   }
@@ -247,8 +151,8 @@ function closeChoiceModalAsPass() {
 }
 
 function closeChoiceModalWithoutAction() {
-  // Dismissal is neutral: it leaves the pending purchase in place, so only
-  // the explicit PASS control can decline the deed.
+  // Dismissal is intentionally neutral: leave the pending purchase in place
+  // so only the explicit PASS control can decline the deed.
   closeSurface("#choice-modal");
 }
 
@@ -258,31 +162,17 @@ function acceptTradeOffer(offer) {
   button.disabled = true;
   button.querySelector(".cta-text")?.replaceChildren(document.createTextNode("PROCESSING…"));
   $("#offer-counter").disabled = true;
-  $("#offer-decline").disabled = true;
   state.offers = (state.offers || []).filter((x) => x?.id !== offer.id);
-  emitIntent(host.emitServer, `respond-trade:${offer.id}`, "respond-trade", { tradeId: offer.id, accept: true }, {
-    onResponse: (response) => {
-      if (response?.success === false) {
-        state.offers = [offer, ...(state.offers || []).filter((x) => x?.id !== offer.id)];
-        openOfferModal(offer);
-        showOfferFailure(response.error || "Trade could not be accepted.", statusNode);
-        return;
-      }
-      activeOffer = null;
-      closeSurface("#offer-modal");
-    },
-    onTimeout: () => {
+  host.emitServer("respond-trade", { tradeId: offer.id, accept: true }, (response) => {
+    if (response?.success === false) {
       state.offers = [offer, ...(state.offers || []).filter((x) => x?.id !== offer.id)];
+      host.announceActionStatus(response.error || "Trade could not be accepted.", statusNode);
       openOfferModal(offer);
-      showOfferFailure("The trade could not be confirmed. Try again.", statusNode);
-    },
+      return;
+    }
+    activeOffer = null;
+    closeSurface("#offer-modal");
   });
-}
-
-function showOfferFailure(message, fallbackStatusNode) {
-  const statusNode = $("#offer-card")?.querySelector("[data-offer-review-status]") || fallbackStatusNode;
-  if (statusNode) statusNode.textContent = message;
-  host.announceActionStatus(message, statusNode);
 }
 
 function openOfferModal(offer) {
@@ -290,27 +180,33 @@ function openOfferModal(offer) {
   activeOffer = offer;
   const from = state.players.find((p) => p.id === offer.from || p.serverId === offer.from);
   if (!from) return;
-  const recipient = state.players.find(player => player.id === (offer.to || offer.toPlayerId) || player.serverId === (offer.to || offer.toPlayerId)) || state.players[0];
-  if (!recipient) return;
-  const receive = tradeReviewSideHTML({ player: from, seed: state.players.indexOf(from), heading: "You receive", cash: offer.giveCash, deedIndexes: offer.giveDeeds || offer.givePropertyIndexes });
-  const give = tradeReviewSideHTML({ player: recipient, seed: state.players.indexOf(recipient), heading: "You give", cash: offer.wantCash ?? offer.requestCash, deedIndexes: offer.wantDeeds || offer.requestPropertyIndexes });
+  const wantNames = (Array.isArray(offer.wantDeeds) ? offer.wantDeeds : [])
+    .map((i) => TILES[Number(i)]?.name || null)
+    .filter(Boolean)
+    .join(", ") || "nothing";
   $("#offer-card").innerHTML = `
-    <div class="trade-body offer-review">
-      <div class="trade-head">
-        <div class="section-title"><img src="/assets/negotiation.svg" width="28" height="28" alt=""/><h2 class="t-section g300" id="offer-card-title">Trade offer</h2></div>
-        ${closeButtonHTML({ id: "offer-close", label: "Close offer and keep it pending" })}
+    <div class="offer-rail" style="background:${from.color}"></div>
+    <div class="offer-body">
+      <div class="offer-head">
+        <div class="offer-av">${avatarHTML(from, 4, state.players.indexOf(from))}</div>
+        <div>
+          <div class="t-micro g400">TRADE OFFER</div>
+          <h3 class="t-section offer-title" id="offer-card-title" style="color:${from.textColor}">${esc(from.name)}</h3>
+        </div>
       </div>
-      <p class="t-body ink-2 trade-copy">${esc(from.name)} sent this offer. Review both sides before accepting.</p>
-      <div class="trade-cols offer-columns">${receive}${give}</div>
-      <p class="t-body ink-2 offer-note">Accept transfers the cash and deeds listed on both sides. Negotiate opens this offer in the trade builder.</p>
-      <p class="t-body red offer-review-status" data-offer-review-status role="status" aria-live="off"></p>
-    </div>
-    <div class="trade-actions offer-review-actions">
-      <button class="btn-dark offer-btn" id="offer-decline" type="button"><span class="t-label f12">Decline</span></button>
-      <button class="btn-dark offer-btn" id="offer-counter" type="button"><span class="t-label f12">Negotiate</span></button>
-      <button class="cta-red offer-btn" id="offer-accept" type="button"><span class="cta-text cta-text-sm">Accept trade</span></button>
+      <p class="t-body ink-2 offer-rows" style="margin-top:14px">
+        ${esc(from.name)} will give you <span class="green">$${offer.giveCash.toLocaleString()}</span>
+        and wants <span class="g300">${esc(wantNames)}</span>.
+      </p>
+      <div class="offer-actions">
+        <button class="cta-red offer-btn" id="offer-accept"><span class="cta-text cta-text-sm">Accept</span></button>
+        <button class="btn-dark offer-btn" id="offer-counter"><span class="t-label f12">Negotiate</span></button>
+        <button class="btn-dark offer-btn" id="offer-decline"><span class="t-label f12">Decline</span></button>
+        <button class="btn-dark offer-btn" id="offer-close" type="button" aria-label="Close offer and keep it pending"><span class="t-label f12">Close</span></button>
+      </div>
+      <p class="t-micro ink-3 offer-note">Trades only transfer cash or deeds offered here.</p>
     </div>`;
-  openSurface("#offer-modal", "#offer-close");
+  openSurface("#offer-modal", "#offer-accept");
   $("#offer-close").addEventListener("click", closeOfferWithoutResponse);
   $("#offer-accept").addEventListener("click", () => acceptTradeOffer(offer));
   $("#offer-counter").addEventListener("click", () => {
@@ -320,31 +216,15 @@ function openOfferModal(offer) {
   });
   $("#offer-decline").addEventListener("click", () => {
     const statusNode = host.captureActionStatusNode($("#offer-decline"));
-    emitIntent(host.emitServer, `respond-trade:${offer.id}`, "respond-trade", { tradeId: offer.id, accept: false }, {
-      onResponse: (response) => {
-        if (response?.success === false) {
-          showOfferFailure(response.error || "Trade could not be declined.", statusNode);
-          return;
-        }
-        activeOffer = null;
-        closeSurface("#offer-modal");
-      },
-      onTimeout: () => showOfferFailure("The decline could not be confirmed. Try again.", statusNode),
+    host.emitServer("respond-trade", { tradeId: offer.id, accept: false }, (response) => {
+      if (response?.success === false) {
+        host.announceActionStatus(response.error || "Trade could not be declined.", statusNode);
+        return;
+      }
+      activeOffer = null;
+      closeSurface("#offer-modal");
     });
   });
-}
-
-/** Close the offer card once the offer is gone (proposer cancelled, expired,
- *  or answered elsewhere); otherwise Accept/Decline are dead and just error. */
-const OFFER_WITHDRAWAL_GRACE_MS = 2000;
-export function closeOfferIfWithdrawn() {
-  if (!activeOffer?.id || $("#offer-modal")?.classList.contains("is-hidden")) return;
-  const listed = (state.offers || []).some((offer) => offer?.id === activeOffer.id);
-  const stale = Date.now() - (Number(activeOffer.receivedAt) || 0) > OFFER_WITHDRAWAL_GRACE_MS;
-  const stillPending = state.pendingTrade?.id === activeOffer.id;
-  if (listed && (stillPending || !stale)) return;
-  activeOffer = null;
-  closeSurface("#offer-modal");
 }
 
 function closeOfferWithoutResponse() {
@@ -354,44 +234,35 @@ function closeOfferWithoutResponse() {
 }
 
 function bankruptPlayer(idx, creditorId, statusNode = host.captureActionStatusNode(document.activeElement)) {
-  emitIntent(host.emitServer, "declare-bankruptcy", "declare-bankruptcy", {}, {
-    onResponse: (response) => {
+  host.emitServer("declare-bankruptcy", {}, (response) => {
       if (response?.success === false) {
         host.announceActionStatus(response.error || "Bankruptcy could not be declared.", statusNode);
         return;
       }
       closeSurface("#bankruptcy-modal", { force: true });
-    },
-    onTimeout: () => host.announceActionStatus("Bankruptcy could not be confirmed. Try again.", statusNode),
-  });
+    });
+    return;
 }
 
-/** The server only lets the host start a game; offering Rematch to anyone else
- *  closes the card and then fails with "Only the host can start the game." */
-function canStartRematch() {
-  const me = state.players[0];
-  if (!me) return false;
-  return Boolean(me.isHost) || Boolean(me.serverId && me.serverId === state.hostId);
-}
-
-function showGameOver(winnerName, winnerId, endReason = null) {
-  state.gameOver = { winnerName, winnerId, endReason };
-  const ranking = rankGameOverPlayers(state.players, state.finalPlacements, winnerId);
-  const canRematch = canStartRematch();
+function showGameOver(winnerName, winnerId) {
+  state.gameOver = { winnerName, winnerId };
+  const ranking = state.players
+    .slice()
+    .sort((x, y) => (y.cash + totalAssets(y)) - (x.cash + totalAssets(x)));
+  const resolvedWinnerId = winnerId || ranking[0]?.id || null;
   const summary = ranking
     .map((p, i) => {
-      const isWinner = p.isWinner;
+      const deeds = TILES.filter((t) => state.owners[t.i] === p.id).length;
+      const isWinner = p.id === resolvedWinnerId;
+      const crown = isWinner ? ' <span class="t-micro g300">★ WINNER</span>' : "";
       return `<div class="go-summary-row${isWinner ? " is-winner" : ""}">
-        <span class="go-kicker">${String(p.placement || i + 1).padStart(2, "0")}</span>
-        <span class="go-player"><span class="t-label f13" style="color:${p.textColor}">${esc(p.name)}</span></span>
-        <span class="t-label f13 ${isWinner ? 'green' : 'ink-2'}">${gameOverPlayerStatus(p)}</span>
+        <span class="go-kicker">${String(i + 1).padStart(2, "0")}</span>
+        <span class="t-label f13" style="color:${p.textColor};flex:1">${esc(p.name)}${crown}</span>
+        <span class="t-label f12 g-muted">${deeds} DEED${deeds === 1 ? "" : "S"}</span>
+        <span class="t-label f13 green">$${p.cash.toLocaleString()}</span>
       </div>`;
     })
     .join("");
-  const scoreRows = ranking.map(player => {
-    const score = gameOverScore(player, endReason);
-    return `<div><dt class="t-label f11">${esc(player.name)}</dt><dd class="t-label f12">${score.value === null ? 'N/A' : '$' + score.value.toLocaleString()}</dd></div>`;
-  }).join('');
 
   $("#gameover-card").innerHTML = `
     <div class="bank-body">
@@ -399,20 +270,16 @@ function showGameOver(winnerName, winnerId, endReason = null) {
         <div>
           <div class="go-kicker g400">ROUND OVER</div>
           <h3 class="go-name" id="gameover-card-title">${esc(winnerName)} WINS</h3>
-          <p class="t-body ink-2" id="go-end-reason">${endReason === "round-limit" ? "Round limit reached. Ranked by net worth." : "Last active player. Everyone else is out."}</p>
         </div>
       </div>
       <div class="go-summary">${summary}</div>
-      <details class="go-score-details"><summary>Final scores</summary><div class="go-score-heading t-micro ink-3">${endReason === 'round-limit' ? 'FINAL NET WORTH' : 'FINAL CASH'}</div><dl class="go-final-scores">${scoreRows}</dl></details>
       <div class="go-actions">
-        <button class="cta-red bank-btn" id="go-rematch" ${canRematch ? '' : 'disabled aria-describedby="go-rematch-note"'}><span class="cta-text cta-text-sm">Rematch</span></button>
+        <button class="cta-red bank-btn" id="go-rematch"><span class="cta-text cta-text-sm">Rematch</span></button>
         <button class="btn-dark bank-btn" id="go-home"><span class="t-label f13">Back to Lobby</span></button>
-        <p class="t-micro ink-3" id="go-rematch-note">${canRematch ? '' : 'The host starts the rematch.'}</p>
       </div>
     </div>`;
-  openSurface("#gameover-modal", canStartRematch() ? "#go-rematch" : "#go-home");
-  $("#go-rematch")?.addEventListener("click", () => {
-    if (!canStartRematch()) return;
+  openSurface("#gameover-modal", "#go-rematch");
+  $("#go-rematch").addEventListener("click", () => {
     closeSurface("#gameover-modal");
     state.gameOver = null;
     host.startGame();
@@ -424,32 +291,31 @@ function showGameOver(winnerName, winnerId, endReason = null) {
   });
 }
 
+function totalAssets(p) {
+  return TILES.filter((t) => state.owners[t.i] === p.id)
+    .reduce((sum, t) => sum + (state.mortgaged[t.i] ? 0 : t.price || 0), 0);
+}
+
 function openBankruptcyModal(idx, amount, creditorId, label) {
   state.debtRescueDismissed = false;
   const p = state.players[idx];
   const creditor = creditorId ? state.players.find((x) => x.id === creditorId) : null;
-  // "Can't cover it" is only true when cash really falls short of the bill.
-  const shortfall = Math.max(0, (Number(amount) || 0) - Number(p?.cash || 0));
-  const creditorName = creditor ? esc(creditor.name) : "the bank";
-  const bankCopy = shortfall > 0
-    ? `${esc(label)}. You’re $<span class="numeric">${shortfall.toLocaleString()}</span> short. Review your holdings, trades, and financing before deciding whether to leave the table. Creditor: ${creditorName}.`
-    : `${esc(label)}. Your cash covers this payment. Creditor: ${creditorName}.`;
   $("#bankruptcy-card").innerHTML = `
     <div class="bank-body">
       <div class="bank-head">
         <span class="bank-icon">!</span>
         <div>
-          <div class="t-micro red">${shortfall > 0 ? "CAN'T COVER IT" : "PAYMENT DUE"}</div>
+          <div class="t-micro red">CAN'T COVER IT</div>
           <h3 class="t-section bank-title" id="bankruptcy-card-title">$<span class="numeric">${Number(amount || 0).toLocaleString()}</span> due</h3>
         </div>
       </div>
-      <button class="btn-dark bank-dismiss" id="bank-dismiss" type="button" aria-label="CLOSE: return to the table">CLOSE</button>
-      <p class="t-body ink-2 bank-copy">${bankCopy}</p>
+      <button class="btn-dark bank-dismiss" id="bank-dismiss" type="button" aria-label="Return to the table">CLOSE</button>
+      <p class="t-body ink-2 bank-copy">${esc(label)}. You’re $<span class="numeric">${Math.max(0, amount - Number(p?.cash || 0)).toLocaleString()}</span> short. Review your holdings, trades, and financing before deciding whether to leave the table. Creditor: ${creditor ? esc(creditor.name) : "the bank"}.</p>
       <div class="bank-actions">
         <button class="btn-dark bank-btn" id="bank-liquidate" type="button"><span class="t-label f12">Holdings</span></button>
         <button class="btn-dark bank-btn" id="bank-trade" type="button"><span class="t-label f12">Trade</span></button>
         <button class="btn-dark bank-btn" id="bank-financing" type="button"><span class="t-label f12">Financing</span></button>
-        <button class="cta-red bank-btn" id="bank-declare" type="button"><span class="t-label f12">Declare Bankruptcy</span></button>
+        <button class="btn-dark bank-btn" id="bank-declare" type="button"><span class="t-label f12">Declare Bankruptcy</span></button>
       </div>
     </div>`;
   openSurface("#bankruptcy-modal", "#bank-liquidate");
@@ -473,14 +339,9 @@ function openBankruptcyModal(idx, amount, creditorId, label) {
     const actions = $("#bankruptcy-modal .bank-actions");
     if (actions && !actions.dataset.armed) {
       actions.dataset.armed = "1";
-      // Name the consequence before the irreversible confirm (sweepCashToCreditor, forfeitOrReleaseProperties, clearQuitObligations).
-      const copy = $("#bankruptcy-modal .bank-copy");
-      if (copy) copy.textContent = "Declaring ends your round now. Your cash and properties pass to the creditor or the bank, your items are sold, and open trades and contracts are cancelled. This cannot be undone.";
       actions.innerHTML = `<button class="cta-red bank-btn" id="bank-declare-confirm"><span class="cta-text cta-text-sm">Confirm Bankruptcy</span></button>
         <button class="btn-dark bank-btn" id="bank-declare-cancel"><span class="t-label f12">Keep Playing</span></button>`;
-      // The focused Declare button was just replaced: move focus to the safe
-      // default so an irreversible decision never drops focus to <body>.
-      focusSurface("#bankruptcy-modal", "#bank-declare-cancel");
+      openSurface("#bankruptcy-modal", "#bank-declare-cancel");
       $("#bank-declare-cancel").addEventListener("click", () => closeSurface("#bankruptcy-modal", { force: true }));
       $("#bank-declare-confirm").addEventListener("click", event => bankruptPlayer(idx, creditorId, host.captureActionStatusNode(event.currentTarget)));
       return;
@@ -518,37 +379,20 @@ export function openVoluntaryExitModal() {
     </div>`;
   openSurface("#bankruptcy-modal", "#bank-retire-cancel");
   $("#bank-retire-cancel").addEventListener("click", () => closeSurface("#bankruptcy-modal", { force: true }));
-  const confirmRetire = event => {
+  $("#bank-retire-confirm").addEventListener("click", event => {
     const statusNode = host.captureActionStatusNode(event.currentTarget);
     closeSurface("#bankruptcy-modal", { force: true });
     bankruptPlayer(0, null, statusNode);
-  };
-  $("#bank-retire-confirm").addEventListener("click", event => {
-    // Retiring is irreversible: the first tap arms it, the second confirms, as with bankruptcy.
-    const actions = $("#bankruptcy-modal .bank-actions");
-    if (actions && !actions.dataset.armed) {
-      actions.dataset.armed = "1";
-      actions.innerHTML = `<button class="cta-red bank-btn" id="bank-retire-confirm"><span class="cta-text cta-text-sm">Confirm Retire</span></button>
-        <button class="btn-dark bank-btn" id="bank-retire-cancel"><span class="t-label f12">Keep Playing</span></button>`;
-      focusSurface("#bankruptcy-modal", "#bank-retire-cancel");
-      $("#bank-retire-cancel").addEventListener("click", () => closeSurface("#bankruptcy-modal", { force: true }));
-      $("#bank-retire-confirm").addEventListener("click", confirmRetire);
-      return;
-    }
-    confirmRetire(event);
   });
 }
 
 function openCardReveal(tile, ev, options = {}) {
   $("#card-reveal").innerHTML = cardFaceHTML(tile, ev, { buttonId: "cr-ok" });
   openSurface("#card-modal", "#cr-ok", options);
-  const dismiss = () => {
+  $("#cr-ok").addEventListener("click", () => {
     state.card = null;
     closeSurface("#card-modal");
-  };
-  // The whole card is the dismiss target; #cr-ok stays a real button for keyboards and screen readers.
-  $("#cr-ok").addEventListener("click", dismiss);
-  $("#card-reveal .cr-card")?.addEventListener("click", dismiss);
+  });
 }
 
 function closeCardGallery() {
@@ -604,16 +448,7 @@ function isMyOwnDebt(debt) {
 
 function onRetireClick() {
   const me = state.players[0];
-  if (me?.spectating) {
-    openConfirmModal({
-      title: "Leave this table?",
-      message: "Leaving releases your spectator seat and returns you to the homescreen.",
-      confirmLabel: "LEAVE TABLE",
-      onConfirm: () => goHome(),
-    });
-    return;
-  }
-  if (me?.bankrupt) {
+  if (me?.spectating || me?.bankrupt) {
     goHome();
     return;
   }

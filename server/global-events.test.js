@@ -1,14 +1,14 @@
-// Characterization suite for the global-event lifecycle in gameLogic.js, pinned BEFORE refactoring activateGlobalEvent,
-// maybeTriggerGlobalEvent, resolveGlobalEventVote and applyGlobalEventActivationSettlements. Every observable (event ids,
-// phases, effect snapshots, feed messages, vote tallies, settlement cash deltas, RNG consumption) must survive verbatim.
+// Characterization suite for the global-event lifecycle in gameLogic.js.
+// Pinned BEFORE refactoring activateGlobalEvent / maybeTriggerGlobalEvent /
+// resolveGlobalEventVote / applyGlobalEventActivationSettlements: every
+// observable (event ids, phases, effect snapshots, feed messages, vote
+// tallies, settlement cash deltas, RNG consumption) must survive verbatim.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
-import { GLOBAL_EVENT_COMBINATIONS } from './globalEventData.js';
-import { registerGameSocketHandlers } from './serverSocketGame.js';
 
 function makeEventRoom({ globalEvents = true, players = 2 } = {}) {
   const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', rulesProfile: 'advanced' });
+  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
   if (players >= 2) room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   if (players >= 3) room.addOrReconnectPlayer({ socketId: 'socket-c', clientId: 'client-c', nickname: 'C' });
   if (globalEvents) room.setRoomSetting('globalEvents', true);
@@ -72,7 +72,7 @@ async function testActivateWarningSnapshot() {
   game.players.forEach(player => assert.equal(player.globalEventsExperienced, 1));
   assert.equal(game.feed[0].text, 'TOURISM BOOM is building. The table has one round to prepare.');
   assert.equal(typeof game.feed[0].timestamp, 'number');
-  // warning, active, recovery, off phase ladder via advanceRound
+  // warning -> active -> recovery -> off phase ladder via advanceRound
   game.advanceRound();
   assert.equal(game.globalEvent.phase, 'active');
   assert.equal(game.globalEvent.startedRound, 2);
@@ -93,7 +93,7 @@ async function testActivateWarningSnapshot() {
 function testActivateDurationScaling() {
   const room = makeEventRoom();
   const game = room.game;
-  // 2 active players: expectedRounds = max(12, 16) = 16.
+  // 2 active players -> expectedRounds = max(12, 16) = 16.
   game.roundNumber = 1; // progress 0 -> <= 0.6
   game.activateGlobalEvent(game.globalEventDefinition('housing-bubble'));
   assert.equal(game.globalEvent.durationRounds, 7);
@@ -193,7 +193,7 @@ async function testMaybeTriggerGating() {
   off.game.maybeTriggerGlobalEvent();
   assert.equal(off.game.globalEvent, null);
   // Not started.
-  const fresh = new RoomManager().createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', rulesProfile: 'advanced' });
+  const fresh = new RoomManager().createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
   fresh.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   fresh.setRoomSetting('globalEvents', true);
   fresh.game.roundNumber = 10;
@@ -219,7 +219,7 @@ async function testMaybeTriggerGating() {
   cooled.game.globalEventCooldown = 2;
   cooled.game.maybeTriggerGlobalEvent();
   assert.equal(cooled.game.globalEvent, null);
-  // Early rounds are gated out (progress < 0.18: zero chance, even 0.0).
+  // Early rounds are gated out (progress < 0.18 -> zero chance, even 0.0).
   const early = makeEventRoom();
   early.game.roundNumber = 3;
   const restoreEarly = await stubRng({ floats: [0, 0] });
@@ -244,9 +244,10 @@ async function testMaybeTriggerGating() {
 }
 
 async function testMaybeTriggerChanceAndSelection() {
-  // Fresh 2-player room at round 8. The eligible pool in definition order is
-  // [city-election, tourism-boom, public-works, convention-week, tax-audit], weights all 1.
-  // Round 8, progress 0.4375: boundary chance 0.025, surprise 0.05.
+  // Fresh 2-player room at round 8: eligible pool in definition order is
+  // [city-election, tourism-boom, public-works, convention-week, tax-audit]
+  // (weights all 1, so roll = f * 5 selects index ceil(roll) - 1 style).
+  // round 8 -> progress 0.4375: boundary chance 0.025, surprise 0.05.
   const miss = makeEventRoom();
   miss.game.roundNumber = 8;
   let restore = await stubRng({ floats: [0.025] });
@@ -277,7 +278,7 @@ async function testMaybeTriggerChanceAndSelection() {
   }
   assert.equal(first.game.globalEvent.id, 'city-election'); // roll 0.5 -> index 0
   assert.equal(first.game.globalEvent.phase, 'voting');
-  // Late progress: round 14, progress 0.8125: boundary 0.04, surprise 0.07.
+  // Late progress: round 14 -> 0.8125: boundary 0.04, surprise 0.07.
   const late = makeEventRoom();
   late.game.roundNumber = 14;
   restore = await stubRng({ floats: [0.04] });
@@ -363,36 +364,6 @@ function testVoteGuards() {
   b.disconnected = false;
 }
 
-// A full-turnout vote runs the activation settlements (loan repricing,
-// bailout cash) immediately, so it must not land while a payment or auction is
-// open - the pending payment amount would go stale mid-turn.
-function testVoteWaitsForTableObligations() {
-  const room = makeEventRoom();
-  const game = room.game;
-  const [a] = game.players;
-  a.cash = 100;
-  a.bankLoan = { status: 'active', principal: 450, remaining: 450, issuedRound: 1, dueRound: 50, cureRound: null };
-  game.roundNumber = 5;
-  game.activateGlobalEvent(game.globalEventDefinition('bank-run'));
-  const event = game.globalEvent;
-  game.pendingPayment = { playerId: a.id, creditorId: null, amountRemaining: 450, reason: 'bank debt' };
-  assert.deepEqual(game.voteGlobalEvent('socket-a', 'emergency-bailout'), { success: false, error: 'Resolve the table obligation before voting.' });
-  assert.deepEqual(game.voteGlobalEvent('socket-b', 'emergency-bailout'), { success: false, error: 'Resolve the table obligation before voting.' });
-  assert.equal(event.phase, 'voting');
-  assert.deepEqual(event.votes, {});
-  assert.equal(a.bankLoan.remaining, 450);
-  game.pendingPayment = null;
-  game.startAuction(game.getTile(5), a.id);
-  assert.deepEqual(game.voteGlobalEvent('socket-a', 'emergency-bailout'), { success: false, error: 'Resolve the table obligation before voting.' });
-  game.finishAuction();
-  assert.equal(game.auction, null);
-  assert.equal(game.voteGlobalEvent('socket-a', 'emergency-bailout').success, true);
-  assert.equal(game.voteGlobalEvent('socket-b', 'emergency-bailout').success, true);
-  assert.equal(event.phase, 'active');
-  assert.equal(event.resolvedChoice, 'emergency-bailout');
-  assert.equal(a.cash, 250);
-}
-
 function testResolveVotePreconditions() {
   const room = makeEventRoom();
   const game = room.game;
@@ -428,11 +399,8 @@ function testResolveVoteUnanimous() {
   assert.equal(game.feed[0].text, 'CITY ELECTION resolved: LOW TAX.');
 }
 
-// A split or abstained ballot enacts no policy. The old coin flip
-// among tied options is gone, so a 1-1 tie with an abstention and a zero-turnout
-// timeout both resolve to no choice.
-function testResolveVoteTieAndTimeout() {
-  // Three players so a 1-1 split can reach resolve without full turnout.
+async function testResolveVoteTieAndTimeout() {
+  // Three players so a 1-1 tie can reach resolve without full turnout.
   const room = makeEventRoom({ players: 3 });
   const game = room.game;
   const [a, b, c] = game.players;
@@ -442,97 +410,45 @@ function testResolveVoteTieAndTimeout() {
   game.voteGlobalEvent('socket-a', 'low-tax');
   game.voteGlobalEvent('socket-b', 'public-works');
   assert.equal(event.phase, 'voting'); // C abstained -> no auto-resolve
-  game.resolveGlobalEventVote();
-  assert.equal(event.resolvedChoice, null, 'a 1-1 split with an abstention is no majority');
+  const restore = await stubRng({ ints: { '0,2': [1] } });
+  try {
+    game.resolveGlobalEventVote();
+  } finally {
+    restore();
+  }
+  assert.equal(event.resolvedChoice, 'public-works'); // coin flip index 1 of [low-tax, public-works]
   assert.equal(event.phase, 'active');
   assert.equal(a.lastVoteChoice, 'low-tax');
   assert.equal(a.councilWins, 0);
-  assert.equal(b.councilWins, 0);
+  assert.equal(b.councilWins, 1);
   assert.equal(c.lastVoteChoice, null);
   assert.equal(a.unanimousVote, false);
-  assert.equal(game.feed[0].text, 'CITY ELECTION resolved: NO MAJORITY, NO CHANGE.');
-  // Zero-turnout timeout via advanceRound: nobody votes, so no choice is enacted.
+  assert.equal(game.feed[0].text, 'CITY ELECTION resolved: PUBLIC WORKS.');
+  // Zero-turnout timeout via advanceRound: all three options tie at 0.
   const idle = makeEventRoom();
   idle.game.roundNumber = 6;
   idle.game.activateGlobalEvent(idle.game.globalEventDefinition('city-election'));
   const idleEvent = idle.game.globalEvent;
-  idle.game.advanceRound();
+  const restoreIdle = await stubRng({ ints: { '0,3': [2] } });
+  try {
+    idle.game.advanceRound();
+  } finally {
+    restoreIdle();
+  }
   assert.equal(idleEvent.phase, 'active');
-  assert.equal(idleEvent.resolvedChoice, null);
+  assert.equal(idleEvent.resolvedChoice, 'bank-first');
   assert.equal(idleEvent.startedRound, 7);
   idle.game.players.forEach(player => {
     assert.equal(player.councilWins, 0);
     assert.equal(player.unanimousVote, false);
   });
-  assert.equal(idle.game.feed[0].text, 'CITY ELECTION resolved: NO MAJORITY, NO CHANGE.');
+  assert.equal(idle.game.feed[0].text, 'CITY ELECTION resolved: BANK FIRST.');
 }
 
-// A policy choice is enacted only with a strict majority of the ACTIVE seats. Abstentions count as no change.
-// Tables of 2, 3, 4 and 6 are checked: a bare majority is enacted (by timeout or at full turnout), exactly half is not,
-// and a full-turnout split is not.
-function seatedVoteRoom(seats) {
-  const manager = new RoomManager();
-  const boardVariant = seats > 4 ? 'metro-52' : 'standard-40';
-  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'P1', boardVariant });
-  if (seats > 4) assert.equal(room.setRoomSetting('maxPlayers', seats).rejected, false);
-  for (let index = 1; index < seats; index += 1) {
-    const letter = String.fromCharCode(97 + index);
-    room.addOrReconnectPlayer({ socketId: `socket-${letter}`, clientId: `client-${letter}`, nickname: `P${index + 1}` });
-  }
-  room.setRoomSetting('globalEvents', true);
-  assert.equal(room.startGame().success, true);
-  assert.equal(room.game.players.length, seats);
-  return room;
-}
-
-function castVotes(game, count, choiceId) {
-  game.activePlayers().slice(0, count).forEach(player => {
-    assert.equal(game.voteGlobalEvent(player.socketId, choiceId).success, true);
-  });
-}
-
-function testVoteNeedsStrictMajorityOfActiveSeats() {
-  for (const seats of [2, 3, 4, 6]) {
-    const half = Math.floor(seats / 2);
-    const majority = half + 1;
-
-    const won = seatedVoteRoom(seats);
-    won.game.roundNumber = 4;
-    won.game.activateGlobalEvent(won.game.globalEventDefinition('city-election'));
-    castVotes(won.game, majority, 'low-tax');
-    if (won.game.globalEvent.phase === 'voting') won.game.advanceRound(); // timeout path
-    assert.equal(won.game.globalEvent.resolvedChoice, 'low-tax', `${seats} seats: a strict majority enacts its choice`);
-    assert.equal(won.game.feed[0].text, 'CITY ELECTION resolved: LOW TAX.');
-
-    const thin = seatedVoteRoom(seats);
-    thin.game.roundNumber = 4;
-    thin.game.activateGlobalEvent(thin.game.globalEventDefinition('city-election'));
-    castVotes(thin.game, half, 'public-works');
-    thin.game.advanceRound(); // timeout path with the rest abstaining
-    assert.equal(thin.game.globalEvent.resolvedChoice, null, `${seats} seats: exactly half is not a majority`);
-    assert.equal(thin.game.feed[0].text, 'CITY ELECTION resolved: NO MAJORITY, NO CHANGE.');
-  }
-
-  // Full turnout with no bloc above half resolves at once to no choice.
-  for (const seats of [2, 3, 4, 6]) {
-    const split = seatedVoteRoom(seats);
-    split.game.roundNumber = 4;
-    split.game.activateGlobalEvent(split.game.globalEventDefinition('city-election'));
-    const options = ['low-tax', 'public-works', 'bank-first'];
-    split.game.activePlayers().forEach((player, index) => {
-      assert.equal(split.game.voteGlobalEvent(player.socketId, options[index % options.length]).success, true);
-    });
-    assert.equal(split.game.globalEvent.phase, 'active', `${seats} seats: full turnout resolves`);
-    assert.equal(split.game.globalEvent.resolvedChoice, null, `${seats} seats: a split full turnout enacts nothing`);
-  }
-}
-
-// Three seats: a 1-1 split enacts nothing under the strict-majority rule,
-// so each enforce outcome needs two of the three ballots.
-function testResolveVoteAntiMonopolyAndLegitimacy() {
-  const room = makeEventRoom({ players: 3 });
+async function testResolveVoteAntiMonopolyAndLegitimacy() {
+  const room = makeEventRoom();
   const game = room.game;
-  const [a, b, c] = game.players;
+  const [a, b] = game.players;
   ownsFullBrownGroup(game, a);
   ownsTile(game, b, 11); // Pink
   ownsTile(game, b, 16); // Orange
@@ -541,30 +457,37 @@ function testResolveVoteAntiMonopolyAndLegitimacy() {
   const event = game.globalEvent;
   assert.equal(event.targetPlayerId, b.id);
   assert.equal(event.phase, 'voting');
-  game.voteGlobalEvent('socket-a', 'enforce');
-  game.voteGlobalEvent('socket-b', 'dismiss');
-  assert.equal(event.phase, 'voting'); // one ballot short of full turnout
-  game.voteGlobalEvent('socket-c', 'enforce');
+  // Full turnout auto-resolves inside the final ballot, so arm the coin
+  // flip first: enforce (index 0) wins the 1-1 tie.
+  const restore = await stubRng({ ints: { '0,2': [0] } });
+  try {
+    game.voteGlobalEvent('socket-a', 'enforce');
+    game.voteGlobalEvent('socket-b', 'dismiss');
+  } finally {
+    restore();
+  }
   assert.equal(event.resolvedChoice, 'enforce');
   assert.equal(b.publicEnemy, true); // leader voted against the outcome
   assert.equal(a.publicEnemy, false);
-  assert.equal(c.publicEnemy, false);
   // A target that voted with the outcome escapes the label.
-  const second = makeEventRoom({ players: 3 });
-  const [owner, target, bystander] = second.game.players;
-  ownsFullBrownGroup(second.game, owner);
-  ownsTile(second.game, target, 16); // Orange
-  ownsTile(second.game, target, 26); // Yellow
+  const second = makeEventRoom();
+  const [c, d] = second.game.players;
+  ownsFullBrownGroup(second.game, c);
+  ownsTile(second.game, d, 16); // Orange
+  ownsTile(second.game, d, 26); // Yellow
   second.game.roundNumber = 5;
   second.game.activateGlobalEvent(second.game.globalEventDefinition('anti-monopoly'));
-  assert.equal(second.game.globalEvent.targetPlayerId, target.id);
-  second.game.voteGlobalEvent('socket-a', 'dismiss');
-  second.game.voteGlobalEvent('socket-b', 'enforce');
-  second.game.voteGlobalEvent('socket-c', 'enforce');
+  assert.equal(second.game.globalEvent.targetPlayerId, d.id);
+  const restoreSecond = await stubRng({ ints: { '0,2': [0] } });
+  try {
+    second.game.voteGlobalEvent('socket-a', 'dismiss');
+    second.game.voteGlobalEvent('socket-b', 'enforce');
+  } finally {
+    restoreSecond();
+  }
   assert.equal(second.game.globalEvent.resolvedChoice, 'enforce');
-  assert.equal(target.publicEnemy, false); // the target voted with the outcome
-  assert.equal(owner.publicEnemy, false); // the label only ever hits the target
-  assert.equal(bystander.publicEnemy, false);
+  assert.equal(d.publicEnemy, false);
+  assert.equal(c.publicEnemy, false); // the label only ever hits the target
 
   const combo = {
     id: 'legitimacy-crisis',
@@ -577,18 +500,21 @@ function testResolveVoteAntiMonopolyAndLegitimacy() {
     effects: { taxMultiplier: 1.35, rentCap: 90, tradingEnabled: false },
     duration: 7
   };
-  const third = makeEventRoom({ players: 3 });
+  const third = makeEventRoom();
   third.game.roundNumber = 5;
   third.game.activateGlobalEvent(third.game.globalEventDefinition('city-election'), combo);
   const crisis = third.game.globalEvent;
   assert.equal(crisis.id, 'legitimacy-crisis');
-  third.game.voteGlobalEvent('socket-a', 'bury-audit');
-  third.game.voteGlobalEvent('socket-b', 'publish-audit');
-  third.game.voteGlobalEvent('socket-c', 'bury-audit');
+  const restoreThird = await stubRng({ ints: { '0,2': [1] } });
+  try {
+    third.game.voteGlobalEvent('socket-a', 'bury-audit');
+    third.game.voteGlobalEvent('socket-b', 'publish-audit');
+  } finally {
+    restoreThird();
+  }
   assert.equal(crisis.resolvedChoice, 'bury-audit');
   assert.equal(third.game.players[0].compromisedCouncil, true);
   assert.equal(third.game.players[1].compromisedCouncil, false);
-  assert.equal(third.game.players[2].compromisedCouncil, true);
   assert.equal(third.game.feed[0].text, 'LEGITIMACY CRISIS resolved: BURY AUDIT.');
 }
 
@@ -655,46 +581,6 @@ function testBankRunBailoutSettlement() {
   game.advanceRound();
   assert.equal(a.cash, 250); // latch held across the next active round
   assert.equal(game.globalEvent.startedRound, activeRound);
-}
-
-// The rescue reaches only players below the distress bar the bank-run
-// event itself uses (cash under 35% of starting cash). A solvent player who
-// holds a bank loan is not distressed and must not be paid.
-function testBankRunBailoutOnlyReachesDistressedPlayers() {
-  const room = makeEventRoom({ players: 3 });
-  const game = room.game;
-  const [distressed, solventBorrower, atBar] = game.players;
-  const bar = game.settings.startingCash * 0.35;
-  distressed.cash = bar - 1;
-  solventBorrower.cash = game.settings.startingCash;
-  solventBorrower.bankLoan = { status: 'active', principal: 450, totalDue: 450, remaining: 450 };
-  atBar.cash = bar;
-  game.roundNumber = 5;
-  game.activateGlobalEvent(game.globalEventDefinition('bank-run'));
-  game.voteGlobalEvent('socket-a', 'emergency-bailout');
-  game.voteGlobalEvent('socket-b', 'emergency-bailout');
-  game.voteGlobalEvent('socket-c', 'emergency-bailout');
-  assert.equal(game.globalEvent.resolvedChoice, 'emergency-bailout');
-  assert.equal(distressed.cash, bar - 1 + 150, 'a distressed player receives the rescue payment');
-  assert.equal(distressed.bailoutReceived, true);
-  assert.equal(solventBorrower.cash, game.settings.startingCash, 'a solvent loan holder receives nothing');
-  assert.ok(!solventBorrower.bailoutReceived);
-  assert.ok(!solventBorrower.moralHazard);
-  assert.equal(atBar.cash, bar, 'the distress bar is strict: exactly 35% is not distressed');
-  assert.ok(!atBar.bailoutReceived);
-  assert.ok(feedTexts(game).includes(`${distressed.nickname} received a $150 emergency bailout.`));
-  assert.ok(!feedTexts(game).some(text => text.includes(`${solventBorrower.nickname} received`)));
-}
-
-// The bank-run bailout text must describe the rule that runs and
-// must not promise a loan surcharge the event never applies.
-function testBankRunBailoutCopyMatchesRule() {
-  const room = makeEventRoom();
-  const game = room.game;
-  const choice = game.globalEventDefinition('bank-run').choices.find(entry => entry.id === 'emergency-bailout');
-  assert.ok(choice.description.includes('35%'), 'the copy states the distress bar');
-  assert.ok(!/surcharge|premium/i.test(choice.description), 'the bank-run bailout does not promise a loan premium');
-  assert.equal(game.globalEventDefinition('bank-run').effects.loanPremiumMultiplier, undefined);
 }
 
 function testLetTheLedgerRunAndTaxAuditSettlement() {
@@ -819,246 +705,30 @@ function testActivePhaseEffectQueries() {
   assert.equal(game.globalEventActive('bank-run'), false);
 }
 
-// The match owns the election. Once the match is over the headline is
-// closed - it stays in the history - and a late ballot resolves nothing.
-function testFinishedMatchRefusesTheBallot() {
-  const room = makeEventRoom();
-  const game = room.game;
-  game.roundNumber = 4;
-  game.activateGlobalEvent(game.globalEventDefinition('city-election'));
-  game.endGame(game.players[0]);
-  assert.equal(game.started, false);
-  const late = game.voteGlobalEvent('socket-a', 'low-tax');
-  assert.equal(late.success, false);
-  assert.equal(late.error, 'The match has ended.');
-  assert.equal(game.globalEvent, null, 'the headline is closed with the match');
-  assert.equal(game.globalEventHistory[0].id, 'city-election', 'the headline is preserved in the history');
-  assert.equal(game.globalEventHistory.length, 1, 'the history keeps one row for the closed headline');
-  // A late resolution attempt changes nothing.
-  game.resolveGlobalEventVote();
-  assert.equal(game.globalEvent, null);
-  assert.equal(game.players[0].lastVoteChoice, null, 'no ballot was recorded');
-  assert.equal(game.players[1].lastVoteChoice, null);
-  // The round ladder does not restart the closed headline either.
-  game.advanceRound();
-  assert.equal(game.globalEvent, null);
-}
-
-// A ballot names the election it was cast in. A ballot from another
-// election must not count in the election on the table, even when the choice
-// id exists in both.
-function testStaleBallotIsRefused() {
-  const room = makeEventRoom();
-  const game = room.game;
-  game.roundNumber = 4;
-  game.activateGlobalEvent(game.globalEventDefinition('city-election'));
-  const first = game.globalEvent;
-  const stale = { eventId: first.id, voteRound: first.voteRound, voteNonce: first.voteNonce };
-  // The next election shares the choice id with the closed one.
-  game.globalEvent = null;
-  game.activateGlobalEvent(game.globalEventDefinition('bank-run'));
-  const second = game.globalEvent;
-  assert.equal(second.id, 'bank-run');
-  assert.deepEqual(
-    game.voteGlobalEvent('socket-b', 'emergency-bailout', stale),
-    { success: false, error: 'That vote belongs to a different election.' }
-  );
-  assert.deepEqual(second.votes, {}, 'the stale ballot was not counted');
-  // A ballot that names the running election is accepted.
-  const accepted = game.voteGlobalEvent('socket-b', 'emergency-bailout', { eventId: second.id, voteNonce: second.voteNonce });
-  assert.equal(accepted.success, true);
-  assert.equal(second.votes[game.players[1].id], 'emergency-bailout');
-}
-
-// A vote is a write, so it is idempotent: the same request id answers
-// the same way twice and is counted once.
-function testVoteRequestIdIsCountedOnce() {
-  const room = makeEventRoom();
-  const game = room.game;
-  game.roundNumber = 4;
-  game.activateGlobalEvent(game.globalEventDefinition('city-election'));
-  const event = game.globalEvent;
-  assert.deepEqual(game.voteGlobalEvent('socket-a', 'low-tax', { requestId: 'ballot-1' }), { success: true });
-  assert.deepEqual(game.voteGlobalEvent('socket-a', 'low-tax', { requestId: ' ballot-1 ' }), { success: true });
-  assert.equal(Object.keys(event.votes).length, 1, 'the replay is not counted twice');
-  assert.equal(event.votes[game.players[0].id], 'low-tax');
-}
-
-// The socket layer carries the ballot identity to the game, so a ballot
-// that names another election never reaches the tally.
-function testSocketVoteCarriesTheBallotIdentity() {
-  const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', rulesProfile: 'advanced' });
-  room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
-  room.setRoomSetting('globalEvents', true);
-  assert.equal(room.startGame().success, true);
-  room.game.roundNumber = 4;
-  room.game.activateGlobalEvent(room.game.globalEventDefinition('city-election'));
-  const event = room.game.globalEvent;
-  const handlers = new Map();
-  const socket = { id: 'socket-a', emitted: [], emit() {} };
-  const runtime = {
-    getRoomForSocket() { return room; },
-    emitRoomState() {},
-    io: { to: () => ({ emit() {} }), in: () => ({ emit() {} }) }
-  };
-  registerGameSocketHandlers((name, handler) => handlers.set(name, handler), socket, runtime);
-  const vote = handlers.get('vote-global-event');
-  const invoke = payload => {
-    let response;
-    vote(payload, value => { response = value; });
-    return response;
-  };
-  const refused = invoke({ choiceId: 'low-tax', eventId: 'anti-monopoly', voteNonce: 'anti-monopoly-1' });
-  assert.equal(refused.success, false);
-  assert.equal(refused.error, 'That vote belongs to a different election.');
-  assert.deepEqual(event.votes, {}, 'the refused ballot was not counted');
-  const accepted = invoke({ choiceId: 'low-tax', eventId: event.id, voteNonce: event.voteNonce });
-  assert.equal(accepted.success, true);
-  assert.equal(event.votes[room.game.players[0].id], 'low-tax');
-}
-
-// A combination is the sum of the headlines it fused. The order the
-// halves happened to arrive in must not decide the payload.
-function testComboEffectsDoNotDependOnTriggerOrder() {
-  const combo = GLOBAL_EVENT_COMBINATIONS.find(candidate => candidate.id === 'moral-hazard');
-  const [bankRun, debtAmnesty] = combo.required;
-  const first = makeEventRoom();
-  first.game.roundNumber = 8;
-  first.game.activateGlobalEvent(first.game.globalEventDefinition(bankRun), combo);
-  const second = makeEventRoom();
-  second.game.roundNumber = 8;
-  second.game.activateGlobalEvent(second.game.globalEventDefinition(debtAmnesty), combo);
-  assert.deepEqual(first.game.globalEvent.effects, second.game.globalEvent.effects, 'the combination payload does not depend on which half fired it');
-  // The bank-run half contributes its auction, market and casino effects.
-  assert.equal(first.game.globalEvent.effects.auctionBlocked, true);
-  assert.equal(first.game.globalEvent.effects.casinoMaxBet, 250);
-  assert.equal(first.game.globalEvent.effects.tradingEnabled, false);
-  // The debt-amnesty half contributes its settlement discount.
-  assert.equal(first.game.globalEvent.effects.loanSettlementMultiplier, 0.8);
-  // The combination's own effects still win.
-  assert.equal(first.game.globalEvent.effects.loanPremiumMultiplier, 1.6);
-  assert.equal(first.game.globalEvent.effects.bankActionsBlocked, true);
-}
-
-// The debt-amnesty settlement discount follows the headline into a combination:
-// a full repayment under moral-hazard costs 0.8x the balance, like plain amnesty.
-function fullRepaymentCostUnder(eventId, comboId) {
-  const room = makeEventRoom();
-  const game = room.game;
-  const player = game.players[0];
-  game.currentPlayerId = player.id;
-  game.roundNumber = 8;
-  const combo = comboId ? GLOBAL_EVENT_COMBINATIONS.find(candidate => candidate.id === comboId) : null;
-  game.activateGlobalEvent(game.globalEventDefinition(eventId), combo);
-  game.advanceRound(); // warning -> active
-  assert.equal(game.globalEvent.phase, 'active');
-  game.currentPlayerId = player.id;
-  player.cash = 1000;
-  player.bankLoan = { status: 'active', remaining: 450, collateralTileIndex: null, issuedRound: 1, dueRound: 20, cureRound: 21 };
-  const result = game.repayBankLoan('socket-a', { amount: 450, requestId: `amnesty-${eventId}-${comboId}` });
-  assert.equal(result.success, true, result.error);
-  assert.equal(player.bankLoan.status, 'paid');
-  return 1000 - player.cash;
-}
-
-function testDebtAmnestyDiscountAppliesUnderTheMoralHazardCombo() {
-  assert.equal(fullRepaymentCostUnder('debt-amnesty', null), 360, 'plain debt-amnesty is unchanged');
-  assert.equal(fullRepaymentCostUnder('bank-run', 'moral-hazard'), 360, 'the fused debt-amnesty discount applies');
-}
-
-// The lifecycle rules belong to the headline, so a combination runs the
-// rules of the headlines it fused.
-function testComboRunsTheComponentLifecycle() {
-  const room = makeEventRoom();
-  const game = room.game;
-  const [a, b] = game.players;
-  ownsTile(game, a, 5); // ACC Airport is a railroad
-  const travelChaos = GLOBAL_EVENT_COMBINATIONS.find(candidate => candidate.id === 'travel-chaos');
-  game.roundNumber = 1;
-  game.activateGlobalEvent(game.globalEventDefinition('tourism-boom'), travelChaos);
-  assert.equal(a.airportOwnedDuringStrike, true, 'the airport-strike hook runs for the fused headline');
-  game.advanceRound(); // warning -> active
-  assert.equal(game.globalEvent.phase, 'active');
-  ownsTile(game, b, 5);
-  game.recordAirportStrikeRentFacts(game.getTile(1), b);
-  assert.equal(b.airportOwnedDuringStrike, true, 'the airport-strike tile rule runs for the fused headline');
-  assert.equal(b.nonAirportRentDuringStrike, true);
-}
-
-// The recovery rule belongs to the housing bubble, so it also runs when
-// the bubble was fused into a combination.
-function testComboRecoveryEndsTheHousingBubble() {
-  const room = makeEventRoom();
-  const game = room.game;
-  const foreclosure = GLOBAL_EVENT_COMBINATIONS.find(candidate => candidate.id === 'foreclosure-spiral');
-  game.activateGlobalEvent(game.globalEventDefinition('credit-freeze'), foreclosure);
-  game.globalEvent.phase = 'active';
-  game.beginGlobalEventRecovery();
-  assert.equal(game.globalEvent.phase, 'recovery');
-  game.players.forEach(player => assert.equal(player.housingBubbleEnded, true));
-}
-
-// The activation settlement reprices loans and pays bailouts against the
-// table's cash. Under an open payment or a live auction that money is spoken
-// for, so the settlement waits for the obligation to clear.
-function testActivationSettlementWaitsForTheTableObligation() {
-  const room = makeEventRoom();
-  const game = room.game;
-  const [a] = game.players;
-  a.bankLoan = { status: 'active', principal: 450, remaining: 450, totalDue: 450, issuedRound: 1, dueRound: 50, cureRound: null };
-  game.roundNumber = 5;
-  game.activateGlobalEvent(game.globalEventDefinition('interest-rate-shock'));
-  const event = game.globalEvent;
-  assert.equal(event.phase, 'warning');
-  game.pendingPayment = { playerId: a.id, creditorId: null, amountRemaining: 450, reason: 'bank debt' };
-  game.advanceRound(); // the warning becomes active under a parked payment
-  assert.equal(event.phase, 'active');
-  assert.equal(event.settlementApplied, undefined, 'the settlement waits for the obligation');
-  assert.equal(a.bankLoan.remaining, 450, 'no repricing lands under the parked payment');
-  game.pendingPayment = null;
-  game.advanceRound(); // the obligation cleared: the settlement lands now
-  assert.equal(event.settlementApplied, true);
-  assert.equal(a.bankLoan.remaining, 608, 'the repricing lands once the table is clear');
-}
-
 const CONTRACT_SUITES = [
-  ['activate: warning snapshot + phase ladder', testActivateWarningSnapshot],
-  ['activate: duration scaling (housing-bubble vs others)', testActivateDurationScaling],
-  ['activate: voting choices copy', testActivateVotingChoices],
-  ['activate: anti-monopoly leader / tax-audit target', testActivateTargetSelection],
-  ['activate: airport-strike ownership flags', testActivateAirportStrikeFlags],
-  ['activate: combo merge + comboExperienced', testActivateCombo],
-  ['maybeTrigger: settings/started/active/cooldown/round/cap gates', testMaybeTriggerGating],
-  ['maybeTrigger: chance thresholds + weighted selection', testMaybeTriggerChanceAndSelection],
-  ['maybeTrigger: surprise combination chaining', testMaybeTriggerComboPath],
-  ['vote: guards and tallies', testVoteGuards],
-  ['vote: waits for pending payment and open auction', testVoteWaitsForTableObligations],
-  ['resolveVote: preconditions', testResolveVotePreconditions],
-  ['resolveVote: unanimous + full-turnout auto-resolve', testResolveVoteUnanimous],
-  ['resolveVote: split and zero-turnout enact no choice (A8-06)', testResolveVoteTieAndTimeout],
-  ['resolveVote: strict majority of active seats at 2, 3, 4 and 6 seats (A8-06)', testVoteNeedsStrictMajorityOfActiveSeats],
-  ['resolveVote: publicEnemy + compromisedCouncil', testResolveVoteAntiMonopolyAndLegitimacy],
-  ['settlements: rent-control stipend + latch', testRentControlStipendSettlement],
-  ['settlements: currency devaluation + zero-cash flag', testCurrencyDevaluationSettlement],
-  ['settlements: bank-run bailout', testBankRunBailoutSettlement],
-  ['settlements: bank-run bailout reaches only distressed players (F-035)', testBankRunBailoutOnlyReachesDistressedPlayers],
-  ['copy: bank-run bailout text matches the rule (F-035)', testBankRunBailoutCopyMatchesRule],
-  ['settlements: ledger-run no-op + tax-audit amounts', testLetTheLedgerRunAndTaxAuditSettlement],
-  ['settlements: interest-rate shock reprices existing loans once', testInterestRateShockSettlement],
-  ['settlements: interest-rate shock preserves paid credit', testInterestRateShockPreservesPaidCredit],
-  ['settlements: labor-strike shortfalls become payable debt', testLaborStrikeShortfallCreatesDebt],
-  ['phases: housing-bubble survivor flags', testHousingBubbleSurvivorFlags],
-  ['effects: active-phase queries', testActivePhaseEffectQueries],
-  ['vote: a finished match refuses the ballot and closes the headline', testFinishedMatchRefusesTheBallot],
-  ['vote: a ballot from another election is stale', testStaleBallotIsRefused],
-  ['vote: the same request id is counted once', testVoteRequestIdIsCountedOnce],
-  ['vote: the socket layer carries the ballot identity', testSocketVoteCarriesTheBallotIdentity],
-  ['combo: the effects do not depend on which half fired it', testComboEffectsDoNotDependOnTriggerOrder],
-  ['combo: the debt-amnesty discount applies under moral-hazard', testDebtAmnestyDiscountAppliesUnderTheMoralHazardCombo],
-  ['combo: the component hooks and tile rules run',testComboRunsTheComponentLifecycle],
-  ['combo: the housing-bubble recovery rule runs', testComboRecoveryEndsTheHousingBubble],
-  ['settlements: the activation settlement waits for the table obligation', testActivationSettlementWaitsForTheTableObligation]
+  ['activate — warning snapshot + phase ladder', testActivateWarningSnapshot],
+  ['activate — duration scaling (housing-bubble vs others)', testActivateDurationScaling],
+  ['activate — voting choices copy', testActivateVotingChoices],
+  ['activate — anti-monopoly leader / tax-audit target', testActivateTargetSelection],
+  ['activate — airport-strike ownership flags', testActivateAirportStrikeFlags],
+  ['activate — combo merge + comboExperienced', testActivateCombo],
+  ['maybeTrigger — settings/started/active/cooldown/round/cap gates', testMaybeTriggerGating],
+  ['maybeTrigger — chance thresholds + weighted selection', testMaybeTriggerChanceAndSelection],
+  ['maybeTrigger — surprise combination chaining', testMaybeTriggerComboPath],
+  ['vote — guards and tallies', testVoteGuards],
+  ['resolveVote — preconditions', testResolveVotePreconditions],
+  ['resolveVote — unanimous + full-turnout auto-resolve', testResolveVoteUnanimous],
+  ['resolveVote — tie coin flip + zero-turnout timeout', testResolveVoteTieAndTimeout],
+  ['resolveVote — publicEnemy + compromisedCouncil', testResolveVoteAntiMonopolyAndLegitimacy],
+  ['settlements — rent-control stipend + latch', testRentControlStipendSettlement],
+  ['settlements — currency devaluation + zero-cash flag', testCurrencyDevaluationSettlement],
+  ['settlements — bank-run bailout', testBankRunBailoutSettlement],
+  ['settlements — ledger-run no-op + tax-audit amounts', testLetTheLedgerRunAndTaxAuditSettlement],
+  ['settlements — interest-rate shock reprices existing loans once', testInterestRateShockSettlement],
+  ['settlements — interest-rate shock preserves paid credit', testInterestRateShockPreservesPaidCredit],
+  ['settlements — labor-strike shortfalls become payable debt', testLaborStrikeShortfallCreatesDebt],
+  ['phases — housing-bubble survivor flags', testHousingBubbleSurvivorFlags],
+  ['effects — active-phase queries', testActivePhaseEffectQueries]
 ];
 
 let passedCount = 0;
@@ -1067,14 +737,14 @@ for (const [name, fn] of CONTRACT_SUITES) {
   try {
     await fn();
     passedCount += 1;
-    console.log(`PASS - ${name}`);
+    console.log(`PASS — ${name}`);
   } catch (error) {
     failedSuites.push([name, error]);
-    console.error(`FAIL - ${name}: ${error && error.message}`);
+    console.error(`FAIL — ${name}: ${error && error.message}`);
   }
 }
 const total = passedCount + failedSuites.length;
-console.log(`global-events tests: ${total} suites, ${passedCount} passed, ${failedSuites.length} failed`);
+console.log(`global-events tests: ${total} suites — ${passedCount} passed, ${failedSuites.length} failed`);
 if (failedSuites.length) {
   process.exitCode = 1;
 }

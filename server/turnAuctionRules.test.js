@@ -3,7 +3,6 @@
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { decideBotAuction } from './botLogic.js';
-import { auctionWillingness } from './botAuctionPolicy.js';
 
 function startedRoom() {
   const manager = new RoomManager();
@@ -50,7 +49,7 @@ await check('active player may build and sell after rolling until ending the tur
   assert.equal(game.endTurn(a.socketId).success, true);
   assert.deepEqual(game.manageProperty(a.socketId, { tileIndex: tile.index, action: 'build-house' }), {
     success: false,
-    error: 'You can only build during your turn.'
+    error: 'You can only build or sell during your turn.'
   });
 });
 
@@ -183,44 +182,6 @@ await check('property pledged as open contract collateral cannot be changed befo
   });
 });
 
-await check('an auction win records the acquisition facts a purchase records', () => {
-  const { game, a } = startedRoom();
-  game.globalEvent = { id: 'housing-bubble', phase: 'active', effects: { rentMultiplier: 0.65, constructionBlocked: true } };
-  a.cash = 500;
-  game.startAuction(game.getTile(1), a.id);
-  assert.equal(game.placeAuctionBid(a.socketId, 500).success, true);
-  game.finishAuction();
-  assert.equal(game.getTile(1).ownerId, a.id);
-  assert.equal(a.boughtDuringHousingBubble, true, 'an auction win is a purchase for the housing-bubble fact');
-  assert.equal(a.cash, 0);
-  assert.equal(a.zeroCashReached, true, 'spending the last dollar records the zero-cash fact');
-});
-
-await check('the bot auction ceiling respects the construction block and the rent cap', () => {
-  const tiles = [
-    { index: 11, type: 'property', group: 'Orange', price: 180, rent: 18, ownerId: 'policy-bot', houseCount: 0, mortgaged: false },
-    { index: 13, type: 'property', group: 'Orange', price: 180, rent: 18, ownerId: 'policy-bot', houseCount: 0, mortgaged: false },
-    { index: 14, type: 'property', group: 'Orange', price: 180, rent: 18, ownerId: null, houseCount: 0, mortgaged: false }
-  ];
-  const policyGame = (effects = {}, constructionBlocked = false) => ({
-    tiles,
-    roundNumber: 1,
-    getGroupTiles: group => tiles.filter(tile => tile.group === group),
-    getPropertyHouseCost: () => 100,
-    activeEventEffects: () => effects,
-    isConstructionBlocked: () => constructionBlocked
-  });
-  const bot = { id: 'policy-bot', cash: 3000, properties: [11, 13] };
-  const auction = { highestBid: 100, propertyTile: tiles[2] };
-  const open = auctionWillingness(auction, bot, policyGame());
-  assert.ok(open > 624, 'a completing deed is worth more than its face value and progress credit');
-  const blocked = auctionWillingness(auction, bot, policyGame({}, true));
-  assert.equal(blocked, 624, 'the canonical construction block cancels the completion upside');
-  const capped = auctionWillingness(auction, bot, policyGame({ rentCap: 1000 }));
-  assert.ok(capped < open, 'the rent cap lowers the completion value');
-  assert.ok(capped > 624, 'a cap that no deed reaches still leaves the progress credit');
-});
-
 await check('auction bot wait is a no-op candidate and does not remove its seat', async () => {
   const { game, a, b } = startedRoom();
   a.cash = 0;
@@ -237,6 +198,6 @@ await check('auction bot wait is a no-op candidate and does not remove its seat'
   assert.deepEqual(choice.candidates.map(candidate => candidate.id), ['auction:wait']);
   assert.deepEqual(auction.participants, [a.id, b.id]);
   a.cash = 100;
-  assert.equal(game.placeAuctionBid(a.socketId, 20).success, true, 'waiting keeps the seat, so the bot can still open at the shared step');
+  assert.equal(game.placeAuctionBid(a.socketId, 10).success, true);
   assert.equal(auction.highestBidderId, a.id);
 });

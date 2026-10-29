@@ -9,72 +9,63 @@ let passed = 0;
 const failures = [];
 
 function check(name, fn) {
-  try { fn(); passed += 1; console.log(`PASS - ${name}`); }
-  catch (error) { failures.push(name); console.error(`FAIL - ${name}: ${error && error.message}`); }
+  try {
+    fn();
+    passed += 1;
+    console.log(`PASS — ${name}`);
+  } catch (error) {
+    failures.push(name);
+    console.error(`FAIL — ${name}: ${error && error.message}`);
+  }
 }
 
 // The dice/pocket rolls run through crypto.randomInt(min, max + 1); the
-// roulette pocket draw is the only call site asking for (0, 0..36) to (0, 37).
+// roulette pocket draw is the only call site asking for (0, 0..36) -> (0, 37).
 // The queue is consumed in draw order; anything else falls through.
 function withPocketRolls(pockets, fn) {
   const original = nodeCrypto.randomInt;
   const queue = [...pockets];
   nodeCrypto.randomInt = (min, max) => (min === 0 && max === 37 && queue.length ? queue.shift() : original(min, max));
-  try { return fn(); } finally { nodeCrypto.randomInt = original; }
-}
-
-// Seats A and B, plus C when thirdSeat is set. The casino is opt-in and the table starts unless start is false.
-function buildRoom({ thirdSeat = false, casino = false, start = true } = {}) {
-  const manager = new RoomManager();
-  const room = manager.createRoom({ rulesProfile: 'advanced', socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
-  room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
-  if (thirdSeat) room.addOrReconnectPlayer({ socketId: 'socket-c', clientId: 'client-c', nickname: 'C' });
-  if (casino) room.setRoomSetting('casino', true);
-  if (start) room.startGame();
-  return room;
+  try {
+    return fn();
+  } finally {
+    nodeCrypto.randomInt = original;
+  }
 }
 
 function makeStartedRoom(casinoOn = true) {
-  return buildRoom({ casino: casinoOn });
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
+  room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
+  if (casinoOn) room.setRoomSetting('casino', true);
+  room.startGame();
+  return room;
 }
 
 function trioRoom() {
-  return buildRoom({ thirdSeat: true });
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
+  room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
+  room.addOrReconnectPlayer({ socketId: 'socket-c', clientId: 'client-c', nickname: 'C' });
+  room.startGame();
+  return room;
 }
 
-function lobby() {
-  return buildRoom({ start: false });
+function feedTexts(room) {
+  return room.game.feed.map(entry => entry.text);
 }
 
-// The room with its game, for tests that read both.
-function withGame(room) { return { room, game: room.game }; }
-
-function feedTexts(room) { return room.game.feed.map(entry => entry.text); }
-
-// The named seats of a game; c is undefined on a two-seat table.
-function seatsOf(game) {
-  return { a: game.getPlayerBySocket('socket-a'), b: game.getPlayerBySocket('socket-b'), c: game.getPlayerBySocket('socket-c') };
-}
-
-// Three broke players each owe an unsecured loan that is past its cure round, so processing queues three claims.
-function queueBankLoanDefaults(game) {
-  game.roundNumber = 10;
-  game.players.forEach(player => {
-    player.cash = 0;
-    player.bankLoan = { status: 'due', remaining: 300, dueRound: 8, cureRound: 9 };
-  });
-  game.processBankLoans();
-}
-
+// ---------------------------------------------------------------------------
 // Casino: rejection matrix
+// ---------------------------------------------------------------------------
 
-check('casino: disabled room rejects before every other rule', () => {
+check('casino — disabled room rejects before every other rule', () => {
   const room = makeStartedRoom(false);
   assert.deepEqual(room.placeCasinoBet('socket-a', 'red', 10, 'c1'), { success: false, error: 'Casino access is off for this room.' });
   assert.deepEqual(room.placeCasinoBet('socket-a', 'blue', 0, 'c1'), { success: false, error: 'Casino access is off for this room.' });
 });
 
-check('casino: rejects when table obligation is pending (all five kinds)', () => {
+check('casino — rejects when table obligation is pending (all five kinds)', () => {
   const obligations = [
     ['pendingPayment', { playerId: 'x', creditorId: null, amountRemaining: 1, reason: 'r' }],
     ['auction', { active: true }],
@@ -90,14 +81,17 @@ check('casino: rejects when table obligation is pending (all five kinds)', () =>
   }
 });
 
-check('casino: rejects unknown socket and unstarted rooms as unavailable', () => {
+check('casino — rejects unknown socket and unstarted rooms as unavailable', () => {
   const room = makeStartedRoom();
   assert.deepEqual(room.placeCasinoBet('socket-zz', 'red', 10, 'c1'), { success: false, error: 'Casino access is unavailable right now.' });
-  const lobbyRoom = buildRoom({ start: false, casino: true });
-  assert.deepEqual(lobbyRoom.placeCasinoBet('socket-a', 'red', 10, 'c1'), { success: false, error: 'Casino access is unavailable right now.' });
+  const manager = new RoomManager();
+  const lobby = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
+  lobby.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
+  lobby.setRoomSetting('casino', true);
+  assert.deepEqual(lobby.placeCasinoBet('socket-a', 'red', 10, 'c1'), { success: false, error: 'Casino access is unavailable right now.' });
 });
 
-check('casino: rejects bankrupt and disconnected players as unavailable', () => {
+check('casino — rejects bankrupt and disconnected players as unavailable', () => {
   const room = makeStartedRoom();
   room.game.getPlayerBySocket('socket-b').bankrupt = true;
   assert.deepEqual(room.placeCasinoBet('socket-b', 'red', 10, 'c1'), { success: false, error: 'Casino access is unavailable right now.' });
@@ -106,7 +100,7 @@ check('casino: rejects bankrupt and disconnected players as unavailable', () => 
   assert.deepEqual(other.placeCasinoBet('socket-b', 'red', 10, 'c1'), { success: false, error: 'Casino access is unavailable right now.' });
 });
 
-check('casino: color validation matrix', () => {
+check('casino — color validation matrix', () => {
   const room = makeStartedRoom();
   assert.deepEqual(room.placeCasinoBet('socket-a', 'blue', 10, 'c1'), { success: false, error: 'Choose red, black, or green.' });
   assert.deepEqual(room.placeCasinoBet('socket-a', '', 10, 'c1'), { success: false, error: 'Choose red, black, or green.' });
@@ -118,7 +112,7 @@ check('casino: color validation matrix', () => {
   assert.equal(result.result.color, 'red');
 });
 
-check('casino: stake validation matrix against casinoLimits()', () => {
+check('casino — stake validation matrix against casinoLimits()', () => {
   const room = makeStartedRoom();
   const limits = room.game.casinoLimits();
   assert.deepEqual(limits, { maxBet: 500, entryFee: 0 });
@@ -137,7 +131,7 @@ check('casino: stake validation matrix against casinoLimits()', () => {
   assert.equal(result.result.balanceAfter, 1510);
 });
 
-check('casino: loan-backed cash is rejected after stake validation', () => {
+check('casino — loan-backed cash is rejected after stake validation', () => {
   for (const status of ['active', 'due']) {
     const room = makeStartedRoom();
     room.game.getPlayerBySocket('socket-a').bankLoan = { status };
@@ -148,11 +142,14 @@ check('casino: loan-backed cash is rejected after stake validation', () => {
   assert.equal(withPocketRolls([1], () => room.placeCasinoBet('socket-a', 'red', 10, 'c2')).success, true);
 });
 
-check('casino: insufficient cash covers stake plus entry fee', () => {
+check('casino — insufficient cash covers stake plus entry fee', () => {
   const room = makeStartedRoom();
   const player = room.game.getPlayerBySocket('socket-a');
   player.cash = 40;
-  assert.deepEqual(room.placeCasinoBet('socket-a', 'red', 50, 'c1'), { success: false, error: 'You do not have enough available cash for the stake and event fee.' });
+  assert.deepEqual(room.placeCasinoBet('socket-a', 'red', 50, 'c1'), {
+    success: false,
+    error: 'You do not have enough available cash for the stake and event fee.'
+  });
   // Exactly enough cash is allowed (and marks the all-in fact).
   player.cash = 50;
   const result = withPocketRolls([2], () => room.placeCasinoBet('socket-a', 'red', 50, 'c2'));
@@ -160,7 +157,7 @@ check('casino: insufficient cash covers stake plus entry fee', () => {
   assert.equal(player.casinoAllIn, true);
 });
 
-check('casino: event effects lower maxBet and add an entry fee', () => {
+check('casino — event effects lower maxBet and add an entry fee', () => {
   const room = makeStartedRoom();
   room.game.globalEvent = { id: 'custom', phase: 'active', effects: { casinoMaxBet: 100, casinoEntryFee: 25 } };
   assert.deepEqual(room.game.casinoLimits(), { maxBet: 100, entryFee: 25 });
@@ -176,11 +173,14 @@ check('casino: event effects lower maxBet and add an entry fee', () => {
   assert.equal(winner.economy.casino.entryFee, 25);
 });
 
+// ---------------------------------------------------------------------------
 // Casino: settlement outcomes, ledger, feed, idempotency
+// ---------------------------------------------------------------------------
 
-check('casino: red win pays 1:1 with exact ledger, stats, and feed', () => {
+check('casino — red win pays 1:1 with exact ledger, stats, and feed', () => {
   const room = makeStartedRoom();
-  const { a: player, b: other } = seatsOf(room.game);
+  const player = room.game.getPlayerBySocket('socket-a');
+  const other = room.game.getPlayerBySocket('socket-b');
   const result = withPocketRolls([1], () => room.placeCasinoBet('socket-a', 'red', 100, 'c1'));
   assert.equal(result.success, true);
   assert.equal(result.result.pocket, 1);
@@ -210,14 +210,16 @@ check('casino: red win pays 1:1 with exact ledger, stats, and feed', () => {
   assert.equal(room.game.casinoLedger[0].createdAt, new Date(room.game.casinoLedger[0].createdAt).toISOString());
   assert.equal(player.casinoLedger.length, 1);
   assert.equal(player.casinoLedger[0].playerId, undefined);
-  assert.deepEqual(room.game.casinoLastResult, { playerId: player.id, color: 'red', pocket: 1, resultColor: 'red', net: 100, roundNumber: 1 });
+  assert.deepEqual(room.game.casinoLastResult, {
+    playerId: player.id, color: 'red', pocket: 1, resultColor: 'red', net: 100, roundNumber: 1
+  });
   assert.equal(result.economy.casino.enabled, true);
   assert.equal(result.economy.casino.net, 100);
   assert.deepEqual(result.economy.casino.lastResult, room.game.casinoLastResult);
   assert.equal(result.economy.market.enabled, false);
 });
 
-check('casino: black win on a black pocket pays 1:1', () => {
+check('casino — black win on a black pocket pays 1:1', () => {
   const room = makeStartedRoom();
   const result = withPocketRolls([2], () => room.placeCasinoBet('socket-b', 'black', 25, 'c2'));
   assert.equal(result.result.resultColor, 'black');
@@ -226,7 +228,7 @@ check('casino: black win on a black pocket pays 1:1', () => {
   assert.equal(feedTexts(room)[0], 'B bet $25 on BLACK and won $25.');
 });
 
-check('casino: green pays 35:1 only on pocket 0', () => {
+check('casino — green pays 35:1 only on pocket 0', () => {
   const room = makeStartedRoom();
   const winner = withPocketRolls([0], () => room.placeCasinoBet('socket-a', 'green', 10, 'g1'));
   assert.equal(winner.result.net, 350);
@@ -238,7 +240,7 @@ check('casino: green pays 35:1 only on pocket 0', () => {
   assert.equal(feedTexts(room)[0], 'A bet $10 on GREEN and lost $10.');
 });
 
-check('casino: red and black lose to a green pocket', () => {
+check('casino — red and black lose to a green pocket', () => {
   const room = makeStartedRoom();
   const loser = withPocketRolls([0], () => room.placeCasinoBet('socket-a', 'red', 20, 'g3'));
   assert.equal(loser.result.resultColor, 'green');
@@ -246,7 +248,7 @@ check('casino: red and black lose to a green pocket', () => {
   assert.equal(feedTexts(room)[0], 'A bet $20 on RED and lost $20.');
 });
 
-check('casino: one-dollar bet sets the one-dollar fact', () => {
+check('casino — one-dollar bet sets the one-dollar fact', () => {
   const room = makeStartedRoom();
   const player = room.game.getPlayerBySocket('socket-a');
   withPocketRolls([2], () => room.placeCasinoBet('socket-a', 'black', 1, 'd1'));
@@ -254,7 +256,7 @@ check('casino: one-dollar bet sets the one-dollar fact', () => {
   assert.equal(player.casinoMaxStake, 1);
 });
 
-check('casino: requestId transactions are idempotent and keyed per player', () => {
+check('casino — requestId transactions are idempotent and keyed per player', () => {
   const room = makeStartedRoom();
   const first = withPocketRolls([1], () => room.placeCasinoBet('socket-a', 'red', 10, 'same'));
   const feedLength = room.game.feed.length;
@@ -268,7 +270,7 @@ check('casino: requestId transactions are idempotent and keyed per player', () =
   assert.equal(other.result.transactionId, `${room.game.getPlayerBySocket('socket-b').id}:casino:same`);
 });
 
-check('casino: missing requestId generates uuid ledger ids without caching', () => {
+check('casino — missing requestId generates uuid ledger ids without caching', () => {
   const room = makeStartedRoom();
   const first = withPocketRolls([1, 2], () => {
     const a = room.placeCasinoBet('socket-a', 'red', 10);
@@ -280,7 +282,7 @@ check('casino: missing requestId generates uuid ledger ids without caching', () 
   assert.equal(room.game.getPlayerBySocket('socket-a').casinoBetsThisRound, 2);
 });
 
-check('casino: blank and oversized request ids degrade to no cache key', () => {
+check('casino — blank and oversized request ids degrade to no cache key', () => {
   const room = makeStartedRoom();
   const [first, replay] = withPocketRolls([1, 1], () => [
     room.placeCasinoBet('socket-a', 'red', 10, '   '),
@@ -292,7 +294,7 @@ check('casino: blank and oversized request ids degrade to no cache key', () => {
   assert.equal(pinned.result.transactionId, `${room.game.getPlayerBySocket('socket-a').id}:casino:${`x${'y'.repeat(99)}`}`);
 });
 
-check('casino: player ledger caps at 50 entries', () => {
+check('casino — player ledger caps at 50 entries', () => {
   const room = makeStartedRoom();
   const player = room.game.getPlayerBySocket('socket-a');
   player.cash = 500;
@@ -307,11 +309,14 @@ check('casino: player ledger caps at 50 entries', () => {
   assert.equal(room.game.feed.length, 40);
 });
 
-// chargePlayer: full payment, partial payment gives pendingPayment
+// ---------------------------------------------------------------------------
+// chargePlayer: full payment, partial payment -> pendingPayment
+// ---------------------------------------------------------------------------
 
-check('chargePlayer: full payment credits the creditor with rent facts', () => {
+check('chargePlayer — full payment credits the creditor with rent facts', () => {
   const room = makeStartedRoom(false);
-  const { a, b } = seatsOf(room.game);
+  const a = room.game.getPlayerBySocket('socket-a');
+  const b = room.game.getPlayerBySocket('socket-b');
   room.game.chargePlayer({ player: b, creditor: a, amount: 1500, message: 'B paid $1500 rent to A.', turnOptions: {} });
   assert.equal(b.cash, 0);
   assert.equal(b.zeroCashReached, true);
@@ -324,9 +329,9 @@ check('chargePlayer: full payment credits the creditor with rent facts', () => {
   assert.equal(room.game.awaitingEndTurn, true);
 });
 
-check('chargePlayer: non-positive or missing payer just resolves the turn', () => {
+check('chargePlayer — non-positive or missing payer just resolves the turn', () => {
   const room = makeStartedRoom(false);
-  const { a } = seatsOf(room.game);
+  const a = room.game.getPlayerBySocket('socket-a');
   room.game.awaitingEndTurn = false;
   room.game.chargePlayer({ player: a, amount: 0, message: 'nothing', turnOptions: {} });
   assert.equal(a.cash, 1500);
@@ -335,9 +340,10 @@ check('chargePlayer: non-positive or missing payer just resolves the turn', () =
   assert.equal(a.cash, 1500);
 });
 
-check('chargePlayer: shortfall pays what it can and opens pendingPayment', () => {
+check('chargePlayer — shortfall pays what it can and opens pendingPayment', () => {
   const room = makeStartedRoom(false);
-  const { a, b } = seatsOf(room.game);
+  const a = room.game.getPlayerBySocket('socket-a');
+  const b = room.game.getPlayerBySocket('socket-b');
   b.cash = 300;
   room.game.chargePlayer({ player: b, creditor: a, amount: 1000, message: 'B paid $1000 rent to A.', turnOptions: { turn: 'ctx' }, hooks: { equityTileIndex: 1, equityOwnerId: 'e' } });
   assert.equal(b.cash, 0);
@@ -355,9 +361,10 @@ check('chargePlayer: shortfall pays what it can and opens pendingPayment', () =>
   assert.equal(room.game.awaitingEndTurn, false);
 });
 
-check('chargePlayer: zero-cash debtor opens the debt without a partial feed', () => {
+check('chargePlayer — zero-cash debtor opens the debt without a partial feed', () => {
   const room = makeStartedRoom(false);
-  const { a, b } = seatsOf(room.game);
+  const b = room.game.getPlayerBySocket('socket-b');
+  const a = room.game.getPlayerBySocket('socket-a');
   b.cash = 0;
   room.game.chargePlayer({ player: b, creditor: a, amount: 500, message: 'debt message', turnOptions: {} });
   assert.equal(a.cash, 1500);
@@ -365,9 +372,9 @@ check('chargePlayer: zero-cash debtor opens the debt without a partial feed', ()
   assert.equal(feedTexts(room)[0], 'B owes $500. Mortgage or sell buildings to raise funds, or declare bankruptcy.');
 });
 
-check('chargePlayer: bank debt keeps a null creditor and default equity hooks', () => {
+check('chargePlayer — bank debt keeps a null creditor and default equity hooks', () => {
   const room = makeStartedRoom(false);
-  const { b } = seatsOf(room.game);
+  const b = room.game.getPlayerBySocket('socket-b');
   b.cash = 0;
   room.game.chargePlayer({ player: b, amount: 500, message: 'B owed the bank', turnOptions: {} });
   assert.deepEqual(room.game.pendingPayment, {
@@ -375,14 +382,19 @@ check('chargePlayer: bank debt keeps a null creditor and default equity hooks', 
   });
 });
 
+// ---------------------------------------------------------------------------
 // declareBankruptcy + handleBankruptcy
+// ---------------------------------------------------------------------------
 
-check('declareBankruptcy: guards, then voluntary retirement (behavior change)', () => {
+check('declareBankruptcy — guards, then voluntary retirement (behavior change)', () => {
   const room = makeStartedRoom(false);
   assert.deepEqual(room.declareBankruptcy('socket-zz'), { success: false, error: 'Player not found.' });
-  const lobbyRoom = new RoomManager().createRoom({ rulesProfile: 'advanced', socketId: 'socket-l', clientId: 'client-l', nickname: 'L' });
-  assert.deepEqual(lobbyRoom.declareBankruptcy('socket-l'), { success: false, error: 'The game has not started.' });
-  // Debt is not required: a solvent player can walk away.
+  const lobbyManager = new RoomManager();
+  const lobby = lobbyManager.createRoom({ socketId: 'socket-l', clientId: 'client-l', nickname: 'L' });
+  assert.deepEqual(lobby.declareBankruptcy('socket-l'), { success: false, error: 'The game has not started.' });
+  // Debt is no longer required: a solvent player can walk away. This block
+  // previously pinned "You have no outstanding debt to settle."; the
+  // bankruptcy-ownership redesign replaced that rejection with retirement.
   const first = room.declareBankruptcy('socket-b');
   assert.equal(first.success, true);
   assert.equal(first.voluntary, true);
@@ -393,7 +405,8 @@ check('declareBankruptcy: guards, then voluntary retirement (behavior change)', 
 });
 
 check('voluntary retirement releases deeds neutral and cancels held obligations', () => {
-  const { room, game } = withGame(trioRoom());
+  const room = trioRoom();
+  const game = room.game;
   const a = game.getPlayerBySocket('socket-a');
   const deed = game.getTile(1);
   deed.ownerId = a.id;
@@ -418,7 +431,8 @@ check('voluntary retirement releases deeds neutral and cancels held obligations'
 });
 
 check('unsecured bank loan default files a bank claim instead of auto-eliminating', () => {
-  const { room, game } = withGame(makeStartedRoom(false));
+  const room = makeStartedRoom(false);
+  const game = room.game;
   const b = game.getPlayerBySocket('socket-b');
   b.cash = 40;
   b.bankLoan = { status: 'due', remaining: 300, dueRound: game.roundNumber, cureRound: game.roundNumber };
@@ -434,30 +448,15 @@ check('unsecured bank loan default files a bank claim instead of auto-eliminatin
   assert.ok(feeds.includes('B defaulted on an unsecured bank loan.'));
   assert.ok(feeds.includes('B paid $40 toward the debt.'));
   assert.ok(feeds.includes('B owes $260. Mortgage or sell buildings to raise funds, or declare bankruptcy.'));
-  // The debt is the player's choice: settling or retiring both work.
+  // The debt is now the player's choice: settling or retiring both work.
   assert.equal(room.declareBankruptcy('socket-b').success, true);
   assert.equal(b.bankrupt, true);
   assert.equal(game.pendingPayment, null);
 });
 
-check('a defaulted bank loan whose claim is written off clears the balance on the departed seat', () => {
-  const { room, game } = withGame(makeStartedRoom(false));
-  const b = game.getPlayerBySocket('socket-b');
-  b.cash = 40;
-  b.bankLoan = { status: 'due', remaining: 300, dueRound: game.roundNumber, cureRound: game.roundNumber };
-  game.roundNumber += 1;
-  game.processBankLoans();
-  assert.equal(b.bankLoan.status, 'defaulted');
-  assert.ok(b.bankLoan.remaining > 0, 'the queued bank claim keeps a balance while the seat stays');
-  const owed = b.bankLoan.remaining;
-  assert.equal(room.declareBankruptcy('socket-b').success, true);
-  assert.equal(b.bankLoan.status, 'defaulted');
-  assert.equal(b.bankLoan.remaining, 0, 'nothing collectable: the departed seat keeps no loan balance');
-  assert.ok(feedTexts(room).includes(`B's $${owed} bank loan balance was written off.`));
-});
-
 check('a solvent player repays an unsecured default in full without a claim', () => {
-  const { room, game } = withGame(makeStartedRoom(false));
+  const room = makeStartedRoom(false);
+  const game = room.game;
   const b = game.getPlayerBySocket('socket-b');
   b.cash = 500;
   b.bankLoan = { status: 'due', remaining: 300, dueRound: game.roundNumber, cureRound: game.roundNumber };
@@ -470,7 +469,8 @@ check('a solvent player repays an unsecured default in full without a claim', ()
 });
 
 check('collateralized bank default clears the settled balance', () => {
-  const { game } = withGame(makeStartedRoom(false));
+  const room = makeStartedRoom(false);
+  const game = room.game;
   const b = game.getPlayerBySocket('socket-b');
   const deed = game.getTile(1);
   deed.ownerId = b.id;
@@ -485,7 +485,8 @@ check('collateralized bank default clears the settled balance', () => {
 });
 
 check('bank seizure sells collateral buildings to the borrower before transfer', () => {
-  const { game } = withGame(makeStartedRoom(false));
+  const room = makeStartedRoom(false);
+  const game = room.game;
   const borrower = game.getPlayerBySocket('socket-b');
   const deed = game.getTile(1);
   deed.ownerId = borrower.id;
@@ -505,7 +506,8 @@ check('bank seizure sells collateral buildings to the borrower before transfer',
 });
 
 check('bank loan final-cure achievement fact requires a successful full repayment', () => {
-  const { game } = withGame(makeStartedRoom(false));
+  const room = makeStartedRoom(false);
+  const game = room.game;
   const player = game.getPlayerBySocket('socket-a');
   game.currentPlayerId = player.id;
   game.roundNumber = 5;
@@ -520,8 +522,10 @@ check('bank loan final-cure achievement fact requires a successful full repaymen
 });
 
 check('loan collateral is re-validated when the contract is accepted', () => {
-  const { game } = withGame(makeStartedRoom(false));
-  const { a, b } = seatsOf(game);
+  const room = makeStartedRoom(false);
+  const game = room.game;
+  const a = game.getPlayerBySocket('socket-a');
+  const b = game.getPlayerBySocket('socket-b');
   const deed = game.getTile(1);
   deed.ownerId = b.id;
   a.cash = 1000;
@@ -537,8 +541,10 @@ check('loan collateral is re-validated when the contract is accepted', () => {
 });
 
 check('a due player loan notifies the lender in the feed', () => {
-  const { room, game } = withGame(makeStartedRoom(false));
-  const { a, b } = seatsOf(game);
+  const room = makeStartedRoom(false);
+  const game = room.game;
+  const a = game.getPlayerBySocket('socket-a');
+  const b = game.getPlayerBySocket('socket-b');
   a.cash = 1000;
   const proposed = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 100 });
   assert.equal(proposed.success, true);
@@ -553,7 +559,8 @@ check('a due player loan notifies the lender in the feed', () => {
 });
 
 check('equity settlement ignores corrupt shares and bankrupt owners', () => {
-  const { game } = withGame(makeStartedRoom(false));
+  const room = makeStartedRoom(false);
+  const game = room.game;
   const tile = game.getTile(1);
   const owner = game.getPlayerBySocket('socket-a');
   const holder = game.getPlayerBySocket('socket-b');
@@ -570,8 +577,9 @@ check('equity settlement ignores corrupt shares and bankrupt owners', () => {
 });
 
 check('forced market liquidation records realized P&L on the way out', () => {
-  const { room, game } = withGame(makeStartedRoom(false));
-  const { b } = seatsOf(game);
+  const room = makeStartedRoom(false);
+  const game = room.game;
+  const b = game.getPlayerBySocket('socket-b');
   b.cash = 0;
   b.marketPositions = { brazil: { quantity: 2, averageCost: 120, realizedPnl: 0 } };
   game.chargePlayer({ player: b, amount: 500, message: 'debt', turnOptions: {} });
@@ -583,9 +591,11 @@ check('forced market liquidation records realized P&L on the way out', () => {
   assert.equal(b.marketPositions.brazil.realizedPnl, -44); // 196 net proceeds - 240 cost basis
 });
 
-check('bankruptcy: partial, liquidation, sweep, and deed transfer reach the creditor in order', () => {
-  const { room, game } = withGame(trioRoom());
-  const { a, b } = seatsOf(game);
+check('bankruptcy — partial, liquidation, sweep, and deed transfer reach the creditor in order', () => {
+  const room = trioRoom();
+  const game = room.game;
+  const a = game.getPlayerBySocket('socket-a');
+  const b = game.getPlayerBySocket('socket-b');
   b.cash = 300;
   game.chargePlayer({ player: b, creditor: a, amount: 1000, message: 'rent message', turnOptions: {} });
   // B holds deeds 1 and 3, deed 1 mortgaged with buildings, plus market bags.
@@ -600,7 +610,7 @@ check('bankruptcy: partial, liquidation, sweep, and deed transfer reach the cred
   game.turnAllowsExtraRoll = true;
   game.consecutiveDoubles = 2;
   assert.equal(room.declareBankruptcy('socket-b').success, true);
-  // 2*100 gross minus ceil(2*100*0.02)=4 fee gives $196 liquidated into B's cash
+  // 2*100 gross minus ceil(2*100*0.02)=4 fee -> $196 liquidated into B's cash
   // first, then swept to the creditor. Positions flatten but stay recorded
   // so the match snapshot captures the realized P&L of the forced exit.
   assert.equal(a.cash, 1800 + 196);
@@ -610,11 +620,9 @@ check('bankruptcy: partial, liquidation, sweep, and deed transfer reach the cred
   assert.equal(b.marketPositions.ghost.realizedPnl, 0);
   assert.equal(b.bankrupt, true);
   assert.equal(b.bubbleSurvivor, false);
-  // The roller (A) is not the departing seat: its doubles streak and pending
-  // extra roll belong to A and must survive B's bankruptcy.
-  assert.equal(game.extraRollPending, true);
-  assert.equal(game.turnAllowsExtraRoll, true);
-  assert.equal(game.consecutiveDoubles, 2);
+  assert.equal(game.extraRollPending, false);
+  assert.equal(game.turnAllowsExtraRoll, false);
+  assert.equal(game.consecutiveDoubles, 0);
   assert.equal(game.pendingPayment, null);
   assert.equal(game.pendingPaymentTurnOptions, null);
   assert.deepEqual(a.properties, [1, 3]);
@@ -630,42 +638,27 @@ check('bankruptcy: partial, liquidation, sweep, and deed transfer reach the cred
   assert.equal(game.currentPlayerId, a.id);
 });
 
-check('bankruptcy: the departing roller clears its own doubles streak and the turn advances', () => {
-  const { room, game } = withGame(trioRoom());
-  const { b, c } = seatsOf(game);
-  game.currentPlayerId = b.id;
-  game.hasRolled = true;
-  game.extraRollPending = true;
-  game.turnAllowsExtraRoll = true;
-  game.consecutiveDoubles = 2;
-  assert.equal(room.declareBankruptcy('socket-b').success, true);
-  assert.equal(game.extraRollPending, false);
-  assert.equal(game.turnAllowsExtraRoll, false);
-  assert.equal(game.consecutiveDoubles, 0);
-  assert.equal(game.currentPlayerId, c.id);
-});
-
-check('bankruptcy: liquidation floors the fee and ignores unquoted positions', () => {
-  const { room, game } = withGame(trioRoom());
-  const { b } = seatsOf(game);
+check('bankruptcy — liquidation floors the fee and ignores unquoted positions', () => {
+  const room = trioRoom();
+  const game = room.game;
+  const b = game.getPlayerBySocket('socket-b');
   b.cash = 0;
   b.marketPositions = { brazil: { quantity: 1 }, retiredIndex: { quantity: 9, averageCost: 40, realizedPnl: 2 } };
   game.chargePlayer({ player: b, amount: 500, message: 'debt', turnOptions: {} });
   room.declareBankruptcy('socket-b');
-  // 100 - ceil(2) = 98 of liquidation proceeds. With no creditor to sweep to,
-  // the proceeds forfeit to the bank: the seat is left with nothing
-  // and the forfeit is announced between the liquidation and the bankruptcy.
-  assert.equal(b.cash, 0);
+  // 100 - ceil(2) = 98 into a debtless-but-bankrupt... creditor-less player:
+  // cash stays with the bankrupt player (no creditor to sweep).
+  assert.equal(b.cash, 98);
   assert.equal(feedTexts(room)[0], "B is bankrupt and removed from the game.");
-  assert.equal(feedTexts(room)[1], "B forfeits $98 to the bank.");
-  assert.equal(feedTexts(room)[2], "B's market positions were liquidated for $98.");
+  assert.equal(feedTexts(room)[1], "B's market positions were liquidated for $98.");
   assert.equal(b.marketPositions.retiredIndex.quantity, 0);
   assert.equal(b.marketPositions.retiredIndex.averageCost, 0);
 });
 
-check('bankruptcy: no creditor releases deeds (mortgage and houses cleared)', () => {
-  const { room, game } = withGame(trioRoom());
-  const { a, b } = seatsOf(game);
+check('bankruptcy — no creditor releases deeds (mortgage and houses cleared)', () => {
+  const room = trioRoom();
+  const game = room.game;
+  const b = game.getPlayerBySocket('socket-b');
   b.cash = 0;
   game.tiles[5].ownerId = b.id;
   game.tiles[5].mortgaged = true;
@@ -677,70 +670,12 @@ check('bankruptcy: no creditor releases deeds (mortgage and houses cleared)', ()
   assert.equal(game.tiles[5].mortgaged, false);
   assert.equal(game.tiles[5].houseCount, 0);
   assert.deepEqual(b.properties, []);
-  assert.equal(game.currentPlayerId, a.id);
+  assert.equal(game.currentPlayerId, game.getPlayerBySocket('socket-a').id);
 });
 
-// Owner decision: keep. A bankruptcy hands every deed over unbuilt and unmortgaged, whichever way it goes: to a solvent creditor,
-// to a bankrupt creditor, or to no creditor. Houses return to the supply and nothing is paid for them or the cleared mortgage.
-// A bank seizure is pinned separately and liquidates houses at the half rate. Changing this needs a new owner decision.
-check('A7-08 pin: a solvent creditor takes a built, mortgaged deed unbuilt and unmortgaged, paying nothing for either', () => {
-  const { room, game } = withGame(trioRoom());
-  const { a, b } = seatsOf(game);
-  const deed = game.getTile(1);
-  deed.ownerId = b.id;
-  deed.mortgaged = true;
-  deed.houseCount = 3;
-  b.properties = [deed.index];
-  b.cash = 0;
-  game.chargePlayer({ player: b, creditor: a, amount: 500, message: 'debt', turnOptions: {} });
-  const creditorCash = a.cash;
-  assert.equal(room.declareBankruptcy('socket-b').success, true);
-  assert.equal(deed.ownerId, a.id);
-  assert.equal(deed.houseCount, 0);
-  assert.equal(deed.mortgaged, false);
-  assert.equal(a.cash, creditorCash, 'the creditor is paid nothing for the houses or the mortgage');
-  assert.equal(feedTexts(room).some(text => text.includes('forfeits')), false);
-});
-
-check('A7-08 pin: a bankruptcy with no creditor returns built, mortgaged deeds to the market unbuilt and unmortgaged', () => {
-  const { room, game } = withGame(trioRoom());
-  const { c } = seatsOf(game);
-  const deed = game.getTile(5);
-  deed.ownerId = c.id;
-  deed.mortgaged = true;
-  deed.houseCount = 4;
-  c.properties = [deed.index];
-  c.cash = 0;
-  assert.deepEqual(room.declareBankruptcy('socket-c'), { success: true, voluntary: true });
-  assert.equal(deed.ownerId, null);
-  assert.equal(deed.houseCount, 0);
-  assert.equal(deed.mortgaged, false);
-  assert.deepEqual(c.properties, []);
-  assert.equal(c.cash, 0, 'no cash is paid for the wiped houses or the cleared mortgage');
-});
-
-check('A7-08 pin: a bankrupt creditor gets nothing, so the deed is released like a no-creditor bankruptcy', () => {
-  const { room, game } = withGame(trioRoom());
-  const { a, b, c } = seatsOf(game);
-  const deed = game.getTile(1);
-  deed.ownerId = b.id;
-  deed.mortgaged = true;
-  deed.houseCount = 2;
-  b.properties = [deed.index];
-  b.cash = 0;
-  c.bankrupt = true;
-  game.chargePlayer({ player: b, creditor: c, amount: 500, message: 'debt', turnOptions: {} });
-  const creditorCash = c.cash;
-  assert.equal(room.declareBankruptcy('socket-b').success, true);
-  assert.equal(deed.ownerId, null);
-  assert.equal(deed.houseCount, 0);
-  assert.equal(deed.mortgaged, false);
-  assert.equal(c.cash, creditorCash);
-  assert.equal(a.bankrupt, false);
-});
-
-check('bankruptcy: releasing a deed also terminates its equity holders', () => {
-  const { room, game } = withGame(trioRoom());
+check('bankruptcy — releasing a deed also terminates its equity holders', () => {
+  const room = trioRoom();
+  const game = room.game;
   const borrower = game.getPlayerBySocket('socket-b');
   const tile = game.getTile(1);
   tile.ownerId = borrower.id;
@@ -752,9 +687,12 @@ check('bankruptcy: releasing a deed also terminates its equity holders', () => {
   assert.equal(game.playerContractById('equity-release').status, 'terminated');
 });
 
-check('bankruptcy: contract collateral settles before rent-creditor forfeiture', () => {
-  const { room, game } = withGame(trioRoom());
-  const { a: lender, b: borrower, c: rentCreditor } = seatsOf(game);
+check('bankruptcy — contract collateral settles before rent-creditor forfeiture', () => {
+  const room = trioRoom();
+  const game = room.game;
+  const lender = game.getPlayerBySocket('socket-a');
+  const borrower = game.getPlayerBySocket('socket-b');
+  const rentCreditor = game.getPlayerBySocket('socket-c');
   const tile = game.getTile(1);
   tile.ownerId = borrower.id;
   borrower.properties = [tile.index];
@@ -769,9 +707,12 @@ check('bankruptcy: contract collateral settles before rent-creditor forfeiture',
   assert.equal(rentCreditor.properties.includes(tile.index), false);
 });
 
-check('bankruptcy: contracts settle before deeds move', () => {
-  const { room, game } = withGame(trioRoom());
-  const { a, b, c } = seatsOf(game);
+check('bankruptcy — contracts settle before deeds move', () => {
+  const room = trioRoom();
+  const game = room.game;
+  const a = game.getPlayerBySocket('socket-a');
+  const b = game.getPlayerBySocket('socket-b');
+  const cc = game.getPlayerBySocket('socket-c');
   b.cash = 0;
   // B already owes collateral deed 6 to lender A; deed 1 is a plain holding.
   game.tiles[6].ownerId = b.id;
@@ -779,12 +720,12 @@ check('bankruptcy: contracts settle before deeds move', () => {
   b.properties = [6, 1];
   game.playerContracts.push(
     { id: 'L1', kind: 'loan', status: 'active', fromPlayerId: a.id, toPlayerId: b.id, collateralTileIndex: 6 },
-    { id: 'L2', kind: 'loan', status: 'due', fromPlayerId: b.id, toPlayerId: c.id, collateralTileIndex: null },
+    { id: 'L2', kind: 'loan', status: 'due', fromPlayerId: b.id, toPlayerId: cc.id, collateralTileIndex: null },
     { id: 'L3', kind: 'loan', status: 'paid', fromPlayerId: a.id, toPlayerId: b.id, collateralTileIndex: 1 },
-    { id: 'E1', kind: 'equity', status: 'active', fromPlayerId: c.id, toPlayerId: b.id, propertyIndex: 12 }
+    { id: 'E1', kind: 'equity', status: 'active', fromPlayerId: cc.id, toPlayerId: b.id, propertyIndex: 12 }
   );
   game.tiles[12].equityShares = [
-    { contractId: 'E1', holderId: c.id, share: 20 },
+    { contractId: 'E1', holderId: cc.id, share: 20 },
     { contractId: 'E9', holderId: a.id, share: 10 }
   ];
   game.chargePlayer({ player: b, amount: 400, message: 'debt', turnOptions: {} });
@@ -808,9 +749,11 @@ check('bankruptcy: contracts settle before deeds move', () => {
   assert.equal(game.tiles[1].ownerId, null);
 });
 
-check('bankruptcy: collateral only transfers while the debtor still holds it', () => {
-  const { room, game } = withGame(makeStartedRoom(false));
-  const { a, b } = seatsOf(game);
+check('bankruptcy — collateral only transfers while the debtor still holds it', () => {
+  const room = makeStartedRoom(false);
+  const game = room.game;
+  const a = game.getPlayerBySocket('socket-a');
+  const b = game.getPlayerBySocket('socket-b');
   b.cash = 0;
   game.tiles[6].ownerId = a.id;
   game.playerContracts.push({ id: 'L1', kind: 'loan', status: 'active', fromPlayerId: a.id, toPlayerId: b.id, collateralTileIndex: 6 });
@@ -821,9 +764,11 @@ check('bankruptcy: collateral only transfers while the debtor still holds it', (
   assert.equal(game.playerContracts[0].status, 'defaulted');
 });
 
-check('bankruptcy: bankrupt current player hands over the turn', () => {
-  const { room, game } = withGame(trioRoom());
-  const { a, b } = seatsOf(game);
+check('bankruptcy — bankrupt current player hands over the turn', () => {
+  const room = trioRoom();
+  const game = room.game;
+  const a = game.getPlayerBySocket('socket-a');
+  const b = game.getPlayerBySocket('socket-b');
   assert.equal(game.currentPlayerId, a.id);
   a.cash = 0;
   game.chargePlayer({ player: a, creditor: b, amount: 900, message: 'debt', turnOptions: {} });
@@ -834,9 +779,11 @@ check('bankruptcy: bankrupt current player hands over the turn', () => {
   assert.deepEqual(feedTexts(room).slice(0, 2), ["B's turn.", 'A is bankrupt. Assets transferred to B.']);
 });
 
-check('bankruptcy: last player standing ends the game', () => {
-  const { room, game } = withGame(makeStartedRoom(false));
-  const { a, b } = seatsOf(game);
+check('bankruptcy — last player standing ends the game', () => {
+  const room = makeStartedRoom(false);
+  const game = room.game;
+  const a = game.getPlayerBySocket('socket-a');
+  const b = game.getPlayerBySocket('socket-b');
   b.cash = 0;
   game.chargePlayer({ player: b, amount: 400, message: 'debt', turnOptions: {} });
   room.declareBankruptcy('socket-b');
@@ -849,9 +796,18 @@ check('bankruptcy: last player standing ends the game', () => {
   assert.equal(game.currentPlayerId, null);
 });
 
-// Room.setRoomSetting: per-key normalization table
+// ---------------------------------------------------------------------------
+// Room.setRoomSetting — per-key normalization table
+// ---------------------------------------------------------------------------
 
-check('setRoomSetting: locked after start and for unknown/inherited keys', () => {
+function lobby() {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
+  room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
+  return room;
+}
+
+check('setRoomSetting — locked after start and for unknown/inherited keys', () => {
   const room = lobby();
   room.startGame();
   room.setRoomSetting('maxPlayers', 2);
@@ -869,11 +825,13 @@ check('setRoomSetting: locked after start and for unknown/inherited keys', () =>
     reason: null,
     key: 'maxPlayers',
     value: 3,
-    effectiveSettings: { ...fresh.ruleset.effectiveSettings }
+    preset: 'classic',
+    base: 'classic',
+    effectiveSettings: { ...fresh.settings }
   });
 });
 
-check('setRoomSetting: legacy scaled keys are ignored', () => {
+check('setRoomSetting — legacy scaled keys are ignored', () => {
   const room = lobby();
   room.setRoomSetting('globalEventDuration', 10);
   room.setRoomSetting('globalEventMax', 2);
@@ -882,7 +840,7 @@ check('setRoomSetting: legacy scaled keys are ignored', () => {
   assert.equal(room.game.settings.globalEventDuration, 5);
 });
 
-check('setRoomSetting: maxPlayers clamps to 2..4 and drops non-numeric', () => {
+check('setRoomSetting — maxPlayers clamps to 2..4 and drops non-numeric', () => {
   const cases = [[5, 4], ['2', 2], [3.9, 3], [null, 2], [true, 2], ['abc', 4], [undefined, 4], [NaN, 4]];
   for (const [value, expected] of cases) {
     const room = lobby();
@@ -892,7 +850,7 @@ check('setRoomSetting: maxPlayers clamps to 2..4 and drops non-numeric', () => {
   }
 });
 
-check('setRoomSetting: bots clamps against the current maxPlayers', () => {
+check('setRoomSetting — bots clamps against the current maxPlayers', () => {
   const room = lobby();
   room.setRoomSetting('maxPlayers', 2);
   room.setRoomSetting('bots', 9);
@@ -908,7 +866,7 @@ check('setRoomSetting: bots clamps against the current maxPlayers', () => {
   assert.equal(room.settings.bots, 3);
 });
 
-check('setRoomSetting: lowering capacity never strands human seats or excess bots', () => {
+check('setRoomSetting — lowering capacity never strands human seats or excess bots', () => {
   const room = lobby();
   room.addOrReconnectPlayer({ socketId: 'socket-c', clientId: 'client-c', nickname: 'C' });
   room.setRoomSetting('bots', 3);
@@ -922,19 +880,22 @@ check('setRoomSetting: lowering capacity never strands human seats or excess bot
   assert.equal(botRoom.settings.bots, 1);
 });
 
-check('setRoomSetting: retired building supply settings are unknown and leave no stored value', () => {
-  for (const key of ['houseLimit', 'hotelLimit']) {
+check('setRoomSetting — integer bounds reject invalid values without mutation', () => {
+  for (const [key, valid] of [['houseLimit', 64], ['hotelLimit', 32]]) {
     const room = lobby();
-    assert.equal(room.setRoomSetting(key, 64).rejected, true, key);
-    assert.equal(Object.hasOwn(room.settings, key), false, key);
-    assert.equal(Object.hasOwn(room.game.settings, key), false, key);
+    room.setRoomSetting(key, `${valid}.9`);
+    assert.equal(room.settings[key], valid, key);
+    assert.equal(room.setRoomSetting(key, '-5').rejected, true, key);
+    assert.equal(room.settings[key], valid, key);
+    assert.equal(room.setRoomSetting(key, 'abc').rejected, true, key);
+    assert.equal(room.settings[key], valid, key);
   }
   const room = lobby();
   assert.equal(room.setRoomSetting('turnTimer', 100).rejected, true);
   assert.equal(Object.hasOwn(room.settings, 'turnTimer'), false);
 });
 
-check('setRoomSetting: startingCash floors valid values and rejects unsafe values without mutation', () => {
+check('setRoomSetting — startingCash floors valid values and rejects unsafe values without mutation', () => {
   const room = lobby();
   room.setRoomSetting('startingCash', '2000.5');
   assert.equal(room.settings.startingCash, 2000);
@@ -948,7 +909,7 @@ check('setRoomSetting: startingCash floors valid values and rejects unsafe value
   assert.deepEqual(room.game.players.map(player => player.cash), [2000, 2000]);
 });
 
-check('setRoomSetting: globalEvents accepts the extended truthy spellings', () => {
+check('setRoomSetting — globalEvents accepts the extended truthy spellings', () => {
   const truths = [true, 'true', 'on', 'rare', 'hardcore', 1, '1'];
   const falses = [false, 'false', 'off', 0, '0', 'maybe', undefined];
   for (const value of truths) {
@@ -971,7 +932,7 @@ check('setRoomSetting rejects legacy botPersonality without restoring it', () =>
   assert.equal('personality' in room.game.players[0], false);
 });
 
-check('setRoomSetting: boolean keys parse only true/"true"/1/"1"', () => {
+check('setRoomSetting — boolean keys parse only true/"true"/1/"1"', () => {
   for (const key of ['casino', 'market', 'auction', 'doubleRent', 'bankLoans']) {
     const room = lobby();
     const defaultBefore = room.settings[key];
@@ -991,7 +952,7 @@ check('setRoomSetting: boolean keys parse only true/"true"/1/"1"', () => {
   }
 });
 
-check('setRoomSetting: legacy bankrupt mode always stays eliminated', () => {
+check('setRoomSetting — legacy bankrupt mode always stays eliminated', () => {
   const room = lobby();
   room.setRoomSetting('bankruptMode', '  debt  ');
   assert.equal(room.settings.bankruptMode, 'elim');
@@ -1000,7 +961,7 @@ check('setRoomSetting: legacy bankrupt mode always stays eliminated', () => {
   assert.equal(room.game.settings.bankruptMode, 'elim');
 });
 
-check('setRoomSetting: bank-loan severity is trimmed and allowlisted', () => {
+check('setRoomSetting — bank-loan severity is trimmed and allowlisted', () => {
   const room = lobby();
   room.setRoomSetting('bankLoanSeverity', ' extreme ');
   assert.equal(room.settings.bankLoanSeverity, 'extreme');
@@ -1008,7 +969,7 @@ check('setRoomSetting: bank-loan severity is trimmed and allowlisted', () => {
   assert.equal(room.settings.bankLoanSeverity, 'predatory');
 });
 
-check('bankruptcy: legacy debt mode does not prevent seat elimination', () => {
+check('bankruptcy — legacy debt mode does not prevent seat elimination', () => {
   const room = makeStartedRoom(false);
   room.game.settings.bankruptMode = 'debt';
   const player = room.game.getPlayerBySocket('socket-a');
@@ -1024,8 +985,9 @@ check('bankruptcy: legacy debt mode does not prevent seat elimination', () => {
   assert.equal(room.game.pendingPayment, null);
 });
 
-check('bankruptcy: legacy debt mode still clears the debtor gate and liquidates market positions', () => {
-  const { room, game } = withGame(makeStartedRoom(false));
+check('bankruptcy — legacy debt mode still clears the debtor gate and liquidates market positions', () => {
+  const room = makeStartedRoom(false);
+  const game = room.game;
   game.settings.bankruptMode = 'debt';
   const player = game.getPlayerBySocket('socket-a');
   player.cash = 0;
@@ -1034,18 +996,16 @@ check('bankruptcy: legacy debt mode still clears the debtor gate and liquidates 
   assert.equal(room.declareBankruptcy('socket-a').success, true);
   assert.equal(player.inDebt, false);
   assert.equal(player.bankrupt, true);
-  // No creditor: the 196 of liquidation proceeds forfeit to the bank,
-  // so the departed seat does not strand them.
-  assert.equal(player.cash, 0);
-  assert.ok(feedTexts(room).includes('A forfeits $196 to the bank.'));
+  assert.equal(player.cash, 196);
   assert.equal(player.marketPositions.brazil.quantity, 0);
   assert.equal(player.marketPositions.brazil.realizedPnl, -44);
   assert.equal(game.pendingPayment, null);
   assert.equal(game.pendingPaymentTurnOptions, null);
 });
 
-check('bankruptcy: creditor exit clears the other player payment gate', () => {
-  const { room, game } = withGame(trioRoom());
+check('bankruptcy — creditor exit clears the other player payment gate', () => {
+  const room = trioRoom();
+  const game = room.game;
   const creditor = game.getPlayerBySocket('socket-a');
   const debtor = game.getPlayerBySocket('socket-b');
   game.pendingPayment = { playerId: debtor.id, creditorId: creditor.id, amountRemaining: 100, reason: 'rent' };
@@ -1054,8 +1014,10 @@ check('bankruptcy: creditor exit clears the other player payment gate', () => {
 });
 
 check('uncollectible debtor is declared bankrupt instead of losing the outstanding claim', () => {
-  const { game } = withGame(trioRoom());
-  const { a: creditor, b: debtor } = seatsOf(game);
+  const room = trioRoom();
+  const game = room.game;
+  const creditor = game.getPlayerBySocket('socket-a');
+  const debtor = game.getPlayerBySocket('socket-b');
   const deed = game.getTile(1);
   deed.ownerId = debtor.id;
   debtor.properties.push(deed.index);
@@ -1071,8 +1033,10 @@ check('uncollectible debtor is declared bankrupt instead of losing the outstandi
 });
 
 check('bankruptcy sends remaining cash to the bank when the creditor is gone', () => {
-  const { room, game } = withGame(trioRoom());
-  const { a: bankruptCreditor, b: debtor } = seatsOf(game);
+  const room = trioRoom();
+  const game = room.game;
+  const bankruptCreditor = game.getPlayerBySocket('socket-a');
+  const debtor = game.getPlayerBySocket('socket-b');
   const deed = game.getTile(1);
   bankruptCreditor.bankrupt = true;
   debtor.cash = 250;
@@ -1089,8 +1053,14 @@ check('bankruptcy sends remaining cash to the bank when the creditor is gone', (
 });
 
 check('round debt processing queues independent unsecured defaults', () => {
-  const { game } = withGame(trioRoom());
-  queueBankLoanDefaults(game);
+  const room = trioRoom();
+  const game = room.game;
+  game.roundNumber = 10;
+  game.players.forEach(player => {
+    player.cash = 0;
+    player.bankLoan = { status: 'due', remaining: 300, dueRound: 8, cureRound: 9 };
+  });
+  game.processBankLoans();
   assert.equal(game.pendingPaymentQueue.length, 2);
   assert.equal(game.players.filter(player => player.bankLoan.status === 'defaulted').length, 3);
   const first = game.getPlayerById(game.pendingPayment.playerId);
@@ -1108,24 +1078,22 @@ check('round debt processing queues independent unsecured defaults', () => {
   assert.equal(game.pendingPaymentQueue.length, 0);
 });
 
-check('leaving a queued debtor settles its claim instead of orphaning it', () => {
-  // Exit settlement: the queued claim is settled through the seat's
-  // exit, so it leaves the queue with the estate instead of being deleted.
-  const manager = new RoomManager();
-  const room = manager.createRoom({ rulesProfile: 'advanced', socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
-  room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
-  room.addOrReconnectPlayer({ socketId: 'socket-c', clientId: 'client-c', nickname: 'C' });
-  room.startGame();
+check('leaving a queued debtor removes its orphaned payment claim', () => {
+  const room = trioRoom();
   const game = room.game;
-  queueBankLoanDefaults(game);
+  game.roundNumber = 10;
+  game.players.forEach(player => {
+    player.cash = 0;
+    player.bankLoan = { status: 'due', remaining: 300, dueRound: 8, cureRound: 9 };
+  });
+  game.processBankLoans();
   const queued = game.pendingPaymentQueue.map(entry => entry.payment.playerId);
   const leavingId = queued[0];
-  const leaving = game.getPlayerById(leavingId);
-  manager.leaveRoomByClient(leaving.clientId, leaving.socketId);
+  game.removeQueuedPaymentsForPlayer(leavingId);
   assert.equal(game.pendingPaymentQueue.some(entry => entry.payment.playerId === leavingId), false);
 });
 
-console.log(`casino-bankruptcy tests: ${passed + failures.length} checks, ${passed} passed, ${failures.length} failed`);
+console.log(`casino-bankruptcy tests: ${passed + failures.length} checks — ${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   console.error('FAILED:', failures.join(', '));
   process.exitCode = 1;

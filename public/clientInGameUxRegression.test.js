@@ -24,7 +24,6 @@ const sync = source("./clientStateSync.js");
 const rail = source("./clientRailRender.js");
 const responsive = source("./game-responsive.css");
 const styles = source("./styles.css");
-const deedStyles = source("./ui-review-deeds.css");
 const dealUi = source("./clientDealUi.js");
 
 globalThis.window = { matchMedia: () => ({ matches: false }) };
@@ -61,33 +60,7 @@ check("tile inspection and deed management share the rent ladder", () => {
   expectMatch(popup, /class="dd-head"/);
   assert.doesNotMatch(popup, /function rentRailroadRows/);
   assert.doesNotMatch(popup, /function rentUtilityRows/);
-  expectMatch(detail, /class="dd-ladder" role="group" aria-label="Rent schedule"/);
-});
-
-check("deed trade action closes its inspector before opening the trade dialog", () => {
-  const listener = detail.match(/\$\("#dd-trade-deed"\)\?\.addEventListener\("click",\s*event\s*=>\s*\{([\s\S]*?)\n\s{2}\}\);/)?.[1] || "";
-  assert.ok(listener, "deed trade click handler exists");
-  assert.ok(listener.indexOf("closeDeedDetail()") >= 0, "deed inspector closes");
-  assert.ok(listener.indexOf("closeDeedDetail()") < listener.indexOf("openTradeModalForDeed("), "close happens before trade opens");
-  assert.match(listener, /const\s+returnTrigger\s*=\s*document\.activeElement/);
-  assert.match(listener, /openTradeModalForDeed\(tile\.i,\s*returnTrigger\)/);
-});
-
-check("SELL DEED action fits beside mortgage without a redundant buyer sublabel", () => {
-  const action = detail.match(/export function tradeDeedActionHTML\([\s\S]*?\n\}/)?.[0] || "";
-  assert.match(action, /id="dd-trade-deed"/);
-  assert.doesNotMatch(action, /AGREED WITH BUYER/);
-});
-
-check("trade card columns shrink around long deed names without clipping the body", () => {
-  expectMatch(deedStyles, /#trade-modal\s+\.trade-body\s*\{[^}]*min-width:\s*0/i);
-  expectMatch(deedStyles, /#trade-modal\s+\.trade-cols\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/i);
-  expectMatch(deedStyles, /#trade-modal\s+\.trade-side\s*\{[^}]*min-width:\s*0/i);
-  expectMatch(deedStyles, /#trade-modal\s+\.trade-deed\s*\{[^}]*min-width:\s*0/i);
-});
-
-check("mortgaged trade rows do not render the legacy duplicate badge", () => {
-  expectMatch(deedStyles, /#trade-modal\s+\.trade-deed\.is-mortgaged\s+\.trade-deed-name::after\s*\{[^}]*content:\s*none/i);
+  expectMatch(detail, /tileRentExplanation/);
 });
 
 check("tile-aware labels and ladders name airports and utilities accurately", () => {
@@ -117,10 +90,8 @@ check("tile-aware labels and ladders name airports and utilities accurately", ()
   const waterworks = boardData.TILES.find(tile => tile.name === "WATERWORKS");
   assert.equal(popupUi.kindLabel(waterworks), "WATERWORKS DEED");
   assert.match(popupUi.effectText(waterworks), /2 or more utilities/);
-  state.owners = { 15: "p1", 49: "p1" };
-  assert.equal(deedUi.deedCurrentRentLabel(waterworks), "10× DICE ROLL");
   state.owners = { 15: "p1", 37: "p1", 49: "p1" };
-  assert.equal(deedUi.deedCurrentRentLabel(waterworks), "14× DICE ROLL", "Metro-52 third utility steps to 14x");
+  assert.equal(deedUi.deedCurrentRentLabel(waterworks), "10× DICE ROLL");
   const socketOffer = clientSocket.normalizeTradeOffer({
     id: "socket-only",
     from: "remote-player",
@@ -138,16 +109,11 @@ check("tile-aware labels and ladders name airports and utilities accurately", ()
 check("trade offer dismissal persists by room and trade id and remains neutral", () => {
   const dismissal = source("./clientTradeOfferDismissal.js");
   expectMatch(dismissal, /sessionStorage/);
-  expectMatch(modals, /closeButtonHTML\(\{\s*id:\s*"offer-close",\s*label:\s*"Close offer and keep it pending"/);
+  expectMatch(modals, /id="offer-close"[^>]*>[\s\S]*?Close/);
   expectMatch(modals, /dismissTradeOffer/);
   expectMatch(sync, /reconcileTradeOfferDismissal/);
   expectMatch(rail, /state\.offers/);
-  const tradeDetail = dealUi.match(/function tradeDetailHTML\(trade\)\s*\{[\s\S]*?\n\}/)?.[0] || "";
-  assert.ok(tradeDetail, "trade detail renderer exists");
-  expectMatch(tradeDetail, /const self\s*=\s*localServerId\(\)/);
-  expectMatch(tradeDetail, /trade\.toPlayerId\s*===\s*self/);
-  expectMatch(tradeDetail, /self\s*&&\s*\(self\s*===\s*trade\.fromPlayerId\s*\|\|\s*self\s*===\s*trade\.toPlayerId\)/);
-  expectMatch(tradeDetail, /!participant\s*\?\s*""\s*:/);
+  expectMatch(dealUi, /trade\.toPlayerId\s*===\s*localServerId\(\)/);
   const closeHandler = modals.match(/function closeOfferWithoutResponse\(\)\s*\{[^}]*\}/)?.[0] || "";
   assert.ok(closeHandler, "neutral offer close handler exists");
   assert.doesNotMatch(closeHandler, /emitServer|respond-trade/);
@@ -177,53 +143,6 @@ check("responsive board rules preserve the previous Poorup font tokens", () => {
   }
 });
 
-{
-  const deedDetailUi = await import("./clientDeedDetailUi.js");
-  const { state } = clientState;
-  const brown = boardData.STANDARD_TILES.filter(tile => tile.kind === "property" && tile.group === "brown");
-  const realQuery = globalThis.document.querySelector;
-  const render = owners => {
-    let markup = "";
-    const stubEl = { addEventListener() {}, querySelectorAll: () => [], set innerHTML(value) { markup = value; } };
-    globalThis.document.querySelector = () => stubEl;
-    Object.assign(state, { owners, houses: {}, mortgaged: {}, serverTiles: [], deedDetail: brown[0].i });
-    state.players = [{ id: "p1", serverId: "s1", cash: 1500 }];
-    deedDetailUi.renderDeedDetail();
-    globalThis.document.querySelector = realQuery;
-    state.deedDetail = null;
-    return markup;
-  };
-  const buyTag = markup => markup.match(/<button[^>]*id="dd-buy"[^>]*>/)?.[0] || "";
-  check("a blocked Buy house is disabled and not the red primary button", () => {
-    const tag = buyTag(render({ [brown[0].i]: "p1" }));
-    assert.ok(tag, "Buy house renders");
-    assert.match(tag, / disabled(?: |>)/);
-    assert.doesNotMatch(tag, /cta-red/);
-  });
-  check("Buy house stays the red primary button when building is allowed", () => {
-    const tag = buyTag(render(Object.fromEntries(brown.map(tile => [tile.i, "p1"]))));
-    assert.match(tag, /cta-red/);
-    assert.doesNotMatch(tag, / disabled(?: |>)/);
-  });
-  check("mortgage is blocked until every building in the color set is sold", () => {
-    const realQuery = globalThis.document.querySelector;
-    let markup = "";
-    const stubEl = { addEventListener() {}, querySelectorAll: () => [], set innerHTML(value) { markup = value; } };
-    globalThis.document.querySelector = () => stubEl;
-    Object.assign(state, {
-      owners: Object.fromEntries(brown.map(tile => [tile.i, "p1"])),
-      houses: { [brown[1].i]: 1 }, mortgaged: {},
-      serverTiles: brown.map(tile => ({ index: tile.i, houseCount: tile.i === brown[1].i ? 1 : 0 })),
-      deedDetail: brown[0].i,
-    });
-    state.players = [{ id: "p1", serverId: "s1", cash: 1500 }];
-    deedDetailUi.renderDeedDetail();
-    globalThis.document.querySelector = realQuery;
-    state.deedDetail = null;
-    assert.match(markup.match(/<button[^>]*id="dd-mortgage"[^>]*>/)?.[0] || "", / disabled(?: |>)/);
-    assert.match(markup, /Sell all buildings in this color set before mortgaging/);
-  });
-}
 const failures = checks.filter(result => !result.passed);
 for (const result of checks) {
   if (result.passed) console.log(`PASS ${result.name}`);

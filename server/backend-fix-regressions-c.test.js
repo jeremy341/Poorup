@@ -1,6 +1,11 @@
-// Regression suite for sponsorship and economy repairs. Each check pins one audited defect:
-// loan-backed bots are never scheduled or counted as funders, short-default settlement stays a forced
-// obligation, an overfunded escrow returns the exact excess, and rounding dust goes to the sponsors.
+// Regression suite for the sponsorship/economy defect repairs B-08, B-10, and
+// B-22. Each check pins one audited defect and the corrected behavior:
+//   B-08 a loan-backed bot must never be scheduled or counted as a funder,
+//        because the server rejects the contribution it is scheduled for;
+//   B-10 the short-default settlement path shares the market guard ladder, but
+//        stays a forced obligation (off-turn, quota-exempt) by design;
+//   B-22 an overfunded escrow returns the exact excess; the rounding dust is
+//        absorbed by the sponsors, never gifted to the buyer.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { findPendingCounterpart } from './botCandidates.js';
@@ -26,7 +31,6 @@ function seats(count, options = {}) {
   const manager = new RoomManager();
   const { maxPlayers, ...hostInfo } = options;
   const room = manager.createRoom({
-    rulesProfile: 'advanced',
     socketId: 'a', clientId: 'a', nickname: 'A',
     ...(maxPlayers > 4 ? { boardVariant: 'metro-52' } : {}),
     ...hostInfo
@@ -44,7 +48,7 @@ function seats(count, options = {}) {
 // A bot-only table with an open sponsored purchase: one short buyer bot, one
 // cash-rich sponsor bot, and a purchase offer the buyer cannot fund alone.
 function botSponsorshipRoom(options = {}) {
-  const room = seats(2, { rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }, ...options });
+  const room = seats(2, { rulesetPreset: 'after-hours', ...options });
   const game = room.game;
   const [buyer, sponsor] = game.players;
   buyer.isBot = true;
@@ -72,7 +76,7 @@ check('a loan-backed bot is never scheduled or counted as a sponsorship funder (
   assert.equal(findPendingCounterpart(game)?.id, buyer.id,
     'the tainted bot must never be scheduled as the sponsorship counterpart; the buyer takes the seat to cancel');
 
-  // Running the phase is a no-op, not a burned rejection.
+  // Running the phase must no-op instead of burning a guaranteed rejection.
   const phase = runSponsorshipPhase(room, sponsor, game);
   assert.equal(phase.success, true);
   assert.equal(phase.noEmit, true);
@@ -81,7 +85,7 @@ check('a loan-backed bot is never scheduled or counted as a sponsorship funder (
   assert.equal(sponsor.lastSponsorRound, undefined,
     'a rejected attempt must not be treated as a settled sponsorship round');
 
-  // The tainted bot does not count as a live funder, so the dead-request
+  // The tainted bot no longer counts as a live funder, so the dead-request
   // cancellation can fire once a full round has passed.
   game.roundNumber = sponsorship.createdRound + 2;
   assert.equal(sponsorshipBuyerShouldCancel(game, buyer, sponsorship), true,
@@ -96,18 +100,8 @@ check('a loan-backed bot is never scheduled or counted as a sponsorship funder (
     'a fundable request is never dead');
 });
 
-check('a bot never funds an equity sponsorship request as if it were a gift', () => {
-  const { game, sponsor, sponsorship } = botSponsorshipRoom();
-  assert.ok(sponsorshipContributionAmount(game, sponsor) > 0, 'the gift request is fundable');
-  sponsorship.mode = 'equity';
-  sponsorship.sharePct = 40;
-  assert.equal(sponsorshipContributionAmount(game, sponsor), 0,
-    'an equity request is an investment priced by the buyer, not a gift');
-  assert.equal(isSponsorshipActor(game, sponsor), false);
-});
-
 check('short buy-in debt settlement shares the market guard ladder (B-10)', () => {
-  const room = seats(2, { rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }, marketComplexity: 'shorting' });
+  const room = seats(2, { rulesetPreset: 'after-hours', marketComplexity: 'shorting' });
   const game = room.game;
   const player = game.players[0];
   player.shortDefaultDebt = 200;
@@ -147,7 +141,7 @@ check('short buy-in debt stays a forced obligation: off-turn, quota-exempt, trad
   // marketExpansion.js:419-421 documents this path as reachable "on a later
   // turn or before opening another market position", so neither the turn gate
   // nor the per-turn market quota may apply to it.
-  const room = seats(2, { rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }, marketComplexity: 'shorting' });
+  const room = seats(2, { rulesetPreset: 'after-hours', marketComplexity: 'shorting' });
   const game = room.game;
   const [player, other] = game.players;
   player.shortDefaultDebt = 200;
@@ -173,7 +167,7 @@ check('short buy-in debt stays a forced obligation: off-turn, quota-exempt, trad
 });
 
 check('an overfunded escrow returns the exact excess instead of gifting the buyer the dust (B-22)', () => {
-  const room = seats(4, { rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const room = seats(4, { rulesetPreset: 'after-hours' });
   const game = room.game;
   const [buyer, first, second, third] = game.players;
   const tile = game.getTile(1);
@@ -186,7 +180,7 @@ check('an overfunded escrow returns the exact excess instead of gifting the buye
   assert.equal(game.requestPurchaseSponsorship('a').success, true);
 
   // Pro-rata shares of a $10 excess are 3.3 / 3.3 / 3.4: flooring every one
-  // of them loses a dollar that the buyer is meant to receive.
+  // of them loses a dollar that the buyer used to receive.
   const contributions = [[first, 33], [second, 33], [third, 34]];
   contributions.forEach(([sponsor, amount], index) => {
     assert.equal(game.contributeToSponsoredPurchase(String.fromCharCode(98 + index), { amount }).success, true);
@@ -208,7 +202,7 @@ check('an overfunded escrow returns the exact excess instead of gifting the buye
 
 check('overfunded escrow conservation holds for every contributor split (B-22)', () => {
   for (const shares of [[1, 1], [3, 4], [10, 10, 10], [1, 2, 3, 4], [7, 11, 13], [50, 25, 25], [2, 2, 2, 2, 1]]) {
-    const room = seats(shares.length + 1, { rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }, maxPlayers: shares.length + 1 });
+    const room = seats(shares.length + 1, { rulesetPreset: 'after-hours', maxPlayers: shares.length + 1 });
     const game = room.game;
     const [buyer, ...sponsors] = game.players;
     const tile = game.getTile(1);

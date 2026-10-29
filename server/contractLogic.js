@@ -1,31 +1,21 @@
-// Player-contract lifecycle rules: proposal guards, term drafting, accept and decline settlement, repayments, and the
-// round-by-round due and expiry ladder. Pure: it only mutates the GameState it is handed, so the rules stay testable.
-// The strings stay pinned by server/contracts-market.test.js.
+// Player-contract lifecycle rules: proposal guards, term drafting, the
+// accept/decline settlement, repayments, and the round-by-round due/expiry
+// ladder. Pure module: it only mutates the GameState it is handed, so the
+// rules stay testable in isolation and the strings stay pinned by
+// server/contracts-market.test.js.
 import crypto from 'crypto';
-import { playerFinanceEnabled } from './financeRules.js';
-import { collateralQuoteFor, stampCollateralAgreement, usesCollateralCredit } from './collateralSettlement.js';
-import { CONTRACT_RULES_VERSION, RENT_SHARE_VERSION, FINANCE_DISABLED_ERROR, LEGACY_PENDING_ERROR, isRentShareContract, rentShareDeedType, newContractTermsError, deedHasShareInterest } from './rentShareRules.js';
 import { contractPledgesTile } from './gameLogic.js';
 import {
   announceLoanDue,
-  canRecordDefaultClaim,
   contractSettlementRejection,
   equitySharePayable,
   handlePlayerLoanDefault
 } from './bankruptcyLogic.js';
 import { normalizeRequestId } from './requestId.js';
-import { AUCTION_COMMITTED_CASH_ERROR } from './auctionApi.js';
 
-export const CONTRACT_KINDS = new Set(['loan', 'equity']);
-export const EQUITY_CONTROL_MODES = new Set(['passive']);
+export const CONTRACT_KINDS = new Set(['loan', 'equity', 'hybrid']);
+export const EQUITY_CONTROL_MODES = new Set(['passive', 'shared', 'controlling']);
 const ACTIVE_CONTRACT_STATUSES = ['active', 'due'];
-// A finished match owns no contracts: endGame closes the table, clears pending offers, and leaves contracts and equity shares behind.
-// Every contract verb refuses once the game is not running, before the replay cache, so a retried request cannot
-// resurrect a closed table.
-const GAME_NOT_RUNNING_ERROR = 'The game is not running.';
-// A funded contract that cannot be committed leaves the table exactly as it
-// was: no cash moved, no contract booked, the offer still open.
-const CONTRACT_ACTIVATION_FAILED = 'The contract could not be activated; no cash moved.';
 const TABLE_OBLIGATION_FIELDS = [
   'auction',
   'pendingPurchaseOffer',
@@ -59,26 +49,6 @@ function lenderCanFund(lender, amount) {
   if (!Number.isInteger(amount)) return false;
   if (amount < 1) return false;
   return lender.cash >= amount;
-}
-
-// A match that is not running owns no contracts. Every contract verb returns the same rejection before reading the request,
-// so a closed table cannot be reopened, and a retried request cannot replay its way past the guard.
-function contractVerbRejection(game) {
-  if (game?.started) return null;
-  return { success: false, error: GAME_NOT_RUNNING_ERROR };
-}
-
-// A cash inflow can be the missing piece of the recipient's own parked debt: the seat was gated on a claim it could not cover,
-// and the incoming cash may cover it now. Every contract cash inflow (transfer price, loan repayment, equity rent share)
-// retries that claim here, as the rent, trade and bankruptcy paths do.
-function settleRecipientParkedDebt(game, recipient) {
-  if (!recipient) return;
-  if (game.pendingPayment?.playerId !== recipient.id) return;
-  if (typeof game.settleCreditorParkedDebt === 'function') {
-    game.settleCreditorParkedDebt(recipient);
-    return;
-  }
-  if (typeof game.trySettlePendingPayment === 'function') game.trySettlePendingPayment();
 }
 
 // Guard order and wording are pinned by server/contracts-market.test.js.
@@ -124,7 +94,6 @@ function memoizeSuccess(game, key, result) {
 function draftContract(game, terms) {
   return {
     id: 'contract_' + crypto.randomUUID(),
-    rulesVersion: CONTRACT_RULES_VERSION,
     kind: terms.kind,
     fromPlayerId: terms.fromPlayer.id,
     toPlayerId: terms.toPlayer.id,
@@ -132,7 +101,6 @@ function draftContract(game, terms) {
     premiumRate: terms.premiumRate,
     durationRounds: terms.durationRounds,
     createdRound: game.roundNumber,
-    createdAt: Date.now(),
     status: 'pending',
     counterDepth: 0,
     collateralTileIndex: null,
@@ -189,7 +157,6 @@ function resolveTransferSource(context) {
   if (!source) return { error: 'That equity share is no longer available.' };
   if (!['equity', 'hybrid'].includes(source.kind)) return { error: 'That equity share is no longer available.' };
   if (!equityShareContractLive(source)) return { error: 'That equity share is no longer available.' };
-  if (isRentShareContract(source)) return { error: 'Temporary rent shares cannot be resold or transferred.' };
   context.source = source;
   return null;
 }
@@ -281,9 +248,12 @@ function validateTransferBuyerCash(context) {
   return null;
 }
 
-// Equity transfers are player contracts in every other sense (kind 'equity-transfer', pendingPlayerContract obligation, settlement guards).
-// The documented loan-taint scope "casino, contract, and market guards" covers them, so loan-backed cash must not fund the purchase.
-// Checked at proposal, counters and acceptance, because settleEquityTransfer re-runs this validator list.
+// Equity transfers are player contracts in every other sense (kind
+// 'equity-transfer', pendingPlayerContract obligation, settlement guards) —
+// the documented loan-taint scope "casino, contract, and market guards"
+// covers them, so loan-backed cash must not fund the purchase. Checked at
+// proposal, counters, and acceptance because settleEquityTransfer re-runs
+// this validator list.
 function validateTransferBuyerTaint(context) {
   if (context.game.hasLoanBackedCash?.(context.buyer)) {
     return { error: 'Loan-backed cash cannot fund equity transfers.' };
@@ -292,28 +262,25 @@ function validateTransferBuyerTaint(context) {
 }
 
 export function proposeEquityShareTransfer(game, socketId, offer = {}) {
-  const startedRejection = contractVerbRejection(game);
-  if (startedRejection) return startedRejection;
-  if (!playerFinanceEnabled(game)) return { success: false, error: FINANCE_DISABLED_ERROR };
   const seller = game.getPlayerBySocket(socketId);
   const buyer = game.getPlayerById(offer.toPlayerId);
   if (!seller || seller.id !== offer.fromPlayerId) return { success: false, error: 'Choose a valid equity seller.' };
   const key = transactionKey('equity-transfer', seller.id, normalizeRequestId(offer.requestId));
   const cached = memoizedResult(game, key);
-  if (cached) return cached.transfer?.rulesVersion === CONTRACT_RULES_VERSION ? cached : { success: false, error: LEGACY_PENDING_ERROR };
+  if (cached) return cached;
   if (tableObligationOpen(game)) return { success: false, error: 'Resolve the current table obligation first.' };
   const sharePct = Math.floor(Number(offer.sharePct));
   const price = Math.floor(Number(offer.price));
   const ctx = equityTransferContext({ game, seller, buyer, sourceContractId: offer.contractId, sharePct, price });
   if (ctx.error) return { success: false, error: ctx.error };
   const transfer = {
-    id: 'contract_' + crypto.randomUUID(), rulesVersion: CONTRACT_RULES_VERSION, kind: 'equity-transfer',
+    id: 'contract_' + crypto.randomUUID(), kind: 'equity-transfer',
     fromPlayerId: seller.id, toPlayerId: buyer.id, propertyIndex: ctx.tile.index,
     sourceContractId: ctx.source.id, transferSharePct: sharePct, transferPrice: price,
     amount: price, equityShare: sharePct, equityControl: 'passive',
     permanent: ctx.source.permanent === true, expiresRound: ctx.source.expiresRound ?? null,
     requestId: normalizeRequestId(offer.requestId),
-    createdRound: game.roundNumber, createdAt: Date.now(), status: 'pending', counterDepth: 0, lastProposerId: seller.id
+    createdRound: game.roundNumber, status: 'pending', counterDepth: 0, lastProposerId: seller.id
   };
   game.pendingPlayerContract = transfer;
   return memoizeSuccess(game, key, { success: true, transfer });
@@ -330,25 +297,10 @@ function equityTransferOffer(game, current, offer = {}, counteredBy) {
     ...current, transferSharePct: sharePct, equityShare: sharePct,
     transferPrice: price, amount: price,
     counterDepth: Math.min(2, (Number(current.counterDepth) || 0) + 1),
-    createdAt: Date.now(),
     lastProposerId: counteredBy
   };
   game.pendingPlayerContract = next;
   return { success: true, countered: true, contract: next };
-}
-
-// An unanswered offer gates trades, the market, the casino and bank credit for
-// the whole table, so it lapses after a fixed window (the contract twin of
-// tradeApi.expireStaleTrade). Returns true when it expired.
-export function expireStaleContract(game, nowMs, ttlMs) {
-  const contract = game.pendingPlayerContract;
-  if (!contract) return false;
-  const created = Number(contract.createdAt);
-  if (!Number.isFinite(created)) return false;
-  if (nowMs - created < ttlMs) return false;
-  game.pendingPlayerContract = null;
-  game.feedMessage('A pending player contract offer expired.');
-  return true;
 }
 
 function staleContractOffer(offer, current) {
@@ -374,10 +326,7 @@ function adjustEquityTransfer(game, current, offer, editor) {
 function negotiatedContractTerms({ game, current, offer, actor, negotiationType }) {
   const lender = game.getPlayerById(current.fromPlayerId);
   const borrower = game.getPlayerById(current.toPlayerId);
-  const merged = { ...current, ...offer };
-  const termError = newContractTermsError(merged);
-  if (termError) return { success: false, error: termError };
-  const normalized = normalizeContractOffer(merged);
+  const normalized = normalizeContractOffer({ ...current, ...offer });
   const rejection = contractProposalRejectionWithoutTurn(game, lender, borrower, normalized.amount);
   if (rejection) return rejection;
   const contract = draftContract(game, {
@@ -391,17 +340,16 @@ function negotiatedContractTerms({ game, current, offer, actor, negotiationType 
   const buildTerms = TERM_BUILDERS[normalized.kind] || equityDraftTerms;
   const previousPending = game.pendingPlayerContract;
   game.pendingPlayerContract = null;
-  let terms;
-  try {
-    terms = buildTerms(game, contract, { ...current, ...offer }, borrower);
-  } finally {
+  const terms = buildTerms(game, contract, { ...current, ...offer }, borrower);
+  if (terms) {
     game.pendingPlayerContract = previousPending;
+    return terms;
   }
-  if (terms) return terms;
   contract.counterDepth = Math.min(2, (Number(current.counterDepth) || 0) + 1);
-  // Whoever authored the surviving terms is the last proposer, so the decision passes to the other seat. Without this the
-  // responder falls back to counterDepth parity, which points back at the editor when one seat negotiates twice in a row,
-  // and the author could accept their own terms.
+  // Whoever authored the surviving terms is the last proposer, so the decision
+  // hands to the other seat. Without this the responder falls back to
+  // counterDepth parity, which points back at the editor when the same seat
+  // negotiates twice in a row - the author could then accept their own terms.
   contract.lastProposerId = actor.id;
   game.pendingPlayerContract = contract;
   game.feedMessage(actor.nickname + (negotiationType === 'counter' ? ' negotiated the ' : ' adjusted the ')
@@ -465,10 +413,6 @@ function applyEquityTransferSettlement({ game, transfer, seller, buyer, owner, s
   tile.equityShares.push({ holderId: buyer.id, share: transfer.transferSharePct, contractId: contract.id, control: 'passive' });
   game.pendingPlayerContract = null;
   game.feedMessage(`${seller.nickname} transferred ${transfer.transferSharePct}% equity to ${buyer.nickname} for $${transfer.transferPrice}.`);
-  // The seller's share of the price can be the missing piece of the seller's
-  // own parked debt, so the inflow retries that claim like every other
-  // contract inflow does.
-  settleRecipientParkedDebt(game, seller);
   return contract;
 }
 
@@ -518,7 +462,7 @@ function settleEquityTransfer(game, transfer) {
 }
 
 function collateralIsBorrowerDeed(game, collateral, borrower) {
-  return Boolean(collateral && collateral.ownerId === borrower.id && !collateral.mortgaged && game.isTradeableTile(collateral));
+  return Boolean(collateral && collateral.ownerId === borrower.id && game.isTradeableTile(collateral));
 }
 
 function setContractCollateral(contract, collateralIndices) {
@@ -547,23 +491,20 @@ function loanDraftTerms(game, contract, offer, borrower) {
   contract.dueRound = game.roundNumber + contract.durationRounds;
   contract.cureRound = contract.dueRound + 1;
   setContractCollateral(contract, basket.indices);
-  stampCollateralAgreement(game, contract, basket.indices);
   return null;
 }
 
-// A deed pledged as live bank-loan or contract collateral is encumbered, whatever its raw fields say. Both checks share
-// propertyRules.tileEncumbered with the trade and mortgage surface. ignoredContractId excludes a contract's pledge of its own conversion target:
-// a due hybrid encumbers the tile it converts into, while an active one stays open to equity proposals until the 100% capacity rule applies.
+// A deed pledged as live bank-loan or player-contract collateral is not
+// "unencumbered" even though its raw fields say so; both encumbrance checks
+// are shared with the trade/mortgage surface via propertyRules.tileEncumbered.
+// ignoredContractId excludes a contract's pledge of its own conversion
+// target — a due hybrid by definition encumbers the tile it converts into.
+// An active hybrid has not converted yet, so its conversion target stays
+// open for further equity proposals and is only bounded by the 100%
+// capacity rule (pinned by the hybrid-capacity invariant test).
 function pledgeBlocksEquityEligibility(contract, owner, property) {
   if (!contractPledgesTile(contract, owner, property)) return false;
-  if (contract.kind === 'hybrid' && contract.status === 'active' && Number(contract.propertyIndex) === Number(property.index)) {
-    // Only the conversion target is exempt. A deed the same note also pledges in
-    // its collateral basket is encumbered like any other pledged deed.
-    const basket = Array.isArray(contract.collateralTileIndices) && contract.collateralTileIndices.length
-      ? contract.collateralTileIndices
-      : [contract.collateralTileIndex];
-    return basket.some(index => index != null && Number(index) === Number(property.index));
-  }
+  if (contract.kind === 'hybrid' && contract.status === 'active' && Number(contract.propertyIndex) === Number(property.index)) return false;
   return true;
 }
 
@@ -603,50 +544,65 @@ function equityCapReached(property, share, game = null, ignoredContractId = null
   return existingShare + pendingShare + contractShare + share > 100;
 }
 
-function rentSharePropertyError(game, contract, owner, ignoredContractId = null) {
-  const property = game.getTile(Number(contract.propertyIndex));
-  if (!property || !rentShareDeedType(property) || property.ownerId !== owner?.id || property.mortgaged) {
-    return 'Rent shares need an unmortgaged deed owned by the recipient.';
+function equityDraftTerms(game, contract, offer, recipient) {
+  const property = game.getTile(Number(offer.propertyIndex));
+  const share = Math.max(5, Math.min(100, Math.floor(Number(offer.equityShare) || 5)));
+  if (!isEquityEligibleProperty(game, property, recipient.id)) {
+    return { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' };
   }
-  if (game.isLoanCollateral(owner, property)
-    || (game.playerContracts || []).some(candidate => candidate.id !== ignoredContractId && pledgeBlocksEquityEligibility(candidate, owner, property))) {
-    return 'Rent shares need an unencumbered deed owned by the recipient.';
+  if (equityCapReached(property, share, game)) {
+    return { success: false, error: 'That property has no remaining equity to sell.' };
   }
-  if (deedHasShareInterest(game, property, ignoredContractId)) return 'A deed may have only one rent-share investor.';
+  contract.propertyIndex = property.index;
+  contract.equityShare = share;
+  contract.equityControl = EQUITY_CONTROL_MODES.has(offer.equityControl) ? offer.equityControl : 'passive';
+  // Preserve a permanent equity term across counters/adjustments. Existing
+  // contracts carry an explicit expiresRound, so a merged null value means
+  // "permanent"; an initial offer without either field remains temporary.
+  const hasExistingExpiry = Object.prototype.hasOwnProperty.call(offer, 'expiresRound');
+  const permanent = offer.permanent === true || (hasExistingExpiry && offer.expiresRound == null);
+  contract.permanent = permanent;
+  contract.expiresRound = permanent ? null : game.roundNumber + contract.durationRounds;
   return null;
 }
 
-function equityDraftTerms(game, contract, offer, recipient) {
-  const error = newContractTermsError({ ...offer, kind: 'equity' });
-  if (error) return { success: false, error };
-  contract.propertyIndex = Number(offer.propertyIndex);
-  const propertyError = rentSharePropertyError(game, contract, recipient);
-  if (propertyError) return { success: false, error: propertyError };
-  contract.rentShareVersion = RENT_SHARE_VERSION;
-  contract.equityShare = Math.max(5, Math.min(100, Math.floor(Number(offer.equityShare) || 5)));
-  contract.equityControl = 'passive';
-  contract.permanent = false;
-  contract.expiresRound = game.roundNumber + contract.durationRounds;
+// A hybrid note is a loan at accept time and converts into an equity share
+// only when it defaults past its cure turn. Proposal validates both legs:
+// the loan math plus the conversion target an equity draft would require.
+function hybridDraftTerms(game, contract, offer, recipient) {
+  const property = game.getTile(Number(offer.propertyIndex));
+  const conversion = Math.max(5, Math.min(100, Math.floor(Number(offer.conversionShare) || 25)));
+  if (!isEquityEligibleProperty(game, property, recipient.id)) {
+    return { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' };
+  }
+  if (equityCapReached(property, conversion, game)) {
+    return { success: false, error: 'That property has no remaining equity to sell.' };
+  }
+  contract.totalDue = contract.amount + Math.ceil(contract.amount * (contract.premiumRate / 100));
+  contract.remaining = contract.totalDue;
+  contract.dueRound = game.roundNumber + contract.durationRounds;
+  contract.cureRound = contract.dueRound + 1;
+  contract.propertyIndex = property.index;
+  contract.conversionShare = conversion;
+  const basket = validateCollateralBasket(game, offer, recipient);
+  if (basket.error) return { success: false, error: basket.error };
+  setContractCollateral(contract, basket.indices);
   return null;
 }
 
 const TERM_BUILDERS = {
   loan: loanDraftTerms,
-  equity: equityDraftTerms
+  equity: equityDraftTerms,
+  hybrid: hybridDraftTerms
 };
 
 export function proposeContract(game, socketId, offer = {}) {
-  const startedRejection = contractVerbRejection(game);
-  if (startedRejection) return startedRejection;
-  if (!playerFinanceEnabled(game)) return { success: false, error: FINANCE_DISABLED_ERROR };
-  const termError = newContractTermsError(offer);
-  if (termError) return { success: false, error: termError };
   const fromPlayer = game.getPlayerBySocket(socketId);
   const toPlayer = game.getPlayerById(offer.toPlayerId);
   const normalized = normalizeContractOffer(offer);
   const key = transactionKey('contract', fromPlayer?.id, normalized.requestId);
   const cached = memoizedResult(game, key);
-  if (cached) return cached.contract?.rulesVersion === CONTRACT_RULES_VERSION ? cached : { success: false, error: LEGACY_PENDING_ERROR };
+  if (cached) return cached;
   const rejection = contractProposalRejection(game, fromPlayer, toPlayer, normalized.amount);
   if (rejection) return rejection;
   const contract = draftContract(game, {
@@ -666,18 +622,13 @@ export function proposeContract(game, socketId, offer = {}) {
   return memoizeSuccess(game, key, { success: true, contract });
 }
 
-// A negotiation keeps the original lender and borrower, replaces only unaccepted terms, and transfers no cash until the lender accepts.
-// It is off-turn for the borrower because it answers an already-open table obligation; the lender-funding guards still run.
+// A negotiation keeps the original lender and borrower, replaces only the
+// unaccepted terms, and never transfers cash until the lender accepts. It is
+// intentionally off-turn for the borrower because it is a response to an
+// already-open table obligation; the normal lender-funding guards still run.
 export function counterContract(game, socketId, offer = {}) {
-  const startedRejection = contractVerbRejection(game);
-  if (startedRejection) return startedRejection;
-  if (!playerFinanceEnabled(game)) return { success: false, error: FINANCE_DISABLED_ERROR };
   const responder = game.getPlayerBySocket(socketId);
   const current = game.pendingPlayerContract;
-  if (current && current.rulesVersion !== CONTRACT_RULES_VERSION
-    && (current.kind !== 'loan' || (offer.kind != null && offer.kind !== 'loan'))) {
-    return { success: false, error: LEGACY_PENDING_ERROR };
-  }
   if (!responseTargetMatches(responder, current)) {
     return { success: false, error: 'Only the receiving player can negotiate this contract.' };
   }
@@ -689,15 +640,8 @@ export function counterContract(game, socketId, offer = {}) {
 }
 
 export function adjustContract(game, socketId, offer = {}) {
-  const startedRejection = contractVerbRejection(game);
-  if (startedRejection) return startedRejection;
-  if (!playerFinanceEnabled(game)) return { success: false, error: FINANCE_DISABLED_ERROR };
   const editor = game.getPlayerBySocket(socketId);
   const current = game.pendingPlayerContract;
-  if (current && current.rulesVersion !== CONTRACT_RULES_VERSION
-    && (current.kind !== 'loan' || (offer.kind != null && offer.kind !== 'loan'))) {
-    return { success: false, error: LEGACY_PENDING_ERROR };
-  }
   if (!editor) return { success: false, error: 'Only the sending player can adjust this contract.' };
   if (!current) return { success: false, error: 'Only the sending player can adjust this contract.' };
   if (contractLastProposerId(current) !== editor.id) return { success: false, error: 'Only the sending player can adjust this contract.' };
@@ -752,79 +696,21 @@ function recordEquityShare(game, contract, lender) {
     holderId: lender.id,
     share: contract.equityShare,
     contractId: contract.id,
-    control: contract.equityControl,
-    rentShareVersion: contract.rentShareVersion
+    control: contract.equityControl
   }];
 }
 
-// Terms are drafted when the offer is made, but a pending offer can sit through
-// several rounds. The term a player agrees to is its length, so the due, cure
-// and expiry rounds restart from the round of acceptance.
-function anchorTermsToAcceptance(game, contract) {
-  const duration = Number(contract.durationRounds);
-  if (!Number.isFinite(duration) || duration < 1) return;
-  if (contract.kind === 'loan' || contract.kind === 'hybrid') {
-    contract.dueRound = game.roundNumber + duration;
-    contract.cureRound = contract.dueRound + 1;
-  }
-  if (contract.kind === 'equity' && contract.expiresRound != null) contract.expiresRound = game.roundNumber + duration;
-}
-
-// Funding a contract moves cash, books the contract, records the equity share and clears the pending offer. A throw in any of
-// those steps must not leave the table half-committed, so the touched state is captured first and restored on failure.
-function fundedContractSnapshot(game, contract, lender, player) {
-  const property = contract.kind === 'equity' ? game.getTile(contract.propertyIndex) : null;
-  return {
-    terms: structuredClone(contract),
-    lenderCash: lender.cash,
-    playerCash: player.cash,
-    lenderIds: Array.isArray(lender.playerContractIds) ? lender.playerContractIds.slice() : [],
-    playerIds: Array.isArray(player.playerContractIds) ? player.playerContractIds.slice() : [],
-    contracts: Array.isArray(game.playerContracts) ? game.playerContracts.slice() : [],
-    pendingPlayerContract: game.pendingPlayerContract,
-    property,
-    propertyShares: property && Array.isArray(property.equityShares) ? property.equityShares.slice() : property?.equityShares
-  };
-}
-
-function restoreFundedContract(game, contract, lender, player, before) {
-  lender.cash = before.lenderCash;
-  player.cash = before.playerCash;
-  lender.playerContractIds = before.lenderIds.slice();
-  player.playerContractIds = before.playerIds.slice();
-  game.playerContracts = before.contracts.slice();
-  game.pendingPlayerContract = before.pendingPlayerContract;
-  for (const key of Object.keys(contract)) delete contract[key];
-  Object.assign(contract, before.terms);
-  if (before.property) {
-    if (before.propertyShares === undefined) delete before.property.equityShares;
-    else before.property.equityShares = before.propertyShares;
-  }
-}
-
-// Returns false when the activation could not be committed; the table is then
-// exactly as it was and the offer is still open.
 function activateFundedContract(game, contract, lender, player) {
-  const before = fundedContractSnapshot(game, contract, lender, player);
-  try {
-    anchorTermsToAcceptance(game, contract);
-    if (contract.kind === 'equity') recordEquityShare(game, contract, lender);
-    lender.cash -= contract.amount;
-    player.cash += contract.amount;
-    contract.status = 'active';
-    contract.acceptedRound = game.roundNumber;
-    game.playerContracts.push(contract);
-    lender.playerContractIds.push(contract.id);
-    player.playerContractIds.push(contract.id);
-    game.feedMessage(lender.nickname + ' and ' + player.nickname + ' activated a ' + contract.kind + ' contract.');
-    // The pending offer is cleared only after the commit succeeded, so a
-    // failed activation leaves the table obligation open.
-    game.pendingPlayerContract = null;
-    return true;
-  } catch (error) {
-    restoreFundedContract(game, contract, lender, player, before);
-    return false;
-  }
+  if (contract.kind === 'equity') recordEquityShare(game, contract, lender);
+  lender.cash -= contract.amount;
+  player.cash += contract.amount;
+  contract.status = 'active';
+  contract.acceptedRound = game.roundNumber;
+  game.playerContracts.push(contract);
+  lender.playerContractIds.push(contract.id);
+  player.playerContractIds.push(contract.id);
+  game.pendingPlayerContract = null;
+  game.feedMessage(lender.nickname + ' and ' + player.nickname + ' activated a ' + contract.kind + ' contract.');
 }
 
 function borrowerCanReceive(player) {
@@ -843,28 +729,13 @@ function acceptContract(game, player, contract) {
     game.pendingPlayerContract = null;
     return { success: false, error: 'Loan-backed cash cannot be used for player contracts.' };
   }
-  if (game.spendableCash(lender) < contract.amount) return { success: false, error: AUCTION_COMMITTED_CASH_ERROR };
   if (!borrowerCanReceive(player)) {
     game.pendingPlayerContract = null;
     return { success: false, error: 'The contract can no longer be accepted.' };
   }
-  const termError = newContractTermsError(contract);
-  if (termError) return { success: false, error: termError };
-  if (isRentShareContract(contract)) {
-    const error = rentSharePropertyError(game, contract, player, contract.id);
-    if (error) return { success: false, error };
-  }
-  if (contract.kind === 'loan' && (!usesCollateralCredit(contract)
-    || JSON.stringify(contract.collateralCreditQuotes) !== JSON.stringify(collateralQuoteFor(game, defaultCollateralIndices(contract))))) {
-    return { success: false, error: 'The collateral quote changed; rebuild this loan offer.' };
-  }
-  const settlementRejection = isRentShareContract(contract) ? null : contractSettlementRejection(game, player, contract);
+  const settlementRejection = contractSettlementRejection(game, player, contract);
   if (settlementRejection) return settlementRejection;
-  if (!activateFundedContract(game, contract, lender, player)) {
-    return { success: false, error: CONTRACT_ACTIVATION_FAILED };
-  }
-  // Same rescue rule as a bank loan: the borrower's new cash settles a parked debt.
-  if (game.pendingPayment?.playerId === player.id) game.trySettlePendingPayment();
+  activateFundedContract(game, contract, lender, player);
   return { success: true, accepted: true, contract };
 }
 
@@ -878,17 +749,20 @@ function contractResponseKey(playerId, requestId) {
   return transactionKey('contract-response', playerId, requestId ? normalizeRequestId(requestId) : null);
 }
 
-// A response memo records the contract it settled. A bare requestId is not an identity: reusing one against a different contract
-// replayed the earlier result, reported success for an obligation still open, and stranded it ("Resolve the current table obligation first.").
-// A memo replays only for the contract it settled (named by the request or pending now), or for a request naming no contract while none is pending.
-function contractResponseMemo(game, playerId, requestId, contractId, requireCurrentRules = false) {
+// A response memo records the contract it settled, because a bare requestId
+// is not an identity: reusing one against a different contract replayed the
+// earlier result, reported success for a table obligation that was still
+// open, and stranded it ("Resolve the current table obligation first.").
+// A memo replays only for the contract it settled - either named by the
+// request or the one pending now - and for a request that names no contract
+// while none is pending, where it is the only answer available.
+function contractResponseMemo(game, playerId, requestId, contractId) {
   const key = contractResponseKey(playerId, requestId);
   if (!key) return null;
   const entry = game.contractTransactions.get(key);
   if (!entry) return null;
   const targetContractId = contractId || game.pendingPlayerContract?.id || null;
   if (targetContractId !== null && targetContractId !== (entry.contractId || null)) return null;
-  if (requireCurrentRules && entry.rulesVersion !== CONTRACT_RULES_VERSION) return { success: false, error: LEGACY_PENDING_ERROR };
   return entry.result || null;
 }
 
@@ -896,7 +770,7 @@ function memoizeContractResponse(game, playerId, requestId, contractId, result) 
   const key = contractResponseKey(playerId, requestId);
   if (!key) return result;
   if (!result.success) return result;
-  game.contractTransactions.set(key, { rulesVersion: CONTRACT_RULES_VERSION, contractId: contractId || null, result });
+  game.contractTransactions.set(key, { contractId: contractId || null, result });
   while (game.contractTransactions.size > MAX_CONTRACT_REPLAYS) {
     game.contractTransactions.delete(game.contractTransactions.keys().next().value);
   }
@@ -904,15 +778,8 @@ function memoizeContractResponse(game, playerId, requestId, contractId, result) 
 }
 
 export function respondContract(game, socketId, accept, requestId = null, contractId = null) {
-  const startedRejection = contractVerbRejection(game);
-  if (startedRejection) return startedRejection;
-  if (accept && !playerFinanceEnabled(game)) return { success: false, error: FINANCE_DISABLED_ERROR };
-  if (accept && game.pendingPlayerContract && (game.pendingPlayerContract.rulesVersion !== CONTRACT_RULES_VERSION
-    || (game.pendingPlayerContract.kind === 'equity' && !isRentShareContract(game.pendingPlayerContract)))) {
-    return { success: false, error: LEGACY_PENDING_ERROR };
-  }
   const player = game.getPlayerBySocket(socketId);
-  const cached = contractResponseMemo(game, player?.id, requestId, contractId, Boolean(accept));
+  const cached = contractResponseMemo(game, player?.id, requestId, contractId);
   if (cached) return cached;
   const contract = game.pendingPlayerContract;
   if (contractId && contract?.id !== contractId) return { success: false, error: 'No matching player contract was found.' };
@@ -920,11 +787,6 @@ export function respondContract(game, socketId, accept, requestId = null, contra
   const settledContractId = contract.id;
   const borrower = game.getPlayerById(contract.toPlayerId);
   if (accept && contract.kind === 'equity-transfer') {
-    // A reserve refusal keeps the transfer open; a raw shortfall still reaches
-    // the settlement validator's own message.
-    if (borrower && borrower.cash >= contract.transferPrice && game.spendableCash(borrower) < contract.transferPrice) {
-      return { success: false, error: AUCTION_COMMITTED_CASH_ERROR };
-    }
     const result = settleEquityTransfer(game, contract);
     if (!result.success && game.pendingPlayerContract === contract) game.pendingPlayerContract = null;
     return memoizeContractResponse(game, player?.id, requestId, settledContractId, result);
@@ -954,8 +816,6 @@ function repaymentAmount(contract, amount) {
 }
 
 export function repayContract(game, socketId, payload = {}) {
-  const startedRejection = contractVerbRejection(game);
-  if (startedRejection) return startedRejection;
   const { contractId, amount, requestId } = payload;
   const borrower = game.getPlayerBySocket(socketId);
   const key = transactionKey('contract-repay', borrower?.id, requestId ? normalizeRequestId(requestId) : null);
@@ -965,16 +825,9 @@ export function repayContract(game, socketId, payload = {}) {
   if (!repayableLoan(contract, borrower)) return { success: false, error: 'That loan is not available to repay.' };
   const lender = game.getPlayerById(contract.fromPlayerId);
   if (!lender) return { success: false, error: 'That loan is no longer available to repay.' };
-  // Loan-backed cash cannot fund a player contract, and it cannot pay one
-  // either: the proposal and the acceptance both refuse a loan-backed
-  // lender, so a repayment has to refuse the same cash for the same reason.
-  if (game.hasLoanBackedCash?.(borrower)) {
-    return { success: false, error: 'Loan-backed cash cannot be used for player contracts.' };
-  }
   const payment = repaymentAmount(contract, amount);
   if (!payment) return { success: false, error: 'You do not have enough cash for that repayment.' };
   if (borrower.cash < payment) return { success: false, error: 'You do not have enough cash for that repayment.' };
-  if (game.spendableCash(borrower) < payment) return { success: false, error: AUCTION_COMMITTED_CASH_ERROR };
   const result = settleLoanRepayment(game, contract, borrower, payment, lender);
   return memoizeSuccess(game, key, result);
 }
@@ -989,8 +842,6 @@ function settleLoanRepayment(game, contract, borrower, payment, lender = null) {
     contract.paidRound = game.roundNumber;
   }
   game.feedMessage(borrower.nickname + ' repaid $' + payment + ' on a player loan.');
-  // The repayment can be the missing piece of the lender's own parked debt.
-  if (lender) settleRecipientParkedDebt(game, lender);
   return { success: true, contract };
 }
 
@@ -1018,13 +869,6 @@ function handleDueLoanContract(game, contract) {
 }
 
 function defaultPlayerLoanWithBasket(game, contract, options = {}) {
-  if (usesCollateralCredit(contract)) {
-    handlePlayerLoanDefault(game, contract, options);
-    return;
-  }
-  // A default without a recovery claim would seize collateral and close the loan with nothing for the lender to collect. When the
-  // claim ledger is full, change nothing and leave the contract due; the next round retries once a slot frees up.
-  if (!canRecordDefaultClaim(game, contract)) return;
   const borrower = game.getPlayerById(contract.toPlayerId);
   const lender = game.getPlayerById(contract.fromPlayerId);
   const indices = defaultCollateralIndices(contract);
@@ -1107,8 +951,10 @@ function recordHybridConversion(game, contract, lender) {
   }];
 }
 
-// A hybrid note converts instead of seizing: past the cure turn the lender takes the agreed equity share and interest stops.
-// If the conversion target is gone (sold, mortgaged, built on, or full), the note falls back to the plain loan-default path.
+// A hybrid note converts instead of seizing: past the cure turn the lender
+// takes the agreed equity share and interest stops. When the conversion
+// target is gone (sold, mortgaged, built on, or full), the note falls back
+// to the plain loan-default path.
 function convertHybridContract(game, contract) {
   if (!hybridConversionEligible(game, contract)) {
     defaultPlayerLoanWithBasket(game, contract, { reason: 'conversion-unavailable' });
@@ -1153,45 +999,31 @@ export function processContracts(game) {
 }
 
 export function settleEquityShares(game, tile, owner, amountPaid, payer = null) {
-  // Expiry takes effect at the recorded round even before the round sweep runs.
-  for (const contract of game.playerContracts || []) {
-    if (isRentShareContract(contract) && Number(contract.propertyIndex) === Number(tile?.index)) expireEquityContract(game, contract);
-  }
   if (!Array.isArray(tile?.equityShares) || !tile.equityShares.length) return;
   if (!owner) return;
   if (owner.bankrupt) return;
   if (amountPaid <= 0) return;
-  // The shares of one deed can never add up to more than 100% of its rent: a stale or hand-edited tile would otherwise pay out
-  // more than was collected. Each entry is paid from the rent still unallocated, so one deed's payouts never exceed its rent.
-  let unallocated = 100;
-  const paid = [];
-  tile.equityShares.forEach(share => {
-    const payable = equitySharePayable(game, share);
-    if (!payable) return;
-    const sharePct = Math.min(payable.sharePct, Math.max(0, unallocated));
-    if (sharePct <= 0) return;
-    unallocated -= sharePct;
-    const holder = settleEquityPayout(game, owner, share, amountPaid, payer, sharePct);
-    if (holder) paid.push(holder);
-  });
-  // The parked-debt retry waits until the loop is over: settling it from
-  // inside the loop would re-enter settlePendingEquityShares and pay the
-  // same shares twice for one rent.
-  paid.forEach(holder => settleRecipientParkedDebt(game, holder));
+  tile.equityShares.forEach(share => settleEquityPayout(game, owner, share, amountPaid, payer));
 }
 
-// The owner's cash is the only source of a share payout, so the owner can be short. The unpaid part is carried on the contract
-// as unpaidRentShare and paid from the next rent that tile collects, rather than voiding rent the holder already earned. The payout
-// stays clamped to the owner's cash, so no cash is minted, and the carry is an integer like every other balance.
+// The owner's cash is the only source of a share payout, so the owner can be
+// short of the share they owe. The unpaid part is carried on the contract as
+// unpaidRentShare and paid out of the next rent that same tile collects,
+// instead of silently voiding rent the holder already earned. The payout
+// stays clamped to the owner's cash, so no cash is ever minted, and the
+// carry is an integer like every other balance in this module.
 //
-// Rent is scored to whoever keeps the money: the owner had already been credited the full rent, so a part-sold deed scored the
-// holder zero. Both sides go through the player-level rent facts, so the holder can reach maxRentPayersInRound.
-function settleEquityPayout(game, owner, share, amountPaid, payer, effectiveSharePct = null) {
+// Rent is scored to whoever keeps the money. The owner was already credited the
+// full rent through creditRentTo before this settled, and the holder was only
+// handed raw cash, so a part-sold deed scored its holder at zero rent while
+// scoring the owner for income they gave away - and the holder could never
+// reach the rent-reaper achievement (maxRentPayersInRound, written only by
+// creditRentTo). Both sides now go through the player-level rent facts.
+function settleEquityPayout(game, owner, share, amountPaid, payer) {
   const payable = equitySharePayable(game, share);
-  if (!payable) return null;
-  const sharePct = effectiveSharePct == null ? payable.sharePct : effectiveSharePct;
+  if (!payable) return;
   const carried = Math.max(0, Math.floor(Number(payable.contract.unpaidRentShare) || 0));
-  const earned = Math.max(0, Math.floor(amountPaid * (sharePct / 100)));
+  const earned = Math.max(0, Math.floor(amountPaid * (payable.sharePct / 100)));
   const owed = carried + earned;
   const payout = Math.min(Math.max(0, owner.cash), owed);
   if (payout > 0) {
@@ -1212,9 +1044,6 @@ function settleEquityPayout(game, owner, share, amountPaid, payer, effectiveShar
   const stillOwed = owed - payout;
   if (stillOwed > 0) payable.contract.unpaidRentShare = stillOwed;
   else if (payable.contract.unpaidRentShare) payable.contract.unpaidRentShare = 0;
-  // The holder is reported back so the caller can retry that holder's own
-  // parked debt once the whole share loop is done.
-  return payout > 0 ? payable.holder : null;
 }
 
 function contractNames(game, contract) {

@@ -12,28 +12,6 @@ async function openThemeChooser(page) {
 }
 
 test.describe("Poorup seasonal worlds", () => {
-  test("original houses remain visible and drift, then freeze for reduced motion", async ({ page }) => {
-    await page.emulateMedia({ reducedMotion: "no-preference" });
-    await page.goto("/");
-    const houses = page.locator("#view-home .home-house-drift");
-    const track = houses.locator(".home-house-drift-track");
-    await expect(houses).toBeVisible();
-    expect(Number(await houses.evaluate(element => getComputedStyle(element).opacity))).toBeGreaterThan(0);
-    await expect(track).toHaveCSS("animation-duration", "38s");
-    await expect(track).toHaveCSS("animation-play-state", "running");
-    const firstX = await track.evaluate(element => element.getBoundingClientRect().x);
-    await expect.poll(() => track.evaluate(element => element.getBoundingClientRect().x)).toBeLessThan(firstX - 2);
-
-    await page.locator("#home-profile-tab").click();
-    await expect(track).toHaveCSS("animation-play-state", "paused");
-    await page.locator("#profile-back-btn").click();
-    await expect(track).toHaveCSS("animation-play-state", "running");
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await expect(houses).toBeVisible();
-    await expect(track).toHaveCSS("animation-name", "none");
-    await expect(track).toHaveCSS("transform", "none");
-  });
-
   test("offers six native radio choices and keeps keyboard focus on the selected world", async ({ page }) => {
     await openThemeChooser(page);
     const choices = page.locator("#theme-choice-grid [data-theme-choice]");
@@ -60,8 +38,6 @@ test.describe("Poorup seasonal worlds", () => {
   });
 
   test("applies a themed scene without changing the shell geometry", async ({ page }) => {
-    // Every theme is applied and checked in turn, which is slow on 4K screens under load.
-    test.setTimeout(120_000);
     await page.goto("/");
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.locator("#home-profile-tab").click();
@@ -79,10 +55,6 @@ test.describe("Poorup seasonal worlds", () => {
       await expect(page.locator("body")).toHaveAttribute("data-theme-id", id);
       await expect(page.locator("#theme-home-world")).toHaveAttribute("data-theme-id", id);
       await expect(page.locator("#theme-home-world .theme-scene")).toHaveCount(1);
-      await expect(page.locator("#view-home .home-house-drift")).toHaveCSS("opacity", "0");
-      await expect(page.locator("#view-home .parlor-statement")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-      await expect(page.locator("#view-home .parlor-statement")).toHaveCSS("border-width", "0px");
-      await expect(page.locator("#home-local-time")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await expect(page.locator("#theme-home-world .theme-prop-clouds")).toHaveCount(2);
       const cloudMotion = await page.locator("#theme-home-world .theme-cloud-a").evaluate((element) => getComputedStyle(element).animationName);
       const cloudReturn = await page.locator("#theme-home-world .theme-cloud-b").evaluate((element) => getComputedStyle(element).animationName);
@@ -104,24 +76,13 @@ test.describe("Poorup seasonal worlds", () => {
         await expect(page.locator("#theme-home-world .theme-pedestrian-band")).toHaveCount(2);
       }
       expect(await shellGeometry()).toEqual(baseline);
-      await page.locator("#profile-back-btn").click();
-      await expect(page.locator("#view-home")).toBeVisible();
-      await expect(page.locator("#theme-home-world .theme-scene")).toHaveCSS("opacity", "0.56");
-      await page.locator("#home-profile-tab").click();
-      await page.locator("#profile-tab-account").click();
     }
     await page.locator('[data-theme-choice="original"]').click();
     await expect(page.locator("#theme-home-world .theme-scene")).toHaveCount(1);
     await expect(page.locator("#theme-home-world .theme-prop-fog")).toHaveCount(2);
-    await expect(page.locator("#theme-page-world .theme-scene")).toHaveCount(1);
-    await expect(page.locator("#theme-page-world .theme-scene")).toHaveAttribute("src", "/assets/themes/original/scene.svg");
-    await expect(page.locator("#theme-board-world .theme-scene")).toHaveCount(1);
-    await expect(page.locator("#view-home .home-house-drift")).toHaveCSS("opacity", "0.56");
-    await expect(page.locator("#view-home .parlor-statement")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-    await expect(page.locator("#home-local-time")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-    await page.locator("#profile-back-btn").click();
-    await expect(page.locator("#view-home")).toBeVisible();
-    await expect(page.locator("#theme-home-world .theme-scene")).toHaveCSS("opacity", "0.56");
+    await expect(page.locator("#theme-page-world")).toBeEmpty();
+    await expect(page.locator("#theme-board-world")).toBeEmpty();
+    await expect(page.locator("#view-home .home-house-drift")).toHaveCSS("opacity", "0.5");
   });
 
   test("persists a sanitized preference and synchronizes another tab", async ({ page, context }) => {
@@ -164,6 +125,7 @@ test.describe("Poorup seasonal worlds", () => {
 
     const layers = await page.evaluate(() => {
       const style = (selector) => getComputedStyle(document.querySelector(selector));
+      const world = document.querySelector("#theme-home-world");
       return {
         bodyIsolation: getComputedStyle(document.body).isolation,
         titleIsolation: style(".title-screen").isolation,

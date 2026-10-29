@@ -1,5 +1,7 @@
-// Index market: the quote drift ladder (advanceMarket), the order-validation gate chain, and the buy and sell legs that move cash.
-// Pure: the order legs receive a context object and mutate only the GameState and player they are handed.
+// Index market: the quote drift ladder (advanceMarket), the order-validation
+// gate chain, and the buy/sell legs that move cash and update positions. Pure
+// module: the order legs receive a context object and mutate only the GameState
+// and player they are handed.
 import { randomFloat } from './random.js';
 
 export const MARKET_FEE_RATE = 0.02;
@@ -19,14 +21,7 @@ export const MARKET_ORDER_GUARDS = [
   { test: (game, player) => player.id !== game.currentPlayerId, error: 'Market orders are available during your turn.' },
   { test: (game, player) => (player.marketActionsThisTurn || 0) >= 1, error: 'You have already placed a market order this turn.' },
   { test: game => game.pendingPayment || game.auction || game.pendingPurchaseOffer || game.pendingSponsoredPurchase || game.pendingTrade || game.pendingPlayerContract, error: 'Resolve the table obligation before trading.' },
-  // A sell raises cash and lowers exposure: it is how a seat funds the
-  // repayment it is being asked for, so the maintenance gate may only stop
-  // orders that add risk. The side travels in the order context.
-  { test: (game, player, ctx) => ctx?.direction !== 'sell' && game.marginMaintenanceDue?.(player), error: 'Settle your margin maintenance before trading.' },
-  // An unpaid short buy-in is a forced obligation to the house. The spot book honours the same check the expansion ladder applies
-  // (marketExpansion.positionDebtRejection). Like the maintenance gate above, it stops new exposure only: a sell raises the cash
-  // that repays the debt, so refusing it would trap the seat in the obligation it must settle.
-  { test: (game, player, ctx) => ctx?.direction !== 'sell' && Number(player.shortDefaultDebt) > 0, error: 'Settle your short buy-in debt before trading.' },
+  { test: (game, player) => game.marginMaintenanceDue?.(player), error: 'Settle your margin maintenance before trading.' },
   { test: game => game.activeEventEffects().tradingEnabled === false, error: 'Market trading is paused by the active global event.' }
 ];
 
@@ -116,7 +111,7 @@ function invalidMarketQuantity(amount) {
 }
 
 export function marketOrderRejection(ctx) {
-  const guard = MARKET_ORDER_GUARDS.find(entry => entry.test(ctx.game, ctx.player, ctx));
+  const guard = MARKET_ORDER_GUARDS.find(entry => entry.test(ctx.game, ctx.player));
   if (guard) return { success: false, error: guard.error };
   if (unknownMarketOrder(ctx)) return { success: false, error: 'Choose a valid market order.' };
   if (invalidMarketQuantity(ctx.amount)) return { success: false, error: 'Quantity must be between 1 and 1,000.' };
@@ -159,10 +154,6 @@ export function applyMarketSell(ctx) {
   position.realizedPnl += (ctx.quote - position.averageCost) * ctx.amount - ctx.fee;
   position.quantity -= ctx.amount;
   recordCrisisProfit(ctx);
-  if (!position.quantity) {
-    position.averageCost = 0;
-    // A flat position keeps no crisis reference: the next crisis buy starts fresh.
-    if (ctx.player.crisisMarketBuys) delete ctx.player.crisisMarketBuys[ctx.id];
-  }
+  if (!position.quantity) position.averageCost = 0;
   return null;
 }

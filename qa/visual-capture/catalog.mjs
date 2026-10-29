@@ -25,8 +25,8 @@ const releaseSurfaceIds = [
 ];
 
 const adminSurfaceIds = [
-  'admin-status', 'admin-rooms', 'admin-matches', 'admin-economy', 'admin-bots', 'admin-release',
-  'admin-state-stale', 'admin-state-empty', 'admin-state-error',
+  'admin-overview-initial', 'admin-overview', 'admin-match-health', 'admin-rulesets', 'admin-economy',
+  'admin-events', 'admin-bots', 'admin-quality', 'admin-state-stale', 'admin-state-empty', 'admin-state-suppressed',
 ];
 
 export const captureCatalog = Object.freeze([

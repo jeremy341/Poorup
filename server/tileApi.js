@@ -1,6 +1,10 @@
-// Landing resolution as a prototype mixin: what happens when a player's movement ends on a tile. gameLogic.js assigns this object
-// onto GameState.prototype. The original applyTile if/switch ladder became a type-keyed resolver table plus per-landing methods,
-// preserving every feed string, guard order and side-effect sequence pinned by gameLogic.test.js, applyCard.test.js and casino-bankruptcy.test.js.
+// Landing resolution as a prototype mixin: what happens when a player's
+// movement ends on a tile. gameLogic.js assigns this object onto
+// GameState.prototype. The original applyTile if/switch ladder became a
+// type-keyed resolver table plus per-landing methods, preserving every feed
+// string, guard order, and side-effect sequence pinned by
+// server/gameLogic.test.js, server/applyCard.test.js and
+// server/casino-bankruptcy.test.js.
 
 // Landing outcome per tile type, exactly the old switch cases. Types with no
 // entry (and a missing tile) fall through to the shared resolve-tail branch.
@@ -205,7 +209,6 @@ const tileApi = {
       return { success: true, purchaseOffer: { tileIndex: tile.index, name: tile.name, price: tile.price } };
     }
     const auction = this.startAuction(tile, player.id);
-    if (auction?.auctionPaused) return { success: true, message: auction.error };
     if (auction && auction.success === false) return auction;
     return { success: true, auctionStarted: true };
   },
@@ -235,9 +238,7 @@ const tileApi = {
   },
 
   recordAirportStrikeRentFacts(tile, owner) {
-    // The rule belongs to the headline, so it also runs when the airport
-    // strike was fused into a combination (travel-chaos).
-    if (!this.globalEventIncludes('airport-strike')) return;
+    if (!this.globalEventActive('airport-strike')) return;
     if (owner.properties.some(index => { const deed = this.getTile(index); return deed?.type === 'railroad' && !deed.mortgaged; })) owner.airportOwnedDuringStrike = true;
     if (tile.type !== 'railroad') owner.nonAirportRentDuringStrike = true;
   }

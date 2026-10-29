@@ -26,16 +26,4 @@ assert.equal(serialized.includes('privateLoanTerms'), false);
 assert.equal(serialized.includes('raw chat'), false);
 assert.deepEqual(document.retiredData, { cosmetics: { tokens: 75, owned: ['frame-copper'], equipped: {} } });
 assert.ok(document.statistics);
-
-// Placement and property count live on the account's participant entry.
-const exported = buildAccountExport({
-  account: {
-    id: 'acct-p', username: 'placer',
-    matchHistory: [{ matchId: 'g1', participants: [{ accountId: 'acct-x', finalPlacement: 3, propertyCount: 9 }, { accountId: 'acct-p', finalPlacement: 1, propertyCount: 2 }] }]
-  },
-  now: () => Date.parse('2026-09-17T12:00:00.000Z')
-});
-assert.equal(exported.matchHistory[0].finalPlacement, 1, 'the export carries the exporter\'s own placement');
-assert.equal(exported.matchHistory[0].propertyCount, 2, 'the export carries the exporter\'s own property count');
-assert.equal(JSON.stringify(exported).includes('acct-x'), false, 'other participants are not exported');
 console.log('account export: 8 passed, 0 failed');

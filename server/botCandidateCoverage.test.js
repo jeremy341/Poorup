@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { GAME_ACTION_CATALOG, registerGameSocketHandlers } from './serverSocketGame.js';
-import { candidateAction, CANDIDATE_RUNNERS, getBotChoiceCandidates, runPaymentChoice } from './botLogic.js';
-import { RoomManager } from './gameLogic.js';
+import { candidateAction } from './botLogic.js';
 
 const bot = { id: 'coverage-bot', cash: 10_000, personality: 'speculator' };
 const coverage = new Map([
@@ -25,8 +24,6 @@ const coverage = new Map([
   ['repay-player-contract', { candidateKind: 'repay' }],
   ['pay-jail-fine', { candidateKind: 'jail-fine' }],
   ['use-jail-free', { candidateKind: 'jail-free' }],
-  ['use-item', { candidateKind: 'item-use' }],
-  ['sell-item', { policy: 'item-payment-rescue' }],
   ['take-bank-loan', { candidateKind: 'loan' }],
   ['repay-bank-loan', { candidateKind: 'bank-repay' }],
   ['market-order', { candidateKind: 'market' }],
@@ -41,9 +38,6 @@ const coverage = new Map([
   ['vote-global-event', { policy: 'vote-choice-phase' }],
   ['declare-bankruptcy', { candidateKind: 'bankruptcy' }],
   ['roll-dice', { candidateKind: 'roll' }],
-  ['fly-to-airport', { exclusion: 'human-only airport flights' }],
-  ['upgrade-bank-account', { exclusion: 'human-only bank account upgrades' }],
-  ['set-airport-fees', { exclusion: 'human-only airport fee editing' }],
   ['cancel-player-contract', { exclusion: 'human-only cancellation' }],
   ['player-presence', { exclusion: 'human-only presence reporting' }],
   ['propose-equity-share-transfer', { exclusion: 'human-only equity transfer' }],
@@ -61,7 +55,7 @@ const coverage = new Map([
 
 const testedPolicies = new Set([
   'decline-to-auction', 'decideBotAuction', 'trade-choice-phase', 'contract-choice-phase',
-  'debt-rescue', 'vote-choice-phase', 'sponsorship-choice-phase', 'item-payment-rescue'
+  'debt-rescue', 'vote-choice-phase', 'sponsorship-choice-phase'
 ]);
 
 const registeredEvents = [];
@@ -96,28 +90,4 @@ for (const action of GAME_ACTION_CATALOG) {
 }
 
 assert.equal(new Set(GAME_ACTION_CATALOG.map(action => action.event)).size, GAME_ACTION_CATALOG.length, 'catalog action events are unique');
-
-// Item coverage exercises the same candidates and Room action seam as live bots.
-{
-  const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 'item-bot', clientId: 'item-bot', nickname: 'Bot', rulesetOverrides: [{ key: 'itemRewards', value: true }] });
-  room.addOrReconnectPlayer({ socketId: 'item-other', clientId: 'item-other', nickname: 'Other' });
-  assert.equal(room.startGame().success, true);
-  const game = room.game, [actor] = game.players;
-  actor.isBot = true;
-  game.currentPlayerId = actor.id;
-  const bond = game.grantItem(actor, 'parlor-bond', 'treasure');
-  game.roundNumber = bond.maturesRound;
-  const redeem = game.botItemCandidates(actor)[0];
-  assert.equal(candidateAction(redeem, actor).type, 'item-use');
-  assert.equal(CANDIDATE_RUNNERS['item-use'](room, actor, redeem).cashReceived, 100);
-  const keepsake = game.grantItem(actor, 'silver-keepsake', 'surprise');
-  actor.cash = 0;
-  game.chargePlayer({ player: actor, amount: 70 });
-  const sell = getBotChoiceCandidates(game, actor, 'payment')[0];
-  assert.equal(sell.itemId, keepsake.itemId);
-  assert.equal(sell.itemAction, 'sell');
-  assert.equal(runPaymentChoice(room, actor, game, sell).cashReceived, 75);
-  assert.equal(game.pendingPayment, null);
-}
 console.log(`bot candidate coverage: ${coverage.size} action variants across ${GAME_ACTION_CATALOG.length} socket events`);

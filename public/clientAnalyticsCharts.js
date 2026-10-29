@@ -1,8 +1,5 @@
 import { STANDARD_TILES, METRO_TILES } from './clientBoardData.js';
-import { mountChart, disposeChart } from './clientChartMount.js';
-import { formatAdminNumber } from './clientAnalyticsViewModel.js';
-import { finite, formatValue } from './clientChartMath.js';
-import { normalizeChartSpec, preferredChartHeight } from './clientChartRender.js';
+import { hydrateAnalyticsChart, disposeAnalyticsChart as disposeMountedChart } from './clientAnalyticsChartAdapter.js';
 
 const CHART_ROLES = Object.freeze({
   primary: 'var(--analytics-primary)', comparison: 'var(--analytics-comparison)', human: 'var(--analytics-human)',
@@ -10,12 +7,13 @@ const CHART_ROLES = Object.freeze({
   negative: 'var(--analytics-negative)', warning: 'var(--analytics-warning)', neutral: 'var(--analytics-neutral)'
 });
 const CHART_COLORS = Object.freeze({ ...CHART_ROLES, line: CHART_ROLES.primary, bar: CHART_ROLES.primary, muted: CHART_ROLES.neutral });
-// Line, area and bar draw; every other mode is a verified data table only.
-const MODES = new Set(['line', 'area', 'bar']);
+const MODES = new Set(['line', 'bar', 'stacked-bar', 'heatmap', 'histogram', 'box', 'scatter', 'funnel', 'cohort', 'board']);
 const MAX_POINTS = 168;
 let chartSequence = 0;
 const preferenceCleanups = new WeakMap();
+const renderGenerations = new WeakMap();
 
+function finite(value) { const number = Number(value); return Number.isFinite(number) ? number : null; }
 function optionalFinite(value) { return value === null || value === undefined || value === '' ? null : finite(value); }
 function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); }
 function mediaMatches(query) { const media = globalThis.matchMedia || globalThis.window?.matchMedia; return typeof media === 'function' && media.call(globalThis, query)?.matches === true; }
@@ -37,9 +35,35 @@ function cleanPoints(series) {
   }).filter(point => point.value !== null || point.values);
 }
 
+function stackedSegments(values) {
+  const keys = [];
+  values.forEach(point => Object.keys(point.values || {}).forEach(key => {
+    if (Object.hasOwn(CHART_ROLES, key.toLowerCase()) && !keys.includes(key) && keys.length < 8) keys.push(key);
+  }));
+  if (!keys.length) keys.push('primary');
+  return { keys, rows: values.map(point => ({
+    label: point.label,
+    unit: point.unit,
+    sampleSize: point.sampleSize,
+    numerator: point.numerator,
+    denominator: point.denominator,
+    values: keys.map(key => finite(point.values?.[key] ?? point.value))
+  })) };
+}
+
 function formatNumber(value, maximumFractionDigits = 1) {
   const number = finite(value);
-  return number === null ? 'N/A' : formatAdminNumber(number, maximumFractionDigits);
+  return number === null ? 'N/A' : number.toLocaleString(undefined, { maximumFractionDigits });
+}
+
+function formatValue(value, unit) {
+  const number = finite(value);
+  if (number === null) return 'N/A';
+  const normalized = String(unit || '').toLowerCase();
+  if (normalized === 'percent' || normalized === 'adoption' || normalized.endsWith('rate')) return `${formatNumber(Math.abs(number) <= 1 ? number * 100 : number, 1)}%`;
+  if (normalized === 'seconds') return formatNumber(number, 2);
+  if (normalized === 'milliseconds') return formatNumber(number, 0);
+  return formatNumber(number, 2);
 }
 
 function metadataColumns(values) {
@@ -50,32 +74,62 @@ function metadataColumns(values) {
   ].filter(([field]) => values.some(point => point[field] !== null));
 }
 
-// One unit across the table moves into the Value header; mixed units keep their own column.
 function tableMarkup(title, unit, values) {
   const metadata = metadataColumns(values);
-  const units = [...new Set(values.map(point => point.unit || unit))];
-  const single = units.length === 1;
-  const columns = single ? ['Label', `Value (${units[0]})`] : ['Label', 'Value', 'Unit'];
-  const header = [...columns, ...metadata.map(([, label]) => label)];
-  const rows = values.map(point => {
-    const value = point.value === null ? 'N/A' : formatValue(point.value, point.unit || unit);
-    const unitCell = single ? '' : `<td>${escapeHtml(point.unit || unit)}</td>`;
-    const extra = metadata.map(([field]) => `<td>${escapeHtml(point[field] === null ? 'N/A' : formatNumber(point[field], 0))}</td>`).join('');
-    return `<tr><th scope="row">${escapeHtml(point.label)}</th><td>${escapeHtml(value)}</td>${unitCell}${extra}</tr>`;
-  }).join('');
-  return `<table class="analytics-chart-table"><caption>${escapeHtml(title)} data table</caption><thead><tr>${header.map(column => `<th scope="col">${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
+  const columns = ['Label', 'Value', 'Unit', ...metadata.map(([, label]) => label)];
+  return `<table class="analytics-chart-table"><caption>${escapeHtml(title)} data table</caption><thead><tr>${columns.map(column => `<th scope="col">${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${values.map(point => `<tr><th scope="row">${escapeHtml(point.label)}</th><td>${escapeHtml(point.value === null ? 'N/A' : formatValue(point.value, point.unit || unit))}</td><td>${escapeHtml(point.unit || unit)}</td>${metadata.map(([field]) => `<td>${escapeHtml(point[field] === null ? 'N/A' : formatNumber(point[field], 0))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
 }
 
-// The verified table is part of every chart. It is read out to assistive technology but not drawn
-// beside the chart (the chart is the picture); a mode with no drawing shows its table instead.
+function stackedTableMarkup(title, unit, segments) {
+  const metadata = metadataColumns(segments.rows);
+  const columns = ['Label', 'Unit', ...metadata.map(([, label]) => label), ...segments.keys];
+  return `<table class="analytics-chart-table"><caption>${escapeHtml(title)} data table</caption><thead><tr>${columns.map(column => `<th scope="col">${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${segments.rows.map(row => `<tr><th scope="row">${escapeHtml(row.label)}</th><td>${escapeHtml(row.unit || unit)}</td>${metadata.map(([field]) => `<td>${escapeHtml(row[field] === null ? 'N/A' : formatNumber(row[field], 0))}</td>`).join('')}${row.values.map(value => `<td>${escapeHtml(value === null ? 'N/A' : formatValue(value, row.unit || unit))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+
 function dataRegionMarkup(title, id, table, visible = false) {
-  if (!visible) return `<div class="analytics-chart-data sr-only" id="${escapeHtml(id)}">${table}</div>`;
-  return `<div class="analytics-chart-data" data-scroll-cue data-overflow="false" id="${escapeHtml(id)}" tabindex="0" role="region" aria-label="Scrollable data table for ${escapeHtml(title)}">${table}</div>`;
+  return `<div class="analytics-chart-data${visible ? '' : ' is-hidden'}" id="${escapeHtml(id)}" tabindex="0" role="region" aria-label="Scrollable data table for ${escapeHtml(title)}">${table}</div>`;
 }
 
-// Forced-colors users keep the drawn chart in system colours; the data table is always
-// on screen beside it, so the preference only updates the figure's marker attribute.
-function bindForcedColors(container) {
+function setTableExpanded(region, button, expanded) {
+  region?.classList?.toggle('is-hidden', !expanded);
+  button?.setAttribute?.('aria-expanded', String(expanded));
+  if (button) button.textContent = expanded ? 'HIDE DATA TABLE' : 'SHOW DATA TABLE';
+}
+
+function setFallback(container, message = 'CHART ENGINE UNAVAILABLE · DATA TABLE AVAILABLE') {
+  const mount = container.querySelector?.('.analytics-chart-engine');
+  if (mount?.dataset) { mount.dataset.chartEngine = 'unavailable'; mount.setAttribute?.('aria-hidden', 'true'); }
+  const status = container.querySelector?.('.analytics-chart-engine-status');
+  if (status) { status.textContent = message; status.classList?.remove('is-hidden'); }
+  const button = container.querySelector?.('.analytics-chart-table-toggle');
+  setTableExpanded(container.querySelector?.('.analytics-chart-data'), button, true);
+}
+
+function bindTableToggle(container) {
+  const button = container.querySelector?.('.analytics-chart-table-toggle');
+  const region = container.querySelector?.('.analytics-chart-data');
+  let manuallyChanged = false;
+  button?.addEventListener?.('click', () => {
+    manuallyChanged = true;
+    setTableExpanded(region, button, region?.classList?.contains('is-hidden'));
+  });
+  return () => manuallyChanged;
+}
+
+function hydrate(container, values, options) {
+  const mount = container.querySelector?.('.analytics-chart-engine');
+  if (!mount?.dataset || mediaMatches('(forced-colors: active)')) return;
+  const generation = (renderGenerations.get(container) || 0) + 1;
+  renderGenerations.set(container, generation);
+  void hydrateAnalyticsChart(mount, values, options).then(result => {
+    if (renderGenerations.get(container) !== generation || container.querySelector?.('.analytics-chart-engine') !== mount) { result?.dispose?.(); return; }
+    if (mediaMatches('(forced-colors: active)')) { result?.dispose?.(); return; }
+    if (result?.status === 'ready') mount.dataset.chartEngine = 'echarts-svg';
+    else setFallback(container);
+  }).catch(() => setFallback(container));
+}
+
+function bindForcedColors(container, values, options, supported, manuallyChanged) {
   const mediaFactory = globalThis.matchMedia || globalThis.window?.matchMedia;
   if (typeof mediaFactory !== 'function') return;
   const media = mediaFactory.call(globalThis, '(forced-colors: active)');
@@ -87,26 +141,29 @@ function bindForcedColors(container) {
   if (!listen) return;
   const handler = event => {
     const forced = event?.matches ?? media.matches;
-    container.querySelector?.('.analytics-chart')?.setAttribute?.('data-forced-colors', forced ? 'active' : 'off');
+    const figure = container.querySelector?.('.analytics-chart');
+    const mount = container.querySelector?.('.analytics-chart-engine');
+    const region = container.querySelector?.('.analytics-chart-data');
+    const button = container.querySelector?.('.analytics-chart-table-toggle');
+    const status = container.querySelector?.('.analytics-chart-engine-status');
+    figure?.setAttribute?.('data-forced-colors', forced ? 'active' : 'off');
+    if (!supported) return;
+    if (forced) {
+      disposeMountedChart(mount);
+      if (status) { status.textContent = 'FORCED COLORS · VERIFIED DATA TABLE'; status.classList?.remove('is-hidden'); }
+      setTableExpanded(region, button, true);
+      return;
+    }
+    status?.classList?.add('is-hidden');
+    if (!manuallyChanged()) setTableExpanded(region, button, false);
+    hydrate(container, values, options);
   };
   preferenceCleanups.set(container, listen(handler));
 }
 
-// Values measured in different units never share an axis: one small chart per unit.
-function chartGroups(values, mode, options) {
-  const groups = new Map();
-  values.forEach(point => {
-    const unit = point.unit || options.unit || 'value';
-    if (!groups.has(unit)) groups.set(unit, []);
-    groups.get(unit).push(point);
-  });
-  return [...groups].map(([unit, points]) => {
-    const keys = [...new Set(points.flatMap(point => (point.values ? Object.keys(point.values) : [])))].slice(0, 6);
-    const series = keys.length
-      ? keys.map(key => ({ id: key, name: key, values: points.map(point => finite(point.values?.[key])) }))
-      : [{ id: 'value', name: options.seriesName || 'Verified', values: points.map(point => point.value) }];
-    return { unit, input: { kind: mode, unit, labels: points.map(point => point.label), series } };
-  });
+function preferredChartHeight(values, mode) {
+  if (mode !== 'bar') return null;
+  return Math.min(540, Math.max(240, 88 + values.length * 30));
 }
 
 export function disposeAnalyticsChart(target) {
@@ -114,20 +171,9 @@ export function disposeAnalyticsChart(target) {
   const owner = target.matches?.('[data-analytics-chart]') ? target : target.closest?.('[data-analytics-chart]') || target;
   preferenceCleanups.get(owner)?.();
   preferenceCleanups.delete(owner);
-  if (target.matches?.('.analytics-chart-engine')) disposeChart(target);
-  owner.querySelectorAll?.('.analytics-chart-engine').forEach(disposeChart);
-}
-
-// Each unit's chart shares the height in proportion to its categories, so a three-bar chart is not
-// stretched as tall as a seven-bar one.
-function engineMarkup(groups, mode) {
-  return groups.map((group, index) => {
-    const height = preferredChartHeight(normalizeChartSpec({ ...group.input, kind: mode }));
-    const weight = Math.max(1, group.input.labels.length);
-    const style = ` style="--analytics-chart-weight:${weight}${height === 240 ? '' : `;--analytics-chart-height:${height}px`}"`;
-    const caption = groups.length > 1 ? `<p class="t-micro ink-3 analytics-chart-group">UNIT ${escapeHtml(group.unit)}</p>` : '';
-    return `${caption}<div class="analytics-chart-engine" data-chart-group="${index}"${style}></div>`;
-  }).join('');
+  renderGenerations.set(owner, (renderGenerations.get(owner) || 0) + 1);
+  const mount = target.matches?.('.analytics-chart-engine') ? target : owner.querySelector?.('.analytics-chart-engine');
+  disposeMountedChart(mount);
 }
 
 function renderFigure(container, values, options, mode) {
@@ -136,21 +182,24 @@ function renderFigure(container, values, options, mode) {
   const unit = options.unit || 'value';
   const forcedColors = mediaMatches('(forced-colors: active)');
   const unsupported = !MODES.has(mode);
+  const height = preferredChartHeight(values, mode);
   const tableId = `analytics-chart-table-${++chartSequence}`;
   const summaryId = `${tableId}-summary`;
+  const visible = unsupported || forcedColors;
   const labelledBy = container.getAttribute?.('aria-labelledby');
   const captionId = labelledBy && /^[A-Za-z][A-Za-z0-9_-]*$/.test(labelledBy) ? ` id="${escapeHtml(labelledBy)}"` : '';
   const units = [...new Set(values.map(point => point.unit || unit))];
   const summaryUnit = units.length > 1 ? 'MULTIPLE UNITS' : units[0] || unit;
-  const groups = unsupported ? [] : chartGroups(values, mode, options);
+  const engineStyle = height ? ` style="--analytics-chart-height:${height}px"` : '';
+  const engine = unsupported ? '' : `<div class="analytics-chart-engine" data-chart-engine="echarts-svg" data-chart-token-primary="var(--analytics-primary)"${engineStyle} role="img" aria-label="${escapeHtml(`${title}; ${values.length} chart points`)}" aria-describedby="${escapeHtml(summaryId)}"></div><p class="t-micro ink-3 analytics-chart-engine-status${forcedColors ? '' : ' is-hidden'}" aria-live="polite">${forcedColors ? 'FORCED COLORS · VERIFIED DATA TABLE' : 'CHART ENGINE LOADING'}</p>`;
+  const renderedTable = mode === 'stacked-bar' ? stackedTableMarkup(title, unit, stackedSegments(values)) : tableMarkup(title, unit, values);
+  const dataRegion = dataRegionMarkup(title, tableId, renderedTable, visible);
+  const chartOptions = { ...options, mode, title, unit };
   container.setAttribute?.('aria-label', title);
-  const plot = `<div class="analytics-chart-plot">${engineMarkup(groups, mode)}<p id="${escapeHtml(summaryId)}" class="sr-only analytics-chart-summary">${escapeHtml(options.summary || 'VERIFIED SERIES')} · UNIT ${escapeHtml(summaryUnit)} · POINTS ${values.length}</p></div>`;
-  container.innerHTML = `<figure class="analytics-chart" data-chart-mode="${escapeHtml(mode)}" data-forced-colors="${forcedColors ? 'active' : 'off'}"><figcaption${captionId}>${escapeHtml(title)}</figcaption><div class="analytics-chart-split">${plot}${dataRegionMarkup(title, tableId, tableMarkup(title, unit, values), unsupported)}</div></figure>`;
-  container.querySelectorAll?.('.analytics-chart-engine').forEach((engine, index) => {
-    const label = groups.length > 1 ? `${title}, ${groups[index].unit}` : title;
-    mountChart(engine, { ...groups[index].input, title: label }, { label, describedBy: summaryId });
-  });
-  bindForcedColors(container);
+  container.innerHTML = `<figure class="analytics-chart" data-chart-mode="${escapeHtml(mode)}" data-forced-colors="${forcedColors ? 'active' : 'off'}"><figcaption${captionId}>${escapeHtml(title)}</figcaption>${engine}<p id="${escapeHtml(summaryId)}" class="t-micro ink-3 analytics-chart-summary">${escapeHtml(options.summary || 'VERIFIED SERIES')} · UNIT ${escapeHtml(summaryUnit)} · POINTS ${values.length}</p><button class="btn-dark analytics-chart-table-toggle" type="button" aria-expanded="${visible}" aria-controls="${escapeHtml(tableId)}">${visible ? 'HIDE DATA TABLE' : 'SHOW DATA TABLE'}</button>${dataRegion}</figure>`;
+  const manuallyChanged = bindTableToggle(container);
+  bindForcedColors(container, values, chartOptions, !unsupported, manuallyChanged);
+  if (!unsupported && !forcedColors) hydrate(container, values, chartOptions);
   return container.firstElementChild;
 }
 
@@ -186,9 +235,14 @@ export function renderBoardMetricMap(container, board, options = {}) {
   const tableId = `analytics-chart-table-${++chartSequence}`;
   const summaryId = `${tableId}-summary`;
   const forcedColors = mediaMatches('(forced-colors: active)');
-  const table = dataRegionMarkup(title, tableId, tableMarkup(title, 'metric', points), true);
+  const table = dataRegionMarkup(title, tableId, tableMarkup(title, 'metric', points), forcedColors);
   container.setAttribute?.('aria-label', title);
-  container.innerHTML = `<figure class="analytics-chart analytics-board-map" data-forced-colors="${forcedColors ? 'active' : 'off'}"><figcaption>${escapeHtml(title)}</figcaption><p id="${escapeHtml(summaryId)}" class="t-micro ink-3 analytics-chart-summary">ASSOCIATION, NOT CAUSATION · POINTS ${tiles.length} · POPULATED ${tiles.filter(tile => tile.value !== null).length}</p>${table}</figure>`;
+  const status = forcedColors ? 'FORCED COLORS · VERIFIED DATA TABLE' : 'CHART ENGINE LOADING';
+  container.innerHTML = `<figure class="analytics-chart analytics-board-map" data-forced-colors="${forcedColors ? 'active' : 'off'}"><figcaption>${escapeHtml(title)}</figcaption><div class="analytics-chart-engine" data-chart-engine="echarts-svg" data-chart-variant="${escapeHtml(variant)}" data-chart-token-primary="var(--analytics-primary)" role="img" aria-label="${escapeHtml(title)}" aria-describedby="${escapeHtml(summaryId)}"></div><p class="t-micro ink-3 analytics-chart-engine-status${forcedColors ? '' : ' is-hidden'}" aria-live="polite">${status}</p><p id="${escapeHtml(summaryId)}" class="t-micro ink-3 analytics-chart-summary">ASSOCIATION, NOT CAUSATION · POINTS ${tiles.length} · POPULATED ${tiles.filter(tile => tile.value !== null).length}</p><button class="btn-dark analytics-chart-table-toggle" type="button" aria-expanded="${forcedColors}" aria-controls="${escapeHtml(tableId)}">${forcedColors ? 'HIDE DATA TABLE' : 'SHOW DATA TABLE'}</button>${table}</figure>`;
+  const chartOptions = { ...options, mode: 'board', title, unit: 'metric', variant };
+  const manuallyChanged = bindTableToggle(container);
+  bindForcedColors(container, points, chartOptions, true, manuallyChanged);
+  if (!forcedColors) hydrate(container, points, chartOptions);
   return { tiles, element: container.firstElementChild };
 }
 

@@ -93,8 +93,7 @@ test.describe('release surface evidence', () => {
     await guest.locator('#room-join').fill(roomCode);
     await guest.locator('#join-nickname').fill('RELEASEGUEST');
     await guest.locator('#join-room-submit').click();
-    await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
-    if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
+    await guest.locator('#su-start').click();
     await page.locator('#lobby-start-btn').click();
     await expect(page.locator('#view-game')).toBeVisible();
 

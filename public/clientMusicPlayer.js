@@ -218,8 +218,6 @@ function prepareTrackLoad(state, safe, restore) {
   rememberRestore(state, restore);
   cancelFade(state);
   element.pause?.();
-  // The nodes idle on preload="none"; the incoming track must load to fire canplay for the crossfade.
-  element.preload = "metadata";
   element.src = state.manifest.tracks[safe].src;
   element.currentTime = 0;
   element.volume = 0;
@@ -749,8 +747,6 @@ export function createMusicPlayer(options = {}) {
   const state = createPlayerState(options);
   restorePreferences(state);
   rebuildQueue(state);
-  // Music is off until the user starts it: setting the source below must not download the track.
-  state.audios.forEach(audio => { if (audio) audio.preload = "none"; });
   setAudioVolumes(state);
   connectEndedHandlers(state);
   return {

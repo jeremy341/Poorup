@@ -37,8 +37,6 @@ const host = fakeSocket('offturn-cancel-a');
 const guest = fakeSocket('offturn-cancel-b');
 const room = manager.createRoom({ socketId: host.id, clientId: 'offturn-cancel-a-client', nickname: 'Host', roomCode: 'OFFTURNA' });
 room.addOrReconnectPlayer({ socketId: guest.id, clientId: 'offturn-cancel-b-client', nickname: 'Guest' });
-room.setRoomSetting('rulesProfile', 'advanced');
-room.setRoomSetting('playerFinance', true);
 assert.equal(room.startGame().success, true);
 const [sender, recipient] = room.game.players;
 room.game.currentPlayerId = sender.id;

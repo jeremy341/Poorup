@@ -55,7 +55,7 @@ function main() {
   const files = collectTimingFiles(root);
   const baselineText = readFileSyncSafe(TIMINGS_BASELINE_PATH);
   const baseline = baselineText ? parseTimings(baselineText) : null;
-  // parseTimings yields a flat suite to ms map; merge conservatively and never
+  // parseTimings yields a flat suite->ms map; merge conservatively and never
   // let a bad run shrink the baseline.
   const suites = { ...(baseline || {}) };
   const baselineCount = Object.keys(suites).length;
@@ -66,7 +66,7 @@ function main() {
     return;
   }
   if (Object.keys(suites).length < baselineCount) {
-    console.error(`Import would shrink the baseline (${baselineCount} to ${Object.keys(suites).length}); refusing to write.`);
+    console.error(`Import would shrink the baseline (${baselineCount} -> ${Object.keys(suites).length}); refusing to write.`);
     process.exitCode = 1;
     return;
   }

@@ -16,25 +16,6 @@ const DEFAULT_TIMEOUT_MS = 4_000;
 const DEFAULT_DECISION_BUDGET = 240;
 const MAX_PROVIDER_RESPONSE_BYTES = 1_048_576;
 const PRIVATE_HOSTS = new Set(['localhost', 'metadata.google.internal']);
-export const DEFAULT_PROVIDER_ENDPOINT = 'https://api.deepseek.com/chat/completions';
-// The private-endpoint opt-in has one name, POORUP_AI_ALLOW_PRIVATE.
-// The legacy name still counts, and logs one deprecation warning.
-const LEGACY_ALLOW_PRIVATE_ENV = 'POORUP_AI_ALLOW_PRIVATE_ENDPOINTS';
-let legacyAllowPrivateWarned = false;
-
-function envFlag(value) {
-  return String(value ?? '').trim().toLowerCase() === 'true';
-}
-
-export function allowPrivateEndpointsFromEnv(env = process.env) {
-  if (envFlag(env?.POORUP_AI_ALLOW_PRIVATE)) return true;
-  if (!String(env?.[LEGACY_ALLOW_PRIVATE_ENV] ?? '').trim()) return false;
-  if (!legacyAllowPrivateWarned) {
-    legacyAllowPrivateWarned = true;
-    console.warn(`${LEGACY_ALLOW_PRIVATE_ENV} is deprecated; set POORUP_AI_ALLOW_PRIVATE instead.`);
-  }
-  return envFlag(env[LEGACY_ALLOW_PRIVATE_ENV]);
-}
 
 export class ProviderConfigError extends Error {
   constructor(message, code = 'INVALID_PROVIDER_CONFIG') {
@@ -79,29 +60,6 @@ async function validateProviderResolution(value, { resolveHost = dns.lookup, all
   if (!Array.isArray(records) || records.length === 0) throw new Error('Provider hostname did not resolve.');
   const addresses = records.map(record => providerResolvedAddress(record, allowPrivateEndpoints));
   return { hostname, addresses };
-}
-
-function providerAbortError() {
-  const error = new Error('The provider request was aborted.');
-  error.name = 'AbortError';
-  return error;
-}
-
-function raceProviderResolutionWithAbort(resolution, signal) {
-  if (!signal) return resolution;
-  if (signal.aborted) {
-    Promise.resolve(resolution).catch(() => {});
-    throw providerAbortError();
-  }
-  let onAbort;
-  const aborted = new Promise((_resolve, reject) => {
-    onAbort = () => reject(providerAbortError());
-    signal.addEventListener('abort', onAbort, { once: true });
-    if (signal.aborted) onAbort();
-  });
-  return Promise.race([resolution, aborted]).finally(() => {
-    signal.removeEventListener('abort', onAbort);
-  });
 }
 
 function providerHostname(hostname) {
@@ -166,18 +124,6 @@ function pinnedProviderRequest(input, options = {}, destination) {
       return;
     }
     request.on('error', reject);
-    // The request's own abort handling stops reporting once the response has started, so the promise
-    // would stay pending on a body that never ends. Settle it from the signal as well.
-    const signal = options.signal;
-    if (signal) {
-      const rejectAborted = () => {
-        const error = signal.reason instanceof Error ? signal.reason : Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' });
-        reject(error);
-        try { request.destroy(error); } catch { /* already closed */ }
-      };
-      if (signal.aborted) rejectAborted();
-      else signal.addEventListener('abort', rejectAborted, { once: true });
-    }
     if (options.body !== undefined && options.body !== null) request.write(options.body);
     request.end();
   });
@@ -217,22 +163,16 @@ function consumeProviderResponse(response, resolve, reject, destroy) {
   }
   const chunks = [];
   let receivedBytes = 0;
-  let ended = false;
-  // Destroying the request is not enough once the response has started: reject the promise as well, so a
-  // dropped or oversized body can never leave the caller pending.
-  const fail = error => { destroy(error); reject(error); };
   response.on('data', chunk => {
     receivedBytes += chunk.length;
     if (receivedBytes > MAX_PROVIDER_RESPONSE_BYTES) {
-      fail(new Error('Provider response exceeded the size limit.'));
+      destroy(new Error('Provider response exceeded the size limit.'));
       return;
     }
     chunks.push(chunk);
   });
-  response.on('aborted', () => fail(new Error('Provider response ended prematurely.')));
-  response.on('error', fail);
-  response.on('close', () => { if (!ended) fail(new Error('Provider response ended prematurely.')); });
-  response.on('end', () => { ended = true; finishProviderResponse(response, chunks, resolve, reject); });
+  response.on('aborted', () => destroy(new Error('Provider response ended prematurely.')));
+  response.on('end', () => finishProviderResponse(response, chunks, resolve, reject));
 }
 
 function finishProviderResponse(response, chunks, resolve, reject) {
@@ -246,13 +186,7 @@ function finishProviderResponse(response, chunks, resolve, reject) {
 }
 
 async function safePinnedProviderFetch(input, options, { resolveHost, allowPrivateEndpoints, requestImpl }) {
-  const signal = options?.signal;
-  if (signal?.aborted) throw providerAbortError();
-  const destination = await raceProviderResolutionWithAbort(
-    validateProviderResolution(input, { resolveHost, allowPrivateEndpoints }),
-    signal
-  );
-  if (signal?.aborted) throw providerAbortError();
+  const destination = await validateProviderResolution(input, { resolveHost, allowPrivateEndpoints });
   return requestImpl(input, { ...options, redirect: 'error' }, destination);
 }
 
@@ -390,14 +324,6 @@ function safeTestResult(value) {
   };
 }
 
-// The connection a probe described: the endpoint, the model, the protocol and
-// the key. A probe that finished after any of them changed, it does not speak
-// for the profile it is about to mark as tested.
-function connectionFingerprint(record) {
-  if (!record || typeof record !== 'object') return null;
-  return JSON.stringify([record.baseUrl || '', record.model || '', record.protocol || '', record.keyCipher || record.apiKey || '']);
-}
-
 export function redactProviderConfig(config = {}) {
   const test = safeTestResult(config.lastTest);
   return {
@@ -435,15 +361,6 @@ export function createAiProviderStore({ filePath = '', masterKey = '', productio
     }
   }
 
-  function persistOrRollback(rollback) {
-    try {
-      persist();
-    } catch (error) {
-      rollback();
-      throw error;
-    }
-  }
-
   if (durable) {
     const loaded = loadJson(filePath, storedShape);
     if (loaded.value && storedShape(loaded.value)) {
@@ -451,15 +368,8 @@ export function createAiProviderStore({ filePath = '', masterKey = '', productio
     }
   }
 
-  // Own keys only: an id such as "constructor" must not resolve to an
-  // Object.prototype member and have profile data written onto it.
-  function stored(id) {
-    const key = providerId(id);
-    return Object.hasOwn(data.profiles, key) ? data.profiles[key] : undefined;
-  }
-
   function internal(id) {
-    const record = stored(id);
+    const record = data.profiles[providerId(id)];
     if (!record) return null;
     const apiKey = record.keyCipher ? decryptApiKey(record.keyCipher, masterKey) : text(record.apiKey, '', 2_000);
     return { ...record, apiKey };
@@ -470,60 +380,22 @@ export function createAiProviderStore({ filePath = '', masterKey = '', productio
   }
 
   function upsert(input = {}) {
-    return prepareUpsert(input).commit();
-  }
-
-  // Validates an edit and builds the record it would store, without storing anything. `config` is the candidate
-  // exactly as the advisor would run it (with its key), so a caller can probe it first; `commit(testResult)` then
-  // stores it, optionally with that probe's passing result so the profile stays activatable.
-  function prepareUpsert(input = {}) {
-    const existing = input.id ? stored(input.id) : null;
+    const existing = input.id ? data.profiles[providerId(input.id)] : null;
     const normalized = normalizeProviderConfig({ ...existing, ...input }, { production, allowPrivateEndpoints });
-    // Creating a profile (no id given) never replaces one that has the same name: a matching label derives
-    // the same id, and the overwrite would swap the live connection and key without a test.
-    if (!input.id && stored(normalized.id)) {
-      throw new ProviderConfigError('A provider profile with that name already exists. Edit it, or choose another name.', 'PROFILE_EXISTS');
-    }
-    const { apiKey, rotated } = resolveUpsertApiKey(input, existing, normalized);
-    // A rotated key is a new connection: the earlier test does not describe it.
-    const changed = rotated || profileConnectionChanged(existing, normalized);
+    const apiKey = resolveUpsertApiKey(input, existing);
+    const changed = profileConnectionChanged(existing, normalized);
     const record = buildProfileRecord(existing, normalized, apiKey, changed);
-    const existingUpdatedAt = existing?.updatedAt;
-    const commit = (testResult = null) => {
-      // Something else edited this profile while a candidate was being probed: the probe does not describe it.
-      if (stored(normalized.id) !== (existing || undefined) || stored(normalized.id)?.updatedAt !== existingUpdatedAt) throw new ProviderConfigError('The profile changed while the edit was being checked; try again.', 'PROFILE_CHANGED');
-      if (testResult?.ok === true) {
-        const safe = safeTestResult({ ...testResult, testedAt: testResult.testedAt || new Date().toISOString() });
-        record.lastTest = safe;
-        record.detectedProtocol = safe.protocol;
-      }
-      const previous = data.profiles[normalized.id];
-      data.profiles[normalized.id] = record;
-      persistOrRollback(() => {
-        if (previous) data.profiles[normalized.id] = previous;
-        else delete data.profiles[normalized.id];
-      });
-      return redactProviderConfig(record);
-    };
-    return { id: normalized.id, changed, config: { ...record, apiKey }, commit };
+    data.profiles[normalized.id] = record;
+    persist();
+    return redactProviderConfig(record);
   }
 
-  function resolveUpsertApiKey(input, existing, normalized) {
+  function resolveUpsertApiKey(input, existing) {
     const suppliedKey = text(input.apiKey, '', 2_000);
     const previous = existing ? internal(existing.id) : null;
-    // A stored key never follows the profile to a different host: editing the
-    // endpoint without re-entering the key would otherwise send it to whoever
-    // the new URL points at.
-    if (!suppliedKey && previous && hostChanged(existing.baseUrl, normalized?.baseUrl)) {
-      throw new ProviderConfigError('Re-enter the API key when changing the provider endpoint.', 'API_KEY_REQUIRED');
-    }
     const apiKey = suppliedKey || previous?.apiKey || '';
     if (!apiKey) throw new ProviderConfigError('An API key is required for a provider profile.', 'API_KEY_REQUIRED');
-    return { apiKey, rotated: Boolean(previous) && apiKey !== previous.apiKey };
-  }
-
-  function hostChanged(before, after) {
-    try { return new URL(before).origin !== new URL(after).origin; } catch { return before !== after; }
+    return apiKey;
   }
 
   function profileConnectionChanged(existing, normalized) {
@@ -556,46 +428,31 @@ export function createAiProviderStore({ filePath = '', masterKey = '', productio
   }
 
   function activate(id) {
-    const record = stored(id);
+    const record = data.profiles[providerId(id)];
     if (!record) throw new ProviderConfigError('Provider profile not found.', 'PROFILE_NOT_FOUND');
     if (record.lastTest?.ok !== true) throw new ProviderConfigError('Test the provider successfully before activating it.', 'PROFILE_NOT_TESTED');
-    const previousActiveId = data.activeId;
     data.activeId = record.id;
-    persistOrRollback(() => { data.activeId = previousActiveId; });
+    persist();
     return redactProviderConfig(record);
   }
 
-  function markTest(id, result, options = {}) {
-    const record = stored(id);
+  function markTest(id, result) {
+    const record = data.profiles[providerId(id)];
     if (!record) throw new ProviderConfigError('Provider profile not found.', 'PROFILE_NOT_FOUND');
-    // A probe that finished after the profile was edited describes an older connection, so it must
-    // not mark the edited profile as tested. The caller is told the write was skipped and can say so,
-    // rather than reporting a probe that was never stored as a success.
-    if (!markTestMatches(record, options)) return { ...redactProviderConfig(record), stale: true };
     const safe = safeTestResult({ ...result, testedAt: result?.testedAt || new Date().toISOString() });
-    const previous = { lastTest: record.lastTest, detectedProtocol: record.detectedProtocol, updatedAt: record.updatedAt };
     record.lastTest = safe;
     record.detectedProtocol = safe.ok ? safe.protocol : null;
     record.updatedAt = new Date().toISOString();
-    persistOrRollback(() => Object.assign(record, previous));
+    persist();
     return redactProviderConfig(record);
-  }
-
-  function markTestMatches(record, options = {}) {
-    const expectedUpdatedAt = options.expectedUpdatedAt;
-    if (expectedUpdatedAt && record.updatedAt !== expectedUpdatedAt) return false;
-    const expectedFingerprint = options.expectedFingerprint;
-    if (expectedFingerprint && connectionFingerprint(record) !== expectedFingerprint) return false;
-    return true;
   }
 
   function remove(id) {
     const safeId = providerId(id);
     if (safeId === data.activeId) throw new ProviderConfigError('Deactivate the active provider before deleting it.', 'ACTIVE_PROFILE');
-    const previous = stored(safeId);
-    if (!previous) throw new ProviderConfigError('Provider profile not found.', 'PROFILE_NOT_FOUND');
+    if (!data.profiles[safeId]) throw new ProviderConfigError('Provider profile not found.', 'PROFILE_NOT_FOUND');
     delete data.profiles[safeId];
-    persistOrRollback(() => { data.profiles[safeId] = previous; });
+    persist();
     return true;
   }
 
@@ -606,7 +463,6 @@ export function createAiProviderStore({ filePath = '', masterKey = '', productio
     get: id => internal(id),
     list,
     markTest,
-    prepareUpsert,
     remove,
     snapshot: () => ({ version: data.version, activeId: data.activeId, profiles: list(), persistent: durable, encrypted: durable && Boolean(cipherKey) }),
     upsert,
@@ -713,11 +569,7 @@ export async function probeProvider(config, fetchImpl = globalThis.fetch, now = 
       const response = typeof requestImpl === 'function'
         ? await safePinnedProviderFetch(requestUrl, requestOptions, { resolveHost, allowPrivateEndpoints, requestImpl })
         : await (async () => {
-          await raceProviderResolutionWithAbort(
-            validateProviderResolution(requestUrl, { resolveHost, allowPrivateEndpoints }),
-            requestOptions.signal
-          );
-          if (requestOptions.signal?.aborted) throw providerAbortError();
+          await validateProviderResolution(requestUrl, { resolveHost, allowPrivateEndpoints });
           return fetchImpl(requestUrl, requestOptions);
         })();
       if (!response?.ok) {
@@ -751,7 +603,7 @@ function envProviderApiKey(env) {
 }
 
 function envProviderBaseUrl(env) {
-  return text(env.POORUP_AI_BASE_URL || env.DEEPSEEK_API_URL || DEFAULT_PROVIDER_ENDPOINT, '', MAX_URL_LENGTH);
+  return text(env.POORUP_AI_BASE_URL || env.DEEPSEEK_API_URL || '', '', MAX_URL_LENGTH);
 }
 
 function environmentProviderInput(env, baseUrl, apiKey) {
@@ -761,7 +613,6 @@ function environmentProviderInput(env, baseUrl, apiKey) {
     baseUrl,
     model: env.POORUP_AI_MODEL || env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
     protocol: env.POORUP_AI_PROTOCOL || env.DEEPSEEK_API_FORMAT || 'auto',
-    timeoutMs: env.POORUP_AI_TIMEOUT_MS || env.DEEPSEEK_TIMEOUT_MS,
     maxDecisionsPerGame: env.POORUP_AI_DECISIONS || env.POORUP_BOT_AI_DECISIONS || DEFAULT_DECISION_BUDGET,
     apiKey,
   };
@@ -773,7 +624,7 @@ function envProfile(env = process.env, production = false) {
   if (!apiKey || !baseUrl) return null;
   try {
     return {
-      ...normalizeProviderConfig(environmentProviderInput(env, baseUrl, apiKey), { production, allowPrivateEndpoints: !production || allowPrivateEndpointsFromEnv(env) }),
+      ...normalizeProviderConfig(environmentProviderInput(env, baseUrl, apiKey), { production, allowPrivateEndpoints: !production || env.POORUP_AI_ALLOW_PRIVATE === 'true' }),
       apiKey,
       source: 'environment',
       readOnly: true,
@@ -781,12 +632,6 @@ function envProfile(env = process.env, production = false) {
   } catch {
     return null;
   }
-}
-
-// The environment provider exactly as the manager would apply it, or null when
-// it does not validate. The advisor is seeded only from this.
-export function environmentProviderProfile(env = process.env) {
-  return envProfile(env, String(env?.NODE_ENV || '').trim().toLowerCase() === 'production');
 }
 
 export function createAiProviderManager({ store, advisor, env = process.env, fetchImpl = globalThis.fetch, resolveHost = dns.lookup, requestImpl = pinnedProviderRequest } = {}) {
@@ -826,25 +671,15 @@ export function createAiProviderManager({ store, advisor, env = process.env, fet
     if (environmentProfile) apply(environmentProfile);
   }
 
-  // The one connection test. The test route and the edit of the active provider both go through it.
-  function runProbe(config) {
-    return probeProvider(config, fetchImpl, () => Date.now(), {
+  async function test(id) {
+    const config = store?.get?.(id);
+    if (!config) throw new ProviderConfigError('Provider profile not found.', 'PROFILE_NOT_FOUND');
+    const result = await probeProvider(config, fetchImpl, () => Date.now(), {
       resolveHost,
       allowPrivateEndpoints: !production && config.allowPrivateEndpoints === true,
       requestImpl,
     });
-  }
-
-  async function test(id) {
-    const config = store?.get?.(id);
-    if (!config) throw new ProviderConfigError('Provider profile not found.', 'PROFILE_NOT_FOUND');
-    // The profile the probe is about: if it is edited or replaced while the
-    // probe is in flight, the answer does not describe it.
-    const expectedUpdatedAt = config.updatedAt || null;
-    const expectedFingerprint = connectionFingerprint(config);
-    const result = await runProbe(config);
-    const marked = store.markTest(id, result, { expectedUpdatedAt, expectedFingerprint });
-    if (marked?.stale === true) return { ok: false, stale: true, protocol: null, reason: 'stale', latencyMs: result.latencyMs, testedAt: result.testedAt };
+    store.markTest(id, result);
     return result;
   }
 
@@ -856,34 +691,7 @@ export function createAiProviderManager({ store, advisor, env = process.env, fet
     return result;
   }
 
-  // Editing the active profile (rotated key, new endpoint) reaches the advisor, so the old key stops.
-  // A change to the live connection (key, endpoint, model, protocol) is never applied here: it must pass
-  // a connection test first, which only update() can run.
-  function upsert(input) {
-    const staged = store.prepareUpsert(input);
-    if (staged.changed && isActiveProfile(staged.id)) {
-      throw new ProviderConfigError('Changing the active provider connection needs a passing connection test first.', 'TEST_REQUIRED');
-    }
-    return finishUpsert(staged.commit());
-  }
-
-  function isActiveProfile(id) { return Boolean(id) && store.activePublic?.()?.id === id; }
-
-  function finishUpsert(saved) {
-    if (saved?.id && isActiveProfile(saved.id)) apply(store.active());
-    return saved;
-  }
-
-  // Edits a profile. When the profile is active and its connection changes, the candidate is probed with the same
-  // test the test route runs, before anything is stored or applied. A failing candidate is dropped: the previous
-  // config stays stored and running. Resolves { profile, test? } or { rejected: true, test, active }.
-  async function update(input = {}) {
-    const staged = store.prepareUpsert(input);
-    if (!(staged.changed && isActiveProfile(staged.id))) return { profile: finishUpsert(staged.commit()) };
-    const result = await runProbe(staged.config);
-    if (result.ok !== true) return { rejected: true, test: result, active: activePublicStatus() };
-    return { profile: finishUpsert(staged.commit(result)), test: result };
-  }
+  function upsert(input) { return store.upsert(input); }
   function remove(id) { return store.remove(id); }
   function list() {
     const profiles = store?.list?.() || [];
@@ -911,7 +719,6 @@ export function createAiProviderManager({ store, advisor, env = process.env, fet
       storage: store?.snapshot?.() || null,
     }),
     test,
-    update,
     upsert,
   });
 }

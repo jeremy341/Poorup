@@ -5,7 +5,6 @@ globalThis.window = { matchMedia: () => ({ matches: false }), addEventListener()
 const renderer = await import("./clientGlobalEventRender.js");
 const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
 const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
-const presentationStyles = readFileSync(new URL("./ui-review-presentation.css", import.meta.url), "utf8");
 
 const checks = [];
 function check(name, fn) {
@@ -85,21 +84,6 @@ check("reducedMotionRendersStaticEquivalent", () => {
   expectMatch(styles, /\.global-event-ribbon\.is-visible/, "ribbon visible state is missing");
   assert.doesNotMatch(styles, /\.global-event-compact-vote\s*\{[^}]*animation:/i, "collapsed vote status must not pulse");
   expectMatch(styles, /@media\s*\(forced-colors:\s*active\)[\s\S]*?\.global-event-ribbon,[\s\S]*?background:\s*Canvas/i, "forced-colors solid fallback is missing");
-});
-
-check("warningUsesTheExistingOneShotTitleAndThenExpandedDetails", () => {
-  const source = readFileSync(new URL("./clientGlobalEventRender.js", import.meta.url), "utf8");
-  expectMatch(source, /banner\.dataset\.phase\s*=\s*String\(event\.phase\s*\|\|\s*""\)/, "the current event phase is not exposed for precise styling");
-  expectMatch(source, /textContent\s*=\s*title/, "announcement must use the event's supplied title");
-  expectMatch(source, /delayedBannerKey\s*=\s*alreadyVisible\s*\|\|\s*focusInsideBanner\s*\?\s*""\s*:\s*key/, "existing delayed-detail and focus behavior must remain in place");
-  expectMatch(presentationStyles, /\.global-event-ribbon-title\s*\{[^}]*font-size:\s*clamp\(32px/i, "the first event title is not substantially enlarged");
-  expectMatch(presentationStyles, /\.global-event-ribbon-title\s*\{[^}]*color:\s*var\(--red-bright\)/i, "the first event title no longer uses the requested red accent");
-  expectMatch(presentationStyles, /\.global-event-banner\[data-phase="warning"\]\s*\{[^}]*width:\s*min\(980px/i, "warning details do not receive the larger board-field layout");
-  expectMatch(presentationStyles, /#global-event-banner\[data-phase="warning"\]\s*#global-event-title\s*\{[^}]*font-size:\s*clamp\(30px/i, "the warning title does not outrank the legacy ID sizing rule");
-  expectMatch(presentationStyles, /#global-event-banner\[data-phase="warning"\]\s*#global-event-copy\s*\{[^}]*font-size:\s*clamp\(15px/i, "warning copy does not use its actual ID selector");
-  expectMatch(presentationStyles, /#global-event-banner\[data-phase="warning"\]\s*#global-event-effects\s+\.global-event-effect\s*\{[^}]*font-size:\s*clamp\(12px/i, "warning effects do not use the larger readable size");
-  expectMatch(source, /banner\.tabIndex\s*=\s*event\.phase\s*===\s*"warning"\s*&&\s*banner\.scrollHeight\s*>\s*banner\.clientHeight\s*\?\s*0\s*:\s*-1/, "overflowing warning details are not keyboard scrollable");
-  expectMatch(presentationStyles, /max-height:\s*170px[\s\S]*?overflow-y:\s*auto/i, "short iPad warning details are not kept in a bounded scroll region");
 });
 
 check("announcementDoesNotCoverHeaderBoardOrActions", () => {
