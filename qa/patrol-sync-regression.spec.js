@@ -15,10 +15,14 @@ async function enable(page) {
 }
 
 // Serves the night-shift module with extra named exports so a scenario can drive its internals.
+// Names the module already exports (after the split, some helpers are shared
+// with sibling modules) are skipped, so the appended export never repeats one.
 async function exposeNightShiftExports(page, names) {
   await page.route('**/clientNightShift.js', async route => {
     const response = await route.fetch();
-    await route.fulfill({ response, body: `${await response.text()}\nexport { ${names} };` });
+    const text = await response.text();
+    const missing = names.split(',').map(name => name.trim()).filter(name => !new RegExp(`export function ${name}\\(`).test(text));
+    await route.fulfill({ response, body: missing.length ? `${text}\nexport { ${missing.join(', ')} };` : text });
   });
 }
 

@@ -5,12 +5,13 @@ import { test } from 'node:test';
 
 // The night-shift logic is split across three modules that share one vm
 // context, so their sources are concatenated after their imports are removed.
-const NIGHT_SHIFT_MODULES = ['./clientNightShiftPending.js', './clientNightShiftArt.js', './clientNightShift.js'];
+const NIGHT_SHIFT_MODULES = ['./clientNightShiftState.js', './clientNightShiftArt.js', './clientNightShiftPending.js', './clientNightShiftEffects.js', './clientNightShiftSettlement.js', './clientNightShiftServer.js', './clientNightShift.js'];
 
 function moduleSource(file) {
   return fs.readFileSync(new URL(file, import.meta.url), 'utf8')
     .replace(/^import .*;\r?\n/gm, '')
     .replace(/^export \{.*\};\r?\n/gm, '')
+    .replace(/^export \{.*\} from .*;\r?\n/gm, '')
     .replace(/^export /gm, '');
 }
 
