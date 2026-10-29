@@ -1,12 +1,12 @@
-/* ============================================================
-   CASINO DESK: a focused, server-settled wager surface. The Activity rail
-   keeps only odds and the last result; this modal owns the bet form.
-   ============================================================ */
+// CASINO DESK: a focused, server-settled wager surface. The Activity rail
+// keeps only odds and the last result; this modal owns the bet form.
 import { $, esc } from "./clientDom.js";
+import { formatMoney } from "./clientMoney.js";
 import { state } from "./clientState.js";
 import { closeSurface, openSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";
 import { emitWithTimeout } from "./clientRequestController.js";
 import { casinoReelHTML, startCasinoReel, stopCasinoReel } from "./clientCasinoReel.js";
+import { closeButtonHTML } from "./clientCloseButton.js";
 
 let host = { emitServer: noop, createRequestId: noop, renderRightRail: noop, say: noop, renderChat: noop, captureActionStatusNode: () => null, announceActionStatus: noop };
 function noop() {}
@@ -51,12 +51,12 @@ function mergeEconomySnapshot(response) {
   };
 }
 
-function resultCopy(last) {
-  if (!last) return "NO SPIN YET · THE HOUSE EDGE IS VISIBLE";
+export function casinoResultCopy(last) {
+  if (!last) return "";
   const color = String(last.resultColor || "").toUpperCase();
   const pocket = Number(last.pocket || 0);
   const net = Number(last.net || 0);
-  return `LAST SPIN · ${color} ${pocket} · ${net >= 0 ? "+" : ""}$${net.toLocaleString()}`;
+  return `LAST SPIN · ${color} ${pocket} · ${net >= 0 ? "+" : ""}${formatMoney(net)}`;
 }
 
 function captureCasinoDraft(card) {
@@ -71,7 +71,7 @@ function captureCasinoDraft(card) {
 function casinoDeskHTML(limits) {
   const maxBet = Number(limits.maxBet || 500);
   const entryFee = Number(limits.entryFee || 0);
-  return `<div class="casino-modal-body"><div class="casino-modal-head"><div><span class="t-micro g400">EUROPEAN WHEEL · SERVER SETTLED</span><h2 class="t-section g100" id="casino-modal-title">Casino Desk</h2><p class="t-body ink-2" id="casino-modal-description">Choose a disclosed pocket and stake fictional board cash. The server settles the result before any animation.</p></div><button class="btn-dark" type="button" id="casino-modal-close"><span class="t-label f11">CLOSE</span></button></div><div class="casino-odds" aria-label="Roulette odds"><span><strong>RED</strong><small>18 / 37 · 1:1</small></span><span><strong>BLACK</strong><small>18 / 37 · 1:1</small></span><span><strong class="green">GREEN 0</strong><small>1 / 37 · 35:1</small></span></div><form class="casino-form" data-casino-desk-form><fieldset><legend class="t-micro ink-3">SELECT POCKET</legend><div class="casino-choice-row"><label class="casino-choice casino-choice-red"><input type="radio" name="casino-desk-color" value="red" checked><span class="t-label f11">RED</span></label><label class="casino-choice casino-choice-black"><input type="radio" name="casino-desk-color" value="black"><span class="t-label f11">BLACK</span></label><label class="casino-choice casino-choice-green"><input type="radio" name="casino-desk-color" value="green"><span class="t-label f11">GREEN 0</span></label></div></fieldset><label class="casino-stake"><span class="t-micro ink-3">STAKE · MAX $${maxBet.toLocaleString()}${entryFee ? ` · EVENT FEE $${entryFee.toLocaleString()}` : ""}</span><input class="field" name="casino-desk-stake" type="number" min="1" max="${maxBet}" step="1" value="10" inputmode="numeric"></label><button class="cta-red" type="submit"><span class="cta-text cta-text-sm">SPIN THE WHEEL</span></button></form><div class="economy-result" aria-live="polite">${esc(resultCopy(limits.lastResult))}</div><p class="t-micro ink-3 economy-note">Fictional board money only. Loan-backed cash cannot enter the casino.</p></div>`;
+  return `<div class="casino-modal-body"><div class="casino-modal-head"><div><h2 class="t-section g100" id="casino-modal-title">Casino Desk</h2><p class="sr-only" id="casino-modal-description">Choose a pocket and stake your in-game cash.</p></div>${closeButtonHTML({ id: "casino-modal-close", label: "Close casino desk" })}</div><form class="casino-form" data-casino-desk-form><fieldset><legend class="t-micro ink-3">SELECT POCKET</legend><div class="casino-choice-row"><label class="casino-choice casino-choice-red"><input type="radio" name="casino-desk-color" value="red" checked><span class="t-label f11">RED</span><span class="casino-choice-odds">18/37 · 1:1</span></label><label class="casino-choice casino-choice-black"><input type="radio" name="casino-desk-color" value="black"><span class="t-label f11">BLACK</span><span class="casino-choice-odds">18/37 · 1:1</span></label><label class="casino-choice casino-choice-green"><input type="radio" name="casino-desk-color" value="green"><span class="t-label f11">GREEN 0</span><span class="casino-choice-odds">1/37 · 35:1</span></label></div></fieldset><label class="casino-stake"><span class="t-micro ink-3">STAKE · MAX $${maxBet.toLocaleString()}${entryFee ? ` · EVENT FEE $${entryFee.toLocaleString()}` : ""}</span><input class="field" name="casino-desk-stake" type="number" min="1" max="${maxBet}" step="1" value="10" inputmode="numeric"></label><button class="cta-red" type="submit"><span class="cta-text cta-text-sm">SPIN THE WHEEL</span></button></form><div class="economy-result" aria-live="polite"${limits.lastResult ? "" : " hidden"}>${esc(casinoResultCopy(limits.lastResult))}</div><p class="t-micro ink-3 economy-note">Stakes come from your in-game cash. Loan-backed cash cannot enter the casino.</p></div>`;
 }
 
 function restoreCasinoDraft(card, maxBet) {
@@ -89,7 +89,8 @@ function applyCasinoResult(card, spinId) {
   }
   card.querySelector("[data-casino-desk-form]")?.insertAdjacentHTML("afterend", casinoReelHTML(casinoResult));
   card.dataset.casinoSpinId = spinId;
-  card.querySelector(".economy-result")?.replaceChildren(document.createTextNode(resultCopy(casinoResult)));
+  card.querySelector(".economy-result")?.replaceChildren(document.createTextNode(casinoResultCopy(casinoResult)));
+  card.querySelector(".economy-result")?.removeAttribute("hidden");
   card.querySelector(".economy-result")?.setAttribute("aria-live", "off");
   startCasinoReel(card.querySelector("[data-casino-reel]"), casinoResult, {
     playTick: () => host.playSound?.("step"),

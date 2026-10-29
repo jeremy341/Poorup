@@ -1,10 +1,6 @@
-/* ============================================================
-   ROOM SHARE: copy the live room code to the clipboard from the
-   top-nav button. Public rooms have no code to share; when the
-   async clipboard API is unavailable it falls back to the legacy
-   hidden-textarea execCommand path, then announces the outcome to
-   the visual system-announcer and flashes the button.
-   ============================================================ */
+// ROOM SHARE: copies the live room code to the clipboard from the top-nav button. Public rooms
+// have no code to share. When the async clipboard API is unavailable, it falls back to the legacy
+// hidden-textarea execCommand path, then announces the result and flashes the button.
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
 

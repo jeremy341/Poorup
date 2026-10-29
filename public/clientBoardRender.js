@@ -1,8 +1,6 @@
-/* ============================================================
-   BOARD RENDERING: builds the 40 tiles, owner/building marks,
-   and the walking game pieces. Pure view layer over clientState.
-   ============================================================ */
-import { $, REDUCED_MOTION } from "./clientDom.js";
+// BOARD RENDERING: builds the 40 tiles, owner/building marks,
+// and the walking game pieces. Pure view layer over clientState.
+import { $, REDUCED_MOTION, setHtml } from "./clientDom.js";
 import { spriteHTML, avatarHTML } from "./clientSprites.js";
 import {
   GROUP_COLOR,
@@ -16,6 +14,8 @@ import { getTheme } from "./clientThemeData.js";
 import { state } from "./clientState.js";
 import { createWalkTimeline, PIECE_WALK_STEP_MS } from "./clientBoardMotion.js";
 import { tileSupportsInspection } from "./clientTileInteraction.js";
+import { defaultStackOffset, startTileStackOffset } from "./clientBoardStack.js";
+import { tileAriaLabel } from "./clientTileLabel.js";
 
 export const SKYLINE = [
   [0, 24, 6, 12], [9, 17, 5, 19], [15, 27, 4, 9], [20, 12, 6, 24], [27, 21, 5, 15],
@@ -137,7 +137,7 @@ const PASSING_CORNER_HTML = `<span class="passing-by-corner-layout">
 const PRISON_BARS_HTML = `<svg class="jail-bars" viewBox="0 0 16 10" shape-rendering="crispEdges" aria-hidden="true">
             ${[1, 4, 7, 10, 13].map((x) => `<rect x="${x}" y="0" width="1.4" height="10" fill="#d74438"/>`).join("")}
             <rect x="0" y="4" width="16" height="1.2" fill="#d74438"/></svg>
-          <span class="t-tile tile-name" style="color:#d74438">PRISON</span>`;
+          <span class="t-tile tile-name" style="color:var(--red-bright)">PRISON</span>`;
 
 function cornerFaceHTML(tile) {
   if (tile.kind === "corner-go") return GO_CORNER_HTML;
@@ -184,7 +184,7 @@ function buildTile(tile, onTileClick) {
   const el = document.createElement("button");
   el.className = tileClassName(tile);
   el.dataset.tile = String(tile.i);
-  el.setAttribute("aria-label", `${tile.name || "Tile"}${tile.price ? `, price $${tile.price}` : ""}`);
+  el.setAttribute("aria-label", tileAriaLabel(tile));
   el.setAttribute("tabindex", "0");
   if (!tileSupportsInspection(tile)) el.setAttribute("aria-disabled", "true");
   el.style.gridColumn = String(tile.col);
@@ -193,7 +193,7 @@ function buildTile(tile, onTileClick) {
   el.insertAdjacentHTML("beforeend", `<span class="tile-build side-${tile.side}"></span>`);
   el.addEventListener("click", () => {
     if (!tileSupportsInspection(tile)) return;
-    onTileClick(tile);
+    onTileClick(tile, el);
   });
   $("#board-grid").insertBefore(el, $("#center-field"));
 }
@@ -211,10 +211,9 @@ function renderTileState(el, tile) {
   el.classList.toggle("is-mortgaged", !!state.mortgaged[tile.i]);
 }
 
-// Ownership pips show the owner's face, not just their color: two seats
-// may share a color once icons (color plus face) are the identity. Markup
-// is memoized by signature exactly like board tokens, so repaints are a
-// cache lookup and any face or color change re-renders by itself.
+// Ownership pips show the owner's face, not just their color: two seats may share a color once
+// the icon (color plus face) is the identity. Markup is memoized by signature like board tokens,
+// so repaints are a cache lookup and any face or color change re-renders by itself.
 function ownerPipMarkup(owner, index) {
   const grid = owner.avatarGrid ? JSON.stringify(owner.avatarGrid) : "";
   return { sig: `${owner.id}:${owner.color}:${index}:${grid}`, markup: avatarHTML(owner, 1, index) };
@@ -225,7 +224,12 @@ function renderTileOwner(el, tile) {
   if (!pip) return;
   const owner = state.players.find((p) => p.id === state.owners[tile.i]);
   pip.style.display = owner ? "block" : "none";
-  if (!owner) return;
+  el.classList.toggle("is-owned", Boolean(owner));
+  if (!owner) {
+    el.style.removeProperty("--tile-owner");
+    return;
+  }
+  el.style.setProperty("--tile-owner", owner.color);
   const face = ownerPipMarkup(owner, state.players.indexOf(owner));
   if (pip.dataset.sig !== face.sig) {
     pip.innerHTML = face.markup;
@@ -248,7 +252,19 @@ function tileBuildHTML(tile) {
 function renderTileBuild(el, tile) {
   const buildEl = el.querySelector(".tile-build");
   if (!buildEl) return;
-  buildEl.innerHTML = tileBuildHTML(tile);
+  setHtml(buildEl, tileBuildHTML(tile));
+}
+
+function renderTileLabel(el, tile) {
+  const owner = state.players.find((p) => p.id === state.owners[tile.i]);
+  const level = tile.kind === "property" ? (state.houses[tile.i] || 0) : 0;
+  const label = tileAriaLabel(tile, {
+    ownerName: owner?.name,
+    houses: level > 0 && level < HOTEL_LEVEL ? Math.min(level, MAX_HOUSES) : 0,
+    hotel: level === HOTEL_LEVEL,
+    mortgaged: !!state.mortgaged[tile.i],
+  });
+  if (el.getAttribute("aria-label") !== label) el.setAttribute("aria-label", label);
 }
 
 function renderBoardTile(tile) {
@@ -257,18 +273,12 @@ function renderBoardTile(tile) {
   renderTileState(el, tile);
   renderTileOwner(el, tile);
   renderTileBuild(el, tile);
+  renderTileLabel(el, tile);
 }
 
 export function renderBoardState() {
   TILES.forEach(renderBoardTile);
 }
-
-const STACK_OFF = [
-  { x: 0, y: 0 },
-  { x: 11, y: -8 },
-  { x: -11, y: 8 },
-  { x: 11, y: 8 },
-];
 
 export function tileCenter(i, zone = "passing") {
   const tile = document.querySelector(`.tile[data-tile="${i}"]`);
@@ -482,11 +492,23 @@ function occupantsByPosition() {
   return occupants;
 }
 
-function stackOffset(stack, idx) {
-  if (stack.length === 1) return { x: 0, y: 0 };
-  const off = STACK_OFF[idx];
-  if (off) return off;
-  return { x: 0, y: 0 };
+function stackOffset(stack, idx, pos, pieceEl) {
+  if (Number(pos) === 0 && pieceEl) {
+    // Keep Start tokens clear of the COLLECT / $200 caption.
+    const tile = document.querySelector(`.tile[data-tile="0"]`);
+    const caption = tile?.querySelector(".tile-name");
+    if (tile && caption) {
+      const tr = tile.getBoundingClientRect();
+      const cr = caption.getBoundingClientRect();
+      if (tr.height > 0) {
+        return startTileStackOffset({
+          count: stack.length, idx, tileWidth: tr.width, tileHeight: tr.height,
+          captionTop: cr.top - tr.top - tr.height / 2, pieceSize: pieceEl.offsetWidth || 26,
+        });
+      }
+    }
+  }
+  return defaultStackOffset(stack.length, idx);
 }
 
 function isTurnPlayer(player) {
@@ -502,7 +524,7 @@ function placeOnePiece(player, ctx) {
   if (!c) return;
   const stack = ctx.occupants[player.pos] || [player.id];
   const idx = Math.max(0, stack.indexOf(player.id));
-  const off = stackOffset(stack, idx);
+  const off = stackOffset(stack, idx, player.pos, el);
   el.classList.toggle("is-active", isTurnPlayer(player));
   if (pieceWalks.has(player.id)) {
     el.classList.add("is-moving");

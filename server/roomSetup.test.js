@@ -1,7 +1,5 @@
-// Unit suite for roomSetup.js: every pure shape the room handlers now
-// delegate to. Each assertion mirrors the exact behavior of the expression
-// it replaced in server.js (check order, error strings, normalization
-// limits, and viewer-scoped projection fields).
+// Unit suite for roomSetup.js: every pure shape the room handlers delegate to. Each assertion mirrors the expression it replaced in
+// server.js (check order, error strings, normalization limits, and viewer-scoped projection fields).
 import assert from 'assert';
 import {
   normalizeClientId,
@@ -268,12 +266,13 @@ function fakeSettledRoom() {
     ],
     getPlayerById: id => (id === 'p1' ? { accountId: 'acct_a' } : id === 'p2' ? { accountId: null } : null)
   };
-  return { roomCode: 'R1', visibility: 'private', game };
+  return { roomCode: 'R1', publicId: 'room_pub-1', visibility: 'private', game };
 }
 
 check('buildMatchRecordOptions matches the emitRoomState settlement shape', () => {
   const options = buildMatchRecordOptions(fakeSettledRoom());
-  assert.match(options.gameId, /^match_R1_1000$/);
+  assert.match(options.gameId, /^match_room_pub-1_1000$/);
+  assert.ok(!options.gameId.includes('R1'), 'the match id never embeds the room invite code');
   assert.strictEqual(typeof options.durationSeconds, 'number');
   assert.strictEqual(options.roundCount, 12);
   assert.strictEqual(options.roomVisibility, 'private');
@@ -313,7 +312,7 @@ check('buildMatchRecordOptions defaults a never-started room and caps event list
   room.game.globalEventHistory = Array.from({ length: 25 }, (_, i) => ({ id: `h${i}`, title: `H${i}`, comboId: `k${i}` }));
   room.game.globalEvent = { id: 'h0', title: 'Dup', comboId: 'k0' };
   const options = buildMatchRecordOptions(room);
-  assert.match(options.gameId, /^match_R1_\d+$/);
+  assert.match(options.gameId, /^match_room_pub-1_\d+$/);
   assert.strictEqual(options.durationSeconds, 0);
   assert.strictEqual(options.tradesCompleted, 0);
   assert.strictEqual(options.auctionsCompleted, 0);

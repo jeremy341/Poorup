@@ -1,12 +1,9 @@
-/* ============================================================
-   HOME AMBIENT: the parlor-patrol easter egg (a helicopter fly-by you
-   can tag), the home local-time clock and the SFX ping. Purely visual
-   and timer-based; reads clientState only. hitHomeHelicopter is wired
-   from the home bindings; the clock/helicopter controls are shared with
-   the surface navigation and the night-shift host.
-   ============================================================ */
+// HOME AMBIENT: the parlor-patrol easter egg (a helicopter fly-by you can tag), the home clock and
+// the SFX ping. Purely visual and timer-based; reads clientState only. hitHomeHelicopter is wired from
+// the home bindings. The clock and helicopter controls are shared with surface navigation and night shift.
 import { $, REDUCED_MOTION } from "./clientDom.js";
 import { state } from "./clientState.js";
+import { PARLOR_PATROL_ENABLED } from "./clientParlorPatrolFlag.js";
 
 const PATROL_BEST_KEY = "poorup.parlor-patrol.best.v1";
 let homeHelicopterTimer = null;
@@ -20,6 +17,7 @@ try { patrolState.best = Number(localStorage.getItem(PATROL_BEST_KEY)) || 0; } c
 export function renderPatrolHud(status = "STANDBY · FLY-BYS OCCASIONAL") {
   const score = $("#home-patrol-score");
   const label = $("#home-patrol-status");
+  if (!PARLOR_PATROL_ENABLED) return;
   if (score) score.textContent = String(patrolState.score).padStart(3, "0");
   if (label) label.textContent = status;
 }
@@ -103,6 +101,7 @@ function endHomeHelicopterFlight() {
 }
 
 function launchHomeHelicopter() {
+  if (!PARLOR_PATROL_ENABLED) return;
   if (state.phase !== "home") return;
   const helicopter = $("#home-helicopter");
   if (!helicopter) return;
@@ -123,11 +122,13 @@ function launchHomeHelicopter() {
 export function scheduleHomeHelicopter(delay = 4000) {
   clearTimeout(homeHelicopterTimer);
   homeHelicopterTimer = null;
+  if (!PARLOR_PATROL_ENABLED) return;
   if (state.phase !== "home") return;
   homeHelicopterTimer = setTimeout(launchHomeHelicopter, delay);
 }
 
 export function hitHomeHelicopter() {
+  if (!PARLOR_PATROL_ENABLED) return;
   if (!patrolState.active || state.phase !== "home") return;
   const helicopter = $("#home-helicopter");
   const atmosphere = $(".home-sky-atmosphere");
@@ -160,7 +161,7 @@ export function hitHomeHelicopter() {
   try { localStorage.setItem(PATROL_BEST_KEY, String(patrolState.best)); } catch { /* storage unavailable */ }
   playPatrolHitSound();
   hideHomeHelicopter();
-  renderPatrolHud(`TAGGED +100 · BEST ${String(patrolState.best).padStart(3, "0")}`);
+  renderPatrolHud(`TAGGED +100 · LOCAL BEST ${String(patrolState.best).padStart(3, "0")}`);
   homePatrolStatusTimer = setTimeout(() => renderPatrolHud(), 2400);
   setTimeout(() => {
     clearPatrolEffect("#home-patrol-impact");

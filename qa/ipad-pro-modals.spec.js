@@ -84,8 +84,9 @@ async function joinCaptureGuest(guest, page, testInfo, outputDir, roomCode) {
   await guest.locator('#room-join').fill(roomCode);
   await guest.locator('#join-nickname').fill('UXGUEST');
   await guest.locator('#join-room-submit').click();
-  await guest.locator('#su-start').click();
-  await expect(page.locator('#lobby-settings-body')).toContainText('UXGUEST');
+  await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
+  if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
+  await expect(page.locator('#player-list')).toContainText('UXGUEST');
   await captureScreenshot(page, testInfo, {
     group: 'lobby', surfaceId: 'waiting-lobby', label: 'Two-player waiting lobby',
     fixtureId: 'synthetic-two-player-lobby', fallbackPath: path.join(outputDir, 'lobby-waiting-room.png'),
@@ -119,6 +120,8 @@ function captureContext(page, testInfo, outputDir) {
 async function captureSurface(context, surface) {
   const { page, testInfo, outputDir, capturedGameSurfaceIds } = context;
   const [filename, selector, openMethod, args, closeMethod] = surface;
+  // Live room sync can reset these opt-in settings while the page is busy; re-apply them before each surface opens.
+  await page.evaluate(() => { Object.assign(window.__ipadModalCapture.state.settings, { playerFinance: true, bankLoans: true }); });
   await page.evaluate(({ method, parameters }) => window.__ipadModalCapture[method](...parameters), { method: openMethod, parameters: args });
   await assertSurfaceOpen(page, selector);
   await assertPlayerCardBounds(page, selector);

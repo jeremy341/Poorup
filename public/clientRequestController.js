@@ -20,3 +20,25 @@ export function emitWithTimeout(emitServer, eventName, payload, { onResponse, ti
     clearTimeout(timer);
   };
 }
+
+// One in-flight request per user intent. A double click or an Enter key
+// repeat on a money/turn action must reach the server once: the guard key is
+// held until the acknowledgement (or the bounded timeout) releases it.
+const inFlightIntents = new Set();
+
+export function intentInFlight(key) {
+  return inFlightIntents.has(key);
+}
+
+/** Returns false (and sends nothing) while an identical intent is in flight. */
+export function emitIntent(emitServer, key, eventName, payload, { onResponse, onTimeout, timeoutMs } = {}) {
+  if (inFlightIntents.has(key)) return false;
+  inFlightIntents.add(key);
+  const release = () => { inFlightIntents.delete(key); };
+  emitWithTimeout(emitServer, eventName, payload, {
+    timeoutMs,
+    onResponse: (response) => { release(); onResponse?.(response); },
+    onTimeout: () => { release(); onTimeout?.(); },
+  });
+  return true;
+}

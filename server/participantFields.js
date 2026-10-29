@@ -1,12 +1,7 @@
-// Shared participant schema for the two match-record builders:
-//   - matchStore.sanitizeMatch (record-shaped input loaded/persisted by MatchStore)
-//   - accountStore.recordGameResults (live RoomManager player objects, Set-typed fields)
-// Both stores used to hand-write the same 60 fields in the same order (a CodeScene
-// "Bumpy Road" hotspot). The key list and order now live here; the coercions stay
-// per-side because record input and live-player input genuinely differ (Sets,
-// bankLoan.status, casinoLedger.length, raw spreads/leaks on the player side).
-// Characterization goldens in server/gameLogic.test.js pin the current output of
-// both builders; do not "clean up" a coercer without regenerating those goldens.
+// Shared participant schema for the two match-record builders: matchStore.sanitizeMatch (persisted records) and
+// accountStore.recordGameResults (live RoomManager players, with Set-typed fields). Both share one list of the same 60 fields in the same order.
+// Coercions stay per side because record and live input differ (Sets, bankLoan.status, casinoLedger.length, raw spreads).
+// Characterization goldens in server/gameLogic.test.js pin both outputs; regenerate them before changing a coercer.
 
 export const numberOrZero = (value) => Number(value) || 0;
 export const nonNegative = (value) => Math.max(0, Number(value) || 0);

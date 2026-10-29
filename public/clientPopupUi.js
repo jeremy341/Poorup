@@ -1,11 +1,8 @@
-/* ============================================================
-   TILE POPUP: the inspected-deed popup and the pure render
-   helpers (accent, kind label, icon, effect copy, rent schedule)
-   that the deed/choice/auction cards also reuse. Templates are
-   byte-for-byte the old main.js markup; game-bound calls
-   (buyTile, record) arrive via configurePopup hooks.
-   ============================================================ */
+// TILE POPUP: the inspected-deed popup and the pure render helpers (accent, kind label, icon,
+// effect copy, rent schedule) that the deed, choice and auction cards also reuse. Templates match
+// the main.js markup byte for byte. Game-bound calls (buyTile, record) arrive via configurePopup hooks.
 import { $, esc } from "./clientDom.js";
+import { closeButtonHTML } from "./clientCloseButton.js";
 import { state } from "./clientState.js";
 import { GROUP_COLOR, RENT_TABLE, HOTEL_LEVEL } from "./clientBoardData.js";
 import { spriteHTML } from "./clientSprites.js";
@@ -13,8 +10,9 @@ import { renderBoardState } from "./clientBoardRender.js";
 import { openSurface, closeSurface } from "./clientSurfaces.js";
 import { deedCurrentRentLabel, deedLadderHTML, tileRentExplanation } from "./clientDeedsRender.js";
 import { tileSupportsInspection } from "./clientTileInteraction.js";
+import { airportFeesHTML } from "./clientFlightUi.js";
 
-let host = { buyTile: noop, record: noop };
+let host = { buyTile: noop, record: noop, openDeedDetail: noop };
 
 function noop() {}
 
@@ -74,7 +72,7 @@ const POP_ICONS = {
   chest: () => `<img class="board-icon-mark board-icon-popup board-icon-chest" src="/assets/board-icons/treasure-chest.svg" alt="Treasure">`,
   tax: () => "",
   "corner-go": () => `<span class="go-big" style="font-size:28px">GO</span>`,
-  "corner-go-jail": () => `<span class="q-mark" style="font-size:22px;color:#d74438">PRISON</span>`,
+  "corner-go-jail": () => `<svg class="pop-prison-mark" viewBox="0 0 16 10" shape-rendering="crispEdges" aria-hidden="true">${[1, 4, 7, 10, 13].map(x => `<rect x="${x}" y="0" width="1.4" height="10" fill="currentColor"/>`).join("")}<rect x="0" y="4" width="16" height="1.2" fill="currentColor"/></svg>`,
   "corner-parking": () => spriteHTML("car", 5),
   "corner-vacation": () => spriteHTML("palm", 5),
 };
@@ -108,16 +106,11 @@ export function popRow(label, value, cls = "ink") {
   return `<div class="pop-row"><span class="t-label f12 g-muted">${label}</span><span class="t-label f12 v ${cls}">${value}</span></div>`;
 }
 
-function popPriceLabel(tile) {
-  if (tile.kind === "tax") return "—";
-  return tile.price != null ? `$${tile.price}` : "—";
-}
-
 function popRentLabel(tile) {
   if (tile.kind === "utility") return deedCurrentRentLabel(tile);
   if (tile.rent != null) return `$${tile.rent}`;
   if (tile.kind === "tax") return `PAY $${tile.price ?? 200}`;
-  return "—";
+  return "-";
 }
 
 function popOwnerLabel(owner, buyable) {
@@ -127,15 +120,14 @@ function popOwnerLabel(owner, buyable) {
 
 function popBuildTag(buyable, level) {
   if (!buyable || level <= 0) return "";
-  if (level === HOTEL_LEVEL) return ` <span class="t-label f11 g300">— HOTEL</span>`;
+  if (level === HOTEL_LEVEL) return ` <span class="t-label f11 g300">- HOTEL</span>`;
   const plural = level === 1 ? "" : "S";
-  return ` <span class="t-label f11 g300">— ${level} HOUSE${plural}</span>`;
+  return ` <span class="t-label f11 g300">- ${level} HOUSE${plural}</span>`;
 }
 
 function popColorSetRows(tile) {
   if (!tile.group) return "";
-  return `${popRow("COLOR SET", tile.group.toUpperCase())}
-        ${popRow("HOUSE COST", `$${RENT_TABLE[tile.group].housePrice}`, "g300")}`;
+  return popRow("HOUSE COST", `$${RENT_TABLE[tile.group].housePrice}`, "g300");
 }
 
 function popRentSectionHTML(tile, buyable) {
@@ -154,7 +146,7 @@ function popOwnerFootHTML(owner) {
 
 function popAuctionHintHTML(unowned) {
   if (!unowned || !state.settings.auction) return "";
-  return `<div class="pop-buy-row"><p class="t-micro ink-3" style="text-align:center">AUCTION RULES ON — BUY WHEN YOU LAND HERE</p></div>`;
+  return `<div class="pop-buy-row"><p class="t-micro ink-3" style="text-align:center">AUCTION RULES ON - BUY WHEN YOU LAND HERE</p></div>`;
 }
 
 function popCanBuyNow(tile) {
@@ -189,8 +181,15 @@ function popBuyRowHTML(tile, unowned) {
             </div>`;
 }
 
-function popupCardHTML({ tile, owner, buyable, unowned, level }) {
-  const price = popPriceLabel(tile);
+// Your own deeds get a one-click way into the manager (build / sell / mortgage).
+function popManageRowHTML(tile, owner) {
+  if (!owner || owner.id !== "p1") return "";
+  if (!["property", "railroad", "utility"].includes(tile.kind)) return "";
+  const label = tile.kind === "property" ? "MANAGE · BUILD / SELL / MORTGAGE" : "MANAGE · MORTGAGE";
+  return `<div class="pop-buy-row"><button class="btn-dark pop-manage" id="pop-manage" type="button" data-deed-open="${tile.i}"><span class="t-label f12">${label}</span></button></div>`;
+}
+
+export function popupCardHTML({ tile, owner, buyable, unowned, level }) {
   const rent = popRentLabel(tile);
   const ownerLabel = popOwnerLabel(owner, buyable);
   const buildTag = popBuildTag(buyable, level);
@@ -203,20 +202,20 @@ function popupCardHTML({ tile, owner, buyable, unowned, level }) {
           <div class="t-micro g400">${kindLabel(tile)}</div>
           <h3 class="t-section dd-title" id="popup-card-title">${tile.name}${buildTag}</h3>
         </div>
-        <button class="btn-dark dd-close" id="pop-close"><span class="t-label f11">CLOSE</span></button>
+        ${closeButtonHTML({ id: "pop-close", label: "Close property details", className: "dd-close" })}
       </div>
       <div class="dd-stats">
-        ${popRow("PURCHASE", price, "g300")}
-        ${popRow(tile.kind === "utility" ? "RENT RULE" : "BASE RENT", rent, "green")}
-        ${popRow("OWNER", ownerLabel, owner ? "ink" : "g-muted")}
+        ${tile.kind === "tax" ? popRow("TAX", rent, "green") : ""}
+        ${["property", "railroad", "utility"].includes(tile.kind) ? popRow("OWNER", ownerLabel, owner ? "ink" : "g-muted") : ""}
         ${popColorSetRows(tile)}
       </div>
       ${popRentSectionHTML(tile, buyable)}
-      <div class="pop-effect-head">${spriteHTML("diamond", 3)}<span class="t-label f12 g300">${popEffectHeading(tile)}</span></div>
-      <div class="pop-effect"><p class="t-body ink-2">${effectText(tile)}</p></div>
+      ${airportFeesHTML(tile, false)}
+      ${tile.kind === "railroad" ? "" : `<div class="pop-effect-head">${spriteHTML("diamond", 3)}<span class="t-label f12 g300">${popEffectHeading(tile)}</span></div>
+      <div class="pop-effect"><p class="t-body ink-2">${effectText(tile)}</p></div>`}
       ${popBuyRowHTML(tile, unowned)}
+      ${popManageRowHTML(tile, owner)}
       <div class="pop-foot dd-foot">
-        <span class="t-micro ink-3">PRESS ESC OR CLICK OUTSIDE TO CLOSE</span>
         ${popOwnerFootHTML(owner)}
       </div>
     </div>`;
@@ -232,6 +231,10 @@ export function openPopup(tile) {
   $("#popup-card").innerHTML = popupCardHTML({ tile, owner, buyable, unowned, level });
   openSurface("#popup", "#pop-close");
   $("#pop-close").addEventListener("click", closePopup);
+  $("#pop-manage")?.addEventListener("click", () => {
+    closePopup();
+    import("./clientDeedDetailUi.js").then(module => module.openDeedDetail(tile.i));
+  });
   const buyBtn = $("#pop-buy");
   if (buyBtn) buyBtn.addEventListener("click", () => { host.buyTile(tile); openPopup(tile); });
 }
@@ -243,11 +246,15 @@ export function closePopup() {
   renderBoardState();
 }
 
-export function onTileClick(tile) {
+export function onTileClick(tile, trigger = null) {
   if (!tileSupportsInspection(tile)) return;
-  state.highlight = tile.i;
   const owner = state.players.find((p) => p.id === state.owners[tile.i]);
-  host.record(`INSPECTED ${tile.name}${tile.price ? ` — $${tile.price}` : ""}${owner ? ` — OWNED BY ${owner.name}` : ""}`);
-  openPopup(tile);
+  host.record(`INSPECTED ${tile.name}${tile.price ? `, $${tile.price}` : ""}${owner ? `, OWNED BY ${owner.name}` : ""}`);
+  if (owner?.id === "p1" && ["property", "railroad", "utility"].includes(tile.kind)) {
+    host.openDeedDetail(tile.i, trigger);
+  } else {
+    state.highlight = tile.i;
+    openPopup(tile);
+  }
   renderBoardState();
 }

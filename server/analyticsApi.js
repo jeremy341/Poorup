@@ -1,3 +1,4 @@
+import { summarizeRuntimeMetrics } from './metricsRegistry.js';
 import { createPseudonymizer, MIN_COHORT, PSEUDONYM_VERSION, sanitizeAnalyticsResponse, sanitizeAnalyticsRows, suppressedRow } from './analyticsPrivacy.js';
 import {
   normalizeAnalyticsQuery,
@@ -37,9 +38,12 @@ export function withAdminFlag(account, adminIds) {
 }
 
 function safeRange(range) {
-  const value = String(range);
-  return ['hour', 'day', 'week'].includes(value) ? value : 'hour';
+  // 'season' is the retired name for the 30 day window.
+  const value = String(range) === 'season' ? 'month' : String(range);
+  return ['hour', 'day', 'week', 'month'].includes(value) ? value : 'hour';
 }
+
+const RANGE_MS = Object.freeze({ hour: 3_600_000, day: 86_400_000, week: 7 * 86_400_000, month: 30 * 86_400_000 });
 
 function metricSnapshot(registry, range) {
   return registry?.snapshotMetrics?.(range) || {
@@ -88,9 +92,46 @@ function snapshotWithLiveMetrics(rollup, registry, query) {
   if (!snapshot || typeof snapshot !== 'object') return null;
   const live = registry?.snapshotMetrics?.(query.range);
   if (!live?.metrics) return snapshot;
+  const runtime = summarizeRuntimeMetrics(registry);
+  const quality = { ...(snapshot.quality || {}), liveGeneratedAt: live.generatedAt, ...(runtime ? { live: runtime } : {}) };
   const activeRooms = live.metrics['active-rooms'];
-  if (!activeRooms) return snapshot;
-  return { ...snapshot, quality: { ...(snapshot.quality || {}), activeRooms: Number(activeRooms.value ?? activeRooms.last) || 0, liveGeneratedAt: live.generatedAt } };
+  if (activeRooms) quality.activeRooms = Number(activeRooms.value ?? activeRooms.last) || 0;
+  return { ...snapshot, quality };
+}
+
+// The window just before the selected one, for the "vs previous" delta. Only
+// returned when the stored history reaches back past its start; otherwise the
+// comparison would silently describe a shorter period.
+function previousPeriodSnapshot(rollup, query, current) {
+  const duration = RANGE_MS[query.range];
+  if (!duration || query.from || query.to || typeof rollup?.query !== 'function') return null;
+  const generated = Date.parse(current?.generatedAt);
+  const oldest = Date.parse(current?.quality?.oldestAt);
+  if (!Number.isFinite(generated) || !Number.isFinite(oldest)) return null;
+  // Buckets are whole hours and the current window includes the one straddling
+  // its start, so the previous window ends an hour earlier to keep each bucket
+  // in exactly one of the two.
+  const to = generated - duration - 3_600_000;
+  const from = generated - 2 * duration;
+  if (oldest > from) return null;
+  return rollup.query({ ...query, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+}
+
+function pad(value) { return String(value).padStart(2, '0'); }
+
+// Matches started per hour (hour/day windows) or per UTC day (week/month).
+function activitySeries(snapshot, query) {
+  const points = Array.isArray(snapshot?.series) ? snapshot.series : [];
+  const daily = query.range === 'week' || query.range === 'month';
+  const groups = new Map();
+  points.forEach((point) => {
+    const date = new Date(point?.at);
+    if (Number.isNaN(date.getTime())) return;
+    const day = `${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+    const label = daily ? day : `${day} ${pad(date.getUTCHours())}:00`;
+    groups.set(label, (groups.get(label) || 0) + Math.max(0, Number(point.started) || 0));
+  });
+  return [...groups.entries()].map(([label, value]) => ({ label, value, unit: 'matches' }));
 }
 
 function responseEnvelope({ snapshot, query, overview, series = [], breakdowns = [], association = null, dataQuality, pseudonymVersion = PSEUDONYM_VERSION }) {
@@ -144,13 +185,19 @@ export function buildAnalyticsBalance({ rollup, registry, accountId, adminIds, q
   if (!isAdminAccount(accountId, adminIds)) return failure(403, 'Forbidden.');
   const query = normalizeAnalyticsQuery(queryInput);
   const health = rollupHealth(rollup);
-  if (health.loaded === false || health.fresh === false) return failure(503, 'Rollup unavailable.');
+  if (health.loaded === false) return failure(503, 'Rollup unavailable.');
+  // An empty rollup (no matches ever recorded) answers an honest empty snapshot, not an error.
+  // A rollup with data that has gone quiet is "stale". The Status tab still has live numbers,
+  // but every other tab is built from the rollup alone and stays unavailable.
+  const stale = health.fresh === false && health.empty !== true;
+  const liveOnly = stale && query.tab === 'overview' && Boolean(summarizeRuntimeMetrics(registry));
+  if (stale && !liveOnly) return failure(503, 'Rollup unavailable.');
   const snapshot = snapshotWithLiveMetrics(rollup, registry, query);
   if (!snapshot) return failure(503, 'Rollup unavailable.');
-  const overview = buildOverview(snapshot, query);
+  const overview = buildOverview(snapshot, query, { previous: previousPeriodSnapshot(rollup, query, snapshot) });
   const view = viewFor(snapshot, query);
   const breakdowns = query.tab === 'overview' ? [] : [view];
-  const series = Array.isArray(snapshot.series) ? snapshot.series : [];
+  const series = activitySeries(snapshot, query);
   const association = query.dimension === 'feature' ? buildAssociation(snapshot, query, query.metric) : null;
   return responseEnvelope({ snapshot, query, overview, series, breakdowns, association, dataQuality: buildDataQuality(snapshot, query) });
 }
@@ -159,7 +206,7 @@ export function buildAnalyticsDrilldown({ rollup, accountId, adminIds, query: qu
   if (!isAdminAccount(accountId, adminIds)) return failure(403, 'Forbidden.');
   const query = normalizeAnalyticsQuery(queryInput);
   const health = rollupHealth(rollup);
-  if (health.loaded === false || health.fresh === false) return failure(503, 'Rollup unavailable.');
+  if (health.loaded === false || (health.fresh === false && health.empty !== true)) return failure(503, 'Rollup unavailable.');
   const snapshot = snapshotWithLiveMetrics(rollup, null, query);
   if (!snapshot) return failure(503, 'Rollup unavailable.');
   const pseudonymizer = createPseudonymizer({ key: process.env.POORUP_ANALYTICS_PSEUDONYM_KEY });

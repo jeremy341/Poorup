@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Bounded Socket.IO capacity harness. It is deliberately opt-in and refuses
+// Bounded Socket.IO capacity harness. It is opt-in and refuses
 // production-looking targets. Run only against a disposable Nest testing
 // deployment (or localhost with POORUP_LOAD_ALLOW_LOCAL=true).
 import { io } from 'socket.io-client';

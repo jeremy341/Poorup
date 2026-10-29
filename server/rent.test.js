@@ -1,11 +1,6 @@
-// Characterization suite for GameState.getPropertyRent — the rent ladder with
-// its stack of global-event modifiers. Each case pins the exact integer rent
-// for a crafted tile/ownership/event context: mortgage, every house level
-// (incl. clamping), double-rent full sets, utility dice scaling, railroad
-// tiers, and every event modifier + effect-multiplier skip rule (housing
-// bubble, airport strike, tourism boom, anti-monopoly, energy crisis, public
-// works, global rent multiplier, rent cap). Captured from the pre-refactor
-// method; the modifier-table extraction must keep it green.
+// Characterization suite for GameState.getPropertyRent: the rent ladder with its global-event modifiers. Each case pins the exact integer rent
+// for a crafted tile, ownership and event context: mortgage, every house level (including clamping), full-set doubles, utility dice scaling,
+// railroad tiers, and every event modifier and skip rule. Captured from the pre-refactor method; the modifier table must keep it green.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { calculateRentFromFacts, rentFactsFromGame, rentFactsFromSnapshot } from './botRentForecast.js';
@@ -84,10 +79,10 @@ for (const [name, [setup, index]] of Object.entries(CASES)) {
   const snapshotForecast = calculateRentFromFacts(rentFactsFromSnapshot(snapshot, snapshot.board[index], diceTotal));
   if (actual === GOLDEN[name] && gameForecast === actual && snapshotForecast === actual) {
     passed += 1;
-    console.log(`PASS — rent ${name} = ${actual} (live/game/snapshot)`);
+    console.log(`PASS - rent ${name} = ${actual} (live/game/snapshot)`);
   } else {
     failures.push(name);
-    console.log(`FAIL — rent ${name}: expected ${GOLDEN[name]}, got live=${actual}, gameForecast=${gameForecast}, snapshotForecast=${snapshotForecast}`);
+    console.log(`FAIL - rent ${name}: expected ${GOLDEN[name]}, got live=${actual}, gameForecast=${gameForecast}, snapshotForecast=${snapshotForecast}`);
   }
 }
 const cardGame = newGame();

@@ -11,14 +11,28 @@ function cleanText(value, max = 200) {
   return typeof value === 'string' ? value.replace(/[\u0000-\u001f]/gu, '').slice(0, max) : '';
 }
 
+function allowedMailEndpoint(value, env) {
+  try {
+    const url = new URL(value);
+    if (url.username || url.password) return false;
+    if (url.protocol === 'https:') return true;
+    const mode = String(env.NODE_ENV || '').trim().toLowerCase();
+    return url.protocol === 'http:' && ['development', 'test'].includes(mode)
+      && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function createMailAdapter({ config = {}, env = process.env, fetchImpl = globalThis.fetch, timeoutMs = 8_000, maxAttempts = 2, sleep = () => Promise.resolve() } = {}) {
   const apiUrl = cleanText(config.apiUrl ?? env.POORUP_MAIL_API_URL, 500);
   const apiKey = typeof (config.apiKey ?? env.POORUP_MAIL_API_KEY) === 'string' ? (config.apiKey ?? env.POORUP_MAIL_API_KEY) : '';
   const from = cleanText(config.from ?? env.POORUP_MAIL_FROM, 254);
+  const configured = Boolean(apiUrl && apiKey && from && allowedMailEndpoint(apiUrl, env));
 
   async function send({ to, subject, template, variables = {} } = {}) {
     const recipient = cleanEmail(to);
-    if (!apiUrl || !apiKey || !from) return { success: false, code: 'MAIL_NOT_CONFIGURED' };
+    if (!configured) return { success: false, code: 'MAIL_NOT_CONFIGURED' };
     if (!recipient || !ALLOWED_TEMPLATES.has(template)) return { success: false, code: 'MAIL_REQUEST_INVALID' };
     if (typeof fetchImpl !== 'function') return { success: false, code: 'MAIL_UNAVAILABLE' };
     const safeVariables = Object.fromEntries(Object.entries(variables || {}).filter(([key]) => VARIABLE_KEYS.has(key)).map(([key, value]) => [key, cleanText(value, 600)]));
@@ -28,7 +42,7 @@ export function createMailAdapter({ config = {}, env = process.env, fetchImpl = 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), Math.max(500, Number(timeoutMs) || 8_000));
       try {
-        const response = await fetchImpl(apiUrl, { method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${apiKey}` }, body, signal: controller.signal });
+        const response = await fetchImpl(apiUrl, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', Authorization: `Bearer ${apiKey}` }, body, signal: controller.signal });
         if (response?.ok) return { success: true, status: response.status };
         lastError = new Error(`mail status ${Number(response?.status) || 0}`);
       } catch (error) {
@@ -41,7 +55,7 @@ export function createMailAdapter({ config = {}, env = process.env, fetchImpl = 
     return { success: false, code: 'MAIL_SEND_FAILED', retryable: true, reason: lastError ? 'provider-error' : 'unknown' };
   }
 
-  return { send, configured: Boolean(apiUrl && apiKey && from) };
+  return { send, configured };
 }
 
 export { ALLOWED_TEMPLATES };

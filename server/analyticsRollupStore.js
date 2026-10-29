@@ -2,7 +2,9 @@ import { loadJson, writeJson } from './storeIO.js';
 
 export const ROLLUP_SCHEMA_VERSION = 1;
 export const DEFAULT_RETENTION_DAYS = 365;
-export const DEFAULT_MAX_BUCKETS = 168;
+// Hourly buckets: 31 days, so the 30 day window fits with a day of slack. Older
+// files simply hold fewer buckets until they fill.
+export const DEFAULT_MAX_BUCKETS = 24 * 31;
 
 export const ALLOWED_ANALYTICS_DIMENSIONS = Object.freeze([
   'seasonId', 'rulesetRevision', 'balanceRevision', 'boardVariant', 'rulesetPreset',
@@ -12,10 +14,13 @@ export const ALLOWED_ANALYTICS_DIMENSIONS = Object.freeze([
 export const ALLOWED_ROLLUP_KINDS = new Set([
   'match-start', 'match-complete', 'match-stalled', 'event-eligible', 'event-triggered',
   'event-choice', 'event-recovered', 'market-volatility', 'market-liquidation',
-  'achievement-unlocked', 'reward-claimed', 'bot-outcome', 'bankruptcy', 'comeback'
+  'airport-flight', 'achievement-unlocked', 'reward-claimed', 'bot-outcome', 'bankruptcy', 'comeback'
 ]);
 
 const DIMENSION_KEYS = new Set(ALLOWED_ANALYTICS_DIMENSIONS);
+const BUCKET_MS = 3_600_000;
+const DURATION_SAMPLE_LIMIT = 2048;
+const MAX_FUTURE_SKEW_MS = 24 * 3_600_000;
 const EVENT_KEYS = new Set(['kind', 'createdAt', 'id', 'data', 'pseudonymId', 'accountId', ...ALLOWED_ANALYTICS_DIMENSIONS]);
 const BOARD_VARIANTS = new Set(['standard-40', 'metro-52']);
 const RULESET_PRESETS = new Set(['classic', 'after-hours', 'custom']);
@@ -44,7 +49,9 @@ function boundedLimit(value, fallback, max) {
 
 function cleanDimension(value, fallback = '') {
   if (value === null || value === undefined) return fallback;
-  return String(value).trim().replace(/[|\u0000-\u001f]/gu, '').slice(0, 80) || fallback;
+  const cleaned = String(value).trim().replace(/[|\u0000-\u001f]/gu, '').slice(0, 80);
+  // These names key plain-object maps below; `__proto__` would rewrite the map's prototype.
+  return cleaned === '__proto__' ? fallback : cleaned || fallback;
 }
 
 function integerDimension(value, fallback = 0) {
@@ -63,7 +70,7 @@ function timestamp(now, value = now()) {
 }
 
 function bucketFor(value) {
-  const date = parseDate(value) || new Date(0);
+  const date = new Date((parseDate(value) || new Date(0)).getTime());
   date.setUTCMinutes(0, 0, 0);
   return date.toISOString();
 }
@@ -137,11 +144,14 @@ export function validateAnalyticsDimensions(input = {}) {
   return validDimensions(dimensions);
 }
 
+// The action id is not part of the key: bot decisions have one candidate id per tile or trade,
+// and a row each would exhaust the bucket's dimension slots, so the bots[...].actions map counts them.
+// The empty segment keeps the key layout that stored rollups already use.
 function dimensionKey(dimensions) {
   return [
     dimensions.seasonId, dimensions.rulesetRevision, dimensions.balanceRevision,
     dimensions.boardVariant, dimensions.rulesetPreset, dimensions.marketComplexity,
-    dimensions.eventId, dimensions.actionId, dimensions.botMode, dimensions.provider
+    dimensions.eventId, '', dimensions.botMode, dimensions.provider
   ].join('|');
 }
 
@@ -181,6 +191,7 @@ function blankMetrics() {
     features: {},
     events: {},
     market: { volatility: blankDuration(), liquidations: 0, marginPositions: 0, shortDefaults: 0, shortPositions: 0, optionExercises: 0, collateralizedOptions: 0, negativeCashPreventions: 0 },
+    airportFlights: { count: 0, fareTotal: 0, byBasis: { default: 0, arrival: 0, departure: 0 } },
     achievements: {},
     competitiveAchievements: {},
     outcomes: {},
@@ -199,7 +210,22 @@ function addDuration(target, value) {
   if (!Number.isFinite(seconds)) return;
   target.count += 1;
   target.sum = boundedNumber(target.sum + seconds);
-  if (target.values.length < 2048) target.values.push(seconds);
+  if (target.values.length < DURATION_SAMPLE_LIMIT) {
+    target.values.push(seconds);
+    return;
+  }
+  // Reservoir sampling (algorithm R): once the sample is full, the n-th value replaces a random slot with
+  // probability limit / n, so `values` stays a uniform sample of every duration seen, not just the first ones.
+  const slot = Math.floor(Math.random() * target.count);
+  if (slot < DURATION_SAMPLE_LIMIT) target.values[slot] = seconds;
+}
+
+// Takes `count` values spread evenly through a list. The lists it is used on are uniform random samples, so an
+// evenly spaced subset is a uniform sample of them too.
+function takeEvenly(values, count) {
+  if (count >= values.length) return values.slice();
+  if (count <= 0) return [];
+  return Array.from({ length: count }, (_, index) => values[Math.floor((index * values.length) / count)]);
 }
 
 function featureKey(data) {
@@ -217,9 +243,9 @@ function featureCounters(data) {
 function incrementFeature(target, data, limits) {
   const feature = featureKey(data);
   if (!feature) return;
-  const known = Boolean(target.features[feature]);
+  const known = Object.hasOwn(target.features, feature);
   if (!known && Object.keys(target.features).length >= limits.features) return;
-  const entry = target.features[feature] || { eligible: 0, used: 0, observations: 0 };
+  const entry = known ? target.features[feature] : { eligible: 0, used: 0, observations: 0 };
   const counters = featureCounters(data);
   entry.eligible += counters.eligible;
   entry.used += counters.used;
@@ -228,9 +254,9 @@ function incrementFeature(target, data, limits) {
 }
 
 function budgetedIncrement(map, key, max, count = 1) {
-  const known = Boolean(map[key]);
+  const known = Object.hasOwn(map, key);
   if (!known && Object.keys(map).length >= max) return;
-  map[key] = (map[key] || 0) + count;
+  map[key] = (known ? map[key] : 0) + count;
 }
 
 function blankEventEntry() {
@@ -254,15 +280,15 @@ const EVENT_KIND_COUNTERS = Object.freeze({
 function applyEventCombination(entry, data, limits) {
   const combination = cleanDimension(data.combination, '');
   if (!combination) return;
-  if (entry.combinations[combination]) { entry.combinations[combination] += 1; return; }
+  if (Object.hasOwn(entry.combinations, combination)) { entry.combinations[combination] += 1; return; }
   budgetedIncrement(entry.combinations, combination, limits.combinations);
 }
 
 function incrementEvent({ target, event, data, dimensions, limits }) {
   const id = cleanDimension(dimensions.eventId || data.eventId, 'unknown-event');
-  const known = Boolean(target.events[id]);
+  const known = Object.hasOwn(target.events, id);
   if (!known && Object.keys(target.events).length >= limits.events) return;
-  const entry = target.events[id] || blankEventEntry();
+  const entry = known ? target.events[id] : blankEventEntry();
   const counter = EVENT_KIND_COUNTERS[event.kind];
   if (counter) counter(entry, data);
   applyEventCombination(entry, data, limits);
@@ -350,6 +376,14 @@ function applyMarketLiquidation({ target, data }) {
   target.market.marginPositions += Math.max(0, integerDimension(data.marginPositions ?? data.marginOpenPositions));
 }
 
+function applyAirportFlight({ target, data }) {
+  target.airportFlights.count = boundedNumber(target.airportFlights.count + 1);
+  target.airportFlights.fareTotal = boundedNumber(target.airportFlights.fareTotal + Math.max(0, finite(data.fare)));
+  if (Object.hasOwn(target.airportFlights.byBasis, data.basis)) {
+    target.airportFlights.byBasis[data.basis] = boundedNumber(target.airportFlights.byBasis[data.basis] + 1);
+  }
+}
+
 function applyAchievementUnlocked({ target, data, limits, count }) {
   const rarity = cleanDimension(data.rarity, 'UNKNOWN').toUpperCase();
   budgetedIncrement(target.achievements, rarity, limits.achievements, count);
@@ -381,6 +415,7 @@ const EVENT_KIND_HANDLERS = Object.freeze({
   'event-triggered': applyGovernedEvent,
   'event-choice': applyGovernedEvent,
   'event-recovered': applyGovernedEvent,
+  'airport-flight': applyAirportFlight,
   'market-volatility': applyMarketVolatility,
   'market-liquidation': applyMarketLiquidation,
   'achievement-unlocked': applyAchievementUnlocked,
@@ -423,9 +458,33 @@ function isRollupBuckets(value) {
   return isPlainRecord(value.buckets);
 }
 
+function isRollupFile(value) {
+  return isPlainRecord(value) && isRollupBuckets(value);
+}
+
+function ensureAirportFlightShape(dimension) {
+  const stored = isPlainRecord(dimension.airportFlights) ? dimension.airportFlights : {};
+  const byBasis = isPlainRecord(stored.byBasis) ? stored.byBasis : {};
+  dimension.airportFlights = {
+    count: Math.max(0, boundedNumber(stored.count)),
+    fareTotal: Math.max(0, boundedNumber(stored.fareTotal)),
+    byBasis: Object.fromEntries(['default', 'arrival', 'departure'].map(basis => [basis, Math.max(0, boundedNumber(byBasis[basis]))])),
+  };
+}
 function ensureShape(value) {
-  if (!isPlainRecord(value)) return blankRollup();
-  if (!isRollupBuckets(value)) return blankRollup();
+  if (!isRollupFile(value)) return blankRollup();
+  // A hand-damaged or partly written bucket must not break every later query.
+  Object.keys(value.buckets).forEach((key) => {
+    const bucket = value.buckets[key];
+    if (!isPlainRecord(bucket)) { delete value.buckets[key]; return; }
+    if (!isPlainRecord(bucket.dimensions)) bucket.dimensions = {};
+    if (!isPlainRecord(bucket.actorRollups)) bucket.actorRollups = {};
+    // A dimension or actor row that is not an object is damaged data: it is
+    // dropped here instead of throwing in every later query.
+    Object.keys(bucket.dimensions).forEach((dimensionKey) => { if (!isPlainRecord(bucket.dimensions[dimensionKey])) delete bucket.dimensions[dimensionKey]; });
+    Object.keys(bucket.actorRollups).forEach((actorKey) => { if (!isPlainRecord(bucket.actorRollups[actorKey])) delete bucket.actorRollups[actorKey]; });
+    Object.values(bucket.dimensions).forEach(ensureAirportFlightShape);
+  });
   return value;
 }
 
@@ -439,9 +498,23 @@ function mergeNumeric(target, source, key) {
 
 function mergeDuration(target, source) {
   if (!source || typeof source !== 'object') return;
+  const targetCount = Math.max(0, Number(target?.count) || 0);
   mergeNumeric(target, source, 'count');
   mergeNumeric(target, source, 'sum');
-  if (Array.isArray(source.values)) target.values = [...(target.values || []), ...source.values.filter(value => Number.isFinite(Number(value))).slice(0, Math.max(0, 2048 - (target.values || []).length))];
+  if (!Array.isArray(source.values)) return;
+  const incoming = source.values.filter(value => Number.isFinite(Number(value)));
+  const existing = Array.isArray(target.values) ? target.values : [];
+  if (existing.length + incoming.length <= DURATION_SAMPLE_LIMIT) {
+    target.values = [...existing, ...incoming];
+    return;
+  }
+  // Both sides are samples of their own counts: keep each side in proportion to the durations it stands for,
+  // so a long window is not summarised by its first hours only.
+  const sourceCount = Math.max(incoming.length, Number(source.count) || 0);
+  const share = targetCount + sourceCount > 0 ? targetCount / (targetCount + sourceCount) : 0.5;
+  const fromTarget = Math.min(existing.length, Math.max(0, Math.round(DURATION_SAMPLE_LIMIT * share)));
+  const fromSource = Math.min(incoming.length, DURATION_SAMPLE_LIMIT - fromTarget);
+  target.values = [...takeEvenly(existing, fromTarget), ...takeEvenly(incoming, fromSource)];
 }
 
 const MERGE_NUMERIC_KEYS = [
@@ -464,13 +537,15 @@ function mergeCounters(target, source, keys) {
 
 function mergeCountMap(target, source) {
   Object.entries(source || {}).forEach(([key, count]) => {
-    target[key] = boundedNumber((target[key] || 0) + finite(count));
+    if (key === '__proto__') return;
+    target[key] = boundedNumber((Object.hasOwn(target, key) ? finite(target[key]) : 0) + finite(count));
   });
 }
 
 function mergeFeatureEntries(target, source) {
   Object.entries(source || {}).forEach(([key, item]) => {
-    const entry = target[key] || { eligible: 0, used: 0, observations: 0 };
+    if (key === '__proto__') return;
+    const entry = Object.hasOwn(target, key) ? target[key] : { eligible: 0, used: 0, observations: 0 };
     mergeCounters(entry, item, FEATURE_NUMERIC_KEYS);
     target[key] = entry;
   });
@@ -478,7 +553,8 @@ function mergeFeatureEntries(target, source) {
 
 function mergeEventEntries(target, source) {
   Object.entries(source || {}).forEach(([key, item]) => {
-    const entry = target[key] || { eligible: 0, warnings: 0, active: 0, choices: 0, voters: 0, recovered: 0, durationSeconds: blankDuration(), combinations: {} };
+    if (key === '__proto__') return;
+    const entry = Object.hasOwn(target, key) ? target[key] : { eligible: 0, warnings: 0, active: 0, choices: 0, voters: 0, recovered: 0, durationSeconds: blankDuration(), combinations: {} };
     mergeCounters(entry, item, EVENT_NUMERIC_KEYS);
     mergeDuration(entry.durationSeconds, item.durationSeconds);
     mergeCountMap(entry.combinations, item.combinations);
@@ -488,7 +564,8 @@ function mergeEventEntries(target, source) {
 
 function mergeBotEntries(target, source) {
   Object.entries(source || {}).forEach(([key, item]) => {
-    const entry = target[key] || { ...item, matches: 0, completed: 0, wins: 0, decisions: 0, fallback: 0, placements: [], actions: {} };
+    if (key === '__proto__') return;
+    const entry = Object.hasOwn(target, key) ? target[key] : { ...item, matches: 0, completed: 0, wins: 0, decisions: 0, fallback: 0, placements: [], actions: {} };
     mergeCounters(entry, item, BOT_NUMERIC_KEYS);
     entry.placements = [...(entry.placements || []), ...(item.placements || [])].slice(0, 2048);
     mergeCountMap(entry.actions, item.actions);
@@ -501,6 +578,8 @@ function mergeRecord(target, source) {
   mergeDuration(target.durationSeconds, source.durationSeconds);
   mergeDuration(target.market.volatility, source.market?.volatility);
   mergeCounters(target.market, source.market, MARKET_NUMERIC_KEYS);
+  mergeCounters(target.airportFlights, source.airportFlights, ['count', 'fareTotal']);
+  ['default', 'arrival', 'departure'].forEach(basis => mergeNumeric(target.airportFlights.byBasis, source.airportFlights?.byBasis, basis));
   mergeFeatureEntries(target.features, source.features);
   mergeEventEntries(target.events, source.events);
   mergeCountMap(target.achievements, source.achievements);
@@ -509,7 +588,7 @@ function mergeRecord(target, source) {
   mergeBotEntries(target.bots, source.bots);
 }
 
-const RANGE_DURATIONS = Object.freeze({ hour: 3600000, day: 86400000, week: 7 * 86400000 });
+const RANGE_DURATIONS = Object.freeze({ hour: 3600000, day: 86400000, week: 7 * 86400000, month: 30 * 86400000 });
 
 const ACTOR_SCOPE_DIMENSIONS = Object.freeze([
   'boardVariant', 'rulesetPreset', 'marketComplexity', 'eventId', 'actionId', 'botMode', 'provider'
@@ -532,6 +611,8 @@ function stringFilterMatches(filters, scope, name) {
 }
 
 function dimensionMatches(filters, dimension) {
+  // A damaged entry is not a match; it must not break the whole query.
+  if (!isPlainRecord(dimension)) return false;
   return ALLOWED_ANALYTICS_DIMENSIONS.every(name => {
     if (!filterActive(filters[name])) return true;
     const expected = name.endsWith('Revision') ? integerDimension(filters[name]) : cleanDimension(filters[name]).toLowerCase();
@@ -541,6 +622,7 @@ function dimensionMatches(filters, dimension) {
 }
 
 function actorMatches(filters, scope) {
+  if (!isPlainRecord(scope)) return false;
   if (filterActive(filters.seasonId) && String(filters.seasonId) !== String(scope.seasonId)) return false;
   if (!revisionFilterMatches(filters, scope, 'rulesetRevision')) return false;
   if (!revisionFilterMatches(filters, scope, 'balanceRevision')) return false;
@@ -583,7 +665,7 @@ function actorScope(dimensions) {
     rulesetPreset: dimensions.rulesetPreset,
     marketComplexity: dimensions.marketComplexity,
     eventId: dimensions.eventId,
-    actionId: dimensions.actionId,
+    actionId: '',
     botMode: dimensions.botMode,
     provider: dimensions.provider
   };
@@ -599,13 +681,28 @@ function mergeActorRollups(actorRollups, key, actor) {
   });
 }
 
+function bucketActivity(bucketKey, bucket, filters) {
+  const point = { at: bucketKey, started: 0, completed: 0, stalled: 0 };
+  Object.values(bucket.dimensions || {}).forEach((dimension) => {
+    if (!dimensionMatches(filters, dimension)) return;
+    point.started += Math.max(0, finite(dimension.started));
+    point.completed += Math.max(0, finite(dimension.completed));
+    point.stalled += Math.max(0, finite(dimension.stalled));
+  });
+  // A match that finished or stalled was started, even if its start row was lost.
+  point.started = Math.max(point.started, point.completed + point.stalled);
+  return point;
+}
+
 function collectBucket(outputDimensions, actorRollups, bucket, filters) {
   Object.entries(bucket.dimensions || {}).forEach(([key, dimension]) => {
+    if (!isPlainRecord(dimension)) return;
     if (!dimensionMatches(filters, dimension)) return;
     if (!outputDimensions[key]) outputDimensions[key] = blankDimension(dimension);
     mergeRecord(outputDimensions[key], dimension);
   });
   Object.entries(bucket.actorRollups || {}).forEach(([key, actor]) => {
+    if (!isPlainRecord(actor)) return;
     if (!actorMatches(filters, actor.scope || {})) return;
     mergeActorRollups(actorRollups, key, actor);
   });
@@ -633,7 +730,9 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
   let flushInFlight = null;
 
   if (filePath) {
-    const loadedJson = loadJson(filePath, value => value && typeof value === 'object' && !Array.isArray(value));
+    // A file of another schema version is moved aside rather than silently
+    // replaced by an empty rollup on the first flush.
+    const loadedJson = loadJson(filePath, isRollupFile);
     if (loadedJson?.value) state = ensureShape(loadedJson.value);
   }
   const loadedBuckets = Object.keys(state.buckets);
@@ -650,7 +749,8 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
 
   function queryWindow(filters) {
     const clock = parseDate(now())?.getTime() || Date.now();
-    const rangeDuration = RANGE_DURATIONS[filters.range] ?? null;
+    // 'season' is the retired name for the 30 day window.
+    const rangeDuration = RANGE_DURATIONS[filters.range === 'season' ? 'month' : filters.range] ?? null;
     const from = parseDate(filters.from)?.getTime() ?? (rangeDuration ? clock - rangeDuration : -Infinity);
     const to = parseDate(filters.to)?.getTime() ?? clock;
     return { from, to };
@@ -664,6 +764,33 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
     const keys = Object.keys(state.buckets).sort((a, b) => bucketTime(a) - bucketTime(b));
     while (keys.length > bucketLimit) { delete state.buckets[keys.shift()]; removed += 1; }
     if (removed) pendingWrites += 1;
+    // A quiet prune has no record to piggyback on, so it is written out here
+    // so it does not wait in memory for the next event.
+    if (options.flush) {
+      const written = flush();
+      if (isThenable(written)) return written.then(() => removed);
+    }
+    return removed;
+  }
+
+  // Actor rows are keyed by the pseudonym of an account within its scope. The
+  // pseudonym is re-derived per scope from the account id, so an erased account
+  // leaves no actor row behind. The removal is flushed before this resolves.
+  async function purgeAccount(accountId) {
+    const pseudonymByScope = new Map();
+    let removed = 0;
+    Object.values(state.buckets).forEach((bucket) => {
+      Object.entries(bucket.actorRollups || {}).forEach(([actorKey, actor]) => {
+        const scopeKey = JSON.stringify(actor.scope || {});
+        if (!pseudonymByScope.has(scopeKey)) pseudonymByScope.set(scopeKey, pseudonymizer?.pseudonymize?.(accountId, actor.scope || {}) || null);
+        const pseudonym = pseudonymByScope.get(scopeKey);
+        if (!pseudonym || actor.pseudonymId !== pseudonym) return;
+        delete bucket.actorRollups[actorKey];
+        removed += 1;
+      });
+    });
+    if (removed) pendingWrites += 1;
+    while (pendingWrites) await flush();
     return removed;
   }
 
@@ -673,16 +800,16 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
 
   function slotDenial(bucket, key, pseudonymId) {
     if (!hasDimensionSlot(bucket, key, dimensionLimit)) return 'Analytics bucket dimension limit reached.';
-    const actorKey = `${pseudonymId}|${key}`;
-    if (pseudonymId && !hasActorSlot(bucket, actorKey, actorLimit)) return 'Analytics actor limit reached.';
     return null;
   }
 
   function commitEvent(bucket, { dimensions, key, event, pseudonymId }) {
-    const aggregate = bucket.dimensions[key] || blankDimension(dimensions);
+    const aggregate = bucket.dimensions[key] || blankDimension({ ...dimensions, actionId: '' });
     applyEvent(aggregate, event, dimensions, nestedLimits);
     bucket.dimensions[key] = aggregate;
-    if (pseudonymId) recordActor(bucket, `${pseudonymId}|${key}`, { pseudonymId, dimensions, event });
+    // A full actor table only costs the actor row; the aggregate still counts.
+    const actorKey = `${pseudonymId}|${key}`;
+    if (pseudonymId && hasActorSlot(bucket, actorKey, actorLimit)) recordActor(bucket, actorKey, { pseudonymId, dimensions, event });
   }
 
   function rejectRecord(error) {
@@ -695,6 +822,11 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
     if (validation.error) return rejectRecord(validation.error);
     const dimensions = validation.dimensions;
     const at = event.createdAt || now();
+    // An unparseable time would be filed under 1970 and pruned at once; a far
+    // future one would pin freshness forever.
+    const atMs = parseDate(at)?.getTime();
+    const clockMs = parseDate(now())?.getTime() || Date.now();
+    if (!Number.isFinite(atMs) || atMs > clockMs + MAX_FUTURE_SKEW_MS) return rejectRecord('Analytics event time is not allowed.');
     const bucketKey = bucketFor(at);
     const bucket = existingBucket(bucketKey);
     const key = dimensionKey(dimensions);
@@ -703,7 +835,7 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
     if (denial) return rejectRecord(denial);
     commitEvent(bucket, { dimensions, key, event, pseudonymId });
     state.buckets[bucketKey] = bucket;
-    latestAt = timestamp(now, at);
+    if (!latestAt || atMs > (parseDate(latestAt)?.getTime() || 0)) latestAt = timestamp(now, at);
     prune();
     pendingWrites += 1;
     sequence += 1;
@@ -715,11 +847,16 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
     const outputDimensions = {};
     const actorRollups = {};
     const { from, to } = queryWindow(filters);
+    const series = [];
     Object.entries(state.buckets).forEach(([bucketKey, bucket]) => {
       const time = bucketTime(bucketKey);
-      if (time < from || time > to) return;
+      // A bucket covers [time, time + 1h): it is in the window when any part is.
+      if (time + BUCKET_MS <= from || time > to) return;
       collectBucket(outputDimensions, actorRollups, bucket, filters);
+      const activity = bucketActivity(bucketKey, bucket, filters);
+      if (activity.started > 0) series.push(activity);
     });
+    series.sort((a, b) => bucketTime(a.at) - bucketTime(b.at));
     const generatedAt = timestamp(now);
     const status = health();
     return {
@@ -728,15 +865,30 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
       sourceWindow: { from: from === -Infinity ? null : new Date(from).toISOString(), to: to === Infinity ? generatedAt : new Date(to).toISOString() },
       dimensions: outputDimensions,
       actorRollups,
-      quality: { loaded, fresh: status.fresh, lagSeconds: status.lagSeconds, queueDepth: pendingWrites, pendingWrites, rejectedEvents, latestAt }
+      // One point per stored hour inside the window that saw a match: started,
+      // completed and stalled matches passing the same dimension filters as the
+      // totals. Hours with no matches have no bucket, so they are simply absent.
+      series,
+      quality: { loaded, fresh: status.fresh, empty: status.empty, lagSeconds: status.lagSeconds, queueDepth: pendingWrites, pendingWrites, rejectedEvents, latestAt, oldestAt: oldestBucketAt() }
     };
+  }
+
+  // Start of the oldest stored hour (not limited to the query window), so a
+  // caller can tell whether the data reaches back far enough for a comparison.
+  function oldestBucketAt() {
+    const oldest = Object.keys(state.buckets).sort((a, b) => bucketTime(a) - bucketTime(b))[0];
+    return oldest ? new Date(bucketTime(oldest)).toISOString() : null;
   }
 
   function health() {
     const latestMs = parseDate(latestAt)?.getTime() || 0;
     const nowMs = parseDate(now())?.getTime() || Date.now();
     const lagSeconds = latestMs ? Math.max(0, Math.floor((nowMs - latestMs) / 1000)) : 0;
-    return { loaded, fresh: Boolean(latestMs) && lagSeconds <= 7200, lagSeconds, pendingWrites, rejectedEvents };
+    // `empty` is a store that holds no bucket at all (a fresh install, or no match
+    // recorded yet). That is nothing to measure, which is not the same as `fresh:
+    // false` on a store that has data but has gone quiet.
+    const empty = Object.keys(state.buckets).length === 0;
+    return { loaded, fresh: Boolean(latestMs) && lagSeconds <= 7200, empty, lagSeconds, pendingWrites, rejectedEvents };
   }
 
   function isThenable(value) {
@@ -786,7 +938,7 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
     while (pendingWrites) await flush();
   }
 
-  return Object.freeze({ close, flush, health, prune, query, record });
+  return Object.freeze({ close, flush, health, prune, purgeAccount, query, record });
 }
 
 export { DIMENSION_KEYS, dimensionKey };

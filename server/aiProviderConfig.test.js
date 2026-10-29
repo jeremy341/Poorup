@@ -18,6 +18,7 @@ import {
   probeProvider,
   redactProviderConfig,
 } from './aiProviderConfig.js';
+import { AiAdvisor } from './botAdvisor.js';
 
 const pendingChecks = [];
 function check(name, fn) {
@@ -68,6 +69,29 @@ check('environment provider keeps configured caps and uses 240 as its default', 
       },
     });
     assert.equal(applied.maxDecisionsPerGame, expected);
+  }
+});
+
+check('environment provider applies the configured timeout and bounded DeepSeek alias', () => {
+  for (const [timeoutEnv, expected] of [
+    [{ POORUP_AI_TIMEOUT_MS: '9000', DEEPSEEK_TIMEOUT_MS: '12000' }, 9000],
+    [{ DEEPSEEK_TIMEOUT_MS: '12000' }, 12000],
+    [{ POORUP_AI_TIMEOUT_MS: '500' }, 1000],
+    [{ DEEPSEEK_TIMEOUT_MS: '80000' }, 60000],
+    [{}, 4000],
+  ]) {
+    let applied = null;
+    createAiProviderManager({
+      store: { active: () => null },
+      advisor: { fetchImpl: async () => {}, configureProvider: config => { applied = config; } },
+      env: {
+        NODE_ENV: 'production',
+        POORUP_AI_API_KEY: 'environment-key',
+        POORUP_AI_BASE_URL: 'https://provider.example/v1',
+        ...timeoutEnv,
+      },
+    });
+    assert.equal(applied.timeoutMs, expected);
   }
 });
 
@@ -128,6 +152,81 @@ check('encrypted store persists profiles and only returns redacted records', () 
   const second = createAiProviderStore({ filePath, masterKey: 'test-master-key-0123456789012345' });
   assert.equal(second.active().apiKey, 'secret-key');
   assert.equal(second.active().model, 'gpt-test');
+  fs.rmSync(directory, { recursive: true, force: true });
+});
+
+check('durable provider mutations restore memory when atomic replacement fails', () => {
+  const createFixture = () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-ai-provider-rollback-'));
+    const filePath = path.join(directory, 'providers.json');
+    const store = createAiProviderStore({ filePath, masterKey: 'test-master-key-0123456789012345' });
+    store.upsert({ id: 'one', label: 'One', baseUrl: 'https://provider.example/v1', model: 'audit-one', apiKey: 'one-key', protocol: 'chat' });
+    store.upsert({ id: 'two', label: 'Two', baseUrl: 'https://provider.example/v1', model: 'audit-two', apiKey: 'two-key', protocol: 'chat' });
+    store.markTest('one', { ok: true, protocol: 'chat', latencyMs: 1 });
+    store.markTest('two', { ok: true, protocol: 'chat', latencyMs: 1 });
+    store.activate('one');
+    const advisor = new AiAdvisor();
+    const manager = createAiProviderManager({ store, advisor, env: {} });
+    return {
+      directory, filePath, store, advisor, manager,
+      snapshotBefore: store.snapshot(),
+      diskBefore: fs.readFileSync(filePath, 'utf8'),
+    };
+  };
+  const failureCases = [
+    ['activation', ({ manager }) => manager.activate('two')],
+    ['active profile update', ({ manager }) => manager.upsert({ id: 'one', label: 'One edited' })],
+    ['test result update', ({ store }) => store.markTest('two', { ok: false, reason: 'network' })],
+    ['profile removal', ({ store }) => store.remove('two')],
+    ['new profile insertion', ({ store }) => store.upsert({ id: 'three', label: 'Three', baseUrl: 'https://provider.example/v1', model: 'audit-three', apiKey: 'three-key' })],
+  ];
+
+  for (const [name, mutate] of failureCases) {
+    const fixture = createFixture();
+    const originalRename = fs.renameSync;
+    const originalError = console.error;
+    try {
+      fs.renameSync = (from, to, ...rest) => {
+        if (path.resolve(to) === fixture.filePath) {
+          const error = new Error('injected atomic replacement failure');
+          error.code = 'EIO';
+          throw error;
+        }
+        return originalRename(from, to, ...rest);
+      };
+      console.error = (...args) => {
+        if (/atomic rename failed/.test(String(args[0])) && String(args[0]).includes(path.basename(fixture.filePath))) return;
+        originalError(...args);
+      };
+
+      assert.throws(() => mutate(fixture), /Atomic store write failed/, name);
+      assert.equal(fixture.manager.active().id, 'one', name + ' leaves the public active profile unchanged');
+      assert.equal(fixture.manager.active().label, 'One');
+      assert.equal(fixture.advisor.model, 'audit-one', name + ' leaves the live advisor unchanged');
+      assert.deepEqual(fixture.store.snapshot(), fixture.snapshotBefore, name + ' restores the complete public profile state');
+      assert.equal(fixture.store.get('one').label, 'One');
+      assert.equal(fixture.store.get('one').lastTest.ok, true);
+      assert.equal(fixture.store.get('two').lastTest.ok, true);
+      assert.equal(fixture.store.get('three'), null);
+      assert.deepEqual(JSON.parse(fs.readFileSync(fixture.filePath, 'utf8')), JSON.parse(fixture.diskBefore), name + ' preserves the prior disk snapshot');
+    } finally {
+      fs.renameSync = originalRename;
+      console.error = originalError;
+      fs.rmSync(fixture.directory, { recursive: true, force: true });
+    }
+  }
+});
+
+check('a stored key never follows a profile to a different host', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-ai-key-host-'));
+  const store = createAiProviderStore({ filePath: path.join(directory, 'providers.json'), masterKey: 'test-master-key-0123456789012345' });
+  store.upsert({ id: 'p', label: 'P', baseUrl: 'https://api.openai.com/v1', model: 'gpt-test', apiKey: 'secret-key' });
+  assert.throws(
+    () => store.upsert({ id: 'p', label: 'P', baseUrl: 'https://api.deepseek.com/v1', model: 'gpt-test' }),
+    error => error.code === 'API_KEY_REQUIRED'
+  );
+  assert.equal(store.upsert({ id: 'p', label: 'P2', model: 'gpt-test' }).label, 'P2', 'editing other fields keeps the stored key');
+  assert.equal(store.upsert({ id: 'p', label: 'P', baseUrl: 'https://api.deepseek.com/v1', model: 'gpt-test', apiKey: 'new-key' }).keyConfigured, true);
   fs.rmSync(directory, { recursive: true, force: true });
 });
 
@@ -271,6 +370,64 @@ check('provider probes fail closed when DNS resolution errors', async () => {
   });
   assert.equal(result.ok, false);
   assert.equal(calls, 0);
+});
+
+check('active provider requests stop promptly when DNS resolves after abort', async () => {
+  const profile = {
+    ...normalizeProviderConfig({ id: 'dns-abort', label: 'DNS Abort', baseUrl: 'https://provider.example/v1', model: 'model', protocol: 'chat' }),
+    apiKey: 'key',
+  };
+  const outcomes = [];
+  for (const lateResult of ['resolve', 'reject']) {
+    const controller = new AbortController();
+    const signal = controller.signal;
+    let abortListeners = 0;
+    const addEventListener = signal.addEventListener.bind(signal);
+    const removeEventListener = signal.removeEventListener.bind(signal);
+    signal.addEventListener = (type, listener, options) => {
+      if (type === 'abort') abortListeners += 1;
+      return addEventListener(type, listener, options);
+    };
+    signal.removeEventListener = (type, listener, options) => {
+      if (type === 'abort') abortListeners -= 1;
+      return removeEventListener(type, listener, options);
+    };
+
+    let markResolverStarted;
+    const resolverStarted = new Promise(resolve => { markResolverStarted = resolve; });
+    let resolveDns;
+    let rejectDns;
+    const calls = [];
+    const advisor = { fetchImpl: async () => {}, configureProvider() {} };
+    createAiProviderManager({
+      store: { active: () => profile },
+      advisor,
+      env: { NODE_ENV: 'test' },
+      resolveHost: async () => new Promise((resolve, reject) => {
+        resolveDns = resolve;
+        rejectDns = reject;
+        markResolverStarted();
+      }),
+      requestImpl: async () => { calls.push(true); return { ok: true, status: 200 }; },
+    });
+
+    const pending = advisor.fetchImpl('https://provider.example/v1/chat/completions', { signal })
+      .then(() => 'fulfilled', error => error?.name || 'error');
+    await resolverStarted;
+    controller.abort();
+    const outcomeBeforeDnsRelease = await Promise.race([
+      pending,
+      new Promise(resolve => setTimeout(() => resolve('pending'), 100)),
+    ]);
+    if (lateResult === 'resolve') resolveDns([{ address: '8.8.8.8', family: 4 }]);
+    else rejectDns(new Error('late resolver rejection'));
+    const outcomeAfterDnsRelease = await pending;
+    outcomes.push({ outcomeBeforeDnsRelease, outcomeAfterDnsRelease, requestCalls: calls.length, abortListeners });
+  }
+  assert.deepEqual(outcomes, [
+    { outcomeBeforeDnsRelease: 'AbortError', outcomeAfterDnsRelease: 'AbortError', requestCalls: 0, abortListeners: 0 },
+    { outcomeBeforeDnsRelease: 'AbortError', outcomeAfterDnsRelease: 'AbortError', requestCalls: 0, abortListeners: 0 },
+  ]);
 });
 
 check('private DNS endpoints require an explicit non-production opt-in', async () => {
@@ -423,6 +580,124 @@ check('default provider transport connects to the vetted DNS address while retai
   } finally {
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
+});
+
+check('a provider that drops the connection mid-body rejects instead of leaving the request pending', async () => {
+  const server = http.createServer((request, response) => {
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.write('{"choices":[');
+    setTimeout(() => request.socket.destroy(), 50);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = server.address();
+    const profile = {
+      ...normalizeProviderConfig({ id: 'drop', label: 'Drop', baseUrl: `http://provider.test:${address.port}/v1`, model: 'model', allowPrivateEndpoints: true }),
+      apiKey: 'key',
+    };
+    const advisor = { fetchImpl: async () => { throw new Error('un-pinned fetch must not be used'); }, configureProvider() {} };
+    createAiProviderManager({ store: { active: () => profile }, advisor, env: { NODE_ENV: 'test' }, resolveHost: async () => [{ address: '127.0.0.1', family: 4 }] });
+    let timer;
+    const outcome = await Promise.race([
+      advisor.fetchImpl(`http://provider.test:${address.port}/v1/chat/completions`, { method: 'POST', body: '{}' }).then(() => 'resolved', () => 'rejected'),
+      new Promise(resolve => { timer = setTimeout(() => resolve('pending'), 3000); }),
+    ]);
+    clearTimeout(timer);
+    assert.equal(outcome, 'rejected', 'a dropped body settles the request (it stayed pending before)');
+
+    // An abort signal also settles a response whose body never ends.
+    const hanging = http.createServer((request, response) => { response.writeHead(200); response.write('{'); });
+    await new Promise(resolve => hanging.listen(0, '127.0.0.1', resolve));
+    try {
+      const hangingPort = hanging.address().port;
+      const hangingProfile = { ...normalizeProviderConfig({ id: 'hang', label: 'Hang', baseUrl: `http://provider.test:${hangingPort}/v1`, model: 'model', allowPrivateEndpoints: true }), apiKey: 'key' };
+      const hangingAdvisor = { fetchImpl: async () => { throw new Error('un-pinned fetch must not be used'); }, configureProvider() {} };
+      createAiProviderManager({ store: { active: () => hangingProfile }, advisor: hangingAdvisor, env: { NODE_ENV: 'test' }, resolveHost: async () => [{ address: '127.0.0.1', family: 4 }] });
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 100);
+      let timer2;
+      const aborted = await Promise.race([
+        hangingAdvisor.fetchImpl(`http://provider.test:${hangingPort}/v1/chat/completions`, { method: 'POST', body: '{}', signal: controller.signal }).then(() => 'resolved', error => (error?.name === 'AbortError' ? 'aborted' : `rejected:${error?.name}`)),
+        new Promise(resolve => { timer2 = setTimeout(() => resolve('pending'), 3000); }),
+      ]);
+      clearTimeout(timer2);
+      assert.equal(aborted, 'aborted', 'the abort signal settles a body that never ends');
+    } finally {
+      hanging.closeAllConnections?.();
+      await new Promise(resolve => hanging.close(resolve));
+    }
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+check('creating a profile with an existing name is refused instead of replacing the live one', () => {
+  const store = createAiProviderStore({});
+  const first = store.upsert({ label: 'DeepSeek', baseUrl: 'https://api.deepseek.test/v1', model: 'model-a', apiKey: 'key-a', protocol: 'chat' });
+  assert.throws(
+    () => store.upsert({ label: 'DeepSeek', baseUrl: 'https://attacker.test/v1', model: 'model-b', apiKey: 'key-b', protocol: 'chat' }),
+    error => error.code === 'PROFILE_EXISTS',
+  );
+  assert.equal(store.get(first.id).baseUrl, 'https://api.deepseek.test/v1', 'the original connection is untouched');
+  assert.equal(store.get(first.id).model, 'model-a');
+  // Editing by id is still the way to change a profile.
+  const edited = store.upsert({ id: first.id, model: 'model-c' });
+  assert.equal(edited.model, 'model-c');
+});
+
+check('inherited object keys are not provider profiles', () => {
+  const store = createAiProviderStore({});
+  for (const id of ['constructor', 'toString', 'hasOwnProperty']) {
+    assert.equal(store.get(id), null, `${id} is not a stored profile`);
+    assert.throws(() => store.markTest(id, { ok: false }), error => error.code === 'PROFILE_NOT_FOUND');
+    assert.throws(() => store.remove(id), error => error.code === 'PROFILE_NOT_FOUND');
+    assert.throws(() => store.activate(id), error => error.code === 'PROFILE_NOT_FOUND');
+  }
+  assert.equal(Object.hasOwn(Object, 'lastTest'), false, 'no profile data lands on the global Object');
+});
+
+check('a probe that finishes after a profile edit cannot mark the new profile as tested', async () => {
+  const store = createAiProviderStore({});
+  store.upsert({ id: 'probe-race', label: 'Probe race', baseUrl: 'https://provider.test/v1', model: 'old-model', apiKey: 'secret-key', protocol: 'chat' });
+  let releaseProbe = null;
+  const manager = createAiProviderManager({
+    store,
+    advisor: { fetchImpl: async () => {}, configureProvider() {} },
+    env: { NODE_ENV: 'test' },
+    requestImpl: async () => new Promise(resolve => { releaseProbe = resolve; }),
+    resolveHost: async () => [{ address: '8.8.8.8', family: 4 }],
+  });
+  const pending = manager.test('probe-race');
+  while (!releaseProbe) await Promise.resolve();
+  await new Promise(resolve => setTimeout(resolve, 5));
+  store.upsert({ id: 'probe-race', model: 'edited-model' });
+  releaseProbe({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"ok":true}' } }] }) });
+  const result = await pending;
+  assert.equal(result.ok, false, 'a probe that was not stored is not reported as a success');
+  assert.equal(result.stale, true);
+  const profile = store.list().find(entry => entry.id === 'probe-race');
+  assert.equal(profile.model, 'edited-model');
+  assert.equal(profile.lastTest, null, 'the stale probe result did not mark the edited profile');
+  assert.equal(profile.detectedProtocol, null);
+});
+
+check('a provider edit that does not touch the connection keeps the health of the running provider', async () => {
+  const store = createAiProviderStore({});
+  store.upsert({ id: 'health', label: 'Health', baseUrl: 'https://provider.test/v1', model: 'model-a', apiKey: 'secret-key', protocol: 'chat' });
+  store.markTest('health', { ok: true, protocol: 'chat', latencyMs: 1 });
+  store.activate('health');
+  const advisor = new AiAdvisor({ apiKey: '', fetchImpl: async () => ({}) });
+  const passing = async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"ok":true}' } }] }) });
+  const manager = createAiProviderManager({ store, advisor, env: { NODE_ENV: 'test' }, fetchImpl: passing, requestImpl: passing, resolveHost: async () => [{ address: '8.8.8.8', family: 4 }] });
+  advisor.registerFailure('quota');
+  assert.equal(advisor.getPublicStatus().state, 'quota-exhausted');
+  manager.upsert({ id: 'health', label: 'Renamed' });
+  assert.equal(advisor.getPublicStatus().state, 'quota-exhausted', 'a rename does not clear an exhausted quota');
+  assert.equal(advisor.getHealth().provider, 'Renamed', 'the new label still reaches the advisor');
+  // A rotated key on the active profile is a connection change: it is tested first, then applied.
+  assert.equal((await manager.update({ id: 'health', label: 'Renamed', apiKey: 'rotated-key' })).test.ok, true);
+  assert.equal(advisor.getPublicStatus().state, 'healthy', 'a rotated key is a new connection and clears the old state');
 });
 
 await Promise.all(pendingChecks);

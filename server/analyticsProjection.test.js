@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   normalizeAnalyticsQuery,
+  OVERVIEW_KPI_IDS,
   buildOverview,
   buildMatchHealth,
   buildRulesetBoard,
@@ -10,6 +11,7 @@ import {
   buildAssociation,
   buildDataQuality
 } from './analyticsProjection.js';
+import { createAnalyticsRollupStore } from './analyticsRollupStore.js';
 
 function check(name, run) {
   try {
@@ -58,9 +60,12 @@ check('normalizes bounded filters and fixes the cohort threshold', () => {
 
 check('builds overview and match health with explicit denominators', () => {
   const overview = buildOverview(rollup, query);
-  assert.equal(overview.kpis.length <= 6, true);
-  assert.equal(overview.kpis.find(item => item.id === 'completed-rounds').value, 8);
+  assert.deepEqual(overview.kpis.map(item => item.id), ['online-now', 'error-rate', 'p95-action-latency', 'completion-rate', 'started', 'peak-24h']);
+  assert.deepEqual(overview.kpis.map(item => item.id), [...OVERVIEW_KPI_IDS]);
+  assert.equal(overview.kpis.find(item => item.id === 'started').value, 10);
   assert.equal(overview.kpis.find(item => item.id === 'completion-rate').denominator, 10);
+  assert.equal(overview.kpis.find(item => item.id === 'completion-rate').numerator, 8);
+  assert.equal(overview.kpis.find(item => item.id === 'completion-rate').value, 0.8);
   const health = buildMatchHealth(rollup, query);
   assert.equal(health.completionRate.value, 0.8);
   assert.equal(health.completionRate.denominator, 10);
@@ -81,6 +86,27 @@ check('builds ruleset, economy, event, and bot read models', () => {
   const bots = buildBots(rollup, query);
   assert.equal(bots.rows.length, 2);
   assert.equal(bots.rows[0].associationLabel, undefined);
+});
+
+check('a ruleset row is one preset on one board, not one per bot, provider or event slice', () => {
+  const base = { seasonId: 's', rulesetRevision: 1, balanceRevision: 1, boardVariant: 'standard-40', marketComplexity: 'basic' };
+  const sliced = {
+    generatedAt: '2026-09-13T12:00:00.000Z',
+    dimensions: {
+      's|1|1|standard-40|classic|basic': { ...base, rulesetPreset: 'classic', started: 4, completed: 3, outcomes: { win: 2 } },
+      's|1|1|standard-40|classic|basic||ai|ai': { ...base, rulesetPreset: 'classic', botMode: 'ai', provider: 'ai', started: 2, completed: 1, outcomes: { win: 1 } },
+      's|1|1|standard-40|classic|basic|event-01|': { ...base, rulesetPreset: 'classic', eventId: 'event-01', started: 0, completed: 0 },
+      's|1|1|standard-40|custom|basic': { ...base, rulesetPreset: 'custom', started: 2, completed: 2 }
+    },
+    quality: {}
+  };
+  const board = buildRulesetBoard(sliced, { seasonId: 's', rulesetRevision: 1, balanceRevision: 1 });
+  assert.equal(board.rows.length, 2, 'classic and custom, once each');
+  const classic = board.rows.find(row => row.rulesetPreset === 'classic');
+  assert.equal(classic.matches, 6);
+  assert.equal(classic.completed, 4);
+  assert.equal(classic.completionRate.numerator, 4);
+  assert.deepEqual(classic.outcomeDistribution, { win: 3 });
 });
 
 check('uses competitive denominators for rarity and reward measures', () => {
@@ -114,4 +140,74 @@ check('filters direct snapshots by event and bot dimensions', () => {
     b: { seasonId: 's', rulesetRevision: 1, balanceRevision: 1, boardVariant: 'standard-40', rulesetPreset: 'classic', marketComplexity: 'basic', eventId: 'e2', botMode: 'no-ai', features: { loan: { eligible: 5, used: 0 } } }
   };
   assert.equal(buildEconomy({ dimensions, generatedAt: '2026-09-13T12:00:00Z' }, { eventId: 'e1', botMode: 'ai', rulesetRevision: 1, balanceRevision: 1 }).adoption.loan.value, 1);
+});
+
+check('accepts the month range and maps the retired season range to it', () => {
+  assert.equal(normalizeAnalyticsQuery({ range: 'month' }).range, 'month');
+  assert.equal(normalizeAnalyticsQuery({ range: 'season' }).range, 'month');
+  assert.equal(normalizeAnalyticsQuery({ range: 'year' }).range, 'hour');
+});
+
+check('live tiles come only from measured runtime numbers and stay null otherwise', () => {
+  const none = buildOverview(rollup, query).kpis;
+  ['online-now', 'error-rate', 'p95-action-latency', 'peak-24h'].forEach((id) => {
+    assert.equal(none.find(item => item.id === id).value, null, id);
+  });
+  const live = { activeSockets: 7, actionCount: 200, errorCount: 3, latencyP95Ms: 41, latencySamples: 200, peakSockets24h: 19 };
+  const kpis = buildOverview({ ...rollup, quality: { ...rollup.quality, live } }, query).kpis;
+  assert.equal(kpis.find(item => item.id === 'online-now').value, 7);
+  const errorRate = kpis.find(item => item.id === 'error-rate');
+  assert.equal(errorRate.value, 0.015);
+  assert.equal(errorRate.numerator, 3);
+  assert.equal(errorRate.denominator, 200);
+  assert.equal(kpis.find(item => item.id === 'p95-action-latency').value, 41);
+  assert.equal(kpis.find(item => item.id === 'peak-24h').value, 19);
+  const noActions = buildOverview({ ...rollup, quality: { ...rollup.quality, live: { ...live, actionCount: 0 } } }, query).kpis;
+  assert.equal(noActions.find(item => item.id === 'error-rate').value, null);
+  kpis.forEach(item => assert.equal(typeof item.definition, 'string'));
+  kpis.forEach(item => assert.equal(typeof item.unit, 'string'));
+});
+
+check('the error rate counts failed player actions, not HTTP failures', () => {
+  const live = { activeSockets: 7, actionCount: 200, errorCount: 5, socketErrorCount: 2, httpErrorCount: 3, latencyP95Ms: 41, latencySamples: 200, peakSockets24h: 19 };
+  const kpis = buildOverview({ ...rollup, quality: { ...rollup.quality, live } }, query).kpis;
+  const errorRate = kpis.find(item => item.id === 'error-rate');
+  assert.equal(errorRate.value, 0.01, 'the HTTP failures stay out of the socket error rate');
+  assert.equal(errorRate.numerator, 2);
+  assert.equal(errorRate.denominator, 200);
+});
+
+check('a stale rollup with no matches reports unknown, not a verified zero', () => {
+  const stale = { generatedAt: '2026-09-13T12:00:00.000Z', dimensions: {}, quality: { fresh: false } };
+  const kpis = buildOverview(stale, {}).kpis;
+  assert.equal(kpis.find(item => item.id === 'started').value, null);
+  assert.equal(kpis.find(item => item.id === 'completion-rate').value, null);
+  const fresh = buildOverview({ ...stale, quality: { fresh: true } }, {}).kpis;
+  assert.equal(fresh.find(item => item.id === 'started').value, 0);
+});
+
+check('adds a previous-period comparison only when a previous window is supplied', () => {
+  const previous = { dimensions: { x: { seasonId: 'season-01', rulesetRevision: 3, balanceRevision: 7, boardVariant: 'standard-40', rulesetPreset: 'classic', marketComplexity: 'basic', started: 5, completed: 4 } } };
+  const without = buildOverview(rollup, query).kpis.find(item => item.id === 'started');
+  assert.equal(Object.hasOwn(without, 'comparison'), false);
+  const kpis = buildOverview(rollup, query, { previous }).kpis;
+  const started = kpis.find(item => item.id === 'started');
+  assert.deepEqual(started.comparison, { value: 5, delta: 5, period: 'previous day' });
+  const completion = kpis.find(item => item.id === 'completion-rate');
+  assert.equal(completion.comparison.value, 0.8);
+  assert.equal(completion.comparison.delta, 0);
+});
+
+check('match duration median and p95 describe the whole window, not the first 2048 matches', () => {
+  const start = Date.parse('2026-10-20T10:05:00Z');
+  const store = createAnalyticsRollupStore({ now: () => start + 30 * 60 * 1000 });
+  const total = 3000;
+  for (let seconds = 1; seconds <= total; seconds += 1) {
+    store.record({ kind: 'match-complete', createdAt: new Date(start + seconds).toISOString(), data: { durationSeconds: seconds, botOnly: false } });
+  }
+  const health = buildMatchHealth(store, { range: 'month' });
+  assert.equal(health.durationMedian.sampleSize, total, 'the sample size is the full count');
+  // The sample is uniform, so the statistics land near the truth (a sample of only the first 2048 values would give 1024 and 1946).
+  assert.ok(Math.abs(health.durationMedian.value - 1500.5) < 120, `median ${health.durationMedian.value} is close to 1500.5`);
+  assert.ok(Math.abs(health.durationP95.value - 2850) < 90, `p95 ${health.durationP95.value} is close to 2850`);
 });

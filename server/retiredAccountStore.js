@@ -111,7 +111,8 @@ function snapshotFile(filePath) {
 }
 
 function restoreFile(filePath, saved) {
-  if (filePath && saved?.exists && typeof saved.bytes === 'string') fs.writeFileSync(filePath, saved.bytes, 'utf8');
+  // Owner-only when the file has to be recreated; an existing file keeps its mode.
+  if (filePath && saved?.exists && typeof saved.bytes === 'string') fs.writeFileSync(filePath, saved.bytes, { encoding: 'utf8', mode: 0o600 });
 }
 
 export class RetiredAccountStore {

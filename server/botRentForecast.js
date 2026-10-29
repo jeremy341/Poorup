@@ -1,19 +1,15 @@
-import { PROPERTY_RENT_MULTIPLIERS, RAILROAD_RENT } from './gameData.js';
+import { PROPERTY_RENT_MULTIPLIERS, RAILROAD_RENT, UTILITY_DICE_MULTIPLIERS } from './gameData.js';
 
-// The "premium districts" every premium mechanism keys on. Hoisted above the
-// rule table because the two paths used to disagree on membership: the boom
-// hardcoded Dark Blue while premiumEventFactors also listed Metro Silver, and
-// since the boom suppresses the generic path it dropped Metro Silver's surge
-// entirely. Metro Gold is in neither list — a design question, not a bug.
+// The "premium districts" every premium mechanism keys on. Hoisted above the rule table so both paths agree on membership:
+// the boom hardcoded Dark Blue while premiumEventFactors listed Metro Silver, and the boom suppresses the generic path,
+// so Metro Silver's surge was dropped entirely. Metro Gold is in neither list: a design question, not a bug.
 const PREMIUM_GROUPS = ['Dark Blue', 'Metro Silver'];
 
 const DIRECT_EVENT_RULES = [
   { id: 'housing-bubble', factor: 0.65, matches: ({ tile }) => tile.type === 'property' },
   { id: 'airport-strike', factor: 0, matches: ({ tile }) => tile.type === 'railroad' },
-  // Deliberately NOT read via factorKey: rent.test.js pins
-  // 'tourism-skips-premium-multiplier' at 45 with premiumRentMultiplier: 2, so
-  // the boom must ignore the effect payload and use its own 1.3. The premium
-  // groups still come from PREMIUM_GROUPS so membership cannot drift.
+  // Not read via factorKey: rent.test.js pins 'tourism-skips-premium-multiplier' at 45 with premiumRentMultiplier 2,
+  // so the boom ignores the effect payload and uses its own 1.3. Premium groups still come from PREMIUM_GROUPS.
   { id: 'tourism-boom', factor: 1.3, matches: ({ tile }) => PREMIUM_GROUPS.includes(tile.group) },
   // factorKey reads the declared event effect so tuning the effect (e.g.
   // globalEventData anti-monopoly leaderRentMultiplier) reaches live rent
@@ -99,8 +95,8 @@ function rentForRailroad(facts) {
 
 function rentForUtility(tile, facts) {
   if (facts.ownedUtilityCount <= 0) return Number(tile.rent) || 20;
-  const multiplier = facts.ownedUtilityCount >= 2 ? 10 : 4;
-  return facts.diceTotal * multiplier;
+  const count = Math.min(facts.ownedUtilityCount, UTILITY_DICE_MULTIPLIERS.length);
+  return facts.diceTotal * UTILITY_DICE_MULTIPLIERS[count - 1];
 }
 
 function baseRentFor(tile, facts) {
@@ -117,7 +113,10 @@ function applyRentFactors(rent, factors) {
   }, rent);
 }
 
-function applyRentCap(rent, rentCap) {
+// The rent cap is a per-payment ceiling the live engine charges once, after
+// the event factors. Projects that price rent elsewhere (the bot auction
+// ceiling) share this helper so they cannot disagree with the charge.
+export function applyRentCap(rent, rentCap) {
   return rentCap > 0 ? Math.min(rent, rentCap) : rent;
 }
 
@@ -195,12 +194,26 @@ export function rentFactsFromGame(game, tile, diceTotal) {
   });
 }
 
-function snapshotOwnerTiles(board, ownerSeat) {
-  return board.filter(entry => entry.ownerSeat === ownerSeat && ownerSeat !== 'bank' && !entry.mortgaged);
-}
-
-function snapshotHasFullSet(tile, groupTiles, ownerSeat) {
-  return Boolean(tile?.group && groupTiles.length > 0 && groupTiles.every(entry => entry.ownerSeat === ownerSeat));
+// One pass over the board answers every ownership question a rent lookup asks: the tile's group (size and how much
+// the owner holds) and the owner's unmortgaged railroads and utilities. The planner calls this millions of times per
+// expert match, so it must not filter the board once per question.
+function snapshotBoardCounts(board, group, ownerSeat) {
+  const countsOwnedAssets = ownerSeat !== 'bank';
+  let groupSize = 0;
+  let groupOwned = 0;
+  let railroads = 0;
+  let utilities = 0;
+  for (let index = 0; index < board.length; index += 1) {
+    const entry = board[index];
+    const ownedByOwner = entry.ownerSeat === ownerSeat;
+    const inGroup = Boolean(group) && entry.group === group;
+    const ownedAsset = countsOwnedAssets && ownedByOwner && !entry.mortgaged;
+    if (inGroup) groupSize += 1;
+    if (inGroup && ownedByOwner) groupOwned += 1;
+    if (ownedAsset && entry.type === 'railroad') railroads += 1;
+    if (ownedAsset && entry.type === 'utility') utilities += 1;
+  }
+  return { hasFullSet: groupSize > 0 && groupSize === groupOwned, railroads, utilities };
 }
 
 function snapshotEffects(snapshot) {
@@ -209,14 +222,6 @@ function snapshotEffects(snapshot) {
 
 function snapshotOwnerSeat(tile) {
   return tile?.ownerSeat || 'bank';
-}
-
-function snapshotGroupTiles(board, tile) {
-  return board.filter(entry => entry.group === tile?.group);
-}
-
-function snapshotOwnedCount(ownerTiles, type) {
-  return ownerTiles.filter(entry => entry.type === type).length;
 }
 
 function snapshotRentContext(snapshot) {
@@ -231,15 +236,14 @@ function snapshotRentContext(snapshot) {
 export function rentFactsFromSnapshot(snapshot, tile, diceTotal) {
   const board = snapshot?.board || [];
   const ownerSeat = snapshotOwnerSeat(tile);
-  const ownerTiles = snapshotOwnerTiles(board, ownerSeat);
-  const groupTiles = snapshotGroupTiles(board, tile);
+  const counts = snapshotBoardCounts(board, tile?.group, ownerSeat);
   const context = snapshotRentContext(snapshot);
   return normalizeFacts({
     tile,
-    hasFullSet: snapshotHasFullSet(tile, groupTiles, ownerSeat),
+    hasFullSet: counts.hasFullSet,
     doubleRent: context.doubleRent,
-    ownedRailroadCount: snapshotOwnedCount(ownerTiles, 'railroad'),
-    ownedUtilityCount: snapshotOwnedCount(ownerTiles, 'utility'),
+    ownedRailroadCount: counts.railroads,
+    ownedUtilityCount: counts.utilities,
     diceTotal,
     eventFactors: eventFactorsFor({ tile: tile || {}, event: context.event, effects: context.effects, ownerSeat }),
     rentCap: context.effects.rentCap

@@ -6,24 +6,31 @@ const MAX_PAYLOAD_BYTES = 100_000;
 
 function safeTopic(topic) {
   if (typeof topic !== 'string') return '';
-  const value = topic.trim().slice(0, MAX_TOPIC_LENGTH);
+  const value = topic.trim();
+  // Over-long topics are rejected, not truncated: two long topics sharing a prefix would collide.
+  if (value.length > MAX_TOPIC_LENGTH) return '';
   return value && /^[A-Za-z0-9:._/-]+$/.test(value) ? value : '';
 }
 
-function safePayload(payload) {
+// { ok, value }: null is a valid payload, so failure cannot be signalled by null.
+function parsePayload(payload) {
   try {
     const serialized = JSON.stringify(payload ?? null);
-    if (serialized.length > MAX_PAYLOAD_BYTES) return null;
-    return JSON.parse(serialized);
+    if (serialized.length > MAX_PAYLOAD_BYTES) return { ok: false, value: null };
+    return { ok: true, value: JSON.parse(serialized) };
   } catch {
-    return null;
+    return { ok: false, value: null };
   }
+}
+
+function safePayload(payload) {
+  return parsePayload(payload).value;
 }
 
 function invalidPublish(closed, topic, payload) {
   if (closed) return true;
   if (!safeTopic(topic)) return true;
-  return safePayload(payload) === null;
+  return !parsePayload(payload).ok;
 }
 
 export function createPubSubAdapter() {
@@ -40,7 +47,9 @@ export function createPubSubAdapter() {
     topics.set(key, listeners);
     return () => {
       listeners.delete(handler);
-      if (!listeners.size) topics.delete(key);
+      // Only drop the topic if it still holds this listener set: a stale call
+      // after another subscriber re-created the topic must not remove it.
+      if (!listeners.size && topics.get(key) === listeners) topics.delete(key);
     };
   }
 

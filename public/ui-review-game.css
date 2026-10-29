@@ -1,0 +1,60 @@
+/* Players and chat form one continuous rail; the player count sets their join. */
+@media (min-width: 768px) and (orientation: landscape) {
+  #view-game .rail-left { gap: 0; }
+  #view-game .rail-left > .panel:first-child { flex: 0 1 auto; min-height: 0; max-height: 65%; overflow-y: auto; overscroll-behavior: contain; }
+  #view-game .rail-left > .chat-panel { margin-top: 0; flex: 1 1 0; min-height: 0; }
+  #view-game .rail-left > .chat-panel.is-collapsed { flex: 0 0 auto; }
+  #view-game .chat-panel:not(.is-collapsed) > .chat-dock { flex: 1 1 0; height: auto; min-height: 0; }
+  #view-game .chat-dock .chat-body { min-height: 0; }
+  #view-game .rail-left:not(.is-players-hidden) > .chat-panel { border-top: 0; border-start-start-radius: 0; border-start-end-radius: 0; }
+}
+@media (min-width: 1800px) and (orientation: landscape) {
+  #view-game .game-main {
+    --review-left-rail: clamp(384px, 20vw, 560px);
+    --review-right-rail: clamp(448px, 22vw, 620px);
+    width: 100%; max-width: none; margin-inline: 0;
+    gap: 16px;
+    grid-template-columns: var(--review-left-rail) minmax(0, 1fr) var(--review-right-rail);
+  }
+  #view-game.is-left-rail-hidden .game-main { grid-template-columns: 0 minmax(0, 1fr) var(--review-right-rail); }
+  #view-game.is-right-rail-hidden .game-main { grid-template-columns: var(--review-left-rail) minmax(0, 1fr) 0; }
+  #view-game.is-left-rail-hidden.is-right-rail-hidden .game-main { grid-template-columns: 0 minmax(0, 1fr) 0; }
+  #view-game .rail-left .pr-name { font-size: 17px; }
+  #view-game .rail-left .pr-cash { font-size: 15px; }
+  #view-game .rail-left .player-row { min-height: 76px; }
+  #view-game .rail-left .chat-line { font-size: 15px; line-height: 1.45; }
+  #view-game .rail-left .chat-input { font-size: 14px; }
+  #view-game .right-rail .t-section { font-size: 18px; }
+  #view-game .right-rail .t-label { font-size: 15px; }
+  #view-game .right-rail .t-micro { font-size: 11px; line-height: 1.5; }
+  #view-game .right-rail .t-body { font-size: 16px; line-height: 1.45; }
+  #view-game .right-rail .prop-name { font-size: 15px; }
+  #view-game .right-rail .prop-meta { font-size: 11px; }
+  #view-game .right-rail .prop-row { min-height: 46px; }
+}
+#right-rail-game .holdings-deeds .prop-row { grid-template-columns: 8px minmax(0, 1fr) auto; }
+#right-rail-game .holdings-deeds .prop-meta { margin-left: auto; flex: 0 0 auto; }
+@media (min-width: 2400px) and (orientation: landscape) {
+  #right-rail-game .rr-body { padding: 18px; }
+  #right-rail-game .rail-section-head { padding-bottom: 14px; }
+  #right-rail-game .rail-section-head .t-micro { font-size: 14px; }
+  #right-rail-game .holdings-deeds .prop-list { gap: 10px; }
+  #right-rail-game .holdings-deeds .prop-row { min-height: 54px; gap: 12px; padding: 12px; }
+  #right-rail-game .holdings-deeds .prop-name { font-size: 17px; }
+  #right-rail-game .holdings-deeds .prop-meta { font-size: 12px; }
+  #right-rail-game .activity-surface { gap: 16px; }
+  #right-rail-game .activity-mode-content { min-width: 0; }
+  #right-rail-game .activity-surface .economy-surface { padding: 18px; gap: 16px; }
+  #right-rail-game .activity-surface .economy-surface-head { gap: 14px; }
+  #right-rail-game .activity-surface .t-section { font-size: 20px; }
+  #right-rail-game .activity-surface .t-label { font-size: 16px; }
+  #right-rail-game .activity-surface .t-micro { font-size: 12px; line-height: 1.5; }
+  #right-rail-game .activity-surface .market-row { min-height: 62px; padding: 12px; }
+  #right-rail-game .activity-mode-tab { min-height: 48px; font-size: 14px; }
+}
+
+/* Board captions clip to their own tile face, so a long name ends in an ellipsis instead of running into the next tile. */
+#view-game .tile:not(.is-corner) .tile-name { max-width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1100px) {
+  #view-game .tile:not(.is-corner) .tile-name { font-size: 9px; }
+}
