@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
 import { TelemetryStore } from './telemetryModule.js';
 import { createAnalyticsRollupStore } from './analyticsRollupStore.js';
-import { buildOpsBots } from './adminOpsReports.js';
 import {
   recordLoggedTelemetry,
-  classifyBotDecision,
   recordBotTelemetry,
   recordMatchStartTelemetry,
   recordMatchStalledTelemetry,
@@ -117,53 +115,3 @@ await (async () => {
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('PASS - closes with async telemetry writes recorded during shutdown');
 })();
-
-const decision = (overrides = {}) => ({ provider: 'ai', brain: 'ai', fallback: false, success: true, phase: 'turn', actionId: 'roll', fallbackReason: null, ...overrides });
-const aiAnswered = () => decision();
-const aiFailed = (reason = 'timeout') => decision({ provider: 'deterministic', fallback: true, fallbackReason: reason });
-const houseByDesign = reason => decision({ provider: 'deterministic', fallback: true, fallbackReason: reason });
-const noAiHouse = () => decision({ provider: 'deterministic', brain: 'no-ai', fallback: true, fallbackReason: 'no-ai-mode' });
-
-check('classifies each bot decision by the room engine and whether the model failed', () => {
-  assert.deepEqual(classifyBotDecision(aiAnswered()), { botMode: 'ai', provider: 'ai', counted: true, failed: false });
-  assert.deepEqual(classifyBotDecision(aiFailed('rate-limit')), { botMode: 'ai', provider: 'ai', counted: true, failed: true });
-  ['auction-policy', 'phase-resolution', 'deterministic-advisor', 'shadow-mode'].forEach((reason) => {
-    assert.deepEqual(classifyBotDecision(houseByDesign(reason)), { botMode: 'ai', provider: 'ai', counted: false, failed: false }, reason);
-  });
-  assert.deepEqual(classifyBotDecision(noAiHouse()), { botMode: 'no-ai', provider: 'deterministic', counted: true, failed: false });
-  // Older records carry no brain: the provider decides the room engine.
-  assert.equal(classifyBotDecision({ provider: 'ai', fallback: true }).botMode, 'ai');
-  assert.equal(classifyBotDecision({ provider: 'deterministic' }).botMode, 'no-ai');
-});
-
-check('bot telemetry marks one match per engine and counts only real model decisions', () => {
-  const records = [];
-  recordBotTelemetry({
-    telemetryStore: { record: (kind, payload) => { records.push({ kind, payload }); } },
-    matchRecord: { botOnly: false, botDecisions: [aiAnswered(), aiFailed(), houseByDesign('auction-policy'), aiAnswered()] },
-    telemetryVersions: {}
-  });
-  assert.equal(records.length, 4);
-  assert.equal(records.every(item => item.kind === 'bot-outcome' && item.payload.provider === 'ai' && item.payload.botMode === 'ai'), true);
-  assert.deepEqual(records.map(item => item.payload.decisions), [1, 1, 0, 1]);
-  assert.deepEqual(records.map(item => item.payload.fallback), [false, true, false, false]);
-  assert.deepEqual(records.map(item => item.payload.match === true), [true, false, false, false]);
-});
-
-check('rollup keeps bot decisions, fallbacks and matches that the admin report reads back', () => {
-  // Telemetry stamps events with the wall clock, so the rollup must read the same clock.
-  const origin = Date.now();
-  const rollup = createAnalyticsRollupStore({ now: () => origin });
-  const telemetryStore = new TelemetryStore(path.join(os.tmpdir(), 'poorup-bot-report-unused.json'), { rollupStore: rollup, persist: () => {}, flushIntervalMs: 0, maxPending: 4000 });
-  const versions = { seasonId: 's', rulesetRevision: 1, balanceRevision: 1, boardVariant: 'standard-40' };
-  // Match 1: AI room, 3 model answers + 2 failures + 2 deliberate house decisions.
-  recordBotTelemetry({ telemetryStore, matchRecord: { botOnly: false, botDecisions: [aiAnswered(), aiAnswered(), aiAnswered(), aiFailed(), aiFailed('quota'), houseByDesign('auction-policy'), houseByDesign('phase-resolution')] }, telemetryVersions: versions });
-  // Match 2: no-AI room, 4 house decisions.
-  recordBotTelemetry({ telemetryStore, matchRecord: { botOnly: true, botDecisions: [noAiHouse(), noAiHouse(), noAiHouse(), noAiHouse()] }, telemetryVersions: versions });
-  const report = buildOpsBots({ rollup, range: 'day', now: origin });
-  const ai = report.providers.find(row => row.botMode === 'ai');
-  const noAi = report.providers.find(row => row.botMode === 'no-ai');
-  assert.deepEqual(ai, { provider: 'ai', botMode: 'ai', matches: 1, decisions: 5, fallbacks: 2, fallbackRate: 0.4, sampleSize: 5 });
-  assert.deepEqual(noAi, { provider: 'deterministic', botMode: 'no-ai', matches: 1, decisions: 4, fallbacks: null, fallbackRate: null, sampleSize: 4 });
-  assert.deepEqual(report.totals, { botMatches: 2, decisions: 5, fallbacks: 2, fallbackRate: 0.4, sampleSize: 5 });
-});

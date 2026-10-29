@@ -7,9 +7,10 @@ const __dirname = path.dirname(__filename);
 const DEFAULT_FILE = path.join(__dirname, 'data', 'achievements.json');
 
 const loanLikeContract = contract => ['loan', 'hybrid'].includes(contract?.kind);
-// Match records store human-readable event titles, while older records and fixtures may hold
-// stable event ids. Keep both forms in one predicate so the crisis achievement cannot vanish
-// after a title projection.
+// Match records intentionally store human-readable event titles, while older
+// records and test fixtures may contain stable event ids. Keep both forms in
+// one predicate so the crisis achievement cannot silently disappear after a
+// title projection.
 const NEGATIVE_GLOBAL_EVENTS = new Set([
   'housing-bubble', 'HOUSING BUBBLE POP', 'credit-freeze', 'CREDIT FREEZE',
   'inflation-spiral', 'INFLATION SPIRAL', 'anti-monopoly', 'ANTI-MONOPOLY INVESTIGATION',
@@ -29,33 +30,31 @@ function normalizeEventName(event) {
 function isNegativeGlobalEvent(event) {
   if (NEGATIVE_GLOBAL_EVENTS.has(event)) return true;
   const normalized = normalizeEventName(event);
-  if (!normalized) return false;
   if (NEGATIVE_GLOBAL_EVENTS.has(normalized)) return true;
   // Titles carry id prefixes with suffixes ("HOUSING BUBBLE" vs
   // "HOUSING BUBBLE POP"): match either direction on word boundary.
   for (const entry of NEGATIVE_GLOBAL_EVENTS) {
     const normEntry = normalizeEventName(entry);
-    if (normEntry === normalized || normEntry.startsWith(`${normalized} `) || normalized.startsWith(`${normEntry} `)) return true;
+    if (normEntry.startsWith(normalized) || normalized.startsWith(normEntry)) return true;
   }
   return false;
 }
 
 function sanitize(record = {}) {
-  // A store file can hold a null or a non-object entry; it carries no fields.
-  const source = record && typeof record === 'object' ? record : {};
   return {
-    accountId: typeof source.accountId === 'string' ? source.accountId : null,
-    achievementId: typeof source.achievementId === 'string' ? source.achievementId.slice(0, 80) : null,
-    gameId: typeof source.gameId === 'string' ? source.gameId.slice(0, 80) : null,
-    eventSequence: typeof source.eventSequence === 'string' ? source.eventSequence.slice(0, 180) : null,
-    unlockedAt: typeof source.unlockedAt === 'string' ? source.unlockedAt : new Date().toISOString(),
-    evidenceHash: typeof source.evidenceHash === 'string' ? source.evidenceHash.slice(0, 128) : null,
+    accountId: typeof record.accountId === 'string' ? record.accountId : null,
+    achievementId: typeof record.achievementId === 'string' ? record.achievementId.slice(0, 80) : null,
+    gameId: typeof record.gameId === 'string' ? record.gameId.slice(0, 80) : null,
+    eventSequence: typeof record.eventSequence === 'string' ? record.eventSequence.slice(0, 180) : null,
+    unlockedAt: typeof record.unlockedAt === 'string' ? record.unlockedAt : new Date().toISOString(),
+    evidenceHash: typeof record.evidenceHash === 'string' ? record.evidenceHash.slice(0, 128) : null,
   };
 }
 
-// One descriptor per achievement rule, in evaluation order, since candidates are pushed in
-// that sequence. Strings must stay verbatim: accountStore's rarity and points maps and the
-// client copy depend on them.
+// One descriptor per achievement rule, in evaluation order (the order is
+// observable: candidates are pushed in this sequence). Tests read a per-player
+// context assembled once in evaluateMatch; strings must stay verbatim because
+// accountStore's rarity/points maps and client copy depend on them.
 const ACHIEVEMENT_RULES = [
   { achievementId: 'first-deed', title: 'FIRST DEED', rarity: 'COMMON', body: 'You bought your first property.', test: ({ participant }) => participant.propertyCount > 0 },
   { achievementId: 'last-wallet-standing', title: 'LAST WALLET STANDING', rarity: 'COMMON', body: 'You were the last wallet standing.', test: ({ isWinner }) => isWinner },
@@ -106,7 +105,6 @@ const ACHIEVEMENT_RULES = [
   { achievementId: 'treasure-map', title: 'TREASURE MAP', rarity: 'EPIC', body: 'You drew every Treasure card across your account history.', test: ({ treasureCardCount }) => treasureCardCount >= 16 },
   { achievementId: 'event-tourist', title: 'EVENT TOURIST', rarity: 'RARE', body: 'You experienced three different global events.', test: ({ eventCount }) => eventCount >= 3 },
 ];
-const ACHIEVEMENT_RULE_BY_ID = new Map(ACHIEVEMENT_RULES.map(rule => [rule.achievementId, rule]));
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -177,8 +175,6 @@ export class AchievementStore {
     if (!value) return;
     const records = Array.isArray(value) ? value : [];
     records.forEach((entry) => {
-      // A malformed entry is skipped, not fatal: the rest of the unlocks load.
-      if (!entry || typeof entry !== 'object') return;
       const record = sanitize(entry);
       if (record.accountId && record.achievementId) this.records.set(this.key(record.accountId, record.achievementId), record);
     });
@@ -194,30 +190,16 @@ export class AchievementStore {
     const key = this.key(next.accountId, next.achievementId);
     const existing = this.records.get(key);
     if (existing) return { created: false, record: existing };
-    const before = [...this.records];
     this.records.set(key, next);
-    this.persistOrRollback(before);
+    this.persist();
     return { created: true, record: next };
-  }
-
-  // A persist that throws must not leave the change in memory: a retry would
-  // see nothing to do and the disk would never catch up.
-  persistOrRollback(before) {
-    try {
-      this.persist();
-    } catch (error) {
-      this.records.clear();
-      before.forEach(([key, record]) => this.records.set(key, record));
-      throw error;
-    }
   }
 
   remove(accountId, achievementId) {
     const key = this.key(accountId, achievementId);
     if (!this.records.has(key)) return false;
-    const before = [...this.records];
     this.records.delete(key);
-    this.persistOrRollback(before);
+    this.persist();
     return true;
   }
 
@@ -226,14 +208,13 @@ export class AchievementStore {
   }
 
   purgeAccount(accountId) {
-    const before = [...this.records];
     let removed = 0;
-    for (const [key, record] of before) {
+    for (const [key, record] of this.records) {
       if (record.accountId !== accountId) continue;
       this.records.delete(key);
       removed += 1;
     }
-    if (removed) this.persistOrRollback(before);
+    if (removed) this.persist();
     return removed;
   }
 
@@ -251,28 +232,6 @@ export class AchievementStore {
     participants.forEach((participant) => {
       if (!participant.accountId) return;
       appendUnlockedAchievements(candidates, buildMatchContext(participant, shared));
-    });
-    return candidates;
-  }
-
-  recoveryCandidatesFromAnnotatedMatch(matchRecord) {
-    const candidates = [];
-    (Array.isArray(matchRecord?.participants) ? matchRecord.participants : []).forEach(participant => {
-      if (typeof participant?.accountId !== 'string' || !participant.accountId) return;
-      const ids = Array.isArray(participant.achievementsUnlocked) ? participant.achievementsUnlocked : [];
-      [...new Set(ids.filter(id => typeof id === 'string'))].forEach(achievementId => {
-        const rule = ACHIEVEMENT_RULE_BY_ID.get(achievementId);
-        if (!rule) return;
-        candidates.push({
-          accountId: participant.accountId,
-          achievementId,
-          title: rule.title,
-          rarity: rule.rarity,
-          body: rule.body,
-          unlockedAt: typeof matchRecord.completedAt === 'string' ? matchRecord.completedAt : null,
-          suppressPublicAnnouncement: matchRecord.roomVisibility === 'private'
-        });
-      });
     });
     return candidates;
   }

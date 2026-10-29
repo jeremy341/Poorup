@@ -1,8 +1,6 @@
 import { MIN_COHORT, suppressedRow } from './analyticsPrivacy.js';
 
-// 'season' is accepted so old bookmarks keep working, but it is the same 30 day
-// window as 'month' (see normalizeAnalyticsQuery); the console only offers four.
-const RANGES = new Set(['hour', 'day', 'week', 'month', 'season']);
+const RANGES = new Set(['hour', 'day', 'week', 'season']);
 const TABS = new Set(['overview', 'match-health', 'rulesets', 'economy', 'events', 'bots', 'quality']);
 const BOARDS = new Set(['all', 'standard-40', 'metro-52']);
 const RULESETS = new Set(['all', 'classic', 'after-hours', 'custom']);
@@ -43,8 +41,7 @@ function dateWindow(range, from, to) {
 
 export function normalizeAnalyticsQuery(input = {}) {
   const source = input && typeof input === 'object' ? input : {};
-  const requestedRange = enumValue(source.range, RANGES, 'hour');
-  const range = requestedRange === 'season' ? 'month' : requestedRange;
+  const range = enumValue(source.range, RANGES, 'hour');
   const window = dateWindow(range, source.from, source.to);
   const eventId = stringValue(source.eventId, '').replace(/[^a-zA-Z0-9:_-]/g, '').slice(0, 80);
   const tab = enumValue(source.tab || source.view, TABS, 'overview');
@@ -72,6 +69,10 @@ function number(value, fallback = 0) {
   if (value === null || value === undefined) return fallback;
   const result = Number(value);
   return Number.isFinite(result) ? result : fallback;
+}
+
+function sumValues(items, key) {
+  return items.reduce((total, item) => total + Math.max(0, number(item?.[key])), 0);
 }
 
 function durationValues(duration) {
@@ -178,48 +179,26 @@ function startedCount(data) { return Math.max(0, number(data?.started), number(d
 
 function generated(snapshot) { return typeof snapshot?.generatedAt === 'string' ? snapshot.generatedAt : new Date().toISOString(); }
 
-function kpi(id, label, value, unit, definition, extra = {}) {
-  const item = { id, label, value, unit, definition, ...extra };
-  Object.keys(item).forEach(key => { if (item[key] === undefined) delete item[key]; });
-  return item;
+function kpi(id, label, value, denominator, definition, comparison = null) {
+  return { id, label, value, denominator, comparison, generatedAt: null, definition };
 }
 
-// Period-over-period change, only when the caller supplied the previous window.
-function periodComparison(current, previous, period) {
-  if (!Number.isFinite(current) || !Number.isFinite(previous)) return undefined;
-  return { value: previous, delta: current - previous, period };
-}
-
-// The six tiles of the Status tab, in display order. Live tiles read the
-// metrics registry (since the process started); match tiles read the rollup for
-// the selected window. A tile the server cannot compute carries value: null.
-export const OVERVIEW_KPI_IDS = Object.freeze(['online-now', 'error-rate', 'p95-action-latency', 'completion-rate', 'started', 'peak-24h']);
-
-export function buildOverview(rollup, queryInput = {}, { previous = null } = {}) {
+export function buildOverview(rollup, queryInput = {}) {
   const query = normalizeAnalyticsQuery(queryInput);
   const { snapshot, entries } = selectedDimensions(rollup, query);
   const data = aggregate(entries);
-  const live = snapshot?.quality?.live || {};
-  const started = startedCount(data);
-  const completion = measure(data.completed, started);
-  // A stale rollup that shows zero started matches is "no data", not a verified
-  // zero. A rollup with nothing recorded yet is empty, which is a verified zero.
-  const rollupKnown = started > 0 || snapshot?.quality?.fresh !== false || snapshot?.quality?.empty === true;
-  const prior = previous ? aggregate(selectedDimensions(previous, query).entries) : null;
-  const priorStarted = prior ? startedCount(prior) : null;
-  const priorCompletion = prior && priorStarted > 0 ? measure(prior.completed, priorStarted).value : null;
-  const period = `previous ${query.range}`;
-  // The rate is a player-action rate: HTTP request failures share the error
-  // counter but are not failed player actions.
-  const socketErrors = live.socketErrorCount ?? Number(live.errorCount || 0);
-  const errorRate = live.actionCount > 0 ? Number(socketErrors || 0) / live.actionCount : null;
+  const features = Object.entries(data.features);
+  const feature = features[0]?.[1];
+  const fallbackDecisions = sumValues(Object.values(data.bots), 'decisions');
+  const fallbackCount = sumValues(Object.values(data.bots), 'fallback');
+  const activeRooms = number(snapshot?.quality?.activeRooms ?? snapshot?.activeRooms, NaN);
   const kpis = [
-    kpi('online-now', 'Online now', live.activeSockets ?? null, 'connections', 'Browser connections open right now (live gauge; resets when the server restarts).'),
-    kpi('error-rate', 'Error rate', errorRate, 'percent', 'Unhandled player action errors divided by the player actions handled since the server started. HTTP request failures are counted apart.', live.actionCount > 0 ? { numerator: Number(socketErrors || 0), denominator: live.actionCount } : {}),
-    kpi('p95-action-latency', 'P95 action latency', live.latencyP95Ms ?? null, 'milliseconds', '95th percentile of the server time spent on each of the most recent player actions (up to 1024, since the server started).', { sampleSize: live.latencySamples ?? 0 }),
-    kpi('completion-rate', 'Completion rate', rollupKnown ? completion.value : null, 'percent', 'Completed matches divided by started matches in the selected window.', { numerator: completion.numerator, denominator: completion.denominator, comparison: periodComparison(completion.value, priorCompletion, period) }),
-    kpi('started', 'Matches started', rollupKnown ? started : null, 'matches', 'Matches that began in the selected window.', { comparison: periodComparison(started, priorStarted, period) }),
-    kpi('peak-24h', 'Peak in 24h', live.peakSockets24h ?? null, 'connections', 'Most browser connections open at once in the last 24 hours (or since the server started, if that is newer).')
+    kpi('completed-rounds', 'Completed rounds', data.completed, startedCount(data), 'Verified server settlements; denominator is started matches.', { started: startedCount(data), stalled: data.stalled }),
+    kpi('completion-rate', 'Completion rate', measure(data.completed, startedCount(data)).value, startedCount(data), 'Completed matches divided by started matches.', { stalled: data.stalled }),
+    kpi('median-round-duration', 'Median round duration', median(data.durationSeconds), data.durationSeconds.count, 'Median seconds from verified server timestamps for completed rounds.', { p95: percentile(data.durationSeconds, 0.95) }),
+    kpi('active-rooms', 'Active rooms', Number.isFinite(activeRooms) ? activeRooms : null, null, 'Current live room gauge from the metrics registry.', { source: Number.isFinite(activeRooms) ? 'live-metrics' : 'rollup' }),
+    kpi('feature-adoption', 'Feature adoption', feature ? measure(feature.used, feature.eligible).value : null, feature?.eligible || 0, 'Legal feature actions divided by eligible completed rounds.', { feature: features[0]?.[0] || null }),
+    kpi('bot-fallback-rate', 'Bot fallback rate', measure(fallbackCount, fallbackDecisions).value, fallbackDecisions, 'Fallback decisions divided by AI decisions.', { fallback: fallbackCount })
   ].map(item => ({ ...item, generatedAt: generated(snapshot) }));
   return { kpis, cards: kpis, generatedAt: generated(snapshot), filters: query };
 }
@@ -230,30 +209,9 @@ export function buildMatchHealth(rollup, queryInput = {}) {
   return { starts: started, completions: data.completed, stalls: data.stalled, startedMatches: started, completedMatches: data.completed, stalledMatches: data.stalled, completionRate: measure(data.completed, started), durationMedian: valueMeasure(median(data.durationSeconds), data.durationSeconds.count, { sampleSize: data.durationSeconds.count }), durationP95: valueMeasure(percentile(data.durationSeconds, 0.95), data.durationSeconds.count, { sampleSize: data.durationSeconds.count }), reconnectRate: measure(data.reconnects, started), afkRate: measure(data.afk, started), bankruptcies: valueMeasure(data.bankruptcies, started), comebacks: valueMeasure(data.comebacks, started), denominators: { startedMatches: started, completedRounds: data.completed }, generatedAt: generated(snapshot) };
 }
 
-function mergedOutcomes(group) {
-  const outcomes = group.map(({ value }) => value.outcomes).filter(item => item && typeof item === 'object');
-  if (outcomes.length <= 1) return outcomes[0] || {};
-  const merged = {};
-  outcomes.forEach(item => Object.entries(item).forEach(([key, count]) => {
-    if (key !== '__proto__' && typeof count === 'number') merged[key] = (Object.hasOwn(merged, key) ? merged[key] : 0) + count;
-  }));
-  return merged;
-}
-
 export function buildRulesetBoard(rollup, queryInput = {}) {
   const query = normalizeAnalyticsQuery(queryInput); const { snapshot, entries } = selectedDimensions(rollup, query);
-  // A ruleset row is a preset on a board. The same pair also has one dimension
-  // row per bot mode, provider and event id, which belong to other tabs.
-  const groups = new Map();
-  entries.forEach((entry) => {
-    const key = `${entry.dimensions.rulesetPreset}|${entry.dimensions.boardVariant}`;
-    groups.set(key, [...(groups.get(key) || []), entry]);
-  });
-  const rows = [...groups.values()].slice(0, 100).map((group) => {
-    const { dimensions } = group[0];
-    const value = aggregate(group);
-    return { rulesetPreset: dimensions.rulesetPreset, boardVariant: dimensions.boardVariant, matches: startedCount(value), started: startedCount(value), completed: number(value.completed), completionRate: measure(value.completed, startedCount(value)), medianDuration: valueMeasure(median(value.durationSeconds), value.durationSeconds?.count || 0), outcomeDistribution: mergedOutcomes(group), associationLabel: 'ASSOCIATION, NOT CAUSATION' };
-  });
+  const rows = entries.slice(0, 100).map(({ value, dimensions }) => ({ rulesetPreset: dimensions.rulesetPreset, boardVariant: dimensions.boardVariant, matches: startedCount(value), started: startedCount(value), completed: number(value.completed), completionRate: measure(value.completed, startedCount(value)), medianDuration: valueMeasure(median(value.durationSeconds), value.durationSeconds?.count || 0), outcomeDistribution: value.outcomes && typeof value.outcomes === 'object' ? value.outcomes : {}, associationLabel: 'ASSOCIATION, NOT CAUSATION' }));
   return { rows, generatedAt: generated(snapshot), filters: query, associationLabel: 'ASSOCIATION, NOT CAUSATION' };
 }
 
@@ -302,9 +260,7 @@ export function buildAssociation(rollup, queryInput = {}, feature = '') {
 export function buildDataQuality(rollup, queryInput = {}) {
   const query = normalizeAnalyticsQuery(queryInput); const snapshot = rollupSnapshot(rollup, query); const quality = snapshot.quality || {}; const entries = dimensionsOf(snapshot).filter(entry => matchesQuery(entry.dimensions, query));
   const revisions = [...new Set(entries.map(({ dimensions }) => `${dimensions.rulesetRevision}:${dimensions.balanceRevision}`))].slice(0, 100);
-  // A rollup with nothing recorded has nothing to be stale about.
-  const empty = quality.empty === true;
-  return { fresh: empty || (quality.fresh !== false && quality.stale !== true), stale: !empty && (quality.stale === true || quality.fresh === false), empty, lagSeconds: number(quality.lagSeconds), eventCoverage: quality.eventCoverage ?? null, queueDepth: number(quality.queueDepth ?? quality.pendingWrites), pendingWrites: number(quality.pendingWrites), rejectedEvents: number(quality.rejectedEvents), suppressionCount: number(quality.suppressionCount), schemaVersion: number(snapshot.schemaVersion, 1), revisionCoverage: quality.revisionCoverage || revisions, generatedAt: generated(snapshot), filters: query };
+  return { fresh: quality.fresh !== false && quality.stale !== true, stale: quality.stale === true || quality.fresh === false, lagSeconds: number(quality.lagSeconds), eventCoverage: quality.eventCoverage ?? null, queueDepth: number(quality.queueDepth ?? quality.pendingWrites), pendingWrites: number(quality.pendingWrites), rejectedEvents: number(quality.rejectedEvents), suppressionCount: number(quality.suppressionCount), schemaVersion: number(snapshot.schemaVersion, 1), revisionCoverage: quality.revisionCoverage || revisions, generatedAt: generated(snapshot), filters: query };
 }
 
 export { RANGES, TABS };

@@ -1,6 +1,9 @@
-// HUD RENDERING: current player, local cash, dice and turn actions. Reads come from clientState;
-// end-of-countdown game actions arrive via hooks.
-import { $, setHtml, setText } from "./clientDom.js";
+/* ============================================================
+   HUD RENDERING: current player, local cash, dice and turn actions.
+   All reads come from
+   clientState; end-of-countdown game actions arrive via hooks.
+   ============================================================ */
+import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
 
 const DIE_PIPS = {
@@ -57,34 +60,32 @@ function localPlayer() {
 }
 
 function renderHudLobby() {
-  setText($("#hud-turn-label"), "In Lobby");
+  $("#hud-turn-label").textContent = "In Lobby";
   const nameEl = $("#hud-name");
-  setText(nameEl, "Configure");
+  nameEl.textContent = "Configure";
   nameEl.style.color = "#cfa75f";
   $("#hud-turn-label").removeAttribute("aria-label");
-  setText($("#hud-cash"), `$${Number(state.settings.startingCash).toLocaleString()}`);
+  $("#hud-cash").textContent = `$${Number(state.settings.startingCash).toLocaleString()}`;
   if ($("#hud-cash-action")) $("#hud-cash-action").disabled = true;
-  setText($("#hud-pool"), "$0");
+  $("#hud-pool").textContent = "$0";
   stopDiceFaceCycle();
-  setHtml($("#hud-dice"), `<div class="die-blank">-</div><div class="die-blank">-</div>`);
+  $("#hud-dice").innerHTML = `<div class="die-blank">—</div><div class="die-blank">—</div>`;
   $("#roll-btn").disabled = true;
-  // Matches the rules rail: the host starts from Start Round there, other seats wait for the host.
-  setText($("#roll-label"), state.players[0]?.isHost ? "Press Start Round" : "Host Starts Round");
+  $("#roll-label").textContent = "Set Rules First";
   renderHudJailButtons(null, true, true);
-  renderHudFlightButton(true, true);
 }
 
 function renderHudDice(waiting) {
   const container = $("#hud-dice");
   if (waiting) {
     stopDiceFaceCycle();
-    setHtml(container, `<div class="die-blank">-</div><div class="die-blank">-</div>`);
+    container.innerHTML = `<div class="die-blank">—</div><div class="die-blank">—</div>`;
     return;
   }
   const animateFaces = state.rolling && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (!animateFaces) {
     stopDiceFaceCycle();
-    setHtml(container, dieHTML(state.dice[0], false) + dieHTML(state.dice[1], false));
+    container.innerHTML = dieHTML(state.dice[0], false) + dieHTML(state.dice[1], false);
     return;
   }
   if (diceFaceTimer === null || container.querySelectorAll(".die.dice-rolling").length !== 2) {
@@ -141,10 +142,8 @@ function renderHudRollButton(waiting) {
   const btn = $("#roll-btn");
   // A dismissed purchase card reopens from this button: keep it enabled
   // while "Resolve Purchase" is showing, otherwise the turn strands.
-  // A dismissed auction card likewise reopens from this button.
-  const reopensAuction = Boolean(state.auction) && !state.players[0]?.bankrupt && !state.players[0]?.spectating;
-  btn.disabled = state.presentationBusy ? true : (state.pendingBuyTile != null || reopensAuction) ? false : !(canRoll || canEnd);
-  setText($("#roll-label"), hudRollLabel(waiting, canRoll, canEnd));
+  btn.disabled = state.presentationBusy ? true : state.pendingBuyTile != null ? false : !(canRoll || canEnd);
+  $("#roll-label").textContent = hudRollLabel(waiting, canRoll, canEnd);
 }
 
 function inJailThisTurn(cur) {
@@ -184,17 +183,6 @@ function renderHudJailButtons(cur, waiting, isLobby) {
   }
 }
 
-// FLY FROM HERE shows only when the server priced at least one flight for the
-// local player, i.e. it is their turn, they stand on an airport and have not moved.
-function renderHudFlightButton(waiting, isLobby) {
-  const flyBtn = $("#open-flight-desk");
-  if (!flyBtn) return;
-  const available = !waiting && !isLobby && humanTurnNow() && state.turnStage === "roll"
-    && !hudControlsLocked() && (state.flights?.options?.length || 0) > 0;
-  flyBtn.classList.toggle("is-hidden", !available);
-  flyBtn.disabled = state.busy || state.presentationBusy;
-}
-
 export function renderHud() {
   const waiting = state.phase !== "playing";
   const isLobby = state.phase === "lobby";
@@ -206,19 +194,18 @@ export function renderHud() {
     return;
   }
 
-  setText($("#hud-turn-label"), waiting ? "Waiting For Game" : "Current Turn");
+  $("#hud-turn-label").textContent = waiting ? "Waiting For Game" : "Current Turn";
   $("#hud-turn-label").setAttribute("aria-label", waiting ? "Waiting for game" : `Current turn: ${cur?.name || "Syncing"}`);
   const nameEl = $("#hud-name");
-  setText(nameEl, waiting ? "Stand By" : cur?.name || "Syncing…");
+  nameEl.textContent = waiting ? "Stand By" : cur?.name || "Syncing…";
   nameEl.style.color = waiting ? "#cfa75f" : cur?.textColor || "#cfa75f";
-  setText($("#hud-cash"), `$${waiting ? "0" : Number(me?.visualCash ?? me?.cash ?? 0).toLocaleString()}`);
+  $("#hud-cash").textContent = `$${waiting ? "0" : Number(me?.visualCash ?? me?.cash ?? 0).toLocaleString()}`;
   if ($("#hud-cash-action")) {
     $("#hud-cash-action").disabled = waiting || !me;
     $("#hud-cash-action").setAttribute("aria-label", me ? `Open ${me.name}'s wallet and items` : "Open wallet and items");
   }
-  setText($("#hud-pool"), `$${waiting ? 0 : state.pool}`);
+  $("#hud-pool").textContent = `$${waiting ? 0 : state.pool}`;
   renderHudDice(waiting);
   renderHudRollButton(waiting);
   renderHudJailButtons(cur, waiting || !cur, isLobby);
-  renderHudFlightButton(waiting, isLobby);
 }

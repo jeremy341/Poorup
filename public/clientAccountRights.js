@@ -1,6 +1,5 @@
 import { $, esc } from './clientDom.js';
 import { closeSurface, openSurface } from './clientSurfaces.js';
-import { closeButtonHTML } from './clientCloseButton.js';
 
 const ACCOUNT_STORAGE_KEYS = [
   'poorup.account.session.v1', 'poorup.profiles.v1', 'poorup.active-design.v1',
@@ -54,8 +53,8 @@ const RIGHTS_FORM_COPY = {
     title: 'Set recovery email',
     description: 'Add an email for password recovery. The address is inactive until its single-use verification link is confirmed.',
     badge: 'g400',
-    submitClass: 'cta-red',
-    submitTextClass: 'cta-text cta-text-sm',
+    submitClass: 'btn-dark',
+    submitTextClass: 't-label f11',
     submitLabel: 'SEND VERIFICATION EMAIL'
   }
 };
@@ -194,13 +193,13 @@ function passwordFieldMarkup() {
 }
 
 function rightsFormFields(kind) {
-  if (kind === 'delete') return `${passwordFieldMarkup()}${accountFieldMarkup('Type DELETE ACCOUNT', '<input class="field" id="account-rights-phrase" required aria-describedby="account-rights-form-error" placeholder="DELETE ACCOUNT" autocomplete="off">')}`;
+  if (kind === 'delete') return `${passwordFieldMarkup()}${accountFieldMarkup('Confirmation', '<input class="field" id="account-rights-phrase" required aria-describedby="account-rights-form-error" placeholder="DELETE ACCOUNT" autocomplete="off">')}`;
   if (kind === 'cancel') return passwordFieldMarkup();
   return `${accountFieldMarkup('Recovery email', '<input class="field" id="account-rights-email" type="email" autocomplete="email" required>')}${passwordFieldMarkup()}`;
 }
 
 function rightsFormMarkup(copy, fields) {
-  return `<div class="account-modal-body account-rights-dialog"><div class="account-modal-head"><div><div class="t-micro ${copy.badge}">ACCOUNT DATA DESK</div><h2 class="t-section g100" id="account-rights-dialog-title">${esc(copy.title)}</h2></div>${closeButtonHTML({ id: "account-rights-close", label: "Close account data dialog" })}</div><p class="t-body ink-2" id="account-rights-dialog-description">${esc(copy.description)}</p><form id="account-rights-form">${fields}<p class="account-form-error" id="account-rights-form-error" role="alert" aria-live="assertive"></p><button class="${copy.submitClass}" type="submit"><span class="${copy.submitTextClass}">${esc(copy.submitLabel)}</span></button></form></div>`;
+  return `<div class="account-modal-body account-rights-dialog"><div class="account-modal-head"><div><div class="t-micro ${copy.badge}">ACCOUNT DATA DESK</div><h2 class="t-section g100" id="account-rights-dialog-title">${esc(copy.title)}</h2></div><button class="btn-dark" id="account-rights-close" type="button"><span class="t-label f11">CLOSE</span></button></div><p class="t-body ink-2" id="account-rights-dialog-description">${esc(copy.description)}</p><form id="account-rights-form">${fields}<p class="account-form-error" id="account-rights-form-error" role="alert" aria-live="assertive"></p><button class="${copy.submitClass}" type="submit"><span class="${copy.submitTextClass}">${esc(copy.submitLabel)}</span></button></form></div>`;
 }
 
 function openRightsForm(kind, trigger) {

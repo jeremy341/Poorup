@@ -1,4 +1,6 @@
-// ACHIEVEMENT CATALOG (client-side definitions + local records)
+/* ============================================================
+   ACHIEVEMENT CATALOG (client-side definitions + local records)
+   ============================================================ */
 import { esc } from "./clientDom.js";
 const ACHIEVEMENT_STORAGE_KEY = "poorup.achievements.v1";
 const ACHIEVEMENTS = [
@@ -30,7 +32,7 @@ const ACHIEVEMENTS = [
   { id: "patrol-rookie", category: "minigame", title: "PATROL ROOKIE", short: "Find your first rhythm.", detail: "Score 10 in Parlor Patrol.", rarity: "COMMON" },
   { id: "patrol-regular", category: "minigame", title: "PATROL REGULAR", short: "Stay on the radio.", detail: "Score 50 in Parlor Patrol.", rarity: "UNCOMMON" },
   { id: "patrol-ace", category: "minigame", title: "PATROL ACE", short: "Beat the street record.", detail: "Beat your saved personal best three times.", rarity: "RARE" },
-  { id: "clean-run", category: "minigame", title: "CLEAN RUN", short: "Clear a clean wave.", detail: "Clear a full wave without missing a target, then play until game over.", rarity: "EPIC" },
+  { id: "clean-run", category: "minigame", title: "CLEAN RUN", short: "No misses, no excuses.", detail: "Finish a patrol run without missing a target.", rarity: "EPIC" },
   { id: "rent-reaper", category: "visible", title: "RENT REAPER", short: "Collect from three players.", detail: "Collect rent from three different players in one round.", rarity: "RARE" },
   { id: "liquidity-king", category: "visible", title: "LIQUIDITY KING", short: "Own the cash table.", detail: "Finish a game with more cash than every other player combined.", rarity: "EPIC" },
   { id: "fire-sale", category: "global", title: "FIRE SALE", short: "Sell before the floor drops.", detail: "Sell three buildings during one global crisis.", rarity: "RARE" },

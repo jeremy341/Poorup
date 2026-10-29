@@ -6,7 +6,7 @@
    the `development` → `testing` promotion (it runs on that hop, not on every
    PR), the CodeScene cloud check has been reviewed, and human approval is on
    every hop. Once the `testing` merge queue is enabled, heavy-tier checks run
-   against the queue's merge result automatically: a green queue group is
+   against the queue's merge result automatically — a green queue group is
    then the primary evidence for this step.
 3. Record the release SHA.
 4. Create and verify a backup.

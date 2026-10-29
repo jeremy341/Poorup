@@ -21,7 +21,7 @@
       "id": "themes",
       "status": "active",
       "ownerSurface": "theme registry and asset renderer",
-      "evidence": ["public/clientThemeData.js", "public/clientThemeRender.js", "public/themeAssets.test.js"]
+      "evidence": ["public/clientThemeData.js", "public/clientThemeRender.js", "public/themeAssetAudit.test.js"]
     },
     {
       "id": "bots",
@@ -69,7 +69,7 @@
       "id": "bankruptcy-spectator-lifecycle",
       "status": "active",
       "ownerSurface": "authoritative bankruptcy settlement and read-only spectator UI",
-      "evidence": ["server/bankruptcyApi.js", "server/game-contract-debt.test.js", "public/clientRailRender.js"]
+      "evidence": ["server/bankruptcyApi.js", "server/audit-game-contracts.test.js", "public/clientRailRender.js"]
     },
     {
       "id": "balance-campaign",
@@ -99,7 +99,7 @@
       "id": "account-controls",
       "status": "planned",
       "ownerSurface": "account privacy, deletion, export, and session policy",
-      "evidence": ["server/accountStore.js", "server/account-sessions.test.js", "server/accountDeletion.test.js"]
+      "evidence": ["server/accountStore.js", "server/account-session-audit.test.js", "server/accountDeletion.test.js"]
     },
     {
       "id": "link-previews",

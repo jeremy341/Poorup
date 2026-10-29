@@ -1,5 +1,5 @@
 /*
- * Document metadata stays small and policy-safe. The server can
+ * Document metadata stays deliberately small and policy-safe. The server can
  * use the same shape when it renders a route, while the client owns titles and
  * live announcements as views change.
  */
@@ -7,7 +7,7 @@ const PREVIEW_PATH = "/assets/social/poorup-og-1200x630.png";
 const PREVIEW_WIDTH = 1200;
 const PREVIEW_HEIGHT = 630;
 const PREVIEW_TYPE = "image/png";
-const PRIVATE_PATH = /^(?:\/admin(?:\/|$)|\/game(?:\/|$)|\/play(?:\/|$)|\/rooms(?:\/|$)|\/profile(?:\/|$)|\/rankings(?:\/|$)|\/social(?:\/|$))/i;
+const PRIVATE_PATH = /^(?:\/admin(?:\/|$)|\/game(?:\/|$)|\/play(?:\/|$)|\/rooms(?:\/|$)|\/profile(?:\/|$)|\/rankings(?:\/|$)|\/social(?:\/|$)|\/rules(?:\/|$))/i;
 
 function cleanText(value, fallback = "") {
   return String(value ?? fallback).replace(/[<>]/g, "").trim();
@@ -74,7 +74,7 @@ export function metadataConfig(options = {}) {
     description,
     title,
     canonicalUrl: origin ? `${origin}${path}` : "",
-    previewUrl: origin && previewPath ? `${origin}${previewPath}` : "",
+    previewUrl: origin ? `${origin}${previewPath}` : "",
   };
 }
 
@@ -96,7 +96,7 @@ export function renderDocumentMeta(options = {}) {
     `<meta property="og:title" content="${escapeAttribute(meta.title || "Poorup")}">`,
     `<meta property="og:description" content="${escapeAttribute(meta.description || "")}">`,
     `<meta property="og:type" content="website">`,
-    `<meta name="twitter:card" content="${meta.previewUrl ? "summary_large_image" : "summary"}">`,
+    `<meta name="twitter:card" content="summary_large_image">`,
   ];
   if (meta.canonicalUrl && meta.origin) {
     tags.push(`<link rel="canonical" href="${escapeAttribute(meta.canonicalUrl)}">`);
@@ -121,7 +121,6 @@ const VIEW_TITLES = Object.freeze({
   rankings: "Poorup | Rankings",
   social: "Poorup | Parlor social",
   rules: "Poorup | Rules",
-  about: "Poorup | About",
   admin: "Poorup | Operator console",
   analytics: "Poorup | Analytics",
 });

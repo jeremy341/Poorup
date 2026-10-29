@@ -32,11 +32,7 @@ function safeHistoryEntry(entry = {}) {
   };
 }
 
-// Placement and property count are stored on the participant entries; the
-// exporter's own entry is used when the record has participants.
-function safeMatch(entry = {}, accountId = null) {
-  const own = accountId && Array.isArray(entry.participants) ? entry.participants.find(participant => participant?.accountId === accountId) : null;
-  if (own) entry = { ...entry, finalPlacement: own.finalPlacement, propertyCount: own.propertyCount };
+function safeMatch(entry = {}) {
   return {
     matchId: text(entry.matchId, 80),
     completedAt: safeDate(entry.completedAt),
@@ -58,7 +54,7 @@ function safeDesign(entry = {}) {
 export function buildAccountExport({ account, social = {}, retiredData = {}, matches = [], now = Date.now } = {}) {
   if (!account || typeof account !== 'object' || typeof account.username !== 'string') throw new TypeError('An authenticated account is required.');
   const history = Array.isArray(account.history) ? account.history.slice(0, MAX_HISTORY).map(safeHistoryEntry) : [];
-  const matchHistory = (Array.isArray(account.matchHistory) ? account.matchHistory : matches).slice(0, MAX_HISTORY).map(entry => safeMatch(entry, account.id));
+  const matchHistory = (Array.isArray(account.matchHistory) ? account.matchHistory : matches).slice(0, MAX_HISTORY).map(safeMatch);
   const designs = (Array.isArray(account.designs) ? account.designs : []).slice(0, MAX_DESIGNS).map(safeDesign);
   const achievements = (Array.isArray(account.achievements) ? account.achievements : []).slice(0, MAX_ACHIEVEMENTS).map(entry => ({ id: text(entry?.id, 80), unlockedAt: safeDate(entry?.unlockedAt) }));
   const friendCount = Array.isArray(social.friends) ? social.friends.length : 0;

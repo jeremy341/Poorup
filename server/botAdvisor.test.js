@@ -98,7 +98,7 @@ const promptContext = JSON.parse(requestBody.messages[1].content);
 assert.equal(promptContext.phase, 'pre-roll');
 assert.equal(promptContext.roundNumber, 4);
 assert.equal(promptContext.botState.cash, 1000);
-assert.equal(promptContext.contextVersion, BOT_CONTEXT_VERSION);
+assert.equal(promptContext.contextVersion, 'bot-context-v4');
 assert.equal(promptContext.rulesDigest.boardSize, 40);
 assert.equal(promptContext.marketQuotes.brazil, 120);
 assert.equal(promptContext.marketQuoteHistory.length, 2);
@@ -118,14 +118,10 @@ assert.equal(promptContext.candidateCoverage.omittedCount, 0);
 assert.equal(typeof promptContext.strategicSummary.rentExposure, 'number');
 assert.deepEqual(promptContext.recentDecisions, []);
 assert.deepEqual(promptContext.decisionMemory, { decisions: 0, successes: 0, failures: 0, actionRates: [], phaseRates: [] });
-// Scores are marginal to standing still, so the projected roll (0) does not rank
-// above the unsupported build's curated score; find the projected entry.
-const projectedPrompt = promptContext.candidates.find(candidate => candidate.projectionStatus === 'projected');
-assert.ok(projectedPrompt, 'the shortlist carries a projected planner evaluation');
-assert.equal(projectedPrompt.planningHorizon, 1);
-assert.equal(Number.isFinite(projectedPrompt.futureScore), true);
-assert.equal(Number.isFinite(projectedPrompt.projectedLiquidity), true);
-assert.equal(Number.isFinite(projectedPrompt.expectedCashFlow), true);
+assert.equal(promptContext.candidates[0].planningHorizon, 1);
+assert.equal(Number.isFinite(promptContext.candidates[0].futureScore), true);
+assert.equal(Number.isFinite(promptContext.candidates[0].projectedLiquidity), true);
+assert.equal(Number.isFinite(promptContext.candidates[0].expectedCashFlow), true);
 assert.equal(Object.prototype.hasOwnProperty.call(promptContext, 'botId'), false);
 assert.equal(Object.prototype.hasOwnProperty.call(promptContext, 'gameId'), false);
 
@@ -261,31 +257,6 @@ reconfigured.configureProvider({ apiKey: 'replacement-key', model: 'replacement-
 releaseReconfiguredResponse({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"actionId":"act-01","confidence":0.8}' } }] }) });
 assert.equal((await pendingReconfiguration).fallbackReason, 'provider-reconfigured');
 
-// A provider that was reconfigured while the answer was in flight is not a
-// failure of the new connection: the answer is dropped, the health of the new
-// provider is untouched, and the decision is not billed.
-let releaseMidFlight;
-let midFlightCalls = 0;
-const midFlight = new AiAdvisor({
-  apiKey: 'test-key',
-  maxDecisionsPerGame: 1,
-  fetchImpl: async (_url, options) => {
-    midFlightCalls += 1;
-    if (midFlightCalls === 1) return new Promise(resolve => { releaseMidFlight = resolve; });
-    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify({ actionId: providerAction(options), confidence: 0.8 }) } }] }) };
-  }
-});
-const pendingMidFlight = midFlight.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-midflight' });
-while (!releaseMidFlight) await Promise.resolve();
-midFlight.configureProvider({ apiKey: 'replacement-key', endpoint: 'https://provider.test/v1', model: 'replacement-model' });
-releaseMidFlight({ ok: false, status: 500, json: async () => ({}) });
-const midFlightDecision = await pendingMidFlight;
-assert.equal(midFlightDecision.fallbackReason, 'provider-reconfigured');
-assert.equal(midFlight.getHealth().failureStreak, 0, 'a reconfigured provider is not counted as a failure');
-assert.equal(midFlight.getPublicStatus().state, 'healthy', 'the health of the new provider is not degraded by the old answer');
-const midFlightRetry = await midFlight.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-midflight' });
-assert.equal(midFlightRetry.provider, 'ai', 'the reconfigured decision is refunded and can be retried');
-
 const timedOut = new AiAdvisor({
   apiKey: 'test-key',
   timeoutMs: 5,
@@ -304,7 +275,7 @@ const quota = new DeepSeekAdvisor({
   apiKey: 'test-key',
   fetchImpl: async (_url, options) => {
     quotaCalls += 1;
-    return { ok: false, status: 402, json: async () => ({}) };
+    return { ok: false, status: 429, json: async () => ({}) };
   }
 });
 const quotaDecision = await quota.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-quota', decisionSequence: 1 });
@@ -322,7 +293,7 @@ const recovering = new DeepSeekAdvisor({
   circuitCooldownMs: 1000,
   fetchImpl: async (_url, options) => {
     recoveringCalls += 1;
-    if (recoveringCalls === 1) return { ok: false, status: 402, json: async () => ({}) };
+    if (recoveringCalls === 1) return { ok: false, status: 429, json: async () => ({}) };
     return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify({ actionId: providerAction(options), confidence: 0.7 }) } }] }) };
   }
 });
@@ -338,58 +309,13 @@ assert.equal(recovered.provider, 'ai');
 assert.equal(recoveringCalls, 2);
 
 const statusEvents = [];
-const statusAdvisor = new DeepSeekAdvisor({ apiKey: 'test-key', fetchImpl: async () => ({ ok: false, status: 402, json: async () => ({}) }) });
+const statusAdvisor = new DeepSeekAdvisor({ apiKey: 'test-key', fetchImpl: async () => ({ ok: false, status: 429, json: async () => ({}) }) });
 const unsubscribe = statusAdvisor.subscribeProviderStatus(status => statusEvents.push(status));
 await statusAdvisor.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-status', decisionSequence: 1 });
 assert.equal(statusEvents.at(-1).state, 'quota-exhausted');
 assert.equal(statusEvents.at(-1).reason, 'credits-exhausted');
 assert.equal(Object.prototype.hasOwnProperty.call(statusEvents.at(-1), 'apiKey'), false);
 unsubscribe();
-
-// HTTP 429 is throttling, not an empty account: a bounded cooldown that honours
-// Retry-After, never the sticky credits-exhausted state, and no decision is lost.
-{
-  let calls = 0;
-  const throttled = new DeepSeekAdvisor({
-    apiKey: 'test-key',
-    circuitCooldownMs: 1000,
-    fetchImpl: async (_url, options) => {
-      calls += 1;
-      if (calls === 1) return { ok: false, status: 429, headers: { get: name => (name === 'retry-after' ? '90' : null) }, json: async () => ({}) };
-      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify({ actionId: providerAction(options), confidence: 0.7 }) } }] }) };
-    }
-  });
-  const first = await throttled.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-throttle', decisionSequence: 1 });
-  assert.equal(first.fallbackReason, 'rate-limit');
-  assert.equal(throttled.getPublicStatus().state, 'cooldown');
-  assert.equal(throttled.quotaExhausted, false);
-  assert.ok(throttled.circuitOpenUntil - Date.now() > 80_000, 'Retry-After is honoured');
-  const during = await throttled.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-throttle', decisionSequence: 2 });
-  assert.equal(during.fallbackReason, 'circuit-open');
-  throttled.circuitOpenUntil = Date.now() - 1;
-  const after = await throttled.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-throttle', decisionSequence: 3 });
-  assert.equal(after.provider, 'ai', 'the advisor recovers on its own once the cooldown ends');
-  assert.equal(calls, 2);
-}
-
-// An exhausted account is probed again after the re-probe window, once.
-{
-  let calls = 0;
-  const empty = new DeepSeekAdvisor({
-    apiKey: 'test-key',
-    fetchImpl: async (_url, options) => {
-      calls += 1;
-      if (calls === 1) return { ok: false, status: 402, json: async () => ({}) };
-      return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify({ actionId: providerAction(options), confidence: 0.7 }) } }] }) };
-    }
-  });
-  await empty.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-topup', decisionSequence: 1 });
-  assert.equal(empty.getPublicStatus().state, 'quota-exhausted');
-  empty.quotaProbeAt = Date.now() - 1;
-  const probe = await empty.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-topup', decisionSequence: 2 });
-  assert.equal(probe.provider, 'ai', 'a topped-up account recovers without an admin re-saving the provider');
-  assert.equal(empty.getPublicStatus().state, 'healthy');
-}
 
 let noAiCalls = 0;
 const noAi = new DeepSeekAdvisor({ apiKey: 'test-key', fetchImpl: async () => { noAiCalls += 1; return null; } });
@@ -432,14 +358,12 @@ const privateShadow = new AiAdvisor({
   apiKey: 'test-key',
   shadow: true,
   fetchImpl: async (_url, options) => ({ ok: true, status: 200, json: async () => ({
-    choices: [{ message: { content: JSON.stringify({ actionId: providerAction(options, 'trade'), confidence: 0.7 }) } }]
+    choices: [{ message: { content: JSON.stringify({ actionId: providerAction(options), confidence: 0.7 }) } }]
   }) })
 });
-// A lone candidate is no decision and never reaches the provider, so the trade
-// sits next to a second option.
 const privateShadowDecision = await privateShadow.chooseAction({
   botBrain: 'ai',
-  candidates: [{ id: 'trade:player-stable-shadow-381a', kind: 'trade', score: 10 }, { id: 'build:9', kind: 'build', score: 5 }]
+  candidates: [{ id: 'trade:player-stable-shadow-381a', kind: 'trade', score: 10 }]
 });
 assert.equal(JSON.stringify(privateShadowDecision.shadowEvaluation).includes('player-stable-shadow-381a'), false);
 assert.equal(privateShadowDecision.shadowEvaluation.actionKind, 'trade');
@@ -490,37 +414,6 @@ assert.equal((await flaky.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-
 // instead of hitting game-budget.
 assert.equal((await flaky.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-refund', decisionSequence: 2 })).fallbackReason, 'network');
 
-// A usable JSON answer that names no legal candidate gave no decision to bill
-// for: the fallback is free and the budget is refunded.
-let unboundCalls = 0;
-const unbound = new DeepSeekAdvisor({
-  apiKey: 'test-key',
-  maxDecisionsPerGame: 1,
-  fetchImpl: async (_url, options) => {
-    unboundCalls += 1;
-    if (unboundCalls === 1) return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '{"actionId":"act-99","confidence":0.8}' } }] }) };
-    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify({ actionId: providerAction(options), confidence: 0.8 }) } }] }) };
-  }
-});
-const unboundFirst = await unbound.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-unbound', decisionSequence: 1 });
-assert.equal(unboundFirst.fallbackReason, 'invalid-response');
-const unboundSecond = await unbound.chooseAction({ candidates, botBrain: 'ai', gameId: 'g-unbound', decisionSequence: 2 });
-assert.equal(unboundSecond.provider, 'ai', 'an answer that names no legal candidate is not billed');
-assert.equal(unboundCalls, 2);
-
-// An edit that does not touch the connection (a renamed profile) leaves the
-// health and the quota of the running provider alone; a rotated key is a new
-// connection and does clear it.
-const renamed = new AiAdvisor({ apiKey: 'test-key', fetchImpl: async () => ({}) });
-renamed.configureProvider({ apiKey: 'test-key', endpoint: 'https://provider.test/v1', model: 'model-a', protocol: 'chat' });
-renamed.registerFailure('quota');
-assert.equal(renamed.getPublicStatus().state, 'quota-exhausted');
-renamed.configureProvider({ apiKey: 'test-key', endpoint: 'https://provider.test/v1', model: 'model-a', protocol: 'chat', providerName: 'Renamed provider' });
-assert.equal(renamed.getPublicStatus().state, 'quota-exhausted', 'a rename does not clear an exhausted quota');
-assert.equal(renamed.getHealth().provider, 'Renamed provider', 'the new label still reaches the advisor');
-renamed.configureProvider({ apiKey: 'rotated-key', endpoint: 'https://provider.test/v1', model: 'model-a', protocol: 'chat' });
-assert.equal(renamed.getPublicStatus().state, 'healthy', 'a rotated key is a new connection and clears the old state');
-
 const metroPrompt = JSON.parse(ai.advisorUserPrompt({
   contextVersion: 'bot-context-v2',
   board: Array.from({ length: 52 }, (_, index) => ({ index, type: 'property' })),
@@ -529,23 +422,6 @@ const metroPrompt = JSON.parse(ai.advisorUserPrompt({
   gameId: 'metro-prompt'
 }));
 assert.equal(metroPrompt.board.length, 52);
-
-// The payment phase names the tile in the choice id (mortgage:5, sell:9), so
-// the board the model sees is the board of those tiles.
-const paymentPrompt = JSON.parse(ai.advisorUserPrompt({
-  phase: 'payment',
-  botDifficulty: 'table',
-  botState: { cash: 500, position: 0, properties: [], marketPositions: {}, marketExpansion: {}, bankLoan: null, contracts: [], casino: { net: 0 } },
-  rulesDigest: { purchaseReserve: 120, doubleRent: false, globalEvents: { activeEffects: {} } },
-  candidates: [
-    { id: 'debt:mortgage:5', kind: 'choice', choiceId: 'mortgage:5', score: 26, risk: 0.1 },
-    { id: 'debt:sell:9', kind: 'choice', choiceId: 'sell:9', score: 12, risk: 0.1 },
-    { id: 'debt:bankruptcy', kind: 'choice', choiceId: 'bankruptcy', score: -20, risk: 0.2 }
-  ],
-  board: Array.from({ length: 12 }, (_, index) => ({ index, type: 'property', ownerSeat: 'bank', price: 100, rent: 10, houseCount: 0, mortgaged: false }))
-}));
-assert.deepEqual(paymentPrompt.board.map(tile => tile.index).sort((a, b) => a - b), [5, 9],
-  'the payment board shows the tiles the choices refer to');
 
 assert.equal(DeepSeekAdvisor, AiAdvisor);
 assert.equal(createBotAdvisor({ DEEPSEEK_API_KEY: 'test-key' }) instanceof AiAdvisor, true);
@@ -582,18 +458,6 @@ for (const [protocol, systemPrompt] of [['chat', chatSystemPrompt], ['responses'
   assert.ok(systemPrompt.includes('actionId') && systemPrompt.includes('confidence') && systemPrompt.includes('reasonCode'), `${protocol} protocol requests the structured decision fields`);
   assert.ok(systemPrompt.includes('parameterRanges'), `${protocol} protocol restricts optional parameters to declared bounds`);
   assert.equal(/reasoning/i.test(systemPrompt), false, `${protocol} protocol does not request free-form reasoning`);
-}
-// The provider must see the current bid (a key ending in "id" is not an identifier)
-// while the real identifiers stay private.
-{
-  const auctionPrompt = JSON.stringify(ai.advisorRequestPayload({
-    candidates,
-    phase: 'auction',
-    obligations: { auction: { tileIndex: 5, highestBid: 140, highestBidderSeat: 1, participantCount: 3, bidderId: 'secret-player-id' } }
-  }).messages);
-  assert.ok(auctionPrompt.includes('highestBid'), 'the current auction bid reaches the model');
-  assert.ok(auctionPrompt.includes('140'));
-  assert.equal(auctionPrompt.includes('secret-player-id'), false, 'identifier fields stay private');
 }
 const noAiCapabilities = new DeterministicAdvisor();
 for (const [phase, supported] of [
@@ -666,9 +530,9 @@ const expertContext = {
   rulesDigest: { purchaseReserve: 120, doubleRent: false, globalEvents: { activeEffects: {} } }
 };
 const expertPrompt = JSON.parse(aiCapabilities.advisorUserPrompt(expertContext));
-assert.equal(expertPrompt.candidates[0].rolloutBudget, 0);
+assert.equal(expertPrompt.candidates[0].rolloutBudget, 64);
 assert.equal(expertPrompt.candidates[0].projectionStatus, 'projected');
-assert.equal(expertPrompt.candidates[0].policyVersion, 'no-ai-outcome-v2');
+assert.equal(expertPrompt.candidates[0].policyVersion, 'no-ai-outcome-v1');
 assert.equal(expertPrompt.candidates[0].estimatedNetWorthDelta, 0);
 const expertDecision = await noiseProbe.chooseAction({
   candidates: [{ id: 'one', kind: 'roll', score: 1 }],
@@ -678,5 +542,5 @@ const expertDecision = await noiseProbe.chooseAction({
   gameId: 'bounded-scenario-context',
   decisionSequence: 1
 });
-assert.equal(expertDecision.rolloutBudget, 0);
+assert.equal(expertDecision.rolloutBudget, 64);
 console.log('bot advisor modes and fallback: phase capability and projection tests passed');

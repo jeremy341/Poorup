@@ -14,7 +14,6 @@ preview artwork approval, or production adapter credentials.
 ```text
 NODE_ENV=production
 POORUP_ALLOWED_ORIGINS=<approved-https-origin>
-POORUP_PUBLIC_ORIGIN=<approved-https-origin>
 POORUP_DATA_DIR=/var/lib/poorup
 POORUP_BACKUP_DIR=/var/backups/poorup
 POORUP_BACKUP_INTERVAL_MS=900000
@@ -42,13 +41,6 @@ POORUP_ANALYTICS_PSEUDONYM_KEY=<stable aggregate-only HMAC key>
 The HTTP/IP limiter is a process-level second layer; put Cloudflare (or an
 equivalent edge WAF) in front of it for distributed rate limiting.
 
-`POORUP_DATA_DIR` and `POORUP_BACKUP_DIR` must be absolute paths outside the
-application directory. With `NODE_ENV=production` the server refuses to start
-when either is unset, relative, or inside the release directory, and it names
-the variable in the error. Every deploy replaces the release directory, so a
-store kept there is deleted by the next release. Relative values are resolved
-to absolute paths at boot in every environment.
-
 The internal `/admin/analytics?admin=provider` surface stores provider
 profiles in `POORUP_DATA_DIR/ai-providers.json`. `POORUP_AI_CONFIG_KEY` is
 required for durable encrypted API-key storage; without it, provider profiles
@@ -62,55 +54,12 @@ payment is settled. Choosing bankruptcy eliminates the seat; a human remains as 
 read-only spectator until leaving the table. The legacy `bankruptMode=debt` setting is
 normalized to elimination for snapshot compatibility and no longer keeps a seat active.
 
-Game end has two authoritative paths. The last connected solvent seat wins outright,
-as before. A table that is still running after `ROUND_LIMIT` rounds (300, in
-`server/gameData.js`) ends through the same `endGame` path with the richest solvent
-seat as winner. Richest means net worth: cash, deed face value (half while mortgaged),
-buildings at half build cost, less open debt. A tie goes to the seat earlier in turn
-order. The result carries `lastEndReason: 'round-limit'`, and the feed warns at round
-250 and round 290. The limit stops endless endgames when a poor seat stays solvent
-on the catch-up bonus. It needs at least two solvent seats, so it never overrides a
-bankruptcy that already leaves one.
-
 ## Backup and restore drill
 
-`server/backupStore.js` writes checksummed copies of every JSON store every
-`POORUP_BACKUP_INTERVAL_MS` without touching the live files. Each copy has a
-`.sha256` sidecar. Retention is tiered per store:
-
-- the newest 7 verified copies always survive;
-- beyond those, the newest copy of each UTC hour survives for 48 hours;
-- beyond those, the newest copy of each UTC day survives for 30 days.
-
-Copies older than 30 days are pruned by the retention job
-(`POORUP_RETENTION_BACKUPS_MS`). Two guards protect the good copies:
-
-- A store quarantined as corrupt at load is not copied until the server
-  restarts, because its in-memory replacement is empty. The skip is logged on
-  every backup run.
-- If a live store is under half the size of a copy taken in the last 48 hours,
-  rotation pauses and every older copy is kept. The candidate is still written
-  and a warning is logged once. The pause ends when that large copy leaves the
-  48-hour window, so an intentional large purge is accepted later.
-
-The backup set covers the account, social, match, achievement, season,
-cosmetic, telemetry, analytics-rollup, and AI-provider stores. Sessions and
-single-use recovery tokens are not backed up: restoring them would revive
-revoked sessions and consumed tokens.
-
-Restore drill:
-
-1. List copies and their verification state:
-   `node scripts/restore-backup.mjs --backup-dir <dir> --store accounts --list`.
-2. Restore the newest verified copy, or the newest one at or before a time, into
-   a staging directory:
-   `node scripts/restore-backup.mjs --backup-dir <dir> --store accounts --at 2026-10-11T12:00:00Z --to <staging-dir>`.
-   The tool refuses to overwrite an existing file without `--force`, refuses
-   a corrupt copy instead of falling back silently, and refuses to write into
-   `POORUP_DATA_DIR` unless `--to` is that exact directory and `--force` is set.
-3. Repeat for each store. Boot the server against the staging directory and
-   confirm account/session, room-list, season, and cosmetic reads before
-   promoting it. Stop the server before restoring into a live data directory.
+`server/backupStore.js` rotates checksummed copies without touching the live
+files. Operators should verify a recent `.sha256`, restore into a staging data
+directory, boot the server with that directory, and confirm account/session,
+room-list, season, and cosmetic reads before promoting the directory.
 
 PostgreSQL is the next migration gate before horizontal scaling. A non-empty
 `POORUP_POSTGRES_URL` is not sufficient: production must also set
@@ -142,44 +91,14 @@ An operator can trigger one bounded pass with `POST /internal/retention/run`
 using `x-poorup-retention-token` (or the maintenance token when no dedicated
 retention token is set). The route is absent when no token is configured.
 
+`/privacy` is the compact factual Privacy & Account Data document. It is not a
+Terms-of-Service route and does not invent operator or mail-provider facts.
+
 `POST /internal/maintenance` is operator-only and requires the
 `x-poorup-maintenance-token` header. Its JSON body accepts `normal`, `draining`,
 or `maintenance`. Draining rejects new rooms, Quick Tables, and round starts
 while existing rounds continue. The deployment runbook waits for
 `activeRounds = 0` before switching releases.
-
-### Maintenance lockout and operator sign-in
-
-The lockout is a flag on `maintenance` mode (`lockout: true` in the
-maintenance snapshot). Admins toggle it from the Release area
-(`POST /admin/ops/lockout`); deploy scripts can send
-`{"mode":"maintenance","lockout":true}` to `/internal/maintenance`. While it is
-on, the public site shows a full "Under maintenance" panel and the server
-refuses new rooms, new seats, invite seats and round starts for every socket
-without a bypass. Seated players keep playing and may reconnect to their seat.
-Draining and plain maintenance are unchanged; the lockout survives a restart
-with its maintenance window, and `/readyz` reports it as `unavailable`.
-
-A bypass is granted to admin accounts (`POORUP_ADMIN_ACCOUNT_IDS`) and to a
-browser that signed in on the panel with `POORUP_MAINTENANCE_PASSWORD`.
-
-```sh
-POORUP_MAINTENANCE_PASSWORD=<operator password, 12+ characters>
-POORUP_MAINTENANCE_COOKIE_SECRET=<optional HMAC secret; unset = random per process>
-POORUP_MAINTENANCE_ACCESS_TTL_MS=43200000
-```
-
-With no password set, `/maintenance/unlock` answers 404 and only admin
-accounts bypass. The password is compared as a SHA-256 digest in constant
-time and is never logged, audited, metered or stored. Sign-in is limited per
-IP (10 requests a minute, then 5 failures per 15 minutes with a growing
-delay). Success sets `poorup_operator`, an HttpOnly, SameSite=Strict, `Path=/`
-cookie (Secure on HTTPS behind a trusted proxy or with
-`POORUP_COOKIE_SECURE=true`) holding an HMAC-signed token that expires after
-`POORUP_MAINTENANCE_ACCESS_TTL_MS` (default 12 hours, 5 minutes to 7 days).
-Rotating the password, or restarting without a cookie secret, signs every
-operator out; `POST /maintenance/logout` clears the cookie and revokes its
-token.
 
 ## Nest deployment
 
@@ -201,4 +120,4 @@ Account deletion/export scope, session lifetime, legal/support identity and
 copy, analytics retention/disclosure, canonical preview origin/artwork, and
 horizontal persistence are owner decisions. Until each decision has an
 approved contract and source evidence, the corresponding manifest records stay
-`planned` or `deferred`, and no public policy promise is made for them.
+`planned` or `deferred`; this document makes no public policy promise for them.

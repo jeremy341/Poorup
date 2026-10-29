@@ -14,8 +14,6 @@ test('funding request names its room-wide audience and preserves equity terms', 
       import('/clientState.js'), import('/clientSurfaces.js'), import('/clientSponsorshipUi.js'),
     ]);
     state.phase = 'playing';
-    // Player finance is an opt-in room setting, so sponsorship requests only open when it is on.
-    state.settings = { ...state.settings, playerFinance: true };
     state.players = [
       { id: 'p1', serverId: 'buyer-seat', clientId: state.clientId, name: 'ALPHA', cash: 1500, items: {}, online: true },
       { id: 'p2', serverId: 'beta-seat', name: 'BETA', cash: 1500, items: {}, online: true },
@@ -27,8 +25,7 @@ test('funding request names its room-wide audience and preserves equity terms', 
       state,
       surfaces,
       sponsorship,
-      // Live room sync can reset the opt-in setting; re-apply it on every open.
-      openRequest() { state.settings = { ...state.settings, playerFinance: true }; sponsorship.requestSponsorship(5); },
+      openRequest() { sponsorship.requestSponsorship(5); },
       openActiveEquity() {
         const offer = {
           id: 'visual-equity-active', mode: 'equity', sharePct: 25,
@@ -45,13 +42,18 @@ test('funding request names its room-wide audience and preserves equity terms', 
 
   await page.evaluate(() => window.__sponsorshipVisual.openRequest());
   await expect(page.locator('#sponsorship-modal')).not.toHaveClass(/is-hidden/);
+  const audience = page.locator('#sponsorship-card [aria-label="Funding request audience"]');
+  await expect(audience).toContainText('ALL OTHER ACTIVE PLAYERS');
+  await expect(audience).toContainText('BETA');
+  await expect(audience).toContainText('GAMMA');
+  await expect(audience).not.toContainText('BANKRUPT');
   await expect(page.locator('[data-sponsorship-mode-summary]')).toContainText('GIFT FUNDING');
   await page.locator('input[name="mode"][value="equity"]').check();
   await page.locator('[name="sharePct"]').focus();
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
-  await expect(page.locator('[data-sponsorship-mode-summary]')).toContainText('RENT SHARE · 25% OF COLLECTED RENT');
+  await expect(page.locator('[data-sponsorship-mode-summary]')).toContainText('EQUITY INVESTMENT · 25% OF COLLECTED RENT');
   const viewport = page.viewportSize();
   const requestBounds = await page.locator('#sponsorship-card').boundingBox();
   expect(requestBounds.width).toBeLessThanOrEqual(viewport.width - 32);
@@ -66,7 +68,7 @@ test('funding request names its room-wide audience and preserves equity terms', 
 
   await page.evaluate(() => window.__sponsorshipVisual.close());
   await page.evaluate(() => window.__sponsorshipVisual.openActiveEquity());
-  await expect(page.locator('#sponsorship-card .sponsorship-funding-type')).toContainText('RENT SHARE · 25% OF COLLECTED RENT');
+  await expect(page.locator('#sponsorship-card .sponsorship-funding-type')).toContainText('EQUITY INVESTMENT · 25% OF COLLECTED RENT');
   await expect(page.locator('#sponsorship-card .sponsorship-equity-terms')).toContainText('25%');
   const activeBounds = await page.locator('#sponsorship-card').boundingBox();
   expect(activeBounds.width).toBeLessThanOrEqual(viewport.width - 32);

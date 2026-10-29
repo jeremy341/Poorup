@@ -9,16 +9,13 @@
 }
 
 #view-game .numeric,
+#view-game .t-money,
 #view-game .tile-price {
   font-family: var(--font-numeric);
   font-variant-numeric: tabular-nums lining-nums;
 }
-#view-game .t-money {
-  font-family: var(--font-numeric-display);
-  font-variant-numeric: tabular-nums lining-nums;
-}
 
-/* The primary action wrapper is one HUD item, just like the Roll button. */
+/* The primary action wrapper is one HUD item, just like the old Roll button. */
 #view-game .hud-jail-actions:not(:has(> button:not(.is-hidden))) { display: none; }
 #view-game .hud-turn-cell .hud-body { margin-top: 0; }
 

@@ -1,6 +1,8 @@
-// Regression checks for the bankruptcy module: hybrid collateral
-// re-validation, obligations on every bankruptcy path, plain-loan default claims, and the claim ledger's
-// production recovery path.
+// Regression suite B for the backend audit fixes, covering the bankruptcy
+// module: B-03 (hybrid collateral re-validation), B-04 (obligations on every
+// bankruptcy path), B-16 (plain-loan default claim) and B-17 (the claim
+// ledger's production recovery path). Split from backend-fix-regressions.test.js
+// so the two agents editing this campaign never write the same file.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { settleAfkPayment } from './socketRuntime.js';
@@ -18,7 +20,7 @@ function check(name, run) {
 
 function startedRoom(options = {}) {
   const manager = new RoomManager();
-  const room = manager.createRoom({ rulesProfile: 'advanced', socketId: 'a', clientId: 'a', nickname: 'A', ...options });
+  const room = manager.createRoom({ socketId: 'a', clientId: 'a', nickname: 'A', ...options });
   room.addOrReconnectPlayer({ socketId: 'b', clientId: 'b', nickname: 'B' });
   assert.equal(room.startGame().success, true);
   room.game.currentPlayerId = room.game.players[0].id;
@@ -27,7 +29,7 @@ function startedRoom(options = {}) {
 
 function threeSeatRoom(options = {}) {
   const manager = new RoomManager();
-  const room = manager.createRoom({ rulesProfile: 'advanced', socketId: 'a', clientId: 'a', nickname: 'A', ...options });
+  const room = manager.createRoom({ socketId: 'a', clientId: 'a', nickname: 'A', ...options });
   room.addOrReconnectPlayer({ socketId: 'b', clientId: 'b', nickname: 'B' });
   room.addOrReconnectPlayer({ socketId: 'c', clientId: 'c', nickname: 'C' });
   assert.equal(room.startGame().success, true);
@@ -53,8 +55,8 @@ function advanceUntilDefaulted(game, contract, maxRounds = 8) {
   assert.equal(contract.status, 'defaulted', 'the loan defaults within a few round advances');
 }
 
-check('retired hybrids are rejected; loans and rent shares revalidate their deeds at acceptance (B-03)', () => {
-  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+check('a hybrid note re-validates its pledged collateral basket at acceptance (B-03)', () => {
+  const room = startedRoom({ rulesetPreset: 'after-hours' });
   const game = room.game;
   const [lender, borrower] = game.players;
   const conversion = game.getTile(1);
@@ -62,36 +64,35 @@ check('retired hybrids are rejected; loans and rent shares revalidate their deed
   ownDeeds(game, borrower, [conversion.index, pledged.index]);
   lender.cash = 5000;
   const offer = { toPlayerId: borrower.id, kind: 'hybrid', amount: 1000, premiumRate: 35, durationRounds: 2, propertyIndex: conversion.index, conversionShare: 25, collateralTileIndices: [pledged.index] };
-  assert.deepEqual(room.proposePlayerContract('a', offer), { success: false, error: 'Hybrid contracts are no longer available; choose a loan or a temporary rent share.' });
-  assert.equal(room.proposePlayerContract('a', { ...offer, kind: 'loan' }).success, true);
+  assert.equal(room.proposePlayerContract('a', offer).success, true);
 
   // The borrower mortgages the pledged deed while the offer sits pending:
-  // the lender must not fund against a newly encumbered deed.
+  // the loan leg is secured against a deed that no longer exists.
   pledged.mortgaged = true;
   assert.deepEqual(room.respondPlayerContract('b', true, 'b03-mortgaged'), {
     success: false, error: 'The loan collateral is no longer available.'
-  }, 'a loan must revalidate the pledged basket at acceptance');
+  }, 'a hybrid must re-validate the basket the proposal checked, exactly like a loan');
   assert.equal(game.pendingPlayerContract, null);
   assert.equal(game.playerContracts.length, 0, 'the lender never funds against vanished security');
   assert.equal(lender.cash, 5000);
   assert.equal(borrower.cash, 1500);
 
-  // Rent shares separately revalidate their target deed when the owner accepts.
+  // The equity leg keeps its own rejection: mortgaging the conversion target
+  // is still an equity rejection, not a loan one.
   pledged.mortgaged = false;
-  assert.equal(room.proposePlayerContract('a', { ...offer, kind: 'equity', equityShare: 25, collateralTileIndices: [] }).success, true);
+  assert.equal(room.proposePlayerContract('a', offer).success, true);
   conversion.mortgaged = true;
   assert.deepEqual(room.respondPlayerContract('b', true, 'b03-conversion-gone'), {
-    success: false, error: 'Rent shares need an unmortgaged deed owned by the recipient.'
+    success: false, error: 'The equity property is no longer available.'
   });
 
   // An intact basket still settles: the extra check cannot reject a valid
-  // loan acceptance.
-  assert.equal(room.respondPlayerContract('b', false, 'b03-decline-invalid-share').success, true);
+  // hybrid acceptance.
   conversion.mortgaged = false;
-  const reoffer = room.proposePlayerContract('a', { ...offer, kind: 'loan', requestId: 'b03-clean' });
+  const reoffer = room.proposePlayerContract('a', { ...offer, requestId: 'b03-clean' });
   assert.equal(reoffer.success, true);
   assert.equal(room.respondPlayerContract('b', true, 'b03-clean').success, true);
-  assert.equal(lender.cash, 5000 - 1000, 'the lender funds the principal of a valid loan');
+  assert.equal(lender.cash, 5000 - 1000, 'the lender funds the principal of a valid hybrid');
   assert.equal(borrower.cash, 1500 + 1000);
   assert.equal(game.playerContracts[0].collateralTileIndices.length, 1);
 });
@@ -107,9 +108,10 @@ check('a padded response requestId replays the same settlement (B-22)', () => {
   const first = room.respondPlayerContract('b', true, 'b22-accept');
   assert.equal(first.success, true);
 
-  // " b22-accept " is the same logical request. Without trimming before keying, the bounded replay map
-  // misses the memo and runs the settlement ladder again, and a second acceptance against a cleared
-  // pending contract would show up as a bogus second cash movement.
+  // " b22-accept " is the same logical request. Without trimming before
+  // keying, the bounded replay map misses the memo and runs the settlement
+  // ladder again - and a second acceptance against a cleared pending
+  // contract would surface as a bogus second cash movement.
   const replay = room.respondPlayerContract('b', true, '  b22-accept  ');
   assert.equal(replay, first, 'a whitespace-padded response id must replay, not re-execute');
   assert.equal(a.cash, 1500 - 100, 'the padded replay must not move cash a second time');
@@ -117,7 +119,7 @@ check('a padded response requestId replays the same settlement (B-22)', () => {
 });
 
 check('an AFK-forced bankruptcy releases the dead seat\'s table obligations (B-04)', () => {
-  const room = threeSeatRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const room = threeSeatRoom({ rulesetPreset: 'after-hours' });
   const game = room.game;
   const [, b, c] = game.players;
   assert.equal(room.proposeTrade('b', { toPlayerId: c.id, giveCash: 50, requestId: 'b04-trade' }).success, true);
@@ -138,7 +140,7 @@ check('an AFK-forced bankruptcy releases the dead seat\'s table obligations (B-0
 });
 
 check('an unsettled-payment bankruptcy releases the dead seat\'s pending contract (B-04)', () => {
-  const room = threeSeatRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const room = threeSeatRoom({ rulesetPreset: 'after-hours' });
   const game = room.game;
   const [, b, c] = game.players;
   ownDeeds(game, b, [3]);
@@ -160,17 +162,19 @@ check('an unsettled-payment bankruptcy releases the dead seat\'s pending contrac
 });
 
 check('a plain player-loan bankruptcy records the lender\'s default claim (B-16)', () => {
-  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const room = startedRoom({ rulesetPreset: 'after-hours' });
   const game = room.game;
   const [lender, borrower] = game.players;
   const pledged = game.getTile(3);
   ownDeeds(game, borrower, [pledged.index]);
   lender.cash = 5000;
-  // Saved pre-credit loan: no quoted-value credit is retroactively minted.
-  const contract = { id: 'legacy-b16-loan', kind: 'loan', status: 'active', fromPlayerId: lender.id, toPlayerId: borrower.id, amount: 1000, premiumRate: 35, durationRounds: 2, remaining: 1350, totalDue: 1350, dueRound: game.roundNumber + 2, collateralTileIndex: pledged.index, collateralTileIndices: [pledged.index] };
-  game.playerContracts.push(contract);
-  lender.cash -= 1000;
-  borrower.cash += 1000;
+  const offer = game.proposePlayerContract('a', {
+    toPlayerId: borrower.id, kind: 'loan', amount: 1000, premiumRate: 35, durationRounds: 2,
+    collateralTileIndices: [pledged.index]
+  });
+  assert.equal(offer.success, true);
+  assert.equal(game.respondPlayerContract('b', true, 'b16-accept').success, true);
+  const contract = game.playerContractById(offer.contract.id);
   assert.equal(contract.remaining, 1350);
   const lenderCashBefore = lender.cash;
 

@@ -3,13 +3,12 @@
 // introduces real securities, cash withdrawal, or naked exposure.
 const COMPLEXITY_RANK = Object.freeze({ basic: 0, margin: 1, shorting: 2, derivatives: 3 });
 const MARGIN_MAINTENANCE_RATE = 0.25;
-// Initial margin is the same disclosed cash percentage as the maintenance requirement. It is held apart from free cash until the
-// position is reduced or liquidated, so opening margin cannot create uncollateralized exposure.
+// Initial margin is the same disclosed cash percentage as the maintenance
+// requirement. It is held separately from free cash until the position is
+// reduced or liquidated, so opening margin cannot create uncollateralized
+// exposure.
 const MARGIN_COLLATERAL_RATE = MARGIN_MAINTENANCE_RATE;
 const SHORT_COLLATERAL_RATE = 0.5;
-// Financing carries zero time cost (owner-approved): margin debt is not interest-bearing, and maintenance moves only with the quote.
-// A short's borrow fee is one charge at open (SHORT_BORROW_FEE_RATE of the notional), collected prorated when the short is covered.
-// No round step accrues either. server/margin-carry-rule.test.js pins this; a per-round charge is a rule change, not a fix.
 const SHORT_BORROW_FEE_RATE = 0.01;
 const OPTION_EXPIRY_MAX = 20;
 const OPTION_RESERVE_INITIAL = 100_000;
@@ -97,10 +96,8 @@ function positionOrderRejection(player, operation) {
   return null;
 }
 
-function positionDebtRejection(player, operation) {
-  // The unpaid buy-in debt blocks new exposure only. Covering a short, reducing margin and closing a position are how a levered seat
-  // raises the cash that repays the debt, so the 'manage' ladder stays open. Refusing them would trap the seat inside the obligation.
-  if (operation === 'open' && Number(player.shortDefaultDebt) > 0) return 'Settle your short buy-in debt before opening another market position.';
+function positionDebtRejection(player) {
+  if (Number(player.shortDefaultDebt) > 0) return 'Settle your short buy-in debt before opening another market position.';
   return null;
 }
 
@@ -120,16 +117,16 @@ function positionMaintenanceRejection(game, player, operation) {
 
 function expansionPositionRejection(game, player, operation) {
   return positionOrderRejection(player, operation)
-    || positionDebtRejection(player, operation)
+    || positionDebtRejection(player)
     || positionMarginRejection(player, operation)
     || positionMaintenanceRejection(game, player, operation);
 }
 
 function expansionGuard(game, player, required, operation = 'open') {
-  // loanLogic.hasLoanBackedCash documents its scope as "casino, contract, and market guards". The expansion ladder routes through this
-  // one guard, so a loan-backed borrower cannot fund margin, short or option exposure. The taint applies to new exposure only: reducing,
-  // covering, exercising or closing is risk-reducing and often funds the repayment, so those stay open to a borrower.
-  if (operation === 'open' && player && game.hasLoanBackedCash?.(player)) {
+  // loanLogic.hasLoanBackedCash documents its scope as "casino, contract,
+  // and market guards" — the expansion ladder routes through this one guard,
+  // so a loan-backed borrower cannot fund margin, short, or option exposure.
+  if (player && game.hasLoanBackedCash?.(player)) {
     return 'Loan-backed cash cannot fund margin, short, or option positions.';
   }
   return expansionSessionRejection(game, player, required)
@@ -143,10 +140,6 @@ function ensurePlayerMarketState(player) {
   player.marginCollateral ||= 0;
   player.marginPositions ||= {};
   player.shortPositions ||= {};
-  // The open-time trade fee a short paid, kept OUT of the position object: the
-  // position shape is published in the market snapshot, and the fee is the
-  // seat's own cost, not part of the position the table sees.
-  player.shortOpeningFees ||= {};
   player.shortDefaultDebt ||= 0;
   player.optionPositions ||= [];
   player.reservedCash ||= 0;
@@ -169,31 +162,12 @@ function openMargin(game, player, instrument, amount) {
   player.marginCollateral += collateral;
   player.reservedCash += collateral;
   const position = player.marginPositions[instrument.id] || { quantity: 0, averageCost: 0 };
-  // The opening fee is part of what the position cost the seat: capitalising
-  // it keeps it in the basis, so a sale (or a forced liquidation) reports it
-  // as realized P&L instead of losing it on the way out.
-  position.averageCost = ((position.averageCost * position.quantity) + gross + fee) / (position.quantity + amount);
+  position.averageCost = ((position.averageCost * position.quantity) + gross) / (position.quantity + amount);
   position.quantity += amount;
   player.marginPositions[instrument.id] = position;
   player.marginBalance += gross;
   player.marginMaintenance += gross * MARGIN_MAINTENANCE_RATE;
   return { success: true, action: 'open-margin', instrumentId: instrument.id, quantity: amount, quote, fee, collateral, marginBalance: player.marginBalance, maintenance: player.marginMaintenance, marginCollateral: player.marginCollateral };
-}
-
-// A fully repaid margin position is owned outright, so its units move to spot
-// inventory where the ordinary market sell path can close them.
-function convertRepaidMarginToSpot(player) {
-  player.marketPositions ||= {};
-  Object.entries(player.marginPositions || {}).forEach(([id, position]) => {
-    const quantity = Math.max(0, Number(position?.quantity) || 0);
-    if (!quantity) return;
-    const spot = player.marketPositions[id] || { quantity: 0, averageCost: 0, realizedPnl: 0 };
-    const cost = (Number(spot.averageCost) || 0) * (Number(spot.quantity) || 0) + (Number(position.averageCost) || 0) * quantity;
-    spot.quantity = (Number(spot.quantity) || 0) + quantity;
-    spot.averageCost = cost / spot.quantity;
-    player.marketPositions[id] = spot;
-  });
-  player.marginPositions = {};
 }
 
 function reduceMargin(player, amount) {
@@ -212,7 +186,6 @@ function reduceMargin(player, amount) {
   const ratio = balanceBefore ? repayment / balanceBefore : 1;
   player.marginBalance -= repayment;
   player.marginMaintenance = Math.max(0, player.marginMaintenance * (1 - ratio));
-  if (player.marginBalance <= 0) convertRepaidMarginToSpot(player);
   return { success: true, action: 'reduce-margin', amount: repayment, collateralReleased, marginBalance: player.marginBalance, maintenance: player.marginMaintenance, marginCollateral: player.marginCollateral };
 }
 
@@ -234,10 +207,6 @@ function openShort(game, player, { instrument, amount, inventory }) {
   position.quantity += amount;
   position.collateral += collateral;
   position.borrowFee += Math.max(1, Math.ceil(gross * SHORT_BORROW_FEE_RATE));
-  // The open-time trade fee is netted out of the proceeds the seat received,
-  // so it stays on the seat until the short is covered: without it the
-  // realized P&L of the closed short would not match the cash it lost.
-  player.shortOpeningFees[instrument.id] = (Number(player.shortOpeningFees[instrument.id]) || 0) + fee;
   player.shortPositions[instrument.id] = position;
   return { success: true, action: 'open-short', instrumentId: instrument.id, quantity: amount, quote, fee, collateral, position: { ...position } };
 }
@@ -255,10 +224,6 @@ function coverShort(game, player, { instrument, amount, inventory }) {
   // prorated portion here and retire it, so partial covers cannot
   // re-charge the same fee twice.
   const feePortion = Math.ceil(Number(position.borrowFee || 0) * (amount / Math.max(1, Number(position.quantity) || 0)));
-  // The open-time trade fee was already taken out of the proceeds; it is
-  // retired here so the closed short reports every fee it paid.
-  const openingFees = player.shortOpeningFees || (player.shortOpeningFees = {});
-  const openingFeePortion = Math.ceil(Number(openingFees[instrument.id] || 0) * (amount / Math.max(1, Number(position.quantity) || 0)));
   const total = gross + fee + feePortion;
   if (cashAvailable + collateralRelease < total) return { success: false, error: 'You cannot cover this short at the current quote.' };
   const cashRequired = Math.max(0, total - collateralRelease);
@@ -268,12 +233,8 @@ function coverShort(game, player, { instrument, amount, inventory }) {
   position.quantity -= amount;
   position.collateral = Math.max(0, position.collateral - collateralRelease);
   position.borrowFee = Math.max(0, Number(position.borrowFee || 0) - feePortion);
-  openingFees[instrument.id] = Math.max(0, Number(openingFees[instrument.id] || 0) - openingFeePortion);
-  const pnl = (position.entryQuote - quote) * amount - fee - feePortion - openingFeePortion;
-  if (!position.quantity) {
-    delete player.shortPositions[instrument.id];
-    delete openingFees[instrument.id];
-  }
+  const pnl = (position.entryQuote - quote) * amount - fee - feePortion;
+  if (!position.quantity) delete player.shortPositions[instrument.id];
   return { success: true, action: 'cover-short', instrumentId: instrument.id, quantity: amount, quote, fee, collateralReleased: collateralRelease, realizedPnl: pnl };
 }
 
@@ -436,7 +397,7 @@ function canOpenShort(game, player, canOpen) {
 
 function canOpenOption(game, player, canOpen) {
   // Without a server pricing policy every option order fails closed
-  // (OPTION_TERMS_SERVER_REQUIRED): never advertise a candidate that
+  // (OPTION_TERMS_SERVER_REQUIRED) — never advertise a candidate that
   // cannot succeed.
   return canOpen && complexityAllows(game, 'derivatives') && Boolean(game.optionPricingPolicy) && player.cash > 100;
 }
@@ -464,9 +425,6 @@ function forceShortBuyIn(game, player, { id, position, quantity, inventory }) {
   player.shortDefaultDebt = nonNegativeNumber(player.shortDefaultDebt) + Math.max(0, cashRequired - cashUsed);
   inventory[id] = nonNegativeNumber(inventory[id]) + quantity;
   delete player.shortPositions[id];
-  // The forced close retires the position, so the open-time fee it carried is
-  // spent with it and must not be charged again on a later cover.
-  if (player.shortOpeningFees) delete player.shortOpeningFees[id];
   return { success: true, action: 'short-buy-in-default', shortfall: Math.max(0, cashRequired - cashUsed) };
 }
 
@@ -480,13 +438,9 @@ function settleShortDefault(game, player, requestedAmount = null) {
   const parsedRequested = hasRequestedAmount ? Number(requestedAmount) : outstanding;
   if (!Number.isInteger(parsedRequested) || parsedRequested <= 0) return { success: false, error: 'Short-default repayment must be a positive whole amount.' };
   const due = Math.min(outstanding, Math.floor(parsedRequested));
-  // A leading auction bid is reserved cash: repaying the buy-in must not void it.
-  const cash = Math.max(0, Math.floor(Number(player.cash) || 0));
-  const available = typeof game?.spendableCash === 'function'
-    ? Math.min(cash, Math.max(0, Math.floor(Number(game.spendableCash(player)) || 0)))
-    : cash;
+  const available = Math.max(0, Math.floor(Number(player.cash) || 0));
   const paid = Math.min(available, due);
-  player.cash = cash - paid;
+  player.cash = available - paid;
   player.shortDefaultDebt = outstanding - paid;
   const remaining = player.shortDefaultDebt;
   if (paid > 0) game?.feedMessage?.(`${player.nickname || 'Player'} paid $${paid} toward short buy-in debt.`);
@@ -514,23 +468,6 @@ function hasMarginExposure(player) {
   return Object.keys(player.marginPositions || {}).length > 0 || Number(player.marginBalance) > 0;
 }
 
-// A forced margin sale is a realized trade, not a silent write-off: the
-// proceeds sit against the cost basis of the units that were sold, and the
-// difference is reported on the instrument's spot position.
-function recordForcedMarginPnl(game, player) {
-  Object.entries(player.marginPositions || {}).forEach(([id, position]) => {
-    const quantity = Math.max(0, Number(position?.quantity) || 0);
-    if (!quantity) return;
-    const quote = Math.max(0, Number(game.marketQuotes?.[id]) || 0);
-    const proceeds = Math.max(0, Math.floor(quote * quantity * 0.98));
-    const cost = (Number(position.averageCost) || 0) * quantity;
-    player.marketPositions ||= {};
-    const spot = player.marketPositions[id] || { quantity: 0, averageCost: 0, realizedPnl: 0 };
-    spot.realizedPnl = (Number(spot.realizedPnl) || 0) + (proceeds - cost);
-    player.marketPositions[id] = spot;
-  });
-}
-
 function settleMarginPositions(game, player) {
   if (!hasMarginExposure(player)) return null;
   const proceeds = marginLiquidationProceeds(game, player);
@@ -539,17 +476,12 @@ function settleMarginPositions(game, player) {
   const available = proceeds + collateral;
   const repayment = Math.min(debt, available);
   player.cash = Math.max(0, Number(player.cash) || 0) + Math.max(0, available - repayment);
-  const unpaid = Math.max(0, debt - repayment);
-  // The liquidation closes the position, so no margin debt may survive it. Whatever the collateral and sale could not cover stays owed
-  // to the house as an explicit obligation; dropping it would hand the seat money it never earned.
-  player.shortDefaultDebt = nonNegativeNumber(player.shortDefaultDebt) + unpaid;
-  player.marginBalance = 0;
+  player.marginBalance = Math.max(0, debt - repayment);
   player.marginMaintenance = 0;
   player.marginCollateral = 0;
   player.reservedCash = Math.max(0, Number(player.reservedCash) - collateral);
-  recordForcedMarginPnl(game, player);
   player.marginPositions = {};
-  return { success: true, action: 'margin-liquidation', proceeds, collateral, repayment, remaining: unpaid };
+  return { success: true, action: 'margin-liquidation', proceeds, collateral, repayment, remaining: player.marginBalance };
 }
 
 function settleOptionOnExit(game, player, option) {
@@ -559,15 +491,7 @@ function settleOptionOnExit(game, player, option) {
     player.reservedCash = Math.max(0, Number(player.reservedCash) - collateral);
   } else {
     ensureOptionReserve(game);
-    const reserveHeld = Math.max(0, Number(option.reserveHeld) || 0);
-    // A buyer option still worth its intrinsic value is paid out of the
-    // reserve it already holds; the unused part returns to the house. An
-    // option past its expiry is worthless, exactly as expiry settles it.
-    const expired = Number(game.roundNumber) > Number(option.expiryRound);
-    const intrinsic = expired ? 0 : optionIntrinsic(option, optionQuote(game, option));
-    const payout = Math.min(intrinsic * (Number(option.quantity) || 0), reserveHeld);
-    player.cash = Math.max(0, Number(player.cash) || 0) + payout;
-    game.marketOptionReserve += reserveHeld - payout;
+    game.marketOptionReserve += Math.max(0, Number(option.reserveHeld) || 0);
   }
   option.reserveHeld = 0;
   option.collateral = 0;

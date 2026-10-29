@@ -1,6 +1,9 @@
-// GAME SAVE: local persist and resume for the live table, plus the shared restore-session ack.
-// emitServer, setConnectionStatus, showView and renderAll come from the entry module.
-// Storage keys and payload fields must stay verbatim.
+/* ============================================================
+   GAME SAVE: local persist/resume for the live table plus the
+   shared restore-session ack (A4-F2). emitServer,
+   setConnectionStatus, showView and renderAll are injected by
+   the entry module; storage keys and payload fields are verbatim.
+   ============================================================ */
 import { state } from "./clientState.js";
 import { applyProfileToHomeUI } from "./clientProfileRender.js";
 import { parlorNotice } from "./clientSocialSurfaces.js";
@@ -77,7 +80,7 @@ function clearSave() {
   try { localStorage.removeItem(SAVE_KEY); } catch { /* ignore */ }
 }
 
-/** Shared restore-session ack: report real failures visibly, clear the
+/** Shared restore-session ack (A4-F2): report real failures visibly, clear the
     room mute, and only return to the parlor view when the player is mid-room. */
 function reportRestoreFailure(response, explicit) {
   if (!explicit && state.phase === "home") return;
@@ -111,7 +114,7 @@ function applyRestoredSession(response, explicit) {
   state.suppressRoomUpdates = false;
   if (Object.prototype.hasOwnProperty.call(response, "roomCode")) state.roomCode = response.roomCode || state.roomCode;
   if (response.visibility) applyRestoredVisibility(response.visibility);
-  // An explicit "Resume round" click always returns to the parlor: it is the
+  // An explicit "Resume round" click always returns to the parlor — it is the
   // documented escape from a stuck mute; a background reconnect only re-asserts
   // the view when the player never left the room session.
   if (explicit || state.phase !== "home") host.showView("game");
@@ -132,8 +135,8 @@ function handleRestoreSessionResponse(response, explicit = false) {
 }
 
 function resumeGame() {
-  // Clear the room mute before the session request, so restored snapshots can render again
-  // and "Resume round" always acts.
+  // Clear the room mute before asking for the session so the restored
+    // snapshots can render again ("Resume round" was a dead no-op, A6-F2).
     state.suppressRoomUpdates = false;
     host.emitServer("restore-session", {}, (response) => handleRestoreSessionResponse(response, true));
     return;

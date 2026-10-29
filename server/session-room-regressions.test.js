@@ -62,13 +62,6 @@ check('host reassignment candidates never include bots', () => {
   runtime.reassignHostIfNeeded(room, room.hostId);
   assert.equal(room.game.getPlayerById(room.hostId)?.isBot ?? false, false);
   assert.equal(room.hostId, null);
-  // No connected human existed to take the seat, so the room waits. When the
-  // human returns on the same clientId (the departed host still gone) the
-  // election is repaired, not left null.
-  room.game.getPlayerByClient('host').disconnected = true;
-  manager.restoreConnection('human', 'human-socket-back', null);
-  assert.equal(room.hostId, room.game.getPlayerByClient('human').id);
-  assert.equal(room.game.players.filter(player => player.isHost).map(player => player.nickname).join(','), 'Human');
 });
 
 check('expired disconnected seats are pruned before a rematch', () => {
@@ -125,7 +118,9 @@ check('invites bind immutable room identity and prune expired rows on reads', ()
   assert.equal(store.invites.some(invite => invite.id === created.invite.id), false);
 });
 
-// The exit code is evaluated at the exit call from every recorded failure, so
-// a trailing exit(0) can never mask a failure that check() has recorded.
-console.log(failures.length ? `\nsession-room regressions: ${failures.length} failed` : '\nsession-room regressions: all passed');
-process.exit(failures.length ? 1 : 0);
+if (failures.length) {
+  console.log(`\nsession-room regressions: ${failures.length} failed`);
+  process.exit(1);
+}
+console.log('\nsession-room regressions: all passed');
+process.exit(0);

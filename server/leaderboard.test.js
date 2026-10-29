@@ -1,11 +1,12 @@
-// Characterization suite for the leaderboard read model. It pins the exact rank order and value each metric yields for a fixed
-// three-account fixture, captured from the pre-refactor getLeaderboard and getWindowStats. The metric ladder may be reshaped
-// (ternary chain to table) only while this stays green.
+// Characterization suite for the leaderboard read model. It pins the exact
+// rank order and value each metric yields for a fixed three-account fixture,
+// captured from the pre-refactor getLeaderboard/getWindowStats. The metric
+// ladder may be reshaped (ternary chain -> table) only while this stays green.
 import assert from 'assert';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { AccountStore, PARLOR_PATROL_ENABLED } from './accountStore.js';
+import { AccountStore } from './accountStore.js';
 
 // username:value rows in leaderboard order, captured from the current build.
 const GOLDEN = {
@@ -22,7 +23,8 @@ const GOLDEN = {
   market: ['alice:80', 'carol:20', 'bob:10'],
   playerloans: ['alice:4', 'carol:0', 'bob:0'],
   equity: ['alice:3', 'carol:1', 'bob:0'],
-  loans: ['alice:5', 'carol:2', 'bob:0']
+  loans: ['alice:5', 'carol:2', 'bob:0'],
+  patrol: ['alice:900', 'bob:100', 'carol:50']
 };
 
 function buildStore() {
@@ -50,10 +52,10 @@ function check(name, fn) {
   try {
     fn();
     results.push(true);
-    console.log(`PASS - ${name}`);
+    console.log(`PASS — ${name}`);
   } catch (error) {
     results.push(false);
-    console.log(`FAIL - ${name}: ${error.message}`);
+    console.log(`FAIL — ${name}: ${error.message}`);
   }
 }
 
@@ -61,20 +63,8 @@ const store = buildStore();
 for (const metric of Object.keys(GOLDEN)) {
   check(`leaderboard metric ${metric}`, () => assert.deepStrictEqual(rank(store, metric), GOLDEN[metric]));
 }
-check('patrol ranks server-derived scores while preserving legacy records', () => {
-  assert.strictEqual(PARLOR_PATROL_ENABLED, true);
-  assert.deepStrictEqual(rank(store, 'patrol'), [], 'legacy-only scores do not enter the leaderboard');
-  const alice = store.accounts.get('alice');
-  const bob = store.accounts.get('bob');
-  assert.strictEqual(store.recordPatrolResult(alice.id, { score: 125 }).success, true);
-  assert.strictEqual(store.recordPatrolResult(bob.id, { score: 200 }).success, true);
-  assert.deepStrictEqual(rank(store, 'patrol'), ['bob:200', 'alice:125']);
-  assert.strictEqual(alice.stats.patrolBest, 900, 'legacy personal best remains readable');
-  assert.strictEqual(alice.stats.patrolAceRuns, 3, 'legacy ace count remains readable');
-  assert.deepStrictEqual(store.getLeaderboardSnapshot(['patrol', 'wins']).metrics.patrol.map(row => row.value), [200, 125]);
-});
 check('snapshot exposes the full metric set', () => {
-  assert.deepStrictEqual(Object.keys(store.getLeaderboardSnapshot().metrics), [...Object.keys(GOLDEN), 'patrol']);
+  assert.deepStrictEqual(Object.keys(store.getLeaderboardSnapshot().metrics), Object.keys(GOLDEN));
 });
 check('window stats with no cutoff mirror stored stats', () => {
   const alice = store.accounts.get('alice');

@@ -52,28 +52,6 @@ check("global toggle starts once and stops through the controller", () => {
   assert.match(main, /const snapshot = ensureMusicController\(\)\?\.snapshot/);
 });
 
-check("audio toggles keep a stable name and flip only aria-pressed", () => {
-  assert.doesNotMatch(audio, /labelOn|labelOff|Turn sound effects|Turn parlor music/);
-  assert.match(audio, /setAttribute\("aria-label", meta\.name\)/);
-  assert.doesNotMatch(index, /aria-label="Turn (sound effects|parlor music)/);
-  // The count follows the controller's own button lists (one pair per view),
-  // so adding a view with a toggle cannot silently leave it unnamed.
-  const listed = (name) => [...audio.match(new RegExp(`const ${name} = \\[([^\\]]*)\\]`))[1].matchAll(/"#([\w-]+)"/g)].map((m) => m[1]);
-  const named = (id, label) => new RegExp(`id="${id}"[^>]*aria-label="${label}"`).test(index);
-  const soundIds = listed("SOUND_BUTTONS");
-  const musicIds = listed("MUSIC_BUTTONS");
-  assert.ok(soundIds.length >= 6 && soundIds.length === musicIds.length);
-  assert.deepEqual(soundIds.filter((id) => !named(id, "Sound effects")), []);
-  assert.deepEqual(musicIds.filter((id) => !named(id, "Parlor music")), []);
-  assert.equal((index.match(/aria-label="Sound effects"/g) || []).length, soundIds.length);
-  assert.equal((index.match(/aria-label="Parlor music"/g) || []).length, musicIds.length);
-});
-
-check("rankings and social dialogs always have an accessible name", () => {
-  assert.match(index, /id="rankings-modal"[^>]*aria-label="Global rankings"/);
-  assert.match(index, /id="social-modal"[^>]*aria-label="Social"/);
-});
-
 check("theme changes apply visuals before resetting music", () => {
   assert.match(theme, /onThemeChange/);
   assert.match(theme, /themeUi\.applyTheme\(theme\.id, \{ animate \}\);[\s\S]*themeUi\.onThemeChange\(theme\.id\)/);

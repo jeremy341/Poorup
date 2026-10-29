@@ -1,9 +1,13 @@
-// Characterization suite for the trade negotiation and bot-candidate generator regions of GameState (proposeTrade, respondToTrade,
-// getBotCandidates). Assertions are pinned against the pre-refactor implementation: exact rejection strings, escrow and settlement
-// cash math, ownership deltas, pendingTrade lifecycle, feed texts, and deep-equal candidate arrays (id, kind, score, risk, tie order) per cash level.
+// Characterization suite for the trade negotiation and bot-candidate
+// generator regions of GameState (proposeTrade / respondToTrade /
+// getBotCandidates). Every assertion is pinned against the pre-refactor
+// implementation: exact rejection strings, escrow/settlement cash math,
+// ownership deltas, pendingTrade lifecycle, feed texts, and full deep-equal
+// candidate arrays (id/kind/score/risk and tie-order) per
+// cash level. getBotCandidates uses no RNG (market quotes and loan terms are
+// deterministic here), so no Math.random stubbing is required.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
-import { vetoTrade } from './botTradeValuation.js';
 
 let passed = 0;
 const failures = [];
@@ -19,12 +23,12 @@ function check(name, fn) {
   }
 }
 
-// Fixtures
+// --- Fixtures ---------------------------------------------------------------
 
 function makeRoom(roomCode, nicknames) {
   const manager = new RoomManager();
   const [first, ...rest] = nicknames;
-  const room = manager.createRoom({ rulesProfile: 'advanced', socketId: `socket-${first.toLowerCase()}`, clientId: `client-${first.toLowerCase()}`, nickname: first, roomCode });
+  const room = manager.createRoom({ socketId: `socket-${first.toLowerCase()}`, clientId: `client-${first.toLowerCase()}`, nickname: first, roomCode });
   rest.forEach(nickname => {
     room.addOrReconnectPlayer({ socketId: `socket-${nickname.toLowerCase()}`, clientId: `client-${nickname.toLowerCase()}`, nickname });
   });
@@ -51,7 +55,7 @@ function own(room, player, indexes) {
   });
 }
 
-// proposeTrade: rejection matrix
+// --- proposeTrade: rejection matrix ------------------------------------------
 
 check('propose rejects unknown partner, self-trade, and unknown sender', () => {
   const room = tradeRoom();
@@ -103,7 +107,7 @@ check('propose rejects while a player contract is pending', () => {
   game.currentPlayerId = a.id;
   const contract = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 50, premiumRate: 10, durationRounds: 2 });
   assert.equal(contract.success, true);
-  assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 10 }), { success: false, error: 'Resolve the pending player contract before proposing a trade.' });
+  assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 10 }), { success: false, error: 'Another trade is already pending.' });
   assert.equal(game.pendingPlayerContract.id, contract.contract.id);
 });
 
@@ -125,20 +129,19 @@ check('propose rejects non-finite cash and checks finiteness before properties',
   assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, requestCash: 'xyz', givePropertyIndexes: [99] }), { success: false, error: 'Cash values must be valid numbers.' });
 });
 
-check('propose rejects offered tiles not owned, developed, encumbered, or unknown', () => {
+check('propose rejects offered tiles not owned, encumbered, or unknown', () => {
   const room = tradeRoom();
   const game = room.game;
   const a = playerOf(room, 'client-a');
   const b = playerOf(room, 'client-b');
   own(room, a, [1, 6]);
-  const giveError = 'You can only offer properties that you own and that have no buildings, collateral, or equity shares.';
+  const giveError = 'You can only offer properties that you own and that have no houses, hotels, or mortgage.';
   assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, givePropertyIndexes: [3] }), { success: false, error: giveError });
   game.getTile(1).houseCount = 1;
   assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, givePropertyIndexes: [1] }), { success: false, error: giveError });
   game.getTile(1).houseCount = 0;
   game.getTile(1).mortgaged = true;
-  assert.equal(game.proposeTrade('socket-a', { toPlayerId: b.id, givePropertyIndexes: [1] }).success, true, 'a mortgaged deed can be traded');
-  game.pendingTrade = null;
+  assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, givePropertyIndexes: [1] }), { success: false, error: giveError });
   game.getTile(1).mortgaged = false;
   game.getTile(6).equityShares = [{ holderId: b.id, share: 20 }];
   assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, givePropertyIndexes: [6] }), { success: false, error: giveError });
@@ -157,10 +160,10 @@ check('propose rejects requested tiles not owned by the partner or encumbered', 
   game.getTile(1).houseCount = 2;
   assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, requestPropertyIndexes: [1] }), { success: false, error: 'The requested properties are not available for trade.' });
   game.getTile(1).houseCount = 0;
-  // A mortgage does not make the offered deed unavailable; the invalid requested deed wins.
+  // The offered-property error wins over the requested-property one.
   own(room, a, [6]);
   game.getTile(6).mortgaged = true;
-  assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, givePropertyIndexes: [6], requestPropertyIndexes: [3] }), { success: false, error: 'The requested properties are not available for trade.' });
+  assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, givePropertyIndexes: [6], requestPropertyIndexes: [3] }), { success: false, error: 'You can only offer properties that you own and that have no houses, hotels, or mortgage.' });
 });
 
 check('propose rejects when the sender cannot cover the offered cash', () => {
@@ -173,7 +176,7 @@ check('propose rejects when the sender cannot cover the offered cash', () => {
   assert.equal(game.pendingTrade, null);
 });
 
-// proposeTrade: acceptance and normalization
+// --- proposeTrade: acceptance and normalization -------------------------------
 
 check('propose accepts a cash-only offer, stores normalized legs, and feeds', () => {
   const room = tradeRoom();
@@ -236,53 +239,7 @@ check('room-level proposeTrade and respondToTrade delegate to the game', () => {
   assert.deepEqual(room.respondToTrade('socket-b', { tradeId: result.trade.id, accept: false }), { success: true, accepted: false });
 });
 
-check('trades are refused when the game is not running (lobby or after the game ended)', () => {
-  const room = tradeRoom();
-  const game = room.game;
-  const a = playerOf(room, 'client-a');
-  const b = playerOf(room, 'client-b');
-  const pending = game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 100 });
-  assert.equal(pending.success, true);
-  game.started = false;
-  assert.deepEqual(game.respondToTrade('socket-b', { tradeId: pending.trade.id, accept: true }), { success: false, error: 'The game is not running.' });
-  assert.equal(a.cash, 1500);
-  assert.equal(b.cash, 1500);
-  game.pendingTrade = null;
-  assert.deepEqual(game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 100 }), { success: false, error: 'The game is not running.' });
-  assert.equal(game.pendingTrade, null);
-});
-
-check('a retried propose replays the live offer, and a dead offer is never replayed', () => {
-  const room = tradeRoom();
-  const game = room.game;
-  const b = playerOf(room, 'client-b');
-  const first = game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 50, requestId: 'req-1' });
-  assert.equal(first.success, true);
-  const retry = game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 50, requestId: 'req-1' });
-  assert.equal(retry.success, true, 'the retry after a lost ack sees the offer, not an error');
-  assert.equal(retry.trade.id, first.trade.id);
-  assert.equal(game.feed.filter(entry => entry.text.includes('sent a trade offer')).length, 1);
-  assert.equal(game.respondToTrade('socket-b', { tradeId: first.trade.id, accept: false }).success, true);
-  assert.equal(game.pendingTrade, null);
-  const afterDecline = game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 50, requestId: 'req-1' });
-  assert.equal(afterDecline.success, true);
-  assert.notEqual(afterDecline.trade.id, first.trade.id, 'a declined offer is not handed back as live');
-  assert.equal(game.pendingTrade.id, afterDecline.trade.id);
-});
-
-check('respond-trade accepts only a literal true', () => {
-  for (const accept of ['false', 'no', 1, {}, [], 'true', undefined]) {
-    const room = tradeRoom();
-    const game = room.game;
-    const b = playerOf(room, 'client-b');
-    const offer = game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 100 });
-    const result = game.respondToTrade('socket-b', { tradeId: offer.trade.id, accept });
-    assert.deepEqual(result, { success: true, accepted: false }, `accept ${JSON.stringify(accept)} must decline`);
-    assert.equal(b.cash, 1500);
-  }
-});
-
-// respondToTrade: lifecycle rejections
+// --- respondToTrade: lifecycle rejections --------------------------------------
 
 check('respond rejects unknown sockets, missing trades, and stale ids', () => {
   const room = tradeRoom();
@@ -328,7 +285,7 @@ check('declining feeds the receiver message, clears pending, and keeps counters'
   assert.equal(game.pendingTrade, null);
 });
 
-// respondToTrade: acceptance-time validation
+// --- respondToTrade: acceptance-time validation ---------------------------------
 
 check('accept clears the trade when a participant died or left', () => {
   const mutations = [
@@ -379,6 +336,8 @@ check('accept rejects properties that stopped being tradable', () => {
   const cases = [
     { give: true, mutate: game => { game.getTile(1).ownerId = 'someone-else'; }, error: 'One of the offered properties is no longer tradable.' },
     { give: true, mutate: game => { game.getTile(1).houseCount = 1; }, error: 'One of the offered properties is no longer tradable.' },
+    { give: true, mutate: game => { game.getTile(1).mortgaged = true; }, error: 'One of the offered properties is no longer tradable.' },
+    { give: false, mutate: game => { game.getTile(6).mortgaged = true; }, error: 'One of the requested properties is no longer tradable.' },
     { give: false, mutate: game => { game.getTile(6).equityShares = [{ holderId: 'x', share: 10 }]; }, error: 'One of the requested properties is no longer tradable.' }
   ];
   for (const testCase of cases) {
@@ -396,18 +355,7 @@ check('accept rejects properties that stopped being tradable', () => {
   }
 });
 
-check('trade requires clearing every building across the owned color set', () => {
-  const room = tradeRoom();
-  const game = room.game;
-  const a = playerOf(room, 'client-a');
-  const b = playerOf(room, 'client-b');
-  own(room, a, [1, 3]);
-  game.getTile(3).houseCount = 1;
-  assert.equal(game.proposeTrade('socket-a', { toPlayerId: b.id, givePropertyIndexes: [1] }).success, false);
-  assert.equal(game.proposeTrade('socket-a', { toPlayerId: b.id, givePropertyIndexes: [3] }).success, false);
-});
-
-// respondToTrade: settlement
+// --- respondToTrade: settlement ------------------------------------------------
 
 check('accepted trade moves cash and ownership exactly', () => {
   const room = tradeRoom();
@@ -429,45 +377,6 @@ check('accepted trade moves cash and ownership exactly', () => {
   assert.equal(a.tradesCompleted, 1);
   assert.equal(b.tradesCompleted, 1);
   assert.equal(game.feed[0].text, 'A and B completed a trade.');
-});
-
-check('accepted trade preserves a mortgage and recipient later repays printed value plus ten percent', () => {
-  const room = tradeRoom();
-  const game = room.game;
-  const a = playerOf(room, 'client-a');
-  const b = playerOf(room, 'client-b');
-  own(room, a, [1]);
-  const deed = game.getTile(1);
-  deed.mortgaged = true;
-  const trade = game.proposeTrade('socket-a', { toPlayerId: b.id, givePropertyIndexes: [1] }).trade;
-  assert.deepEqual(game.respondToTrade('socket-b', { tradeId: trade.id, accept: true }), { success: true, accepted: true });
-  assert.equal(deed.ownerId, b.id);
-  assert.equal(deed.mortgaged, true);
-  b.cash = 0;
-  assert.deepEqual(game.manageProperty('socket-b', { tileIndex: 1, action: 'unmortgage' }), { success: false, error: 'Insufficient cash to unmortgage this property.' });
-  b.cash = Math.ceil(Math.floor(deed.price / 2) * 1.1);
-  assert.deepEqual(game.manageProperty('socket-b', { tileIndex: 1, action: 'unmortgage' }), { success: true });
-  assert.equal(deed.mortgaged, false);
-  assert.equal(b.cash, 0);
-});
-
-check('failed trade settlement rolls back mortgage and ownership together', () => {
-  const room = tradeRoom();
-  const game = room.game;
-  const a = playerOf(room, 'client-a');
-  const b = playerOf(room, 'client-b');
-  own(room, a, [1]);
-  const deed = game.getTile(1);
-  deed.mortgaged = true;
-  const trade = game.proposeTrade('socket-a', { toPlayerId: b.id, givePropertyIndexes: [1] }).trade;
-  game.markCompletedTradeFlags = () => { throw new Error('settlement rollback test'); };
-  assert.deepEqual(game.respondToTrade('socket-b', { tradeId: trade.id, accept: true }), {
-    success: false, error: 'The trade could not be completed; no assets moved.'
-  });
-  assert.equal(deed.ownerId, a.id);
-  assert.equal(deed.mortgaged, true);
-  assert.deepEqual(a.properties, [1]);
-  assert.deepEqual(b.properties, []);
 });
 
 check('cash-only accepted trade leaves properties untouched', () => {
@@ -587,29 +496,11 @@ check('a pending payment on a third player is not touched by the trade', () => {
   assert.equal(game.feed[0].text, 'A and B completed a trade.');
 });
 
-check('a failed trade settlement moves no cash and no deed', () => {
-  const room = tradeRoom();
-  const game = room.game;
-  const a = playerOf(room, 'client-a');
-  const b = playerOf(room, 'client-b');
-  own(room, a, [1]);
-  const trade = game.proposeTrade('socket-a', { toPlayerId: b.id, giveCash: 100, givePropertyIndexes: [1] }).trade;
-  game.feedMessage = () => { throw new Error('injected commit failure'); };
-  const settled = game.respondToTrade('socket-b', { tradeId: trade.id, accept: true });
-  assert.equal(settled.success, false, 'the failed settlement is reported, not thrown');
-  assert.equal(a.cash, 1500, 'no cash moved');
-  assert.equal(b.cash, 1500, 'no cash moved');
-  assert.equal(game.getTile(1).ownerId, a.id, 'the deed stayed with its owner');
-  assert.deepEqual(a.properties, [1]);
-  assert.deepEqual(b.properties, []);
-  assert.equal(game.tradesCompleted, 0);
-  assert.equal(game.pendingTrade.id, trade.id, 'the offer stays open for a retry');
-});
+// --- getBotCandidates -----------------------------------------------------------
 
-// getBotCandidates
 function botRoom(legacyPersonality, cash) {
   const manager = new RoomManager();
-  const room = manager.createRoom({ rulesProfile: 'advanced', socketId: 'socket-a', clientId: 'client-a', nickname: 'A', roomCode: 'BOTCAND', rulesetOverrides: { bankLoans: true } });
+  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A', roomCode: 'BOTCAND' });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   room.addOrReconnectPlayer({ socketId: 'socket-c', clientId: 'client-c', nickname: 'C' });
   room.setRoomSetting('bots', 1);
@@ -681,6 +572,7 @@ check('trade adjustment increments and enforces the negotiation depth cap', () =
   assert.equal(game.pendingTrade.counterDepth, 2);
   assert.deepEqual(game.adjustTrade('socket-a', { tradeId: adjustedAgain.trade.id, giveCash: 60 }), { success: false, error: 'This trade has reached its negotiation limit.' });
 });
+const tradeAsk = (partnerId, score, requestCash) => ({ id: `trade:${partnerId}:1`, kind: 'trade', toPlayerId: partnerId, givePropertyIndexes: [3], requestPropertyIndexes: [1], giveCash: 0, requestCash, risk: 0.2, score });
 check('bot can revoke its still-live trade offer after giving the table a round to respond', () => {
   const { game, bot, a } = botRoom('builder', 1500);
   game.pendingTrade = {
@@ -727,9 +619,7 @@ check('non-bots and missing players produce no candidates', () => {
 });
 
 check('candidate generation is consistent when a legacy personality value is sent', () => {
-  // Builds need the house cost plus a reserve, so this fixture is funded
-  // above that floor; the $150 mortgage fixture below stays below the mortgage cap.
-  const { game, bot } = botRoom('speculator', 1500);
+  const { game, bot } = botRoom('speculator', 150);
   assert.equal('personality' in bot, false);
   const candidates = game.getBotCandidates(bot);
   assert.ok(candidates.some(candidate => candidate.kind === 'build'));
@@ -828,29 +718,16 @@ function game_getTrade(ctx) {
   return ctx.game.getBotCandidates(ctx.bot).find(candidate => candidate.kind === 'trade');
 }
 
-// Same-group 1-for-1 swaps change nothing for either seat, so the group collector only buys the missing deed of a set the bot
-// is one short of (cash alone or another group's deed) or concentrates a stake. Fixture: the bot holds Brown 3 and a full Light Blue set; A holds Brown 1.
-check('trade candidate buys the last deed of a set the bot is one short of', () => {
+check('trade candidate needs a human partner and a same-group deed on both sides', () => {
   const ctx = botRoom('diplomat', 500);
   const hasTrade = () => kindsOf(ctx).includes('trade');
-  assert.equal(hasTrade(), true);
-  const offer = game_getTrade(ctx);
-  assert.equal(offer.toPlayerId, ctx.a.id);
-  assert.deepEqual(offer.givePropertyIndexes, [], 'the Light Blue set is not for sale, so the offer is cash alone');
-  assert.deepEqual(offer.requestPropertyIndexes, [1]);
-  assert.equal(offer.requestCash, 0);
-  assert.equal(offer.giveCash, 114, 'the bot pays the 2x monopoly premium (2 x 57) rather than asking for cash');
-  assert.equal(offer.score, 36, 'a set completer carries the +28 completion bonus on the base 8');
-  // The partner is not handed a set, so its cash is irrelevant (it must not veto the swap).
+  // A (cash 1500) is build-ready: handing over Rio would complete A's Brown
+  // monopoly, so the bot no longer proposes the swap (monopoly veto).
+  assert.equal(hasTrade(), false);
+  // A cash-strapped partner cannot build houses yet: the swap is proposed.
   ctx.a.cash = 0;
   assert.equal(hasTrade(), true);
-  // A cash-poor bot cannot fund the premium above its reserve: no offer.
-  ctx.bot.cash = 300;
-  assert.equal(hasTrade(), false);
-  ctx.bot.cash = 500;
-  assert.equal(hasTrade(), true);
-  // A same-group swap is never generated: it would change nothing for either seat.
-  assert.equal(game_tradeList(ctx).some(entry => entry.givePropertyIndexes.includes(3)), false);
+  assert.deepEqual(game_getTrade(ctx), tradeAsk(ctx.a.id, 8, 60));
   ctx.game.getTile(1).ownerId = null;
   ctx.a.properties = [];
   assert.equal(hasTrade(), false);
@@ -860,19 +737,14 @@ check('trade candidate buys the last deed of a set the bot is one short of', () 
   own(ctx2.room, ctx2.a, [11]);
   assert.equal(kindsOf(ctx2).includes('trade'), false);
   const ctx3 = botRoom('diplomat', 500);
-  ctx3.game.getTile(1).houseCount = 1;
-  assert.equal(kindsOf(ctx3).includes('trade'), false, 'a deed with houses on it is not tradeable');
+  ctx3.game.getTile(3).houseCount = 1;
+  assert.equal(kindsOf(ctx3).includes('trade'), false);
   const ctx4 = botRoom('diplomat', 500);
   ctx4.a.disconnected = true;
   assert.equal(hasTradeIn(ctx4), false);
 });
 
-function game_tradeList(ctx) {
-  return ctx.game.getBotCandidates(ctx.bot).filter(candidate => candidate.kind === 'trade');
-}
-
-function hasTradeIn(ctx) {
-  return kindsOf(ctx).includes('trade');
+function hasTradeIn(ctx) {  return kindsOf(ctx).includes('trade');
 }
 
 check('post-roll with a foreign purchase offer still offers end-turn', () => {
@@ -887,13 +759,8 @@ check('build candidates follow full-set and even-build rules; mortgages drop enc
   const ctx = botRoom('builder', 150);
   ctx.game.getTile(6).houseCount = 1;
   const candidates = ctx.game.getBotCandidates(ctx.bot);
-  // At $150 no house leaves the reserve, so builds are withheld and the
-  // mortgage ladder (cash under $180) is what the bot may use.
-  assert.deepEqual(candidates.filter(candidate => candidate.kind === 'build').map(candidate => candidate.tileIndex), []);
+  assert.deepEqual(candidates.filter(candidate => candidate.kind === 'build').map(candidate => candidate.tileIndex), [8, 9]);
   assert.deepEqual(candidates.filter(candidate => candidate.kind === 'mortgage').map(candidate => candidate.tileIndex), [3]);
-  ctx.bot.cash = 1500;
-  const funded = ctx.game.getBotCandidates(ctx.bot);
-  assert.deepEqual(funded.filter(candidate => candidate.kind === 'build').map(candidate => candidate.tileIndex), [8, 9]);
 });
 
 check('player-loan repayment candidates pay due balances first and preserve active liquidity', () => {
@@ -905,7 +772,7 @@ check('player-loan repayment candidates pay due balances first and preserve acti
   ];
   const repayments = ctx.game.getBotCandidates(ctx.bot).filter(candidate => candidate.kind === 'repay');
   assert.deepEqual(repayments, [
-    { id: 'repay:due-loan', kind: 'repay', contractId: 'due-loan', amount: 200, remaining: 200, risk: 0.05, score: 32, mandatory: true },
+    { id: 'repay:due-loan', kind: 'repay', contractId: 'due-loan', amount: 200, remaining: 200, risk: 0.05, score: 32 },
     { id: 'repay:active-loan', kind: 'repay', contractId: 'active-loan', amount: 320, remaining: 400, risk: 0.64, score: 11 }
   ]);
 });
@@ -1011,30 +878,24 @@ check('parity mode exposes market sell candidates', () => {
   assert.equal(sell.quantity, 2);
 });
 
-check('parity mode exposes proactive loan and rent-share offers without retired hybrids', () => {
+check('parity mode exposes proactive loan, equity, and hybrid offers', () => {
   const ctx = botRoom('diplomat', 1000);
   ctx.a.cash = 80;
   own(ctx.room, ctx.a, [1]);
   const offers = ctx.game.getBotCandidates(ctx.bot, { parity: true }).filter(candidate => candidate.kind === 'contract-propose');
   assert.equal(offers.some(candidate => candidate.offer.kind === 'loan'), true);
   assert.equal(offers.some(candidate => candidate.offer.kind === 'equity'), true);
-  assert.equal(offers.some(candidate => candidate.offer.kind === 'hybrid'), false);
+  assert.equal(offers.some(candidate => candidate.offer.kind === 'hybrid'), true);
 });
 
 check('parity mode exposes bounded multi-leg trade candidates', () => {
   const ctx = botRoom('diplomat', 1000);
   for (const player of ctx.game.players) player.properties = [];
   for (const tile of ctx.game.tiles) if (tile.group) tile.ownerId = null;
-  // Loose deeds (Light Blue 6, Pink 11) for Brown 3 and Light Blue 9, which finishes
-  // the bot's Brown pair. The old fixture swapped equal-priced deeds of the same
-  // groups, which is value-neutral and is not proposed.
-  own(ctx.room, ctx.bot, [1, 6, 11]);
-  own(ctx.room, ctx.a, [3, 8, 9]);
+  own(ctx.room, ctx.bot, [1, 6]);
+  own(ctx.room, ctx.a, [3, 8]);
   const rich = ctx.game.getBotCandidates(ctx.bot, { parity: true }).filter(candidate => candidate.kind === 'trade' && candidate.rich);
   assert.equal(rich.some(candidate => candidate.givePropertyIndexes.length > 1 || candidate.requestPropertyIndexes.length > 1), true);
-  const offer = rich.find(candidate => candidate.requestPropertyIndexes.length === 2);
-  assert.ok(offer.strategicValue >= 20 && offer.partnerGain >= 0, 'the swap has a real gain for the bot and costs the partner nothing');
-  assert.equal(vetoTrade(ctx.game, { fromPlayerId: ctx.bot.id, toPlayerId: ctx.a.id, ...offer }, ctx.a.id).vetoed, false, 'the partner is paid for the set it hands over');
 });
 
 check('parity mode exposes throttled table-talk for bot seats', () => {
@@ -1046,7 +907,7 @@ check('parity mode exposes throttled table-talk for bot seats', () => {
   assert.equal(ctx.game.getBotCandidates(ctx.bot, { parity: true }).some(candidate => candidate.kind === 'chat'), false);
 });
 
-console.log(`\n${passed + failures.length} trade/candidate checks, ${passed} passed, ${failures.length} failed`);
+console.log(`\n${passed + failures.length} trade/candidate checks — ${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   process.exitCode = 1;
 }

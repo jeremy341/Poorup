@@ -17,29 +17,24 @@ function fixture(doubleGo) {
   return { game, player };
 }
 
-let passed = 0;
 const normal = fixture(false);
 normal.game.movePlayer(normal.player, 40);
 assert.equal(normal.player.cash, 1200);
-passed += 1;
 
 const boosted = fixture(true);
 boosted.game.movePlayer(boosted.player, 40);
 assert.equal(boosted.player.cash, 1400);
-passed += 1;
 
 const pass = fixture(true);
 pass.player.position = 38;
 pass.game.movePlayer(pass.player, 3);
 assert.equal(pass.player.cash, 1200);
-passed += 1;
 
 const cardMove = fixture(true);
 cardMove.player.position = 35;
 cardMove.player.cash = 1000;
 cardMove.game.applyCard(cardMove.player, { action: 'moveTo', tileIndex: 0 }, {});
 assert.equal(cardMove.player.cash, 1400, 'landing on Start via a card uses the Double GO reward');
-passed += 1;
 
 const catchup = fixture(false);
 catchup.game.players[1].cash = 2000;
@@ -47,6 +42,5 @@ catchup.player.cash = 100;
 catchup.player.position = 38;
 catchup.game.movePlayer(catchup.player, 3);
 assert.equal(catchup.player.cash, 400, 'strictly-last seat collects salary plus the $100 catch-up bonus');
-passed += 1;
 
-console.log(`double GO: ${passed} passed, 0 failed`);
+console.log('double GO: 5 passed, 0 failed');

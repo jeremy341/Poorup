@@ -1,16 +1,44 @@
-// Game state for one room: players, turns, the board, and the rules that
-// connect them. Domain methods are attached from the mixin modules below.
 import { createMarketQuotePoint, freshMarketQuotes, MARKET_INSTRUMENTS } from './marketLogic.js';
-import { DEFAULT_ROOM_SETTINGS, stripRetiredRoomSettings } from './roomSettings.js';
-import { resolveRuleset } from './rulesetRegistry.js';
-import { START_TILE_INDEX } from './gameData.js';
+import {
+  equityShareContractLive,
+  playerContractSummary,
+  processContracts,
+  proposeContract,
+  proposeEquityShareTransfer,
+  counterContract,
+  adjustContract,
+  repayContract,
+  respondContract,
+  settleEquityShares
+} from './contractLogic.js';
+import {
+  bankLoanOffer,
+  bankLoanTerms,
+  defaultBankLoan,
+
+  processBankLoans,
+  repayBankLoan,
+  takeBankLoan
+} from './loanLogic.js';
+import {
+  canBuildOnTile,
+  canMortgageTile,
+  canSellFromTile,
+  canUnmortgageTile,
+  isTradeableTile
+} from './propertyRules.js';
+import { DEFAULT_ROOM_SETTINGS } from './roomSettings.js';
+import {
+  JAIL_FINE,
+  JAIL_MAX_TURNS,
+  START_TILE_INDEX,
+  rollDice,
+  shuffleArray
+} from './gameData.js';
 import { globalEventsApi } from './globalEventsApi.js';
 import { rentApi } from './rentApi.js';
 import { tileApi } from './tileApi.js';
-import { airportApi } from './airportApi.js';
-import { bankAccountApi } from './bankAccountApi.js';
 import { cardApi } from './cardApi.js';
-import { itemApi } from './itemApi.js';
 import { propertyApi } from './propertyApi.js';
 import { AUCTION_DURATION_MS, auctionApi } from './auctionApi.js';
 import { economyApi } from './economyApi.js';
@@ -21,14 +49,10 @@ import { APPEARANCE_PRESET_COLORS, appearanceApi } from './appearanceApi.js';
 import { botApi } from './botApi.js';
 import { Room, RoomManager } from './rooms.js';
 import { summaryApi } from './summaryApi.js';
-import { decksForVariant, tilesForVariant } from './boardRegistry.js';
+import { decksForVariant, tileIndexById, tilesForVariant } from './boardRegistry.js';
 import { appendPublicAction } from './publicActionHistory.js';
+import { recordPresentationCash } from './gamePresentation.js';
 import { gamePresentationApi } from './gamePresentationApi.js';
-import { gameDebtApi } from './gameDebt.js';
-import { gameContractApi } from './gameContracts.js';
-import { gamePropertyApi } from './gameProperty.js';
-import { gameTurnApi } from './gameTurns.js';
-import { gameRoundApi } from './gameRounds.js';
 
 const PLAYER_STATE_DEFAULTS = [
   ['cash', (player, settings) => settings.startingCash],
@@ -37,8 +61,6 @@ const PLAYER_STATE_DEFAULTS = [
   ['inJail', false],
   ['jailTurns', 0],
   ['jailFreeCards', 0],
-  ['jailFreeOrigins', () => []],
-  ['items', () => []],
   ['bankLoan', null],
   ['casinoNet', 0],
   ['casinoLedger', () => []],
@@ -56,7 +78,6 @@ const PLAYER_STATE_DEFAULTS = [
   ['shortDefaultDebt', 0],
   ['optionPositions', () => []],
   ['reservedCash', 0],
-  ['bankAccount', () => ({ tier: 1, cashbackEarned: 0, ledger: [], requests: [] })],
   ['marketTrades', 0],
   ['marketActionsThisTurn', 0],
   ['crisisMarketBuys', () => ({})],
@@ -67,7 +88,6 @@ const PLAYER_STATE_DEFAULTS = [
   // normal human finance flow to remain unrestricted.
   ['botDealActionsThisTurn', 0],
   ['auctionWins', 0],
-  ['tradesCompleted', 0],
   ['rentCollected', 0],
   ['globalEventsExperienced', 0],
   ['globalEventsSurvived', 0],
@@ -126,6 +146,16 @@ function isHumanActionSeat(player) {
   if (player.isBot) return false;
   if (player.bankrupt) return false;
   return !player.disconnected;
+}
+
+function isCurrentTurnPlayer(player, currentPlayerId) {
+  if (!player) return false;
+  return player.id === currentPlayerId;
+}
+
+function endTurnRequiresExtraRoll(game) {
+  if (game.extraRollPending) return true;
+  return Boolean(game.turnAllowsExtraRoll);
 }
 
 class BoundedReplayMap extends Map {
@@ -201,19 +231,31 @@ class BoundedReplayMap extends Map {
   }
 }
 
+function activeCollateralContract(contract) {
+  const supportedKind = ['loan', 'hybrid'].includes(contract.kind);
+  const activeStatus = ['active', 'due'].includes(contract.status);
+  return supportedKind && activeStatus;
+}
+
+function contractCollateralIndices(contract) {
+  const indices = contract.collateralTileIndices;
+  if (Array.isArray(indices) && indices.length) return indices;
+  return [contract.collateralTileIndex];
+}
+
+export function contractPledgesTile(contract, player, tile) {
+  if (!activeCollateralContract(contract)) return false;
+  if (contract.toPlayerId !== player.id) return false;
+  if (contract.kind === 'hybrid' && Number(contract.propertyIndex) === Number(tile.index)) return true;
+  return contractCollateralIndices(contract).some(index => index != null && Number(index) === Number(tile.index));
+}
+
 class GameState {
   constructor(settings) {
-    const suppliedSettings = stripRetiredRoomSettings(settings);
-    // An omitted Advanced finance switch defaults on; the Standard default
-    // must not turn an explicitly selected Advanced game off.
-    const seed = { ...DEFAULT_ROOM_SETTINGS, ...suppliedSettings };
-    if (suppliedSettings.rulesProfile === 'advanced' && suppliedSettings.playerFinance === undefined) delete seed.playerFinance;
-    this.ruleset = resolveRuleset({ settings: seed, rulesetOverrides: seed.rulesetOverrides, boardVariant: seed.boardVariant });
-    this.settings = { ...seed, ...this.ruleset.effectiveSettings, rulesetOverrides: this.ruleset.rulesetOverrides.map(entry => ({ ...entry })) };
-    this.settings.boardVariant = this.ruleset.boardVariant;
-    this.settings.rulesetRevision = this.ruleset.rulesetRevision;
-    this.boardVariant = this.ruleset.boardVariant;
-    this.rulesetDigest = this.ruleset.digest;
+    this.settings = { ...DEFAULT_ROOM_SETTINGS, ...settings };
+    this.boardVariant = this.settings.boardVariant || 'standard-40';
+    this.ruleset = null;
+    this.rulesetDigest = null;
     this.reset();
   }
 
@@ -249,10 +291,7 @@ class GameState {
     this.pendingPaymentTurnOptions = null;
     this.pendingPaymentHooks = null;
     this.defaultClaims = [];
-    this.borrowerNotices = [];
     this.lastWinner = null;
-    this.lastEndReason = null;
-    this.finalNetWorthById = null;
     this.vacationPool = 0;
     this.roundNumber = 0;
     this.globalEvent = null;
@@ -275,12 +314,10 @@ class GameState {
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
     this.publicActionHistory = [];
-    this.netWorthTimeline = [];
     this.humanActionCount = 0;
     this.afkTurnCount = 0;
     this.telemetryLog = [];
-    this.itemTransactions = new Map();
-    const decks = decksForVariant(this.boardVariant, this.settings);
+    const decks = decksForVariant(this.boardVariant);
     this.surpriseDeck = decks.surprise.map(card => ({ ...card }));
     this.treasureDeck = decks.treasure.map(card => ({ ...card }));
   }
@@ -350,12 +387,8 @@ class GameState {
     this.pendingPaymentQueue = [];
     this.pendingPaymentTurnOptions = null;
     this.pendingPaymentHooks = null;
-    this.syncDebtFlags();
     this.defaultClaims = [];
-    this.borrowerNotices = [];
     this.lastWinner = null;
-    this.lastEndReason = null;
-    this.finalNetWorthById = null;
     this.vacationPool = 0;
     this.roundNumber = 1;
     this.globalEvent = null;
@@ -367,7 +400,6 @@ class GameState {
     this.casinoLastResult = null;
     this.casinoLedger = [];
     this.marketLedger = [];
-    this.globalEventVoteTransactions = null;
     this.economyTransactions = new BoundedReplayMap();
     this.marketQuotes = freshMarketQuotes();
     this.marketQuoteHistory = [createMarketQuotePoint(this, 0, null)];
@@ -379,23 +411,13 @@ class GameState {
     this.botDecisionSequence = 0;
     this.botDecisionTrace = [];
     this.publicActionHistory = [];
-    this.netWorthTimeline = [];
     this.humanActionCount = 0;
     this.afkTurnCount = 0;
     this.telemetryLog = [];
-    this.itemTransactions = new Map();
-    const decks = decksForVariant(this.boardVariant, this.settings);
+    const decks = decksForVariant(this.boardVariant);
     this.surpriseDeck = decks.surprise.map(card => ({ ...card }));
     this.treasureDeck = decks.treasure.map(card => ({ ...card }));
-    this.players.forEach(player => {
-      // A seat still inside its reconnect grace stays disconnected across a
-      // rematch: its expiry timer is still armed, and clearing the flag here
-      // would leave a connected ghost that the timer cannot release.
-      const { disconnected, disconnectDeadline } = player;
-      this.resetPlayerState(player);
-      player.disconnected = disconnected;
-      player.disconnectDeadline = disconnectDeadline;
-    });
+    this.players.forEach(player => this.resetPlayerState(player));
   }
 
   removePlayerBySocket(socketId) {
@@ -431,6 +453,171 @@ class GameState {
     return this.players.find(player => player.id === id);
   }
 
+  getTile(index) {
+    return this.tiles.find(tile => tile.index === index);
+  }
+
+  tileIndexForId(tileId) {
+    const index = tileIndexById(this.boardVariant, tileId);
+    return index == null ? null : index;
+  }
+
+  getTileById(tileId) {
+    const index = this.tileIndexForId(tileId);
+    return index == null ? null : this.getTile(index);
+  }
+
+  getGroupTiles(group) {
+    return this.tiles.filter(tile => tile.group === group && tile.type === 'property');
+  }
+
+  totalBuildings() {
+    return this.tiles.reduce((sum, tile) => sum + Math.max(0, Math.min(5, Number(tile.houseCount) || 0)), 0);
+  }
+
+  totalCash() {
+    return this.activePlayers().reduce((sum, player) => sum + Math.max(0, Number(player.cash) || 0), 0);
+  }
+
+  playerGroups(player) {
+    if (!player) return [];
+    return [...new Set(player.properties.map(index => this.getTile(index)?.group).filter(Boolean))];
+  }
+
+  refreshPlayerGroups(player) {
+    if (!player) return;
+    if (!(player.fullGroups instanceof Set)) player.fullGroups = new Set();
+    const complete = this.playerGroups(player).filter(group => this.hasFullSet(player.id, group));
+    complete.forEach(group => player.fullGroups.add(group));
+  }
+
+  playerContractById(contractId) {
+    return this.playerContracts.find(contract => contract.id === contractId) || null;
+  }
+
+  playerContractSummary(viewerPlayerId = null) {
+    return playerContractSummary(this, viewerPlayerId);
+  }
+
+  proposePlayerContract(socketId, offer = {}) {
+    return proposeContract(this, socketId, offer);
+  }
+
+  proposeEquityShareTransfer(socketId, offer = {}) {
+    return proposeEquityShareTransfer(this, socketId, offer);
+  }
+
+  counterPlayerContract(socketId, offer = {}) {
+    return counterContract(this, socketId, offer);
+  }
+
+  adjustPlayerContract(socketId, offer = {}) {
+    return adjustContract(this, socketId, offer);
+  }
+
+  respondPlayerContract(socketId, accept, requestId = null, contractId = null) {
+    return respondContract(this, socketId, accept, requestId, contractId);
+  }
+
+  repayPlayerContract(socketId, payload = {}) {
+    return repayContract(this, socketId, payload);
+  }
+
+  processPlayerContracts() {
+    processContracts(this);
+  }
+
+  settleEquityShares(tile, owner, amountPaid, payer = null) {
+    settleEquityShares(this, tile, owner, amountPaid, payer);
+  }
+
+  isLoanCollateral(player, tile) {
+    return Boolean(player?.bankLoan?.status === 'active' || player?.bankLoan?.status === 'due')
+      && Number(player.bankLoan.collateralTileIndex) === Number(tile?.index);
+  }
+
+  isPlayerContractCollateral(player, tile) {
+    if (!player || !tile) return false;
+    return this.playerContracts?.some(contract => contractPledgesTile(contract, player, tile)) || false;
+  }
+
+  highestCollateralProperty(player) {
+    if (!player?.properties) return null;
+    const eligible = player.properties
+      .map(index => this.getTile(index))
+      .filter(tile => this.collateralEligibleTile(player, tile));
+    return eligible.sort((a, b) => (b.price || 0) - (a.price || 0))[0] || null;
+  }
+
+  collateralEligibleTile(player, tile) {
+    if (!tile) return false;
+    if (tile.type !== 'property') return false;
+    if (tile.mortgaged) return false;
+    if (tile.houseCount > 0) return false;
+    if (tile.equityShares?.length) return false;
+    return !this.isPlayerContractCollateral(player, tile);
+  }
+
+  isTradeableTile(tile) {
+    return isTradeableTile(this, tile);
+  }
+
+  canBuildOnTile(player, tile) {
+    return canBuildOnTile(this, player, tile);
+  }
+
+  canSellFromTile(player, tile) {
+    return canSellFromTile(this, player, tile);
+  }
+
+  canMortgageTile(player, tile) {
+    return canMortgageTile(this, player, tile);
+  }
+
+  canUnmortgageTile(player, tile) {
+    return canUnmortgageTile(this, player, tile);
+  }
+
+  applyPropertyOwnershipChange(fromPlayer, toPlayer, tile) {
+    this.terminateTileEquityShares(tile);
+    this.resetDeedTile(tile, toPlayer);
+    this.detachDeedFromOwner(fromPlayer, tile);
+    this.attachDeedToOwner(toPlayer, tile);
+  }
+
+  terminateTileEquityShares(tile) {
+    const shares = Array.isArray(tile?.equityShares) ? tile.equityShares : [];
+    shares.forEach(share => {
+      const contract = this.playerContractById(share.contractId);
+      if (!equityShareContractLive(contract)) return;
+      contract.status = 'terminated';
+      contract.terminatedRound = this.roundNumber;
+    });
+  }
+
+  resetDeedTile(tile, toPlayer) {
+    tile.ownerId = toPlayer ? toPlayer.id : null;
+    tile.mortgaged = false;
+    tile.houseCount = 0;
+    tile.equityShares = [];
+  }
+
+  detachDeedFromOwner(fromPlayer, tile) {
+    if (!fromPlayer) return;
+    fromPlayer.properties = fromPlayer.properties.filter(propertyIndex => propertyIndex !== tile.index);
+    // A bubble-survivor deed must remain in the original owner's hands
+    // through recovery; transferring it invalidates that achievement fact.
+    if (!fromPlayer.bubbleSurvivor) return;
+    if (!fromPlayer.housingBubbleEnded) return;
+    fromPlayer.bubbleSurvivor = fromPlayer.properties.some(index => (this.getTile(index)?.houseCount || 0) > 0);
+  }
+
+  attachDeedToOwner(toPlayer, tile) {
+    if (!toPlayer) return;
+    if (!toPlayer.properties.includes(tile.index)) toPlayer.properties.push(tile.index);
+    this.refreshPlayerGroups(toPlayer);
+  }
+
   feedMessage(text) {
     this.feed.unshift({ text, timestamp: Date.now() });
     if (this.feed.length > 40) {
@@ -438,12 +625,671 @@ class GameState {
     }
   }
 
+  canJoin() {
+    if (this.started) {
+      return false;
+    }
+    // Every retained seat consumes capacity, including bots. A room that
+    // counts only active humans can exceed its advertised seat limit after a
+    // round ends or when bots are retained for a rematch.
+    return this.players.filter(player => !player.bankrupt).length < this.settings.maxPlayers;
+  }
+
+  activePlayers() {
+    return this.players.filter(player => !player.bankrupt && !player.disconnected);
+  }
+
+  nonBankruptPlayers() {
+    return this.players.filter(player => !player.bankrupt);
+  }
+
+  connectedNonBankruptPlayers() {
+    return this.players.filter(player => !player.bankrupt && !player.disconnected);
+  }
+
+  configureStartOrder() {
+    const active = [...this.players].filter(p => !p.bankrupt && !p.disconnected);
+    if (this.settings.randomizePlayerOrder) {
+      shuffleArray(active);
+    }
+    this.turnOrder = active.map(p => p.id);
+    this.currentPlayerId = this.turnOrder[0] || null;
+    this.hasRolled = false;
+    this.awaitingEndTurn = false;
+  }
+
   getCurrentPlayer() {
     return this.getPlayerById(this.currentPlayerId);
   }
+
+  startGame() {
+    if (this.started) {
+      return { success: false, error: 'Game has already started.' };
+    }
+    if (this.players.filter(player => !player.disconnected).length < 2) {
+      return { success: false, error: 'At least two players are required.' };
+    }
+    this.resetForNewGame();
+    this.started = true;
+    this.startedAt = Date.now();
+    this.configureStartOrder();
+    this.feedMessage('The game begins. Players take turns clockwise.');
+    return { success: true };
+  }
+
+  rollTurnRejection(player) {
+    const playerId = player?.id;
+    const blocker = [
+      [!playerId, 'Player not found.'],
+      [!this.started, 'Game has not started.'],
+      [playerId !== this.currentPlayerId, 'It is not your turn.'],
+      [this.pendingPayment?.playerId === playerId, 'Settle your debt before rolling.'],
+      [this.pendingPurchaseOffer?.playerId === playerId, 'Resolve the property offer before rolling.'],
+      [this.pendingSponsoredPurchase?.buyerId === playerId, 'Resolve the sponsorship before rolling.'],
+      [Boolean(this.auction?.active), 'Finish the active auction before rolling.'],
+    ].find(([blocked]) => blocked);
+    return blocker ? { success: false, error: blocker[1] } : null;
+  }
+
+  setTurnDice(dice) {
+    this.lastDice = dice;
+    this.diceRollSequence += 1;
+    this.hasRolled = true;
+    this.turnAllowsExtraRoll = dice[0] === dice[1];
+    this.extraRollPending = this.turnAllowsExtraRoll;
+    if (this.turnAllowsExtraRoll) {
+      this.consecutiveDoubles += 1;
+    } else {
+      this.consecutiveDoubles = 0;
+    }
+  }
+
+  sendRollerToJail(player) {
+    this.recordPresentationMove(player, this.tiles.find(tile => tile.type === 'jail').index, { cause: 'three-doubles', teleport: true });
+    player.position = this.tiles.find(tile => tile.type === 'jail').index;
+    player.inJail = true;
+    player.jailTurns = 0;
+    this.consecutiveDoubles = 0;
+    this.turnAllowsExtraRoll = false;
+    this.extraRollPending = false;
+    this.hasRolled = false;
+    this.feedMessage(`${player.nickname} rolled three doubles and was sent to Jail.`);
+    this.nextTurn();
+    return { success: true };
+  }
+
+  handleJailRoll(player) {
+    if (this.hasRolled && !this.extraRollPending) {
+      return { success: false, error: 'You have already rolled this turn.' };
+    }
+    const dice = rollDice();
+    this.lastDice = dice;
+    this.diceRollSequence += 1;
+    this.hasRolled = true;
+    this.turnAllowsExtraRoll = false;
+    this.extraRollPending = false;
+    this.consecutiveDoubles = 0;
+    if (dice[0] === dice[1]) {
+      player.inJail = false;
+      player.jailTurns = 0;
+      this.feedMessage(`${player.nickname} rolled doubles and escaped jail!`);
+      return this.movePlayer(player, dice[0] + dice[1], { allowExtraRoll: false });
+    }
+    player.jailTurns = (player.jailTurns || 0) + 1;
+    if (player.jailTurns >= JAIL_MAX_TURNS) {
+      if (player.cash >= JAIL_FINE) {
+        player.cash -= JAIL_FINE;
+        player.inJail = false;
+        player.jailTurns = 0;
+        this.feedMessage(`${player.nickname} paid $${JAIL_FINE} to leave jail after ${JAIL_MAX_TURNS} turns.`);
+        return this.movePlayer(player, dice[0] + dice[1], { allowExtraRoll: false });
+      }
+      this.feedMessage(`${player.nickname} could not pay the jail fine and remains in jail. Mortgage, sell buildings, or declare bankruptcy to raise the fine.`);
+    } else {
+      this.feedMessage(`${player.nickname} failed to roll doubles in jail (turn ${player.jailTurns}/${JAIL_MAX_TURNS}).`);
+    }
+    this.awaitingEndTurn = true;
+    return { success: true, message: 'You remain in jail. End your turn when ready.' };
+  }
+
+  payJailFine(socketId) {
+    const player = this.getPlayerBySocket(socketId);
+    if (!player) {
+      return { success: false, error: 'Player not found.' };
+    }
+    if (!this.started) {
+      return { success: false, error: 'Game has not started.' };
+    }
+    if (player.id !== this.currentPlayerId) {
+      return { success: false, error: 'It is not your turn.' };
+    }
+    if (!player.inJail) {
+      return { success: false, error: 'You are not in jail.' };
+    }
+    if (this.hasRolled) {
+      return { success: false, error: 'You have already rolled this turn.' };
+    }
+    if (player.cash < JAIL_FINE) {
+      return { success: false, error: `You need $${JAIL_FINE} to pay the jail fine.` };
+    }
+    player.cash -= JAIL_FINE;
+    player.inJail = false;
+    player.jailTurns = 0;
+    this.feedMessage(`${player.nickname} paid $${JAIL_FINE} to leave jail.`);
+    return { success: true, message: 'You left jail. Roll the dice to move.' };
+  }
+
+  useJailFree(socketId) {
+    const player = this.getPlayerBySocket(socketId);
+    const rejection = this.jailFreeRejection(player);
+    if (rejection) return rejection;
+    player.jailFreeCards -= 1;
+    player.prisonBreak = true;
+    player.inJail = false;
+    player.jailTurns = 0;
+    this.feedMessage(`${player.nickname} used a Get Out of Prison card.`);
+    return { success: true, message: 'You left prison with a Get Out of Prison card.' };
+  }
+
+  jailFreeRejection(player) {
+    const notTurn = { success: false, error: 'It is not your turn.' };
+    if (!player) return notTurn;
+    if (!this.started) return notTurn;
+    if (player.id !== this.currentPlayerId) return notTurn;
+    if (!player.inJail) return { success: false, error: 'You do not have a Get Out of Prison card.' };
+    if (!(player.jailFreeCards > 0)) return { success: false, error: 'You do not have a Get Out of Prison card.' };
+    if (this.hasRolled) return { success: false, error: 'You have already rolled this turn.' };
+    return null;
+  }
+
+  bankLoanTerms(player) {
+    return bankLoanTerms(this, player);
+  }
+
+  getBankLoanOffer(player) {
+    return bankLoanOffer(this, player);
+  }
+
+  takeBankLoan(socketId, requestId = null) {
+    return takeBankLoan(this, socketId, requestId);
+  }
+
+  repayBankLoan(socketId, payload = {}) {
+    return repayBankLoan(this, socketId, payload);
+  }
+
+  processBankLoans() {
+    processBankLoans(this);
+  }
+
+  defaultBankLoan(player) {
+    defaultBankLoan(this, player);
+  }
+
+  // Catch-up rule: strictly last by cash among 2+ live seats. Ties and
+  // solo tables pay no bonus.
+  liveContestants() {
+    return (this.players || []).filter(entry => entry && !entry.bankrupt && !entry.disconnected);
+  }
+
+  cashFor(player) {
+    return Number(player.cash) || 0;
+  }
+
+  isLastPlaceByCash(player) {
+    if (!player) return false;
+    const live = this.liveContestants();
+    if (live.length < 2) return false;
+    const cash = this.cashFor(player);
+    return live.every(entry => entry.id === player.id || cash < this.cashFor(entry));
+  }
+
+  handleFortyFirstMove(player) {
+    player.moveCount = (player.moveCount || 0) + 1;
+    if (player.moveCount !== 41) return;
+    player.hiddenMovementSequence = true;
+    this.feedMessage(`${player.nickname} stepped on the 41st movement. The ledger skipped a line.`);
+  }
+
+  startPassReward(exactStart) {
+    if (exactStart && this.settings.doubleGo) return 400;
+    return 200;
+  }
+
+  awardStartPass(player, oldPosition, steps) {
+    const distanceToStart = (START_TILE_INDEX - oldPosition + this.tiles.length) % this.tiles.length || this.tiles.length;
+    if (distanceToStart > steps) return;
+    const exactStart = distanceToStart === steps;
+    const reward = this.startPassReward(exactStart);
+    const bonus = this.isLastPlaceByCash(player) ? 100 : 0;
+    player.cash += reward + bonus;
+    recordPresentationCash(this, 'go', distanceToStart - 1);
+    this.feedMessage(`${player.nickname} ${exactStart ? 'landed on' : 'passed'} Start and collected $${reward + bonus}.` + (bonus ? ' Last-place catch-up bonus included.' : ''));
+  }
+
+  trackRailroadVisit(player, tile) {
+    if (tile?.type !== 'railroad') return;
+    if (!(player.airportVisits instanceof Set)) player.airportVisits = new Set();
+    player.airportVisits.add(tile.index);
+  }
+
+  movePlayer(player, steps, options = {}) {
+    this.handleFortyFirstMove(player);
+    const oldPosition = player.position;
+    this.recordPresentationMove(player, (player.position + steps) % this.tiles.length, { cause: 'dice', steps });
+    player.position = (player.position + steps) % this.tiles.length;
+    this.awardStartPass(player, oldPosition, steps);
+    const tile = this.getTile(player.position);
+    this.trackRailroadVisit(player, tile);
+    return this.applyTile(player, tile, options);
+  }
+
+  resolveTurnAfterAction({ allowExtraRoll = true } = {}) {
+    if (allowExtraRoll && this.turnAllowsExtraRoll) {
+      this.extraRollPending = true;
+      this.hasRolled = false;
+      return { retainedTurn: true };
+    }
+
+    this.extraRollPending = false;
+    this.turnAllowsExtraRoll = false;
+    // Explicit end-of-turn: the landing resolved, but the dice only pass when
+    // the active player ends the turn (endTurn below). Bots and the AFK
+    // watchdog reach the same door via room.endTurn()/nextTurn().
+    this.awaitingEndTurn = true;
+    return { retainedTurn: false };
+  }
+
+  advanceRound() {
+    if (this._advancingRound) return;
+    this._advancingRound = true;
+    try {
+      this.roundNumber += 1;
+      if (this.globalEventCooldown > 0) this.globalEventCooldown -= 1;
+      this.markMidpointFacts();
+      this.advanceGlobalEventPhase();
+      this.processBankLoans();
+      this.processPlayerContracts();
+      this.maybeTriggerGlobalEvent();
+      this.advanceMarket();
+      if (this.settings.market) {
+        const activeEventId = this.globalEvent?.phase === 'active' ? this.globalEvent.id : null;
+        this.marketQuoteHistory = [...(Array.isArray(this.marketQuoteHistory) ? this.marketQuoteHistory : []), createMarketQuotePoint(this, this.marketRound, activeEventId)].slice(-128);
+      }
+      this.players.forEach(player => {
+        player.rentPayersThisRound = new Set();
+        player.casinoBetsThisRound = 0;
+      });
+    } finally {
+      this._advancingRound = false;
+    }
+  }
+
+  resetTurnState() {
+    if (this.pendingSponsoredPurchase) this.cancelSponsoredPurchase();
+    this.pendingPurchaseOffer = null;
+    this.extraRollPending = false;
+    this.turnAllowsExtraRoll = false;
+    this.awaitingEndTurn = false;
+  }
+
+  finishIfNoConnectedPlayers(connected) {
+    if (connected.length > 1) return false;
+    const waiting = this.players.find(player => player.disconnected
+      && Number(player.disconnectDeadline) > Date.now()
+      && !player.bankrupt);
+    if (waiting) {
+      this.announceWaitingForSeat(waiting);
+      return true;
+    }
+    this.endGame();
+    return true;
+  }
+
+  advanceWrappedTurn(next) {
+    if (this.turnOrderWrapped(next)) this.advanceRound();
+  }
+
+  nextTurn() {
+    this.resetTurnState();
+    const connected = this.connectedNonBankruptPlayers();
+    if (this.finishIfNoConnectedPlayers(connected)) return;
+    const next = this.findNextTurnSeat();
+    if (!this.nextSeatIsPlayable(next)) {
+      this.announceWaitingForSeat(next.player);
+      return;
+    }
+    this.advanceWrappedTurn(next);
+    if (!this.started) return;
+    this.beginSeatTurn(next.player);
+  }
+
+  findNextTurnSeat() {
+    const currentIndex = this.turnOrder.indexOf(this.currentPlayerId);
+    let nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % this.turnOrder.length;
+    let nextPlayer = this.getPlayerById(this.turnOrder[nextIndex]);
+    let attempts = 0;
+    while (this.seatIsIdle(nextPlayer) && attempts < this.turnOrder.length) {
+      nextIndex = (nextIndex + 1) % this.turnOrder.length;
+      nextPlayer = this.getPlayerById(this.turnOrder[nextIndex]);
+      attempts += 1;
+    }
+    return { currentIndex, nextIndex, player: nextPlayer };
+  }
+
+  seatIsIdle(player) {
+    if (!player) return false;
+    return Boolean(player.bankrupt || player.disconnected);
+  }
+
+  nextSeatIsPlayable(next) {
+    if (!next.player) return false;
+    if (next.player.bankrupt) return false;
+    return !next.player.disconnected;
+  }
+
+  announceWaitingForSeat(waiting = null) {
+    waiting ||= this.getPlayerById(this.currentPlayerId);
+    if (!waiting) return;
+    if (waiting.bankrupt) return;
+    this.feedMessage(`Waiting for ${waiting.nickname} to reconnect…`);
+  }
+
+  turnOrderWrapped(next) {
+    if (next.currentIndex < 0) return false;
+    return next.nextIndex <= next.currentIndex;
+  }
+
+  beginSeatTurn(player) {
+    this.currentPlayerId = player.id;
+    this.hasRolled = false;
+    player.botDealActionsThisTurn = 0;
+    player.buildActionsThisTurn = 0;
+    player.marketActionsThisTurn = 0;
+    this.feedMessage(`${player.nickname}'s turn.`);
+  }
+
+  hasFullSet(ownerId, group) {
+    const groupTiles = this.tiles.filter(tile => tile.group === group);
+    return groupTiles.every(tile => tile.ownerId === ownerId);
+  }
+
+  chargePlayer(debt) {
+    // Nothing to collect from a missing payer or a non-debt: the turn just
+    // resolves normally.
+    if (!debt.player) {
+      this.resolveTurnAfterAction(debt.turnOptions);
+      return;
+    }
+    if (debt.amount <= 0) {
+      this.resolveTurnAfterAction(debt.turnOptions);
+      return;
+    }
+    if (debt.player.cash >= debt.amount) {
+      this.payDebtInFull(debt);
+      return;
+    }
+    this.openDebtSettlement(debt);
+  }
+
+  payDebtInFull(debt) {
+    const { player, creditor, amount, message, turnOptions = {}, hooks = {} } = debt;
+    player.cash -= amount;
+    if (player.cash === 0) player.zeroCashReached = true;
+    this.creditRentTo(creditor, player, amount);
+    this.feedMessage(message);
+    if (hooks.onPaid) hooks.onPaid(amount);
+    this.resolveTurnAfterAction(turnOptions);
+  }
+
+  // Shortfall path: whatever cash remains is tendered first, then the rest
+  // of the debt parks in pendingPayment for the mortgage/sell/bankruptcy
+  // mini-game to resolve.
+  openDebtSettlement(debt) {
+    const { player, creditor, amount, message, turnOptions = {}, hooks = {} } = debt;
+    const partial = player.cash;
+    if (partial > 0) {
+      this.tenderPartialDebt(player, creditor, partial, hooks);
+    }
+    const remaining = amount - partial;
+    const pending = {
+      playerId: player.id,
+      creditorId: creditor ? creditor.id : null,
+      amountRemaining: remaining,
+      reason: message,
+      equityTileIndex: hooks.equityTileIndex ?? null,
+      equityOwnerId: hooks.equityOwnerId ?? null
+    };
+    if (this.pendingPayment) {
+      // Round processing can mature several independent debts at once. Keep
+      // the existing table gate and queue later claims instead of silently
+      // overwriting the first debtor.
+      this.pendingPaymentQueue ||= [];
+      this.pendingPaymentQueue.push({ payment: pending, hooks, turnOptions });
+      this.feedMessage(`${player.nickname} owes $${remaining}; the payment is queued behind the current debt.`);
+      return;
+    }
+    this.pendingPayment = pending;
+    this.pendingPaymentHooks = hooks;
+    this.pendingPaymentTurnOptions = turnOptions;
+    this.feedMessage(`${player.nickname} owes $${remaining}. Mortgage or sell buildings to raise funds, or declare bankruptcy.`);
+  }
+
+  tenderPartialDebt(player, creditor, partial, hooks) {
+    player.cash = 0;
+    player.zeroCashReached = true;
+    this.creditRentTo(creditor, player, partial);
+    this.feedMessage(`${player.nickname} paid $${partial} toward the debt.`);
+    if (hooks.onPaid) hooks.onPaid(partial);
+  }
+
+  // Every fact a rent credit touches: cash, the collection total, the payer
+  // sets and their running per-round max. Bank debts (null creditor) skip it
+  // entirely, as do bankrupt creditors: tile rent treats a bankrupt owner as
+  // vacant, so an in-flight debt never enriches a bankrupt seat either. The
+  // payer still settles; the money simply has nowhere to go.
+  creditRentTo(creditor, payer, amount) {
+    if (!creditor) return;
+    if (creditor.bankrupt) return;
+    creditor.cash += amount;
+    creditor.rentCollected = (creditor.rentCollected || 0) + amount;
+    creditor.rentPayerIds ||= new Set();
+    creditor.rentPayerIds.add(payer.id);
+    creditor.rentPayersThisRound ||= new Set();
+    creditor.rentPayersThisRound.add(payer.id);
+    creditor.maxRentPayersInRound = Math.max(creditor.maxRentPayersInRound || 0, creditor.rentPayersThisRound.size);
+  }
+
+  trySettlePendingPayment() {
+    if (!this.pendingPayment) return false;
+    const player = this.getPlayerById(this.pendingPayment.playerId);
+    if (!this.pendingPayerCanSettle(player)) {
+      // Debts never evaporate: a present-but-unsettleable debtor goes
+      // through bankruptcy (assets to creditor); a removed seat simply
+      // clears like before, its deeds already forfeited on the way out.
+      const creditor = this.pendingPayment.creditorId ? this.getPlayerById(this.pendingPayment.creditorId) : null;
+      const debtor = player;
+      this.clearPendingPayment();
+      if (debtor && !debtor.bankrupt) this.handleBankruptcy(debtor, creditor);
+      return false;
+    }
+    if (player.cash < this.pendingPayment.amountRemaining) {
+      return false;
+    }
+    const amount = this.pendingPayment.amountRemaining;
+    player.cash -= amount;
+    this.creditSettledDebt(amount, player);
+    this.settlePendingEquityShares(amount);
+    this.settlePendingHooks(amount);
+    this.feedMessage(`${player.nickname} paid the remaining $${amount}.`);
+    const turnOptions = this.pendingPaymentTurnOptions || {};
+    this.clearPendingPayment();
+    this.resolveTurnAfterAction(turnOptions);
+    return true;
+  }
+
+  pendingPayerCanSettle(player) {
+    if (!player) return false;
+    if (player.bankrupt) return false;
+    return !player.disconnected;
+  }
+
+  clearPendingPayment(activateNext = true) {
+    const shouldActivateNext = activateNext && this.started;
+    this.pendingPayment = null;
+    this.pendingPaymentTurnOptions = null;
+    this.pendingPaymentHooks = null;
+    const next = shouldActivateNext ? this.pendingPaymentQueue?.shift() : null;
+    if (!next) return false;
+    this.pendingPayment = next.payment;
+    this.pendingPaymentHooks = next.hooks;
+    this.pendingPaymentTurnOptions = next.turnOptions;
+    return true;
+  }
+
+  removeQueuedPaymentsForPlayer(playerId) {
+    if (!playerId || !Array.isArray(this.pendingPaymentQueue)) return;
+    this.pendingPaymentQueue = this.pendingPaymentQueue.filter(entry => {
+      const payment = entry?.payment;
+      return payment?.playerId !== playerId && payment?.creditorId !== playerId;
+    });
+  }
+
+  // Remainder path replays the debt hooks exactly once. Equity debts replay
+  // through their stored indexes in settlePendingEquityShares, so the generic
+  // hook only runs for non-equity debts (today: vacation-pool tax). Partial
+  // payments already ran the hook for their share via tenderPartialDebt.
+  settlePendingHooks(amount) {
+    if (this.pendingPayment.equityTileIndex != null) return;
+    const onPaid = this.pendingPaymentHooks?.onPaid;
+    if (typeof onPaid !== 'function') return;
+    onPaid(amount);
+  }
+
+  // Settling the parked debt credits the creditor through the same rent-fact
+  // path as a direct collection.
+  creditSettledDebt(amount, player) {
+    const creditorId = this.pendingPayment.creditorId;
+    if (!creditorId) return;
+    const creditor = this.getPlayerById(creditorId);
+    this.creditRentTo(creditor, player, amount);
+  }
+
+  settlePendingEquityShares(amount) {
+    const pending = this.pendingPayment;
+    if (pending.equityTileIndex == null) return;
+    const equityTile = this.getTile(pending.equityTileIndex);
+    const equityOwner = this.getPlayerById(pending.equityOwnerId);
+    // pendingPayment.playerId is the seat that owes the rent, so the parked
+    // (partial-payment) path books the same rent facts as a direct collection.
+    this.settleEquityShares(equityTile, equityOwner, amount, this.getPlayerById(pending.playerId));
+  }
+
+  transferMoney(from, to, amount, message) {
+    if (!from) return;
+    if (!to) return;
+    // NaN slips past `<= 0` and poisons both seats; Infinity mints money.
+    if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) return;
+    from.cash -= amount;
+    to.cash += amount;
+    this.feedMessage(message);
+  }
+
+  deductMoney(player, amount, message) {
+    this.chargePlayer({ player, amount, message, turnOptions: {} });
+  }
+
+  endTurn(socketId) {
+    const player = this.getPlayerBySocket(socketId);
+    const rejection = this.endTurnRejection(player);
+    if (rejection) return rejection;
+    this.nextTurn();
+    return { success: true };
+  }
+
+  endTurnRejection(player) {
+    const notActive = { success: false, error: 'Only the active player can end the turn.' };
+    if (!isCurrentTurnPlayer(player, this.currentPlayerId)) return notActive;
+    if (endTurnRequiresExtraRoll(this)) return { success: false, error: 'You must roll again after doubles before ending your turn.' };
+    if (!this.awaitingEndTurn) return { success: false, error: 'Resolve your roll before ending the turn.' };
+    const flowRejection = this.pendingFlowRejection(player);
+    if (flowRejection) return flowRejection;
+    if (!player.bankrupt && !(Number(player.cash) > 0)) {
+      return { success: false, error: 'Raise cash or declare bankruptcy before ending the turn.' };
+    }
+    return null;
+  }
+
+  pendingFlowRejection(player) {
+    const error = this.pendingFlowError(player);
+    return error ? { success: false, error } : null;
+  }
+
+  pendingFlowError(player) {
+    const blockers = [
+      [Boolean(this.auction?.active), 'Finish the active auction before ending the turn.'],
+      [this.pendingPurchaseOffer?.playerId === player?.id, 'Resolve the property offer before ending the turn.'],
+      [this.pendingPayment?.playerId === player?.id, 'Settle your debt before ending the turn.'],
+      [Boolean(this.pendingSponsoredPurchase), 'Resolve the open sponsorship before ending the turn.']
+    ];
+    const blocker = blockers.find(([active]) => active);
+    return blocker?.[1] || null;
+  }
+
+  skipDisconnectedCurrentPlayer() {
+    const current = this.getCurrentPlayer();
+    if (!current) return;
+    if (!current.disconnected) return;
+    if (current.bankrupt) return;
+    this.pendingPurchaseOffer = null;
+    // A parked debt travels with the seat: route it through bankruptcy
+    // instead of orphaning the creditor's claim until reconnect.
+    if (this.pendingPayment?.playerId === current.id && !current.bankrupt) {
+      const creditor = this.pendingPayment.creditorId ? this.getPlayerById(this.pendingPayment.creditorId) : null;
+      this.clearPendingPayment();
+      this.handleBankruptcy(current, creditor);
+      return;
+    }
+    this.feedMessage(`${current.nickname} was skipped due to disconnect.`);
+    this.nextTurn();
+  }
+
+  endGame() {
+    // A disconnected seat is not an eligible winner. If every solvent seat
+    // has gone offline, finish without crowning a ghost; a supervisor can
+    // still retain the match record for diagnostics.
+    const winner = this.connectedNonBankruptPlayers().find(player => !player.inDebt) || null;
+    if (this.globalEvent) {
+      const event = this.globalEvent;
+      if (!this.globalEventHistory.some(entry => entry.id === event.id && entry.startedRound === event.startedRound)) {
+        this.globalEventHistory.unshift({ id: event.id, title: event.title, comboId: event.comboId || null, startedRound: event.startedRound, endedRound: this.roundNumber });
+      }
+    }
+    this.lastWinner = winner ? { id: winner.id, nickname: winner.nickname } : null;
+    if (winner) {
+      this.feedMessage(`${winner.nickname} is the last player remaining and wins the game!`);
+    } else {
+      this.feedMessage('The game has ended.');
+    }
+    this.started = false;
+    this.currentPlayerId = null;
+    this.hasRolled = false;
+    this.pendingPurchaseOffer = null;
+    this.cancelSponsoredPurchase();
+    this.auction = null;
+    this.pendingTrade = null;
+    this.pendingPlayerContract = null;
+    this.clearPendingPayment();
+    this.pendingPaymentQueue = [];
+    this.extraRollPending = false;
+    this.turnAllowsExtraRoll = false;
+    this.awaitingEndTurn = false;
+    this.consecutiveDoubles = 0;
+  }
+
 }
 
-Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, airportApi, bankAccountApi, cardApi, itemApi, propertyApi, auctionApi, economyApi, tradeApi, sponsorshipApi, bankruptcyApi, appearanceApi, botApi, summaryApi, gamePresentationApi, gameDebtApi, gameContractApi, gamePropertyApi, gameTurnApi, gameRoundApi);
+Object.assign(GameState.prototype, globalEventsApi, rentApi, tileApi, cardApi, propertyApi, auctionApi, economyApi, tradeApi, sponsorshipApi, bankruptcyApi, appearanceApi, botApi, summaryApi, gamePresentationApi);
 
 export { GameState, Room, RoomManager, APPEARANCE_PRESET_COLORS, AUCTION_DURATION_MS };
-export { contractPledgesTile } from './gameContracts.js';
+

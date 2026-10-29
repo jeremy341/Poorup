@@ -45,7 +45,6 @@ POORUP_ALLOWED_ORIGINS=https://testing.poorup.example
 POORUP_DATA_DIR=/srv/poorup/data
 POORUP_BACKUP_DIR=/srv/poorup/backups
 POORUP_MAINTENANCE_TOKEN=<host secret>
-POORUP_MAINTENANCE_PASSWORD=<optional operator password for the lockout panel>
 POORUP_RELEASE_ID=<commit SHA>
 POORUP_PERSISTENCE_ADAPTER=json
 POORUP_HORIZONTAL_SCALE=false

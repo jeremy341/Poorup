@@ -1,4 +1,6 @@
-// BOARD DATA (client-side static tables)
+/* ============================================================
+   BOARD DATA (client-side static tables)
+   ============================================================ */
 const GROUP_COLOR = {
   brown: "#7b5029",
   cyan: "#3e7d7b",
@@ -16,10 +18,10 @@ const GROUP_COLOR = {
 
 /**
  * Rent per [base, 1, 2, 3, 4, hotel] for a property.
- *   base          - rent on this single deed (no monopoly)
- *   1..4          - rent with N houses
- *   hotel         - rent with a hotel
- * housePrice      - flat cost to build the next house
+ *   base          — rent on this single deed (no monopoly)
+ *   1..4          — rent with N houses
+ *   hotel         — rent with a hotel
+ * housePrice      — flat cost to build the next house
  *                  (Monopoly uses a unique per-property price, but a single
  *                   group-level price keeps the table readable here)
  */
@@ -94,39 +96,39 @@ let JAIL_TILE_INDEX = TILES.find((tile) => tile.kind === "corner-jail")?.i ?? 10
 
 const CHANCE_EVENTS = [
   { text: "ADVANCE TO MARINA BAY", action: "moveTo", tileIndex: 39, cash: 0 },
-  { text: "ADVANCE TO START - COLLECT $200", action: "collectStart", cash: 200 },
+  { text: "ADVANCE TO START — COLLECT $200", action: "collectStart", cash: 200 },
   { text: "ADVANCE TO AMSTERDAM", action: "moveTo", tileIndex: 24, cash: 0 },
   { text: "ADVANCE TO PATTAYA", action: "moveTo", tileIndex: 11, cash: 0 },
-  { text: "ADVANCE TO THE NEXT AIRPORT - PAY DOUBLE RENT IF OWNED", action: "nearestRailroad", cash: 0 },
-  { text: "ADVANCE TO THE NEXT AIRPORT - PAY DOUBLE RENT IF OWNED", action: "nearestRailroad", cash: 0 },
+  { text: "ADVANCE TO THE NEXT AIRPORT — PAY DOUBLE RENT IF OWNED", action: "nearestRailroad", cash: 0 },
+  { text: "ADVANCE TO THE NEXT AIRPORT — PAY DOUBLE RENT IF OWNED", action: "nearestRailroad", cash: 0 },
   { text: "ADVANCE TO THE NEXT UTILITY", action: "nearestUtility", cash: 0 },
-  { text: "BANK DIVIDEND - COLLECT $50", action: "collect", amount: 50, cash: 50 },
+  { text: "BANK DIVIDEND — COLLECT $50", action: "collect", amount: 50, cash: 50 },
   { text: "KEEP THIS CARD UNTIL NEEDED: GET OUT OF PRISON", action: "jailFree", cash: 0 },
   { text: "MOVE BACK THREE SPACES", action: "moveBack", steps: 3, cash: 0 },
   { text: "GO DIRECTLY TO PRISON", action: "goToJail", cash: 0 },
-  { text: "BUILDING REPAIRS - PAY $25 PER HOUSE, $100 PER HOTEL", action: "repairs", houseCost: 25, hotelCost: 100, cash: 0 },
-  { text: "SPEEDING FINE - PAY $15", action: "pay", amount: 15, cash: -15 },
+  { text: "BUILDING REPAIRS — PAY $25 PER HOUSE, $100 PER HOTEL", action: "repairs", houseCost: 25, hotelCost: 100, cash: 0 },
+  { text: "SPEEDING FINE — PAY $15", action: "pay", amount: 15, cash: -15 },
   { text: "ADVANCE TO ACC AIRPORT", action: "moveTo", tileIndex: 5, cash: 0 },
-  { text: "ELECTED CHAIRPERSON - PAY EACH PLAYER $50", action: "payEach", amount: 50, cash: 0 },
-  { text: "BUILDING LOAN MATURES - COLLECT $150", action: "collect", amount: 150, cash: 150 },
+  { text: "ELECTED CHAIRPERSON — PAY EACH PLAYER $50", action: "payEach", amount: 50, cash: 0 },
+  { text: "BUILDING LOAN MATURES — COLLECT $150", action: "collect", amount: 150, cash: 150 },
 ];
 const CHEST_EVENTS = [
-  { text: "ADVANCE TO START - COLLECT $200", action: "collectStart", cash: 200 },
-  { text: "BANK ERROR - COLLECT $200", action: "collect", amount: 200, cash: 200 },
-  { text: "DOCTOR'S FEE - PAY $50", action: "pay", amount: 50, cash: -50 },
-  { text: "INVESTMENT SALE - COLLECT $50", action: "collect", amount: 50, cash: 50 },
+  { text: "ADVANCE TO START — COLLECT $200", action: "collectStart", cash: 200 },
+  { text: "BANK ERROR — COLLECT $200", action: "collect", amount: 200, cash: 200 },
+  { text: "DOCTOR'S FEE — PAY $50", action: "pay", amount: 50, cash: -50 },
+  { text: "INVESTMENT SALE — COLLECT $50", action: "collect", amount: 50, cash: 50 },
   { text: "KEEP THIS CARD UNTIL NEEDED: GET OUT OF PRISON", action: "jailFree", cash: 0 },
   { text: "GO DIRECTLY TO PRISON", action: "goToJail", cash: 0 },
-  { text: "PARLOR SHOW - COLLECT $50 FROM EACH PLAYER", action: "collectFromEach", amount: 50, cash: 0 },
-  { text: "TAX REFUND - COLLECT $20", action: "collect", amount: 20, cash: 20 },
-  { text: "INSURANCE MATURES - COLLECT $100", action: "collect", amount: 100, cash: 100 },
-  { text: "HOSPITAL FEE - PAY $100", action: "pay", amount: 100, cash: -100 },
-  { text: "SCHOOL TAX - PAY $150", action: "pay", amount: 150, cash: -150 },
-  { text: "CONSULTING FEE - COLLECT $25", action: "collect", amount: 25, cash: 25 },
-  { text: "STREET REPAIRS - PAY $40 PER HOUSE, $115 PER HOTEL", action: "repairs", houseCost: 40, hotelCost: 115, cash: 0 },
-  { text: "HOLIDAY FUND MATURES - COLLECT $100", action: "collect", amount: 100, cash: 100 },
-  { text: "BEAUTY CONTEST - COLLECT $10", action: "collect", amount: 10, cash: 10 },
-  { text: "INHERITANCE - COLLECT $100", action: "collect", amount: 100, cash: 100 },
+  { text: "PARLOR SHOW — COLLECT $50 FROM EACH PLAYER", action: "collectFromEach", amount: 50, cash: 0 },
+  { text: "TAX REFUND — COLLECT $20", action: "collect", amount: 20, cash: 20 },
+  { text: "INSURANCE MATURES — COLLECT $100", action: "collect", amount: 100, cash: 100 },
+  { text: "HOSPITAL FEE — PAY $100", action: "pay", amount: 100, cash: -100 },
+  { text: "SCHOOL TAX — PAY $150", action: "pay", amount: 150, cash: -150 },
+  { text: "CONSULTING FEE — COLLECT $25", action: "collect", amount: 25, cash: 25 },
+  { text: "STREET REPAIRS — PAY $40 PER HOUSE, $115 PER HOTEL", action: "repairs", houseCost: 40, hotelCost: 115, cash: 0 },
+  { text: "HOLIDAY FUND MATURES — COLLECT $100", action: "collect", amount: 100, cash: 100 },
+  { text: "BEAUTY CONTEST — COLLECT $10", action: "collect", amount: 10, cash: 10 },
+  { text: "INHERITANCE — COLLECT $100", action: "collect", amount: 100, cash: 100 },
 ];
 
 const STANDARD_BY_INDEX = Object.fromEntries(STANDARD_TILES.map(tile => [tile.i, tile]));

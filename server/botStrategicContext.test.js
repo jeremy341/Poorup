@@ -104,7 +104,7 @@ game.pendingPlayerContract = {
 };
 const contractContext = buildBotStrategicContext(game, bot, 'contract', 9);
 assert.deepEqual(contractContext.obligations.contract, {
-  role: 'recipient', kind: 'equity', rulesVersion: null, rentShareVersion: null, expiresRound: null, amount: 300, premiumRate: 12, durationRounds: 5,
+  role: 'recipient', kind: 'equity', amount: 300, premiumRate: 12, durationRounds: 5,
   propertyIndex: 4, collateralTileIndex: 7, equityShare: 15, equityControl: 'passive',
   conversionShare: 25, permanent: true
 });
@@ -130,25 +130,3 @@ const profileJson = JSON.stringify(profileContext);
 assert.equal(profileJson.includes(human.id), false);
 assert.equal(profileJson.includes('offer'), false);
 assert.equal(profileJson.includes('cashExactBucket'), true, 'existing context is retained independently of profile history');
-
-// The advisor brief counts the table, so a seat that is out of the game is not
-// a rival: it must not inflate the seat count, the rank, or the threats.
-const liveTable = buildBotStrategicContext(game, bot, 'pre-roll', 12);
-assert.equal(liveTable.table.seats, 2, 'self plus the one live rival');
-assert.equal(liveTable.table.threats.length, 1, 'the live rival is a threat');
-human.bankrupt = true;
-const deadTable = buildBotStrategicContext(game, bot, 'pre-roll', 13);
-assert.equal(deadTable.table.seats, 1, 'a bankrupt seat is not counted as a rival');
-assert.deepEqual(deadTable.table.outOfPlaySeats, ['opponent-1'], 'the dead seat is reported apart from the live table');
-assert.equal(deadTable.table.threats.length, 0, 'a bankrupt seat is not a threat');
-assert.equal(deadTable.table.alliances.length, 0, 'a bankrupt seat is not an ally');
-assert.equal(deadTable.table.rank, 1, 'the rank is measured against the live table');
-assert.equal(deadTable.table.endgame, true, 'one rival left is a duel');
-assert.equal(deadTable.opponents.length, 1, 'the liveness flags stay on the opponent view');
-assert.equal(deadTable.opponents[0].bankrupt, true);
-human.bankrupt = false;
-human.disconnected = true;
-const awayTable = buildBotStrategicContext(game, bot, 'pre-roll', 14);
-assert.equal(awayTable.table.seats, 1, 'a disconnected seat is not counted either');
-assert.deepEqual(awayTable.table.outOfPlaySeats, ['opponent-1']);
-human.disconnected = false;

@@ -10,8 +10,8 @@ const FORBIDDEN_KEYS = new Set([
   'hidden_cards', 'private_loan_terms', 'opponent_secrets', 'raw_payload', 'raw_event', 'raw_data'
 ]);
 
-// Rows are kept narrow. The projection owns formulas; this boundary only permits
-// values that can be displayed as aggregate evidence.
+// Rows are deliberately narrow. The projection owns formulas; this boundary
+// only permits values that can be displayed as aggregate evidence.
 const ALLOWED_ROW_KEYS = new Set([
   'pseudonymId', 'suppressed', 'suppressionReason', 'dimension', 'dimensionKey', 'label', 'name',
   'id', 'feature', 'eventId', 'rulesetPreset', 'boardVariant', 'marketComplexity', 'botMode',
@@ -84,7 +84,7 @@ function safePrimitive(value) {
   return undefined;
 }
 
-// Free-text display keys pass the allowlist (dimension labels),
+// Free-text display keys pass the allowlist by design (dimension labels),
 // but must never carry identity: redact anything shaped like an address.
 const FREE_TEXT_KEYS = new Set(['name', 'label', 'id', 'feature', 'eventid', 'dimensionkey']);
 

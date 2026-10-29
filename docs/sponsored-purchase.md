@@ -16,10 +16,10 @@ Player A lands on a property (e.g., Accra) and cannot afford it. Player B offers
 6. If the bank sells Accra to someone else between offer and acceptance, the sponsorship auto-voids
 
 ## Key Rules
-- The sponsored player must buy the property immediately on acceptance: no backing out
+- The sponsored player must buy the property immediately on acceptance — no backing out
 - Multiple sponsors can contribute (all must accept collectively)
 - If total contributions + player's cash < property price, the sponsorship is invalid
-- No interest/repayment: it's a gift tied to a forced purchase
+- No interest/repayment — it's a gift tied to a forced purchase
 - Side deals (e.g., "I'll pay $200 but you owe me $50 later") are separate player contracts
 
 ## UI

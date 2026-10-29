@@ -166,7 +166,7 @@ test('capture catalog covers every user-facing group without duplicate profile k
   assert.ok(captureCatalog.some(entry => entry.group === 'game' && entry.surfaceIds.includes('tile-electric-company')));
   assert.ok(captureCatalog.some(entry => entry.group === 'game' && entry.surfaceIds.includes('tile-water-company')));
   assert.ok(captureCatalog.some(entry => entry.group === 'game' && entry.surfaceIds.includes('card-gallery')));
-  assert.ok(captureCatalog.some(entry => entry.group === 'admin' && entry.surfaceIds.includes('admin-matches')));
+  assert.ok(captureCatalog.some(entry => entry.group === 'admin' && entry.surfaceIds.includes('admin-match-health')));
 
   const keys = expectedCaptureKeys(['desktop-1440x900']);
   assert.equal(keys.length, new Set(keys).size);

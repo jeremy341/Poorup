@@ -37,10 +37,10 @@ assert.match(main, /const snapshot = ensureMusicController\(\)\?\.snapshot/);
 assert.doesNotMatch(main, /#home-music|audioRuntime|AUDIO_LABELS|mediaFailureState/);
 assert.match(stateSync, /state\.gameOver\s*=\s*null/);
 
-assert.doesNotMatch(index, /<title>[^<]*[\u2014–]|POORUP\s+[\u2014–]|[\u2014–]\s+LOBBIES/i);
-assert.doesNotMatch(analytics, /[\u2014–]/, "analytics UI still contains em/en-dash separators");
-assert.doesNotMatch(auction, /[\u2014–]/, "auction UI still contains em/en-dash separators");
-assert.doesNotMatch(gameModals, /[\u2014–]/, "game modal UI still contains em/en-dash separators");
+assert.doesNotMatch(index, /<title>[^<]*[—–]|POORUP\s+[—–]|[—–]\s+LOBBIES/i);
+assert.doesNotMatch(analytics, /[—–]/, "analytics UI still contains em/en-dash separators");
+assert.doesNotMatch(auction, /[—–]/, "auction UI still contains em/en-dash separators");
+assert.doesNotMatch(gameModals, /[—–]/, "game modal UI still contains em/en-dash separators");
 
 const { clearLocalPlayerData, sanitizeAccountSession } = await import("./clientSanitize.js");
 const cleanedAccount = sanitizeAccountSession({ sessionToken: "session", account: { id: "acct", username: "player", displayName: "Player", createdAt: "2026-01-02T03:04:05.000Z" } });

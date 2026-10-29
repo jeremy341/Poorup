@@ -108,17 +108,4 @@ function isNonPublicIpv6(host) {
   return IPV6_SPECIAL_PREFIXES.includes(words[0]);
 }
 
-// The key a per-address limiter should count. One client holds a whole IPv6 /64 (the smallest normal assignment), so every
-// address in it shares one key, and IPv4-mapped addresses count as their IPv4 address. Anything that does not parse is returned
-// trimmed and unchanged.
-function rateLimitAddressKey(address) {
-  const raw = String(address ?? '').trim();
-  const bare = raw.replace(/^\[|\]$/g, '').replace(/%.*$/, '').toLowerCase();
-  if (net.isIP(bare) !== 6) return raw;
-  const words = ipv6Words(bare);
-  if (!words) return raw;
-  if (isIpv4MappedAddress(words)) return ipv4FromIpv6(words);
-  return `${words.slice(0, 4).map(word => word.toString(16)).join(':')}::/64`;
-}
-
-export { ipv4FromIpv6, ipv6Words, isNonPublicIpv4, isNonPublicIpv6, rateLimitAddressKey };
+export { ipv4FromIpv6, ipv6Words, isNonPublicIpv4, isNonPublicIpv6 };

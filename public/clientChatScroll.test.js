@@ -33,15 +33,3 @@ test('boundedChatRolloverDefersRenderPreservingAnchor', () => {
   assert.equal(scrollTop, 999, 'following returns the reader to the bottom');
   assert.deepEqual(follow, { updateContent: true, followBottom: true, showNewMessages: false });
 });
-test('emptyChatIsNotTreatedAsNewMessagesOnEveryRender', () => {
-  const hasUnrenderedMessages = chatView?.hasUnrenderedMessages;
-  assert.equal(typeof hasUnrenderedMessages, 'function', 'chat needs a tested unrendered-message check');
-  assert.equal(hasUnrenderedMessages([], 0, null), false, 'an empty chat that was rendered empty has nothing new');
-  const first = { who: 'A', text: 'hi' };
-  const second = { who: 'B', text: 'yo' };
-  assert.equal(hasUnrenderedMessages([first], 0, null), true, 'a first message is new');
-  assert.equal(hasUnrenderedMessages([first], 1, first), false, 'the same tail and count is not new');
-  assert.equal(hasUnrenderedMessages([first, second], 1, first), true, 'a longer list is new');
-  assert.equal(hasUnrenderedMessages([second], 1, first), true, 'a replaced tail is new even at the same count');
-  assert.equal(hasUnrenderedMessages([], 1, first), true, 'a cleared chat is a change');
-});

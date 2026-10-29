@@ -1,6 +1,10 @@
-// Provider-neutral authoritative room snapshot seam. Multi-instance deployments need a compare-and-swap
-// contract for snapshots. Adapters: a deterministic in-memory one for tests, a crash-safe JSON one for
-// one-process development. A PostgreSQL adapter can implement the same four methods.
+// Provider-neutral authoritative room snapshot seam.
+//
+// The running game remains in-memory today, but every future multi-instance
+// deployment needs a single compare-and-swap contract for room snapshots.
+// This module supplies a deterministic in-memory adapter for tests and a
+// crash-safe JSON adapter for one-process development. A PostgreSQL adapter can
+// implement the same four methods without changing Socket.IO payloads.
 import path from 'path';
 import { loadJson, writeJson } from './storeIO.js';
 

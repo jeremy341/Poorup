@@ -1,9 +1,5 @@
 export const VOTE_KICK_DURATION_MS = 30_000;
 export const VOTE_KICK_COOLDOWN_MS = 60_000;
-// After a vote on a target fails, passes or expires, no human can open another
-// vote on that same target for this long. The initiator cooldown alone let a
-// different human restart the vote at once.
-export const VOTE_KICK_TARGET_COOLDOWN_MS = 300_000;
 
 function isHuman(player) {
   return Boolean(player) && !player.isBot && !player.bot;
@@ -27,13 +23,6 @@ function hasPlayerId(player) {
   return [typeof player.id === 'string', Boolean(player.id?.length)].every(Boolean);
 }
 
-// Once a vote is open, electorate membership needs only a live, un-eliminated
-// human seat. A disconnected voter keeps its place while it can reconnect.
-function isActiveVoter(player) {
-  if (!player) return false;
-  return [isHuman(player), isNotEliminated(player), hasPlayerId(player)].every(Boolean);
-}
-
 function isEligibleHuman(player) {
   if (!player) return false;
   return [
@@ -45,12 +34,11 @@ function isEligibleHuman(player) {
   ].every(Boolean);
 }
 
-function isVoteStartBlocked(now, activeVote, cooldownUntil, targetCooldownUntil) {
+function isVoteStartBlocked(now, activeVote, cooldownUntil) {
   return [
     !Number.isFinite(now),
     Boolean(activeVote),
     hasUnexpiredCooldown(now, cooldownUntil),
-    hasUnexpiredCooldown(now, targetCooldownUntil),
   ].some(Boolean);
 }
 
@@ -113,9 +101,9 @@ function nextRequestIds(vote, replayKey) {
   return replayKey ? [...previous, replayKey] : [...previous];
 }
 
-export function startRoomVoteKick({ players, initiatorId, targetPlayerId, now, activeVote, cooldownUntil, targetCooldownUntil } = {}) {
+export function startRoomVoteKick({ players, initiatorId, targetPlayerId, now, activeVote, cooldownUntil } = {}) {
   if (!Array.isArray(players)) return null;
-  if (isVoteStartBlocked(now, activeVote, cooldownUntil, targetCooldownUntil)) return null;
+  if (isVoteStartBlocked(now, activeVote, cooldownUntil)) return null;
   const humans = players.filter(isEligibleHuman);
   const participants = eligibleParticipants(humans, initiatorId, targetPlayerId);
   if (!participants) return null;
@@ -138,31 +126,7 @@ export function startRoomVoteKick({ players, initiatorId, targetPlayerId, now, a
   };
 }
 
-// A seat that leaves or is eliminated mid-vote drops out of the electorate and takes its ballot with it. The threshold stays at the
-// majority of the electorate that opened the vote, so losing voters can only make a pass harder. A target that left or was eliminated
-// closes the vote as 'closed': it is never passed against a seat that is not there. Returns the same object when nothing changed.
-export function pruneRoomVoteKick({ vote, players } = {}) {
-  if (vote?.status !== 'open' || !Array.isArray(players)) return vote;
-  const target = players.find(player => player.id === vote.targetPlayerId);
-  if (!isActiveVoter(target)) return { ...vote, status: 'closed' };
-  const active = new Set(players.filter(isActiveVoter).map(player => player.id));
-  const electorate = vote.electorate.filter(id => active.has(id));
-  if (electorate.length === vote.electorate.length) return vote;
-  const ballots = Object.fromEntries(Object.entries(vote.ballots || {}).filter(([id]) => electorate.includes(id)));
-  return {
-    ...vote,
-    electorate,
-    ballots,
-    eligibleCount: electorate.length,
-    status: nextVoteStatus({ ...vote, electorate }, ballots),
-  };
-}
-
-// `players` is the room's live roster. When supplied, the vote is pruned
-// against it before the ballot is judged, so a seat eliminated after the vote
-// opened cannot cast or keep a ballot.
-export function castRoomVoteKick({ vote: suppliedVote, voterId, choice, now, requestId, players } = {}) {
-  const vote = pruneRoomVoteKick({ vote: suppliedVote, players });
+export function castRoomVoteKick({ vote, voterId, choice, now, requestId } = {}) {
   const reject = (reason, currentVote = vote) => ({ accepted: false, reason, vote: currentVote });
   if (!vote) return reject('vote-closed');
   const timing = voteTimeState(vote, now);

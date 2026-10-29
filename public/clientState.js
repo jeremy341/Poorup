@@ -1,6 +1,8 @@
-// CLIENT STATE: the single shared mutable state object plus the
-// profile/appearance helpers that read or mutate it. Imported by
-// every client module that needs live UI state (mutated in place).
+/* ============================================================
+   CLIENT STATE: the single shared mutable state object plus the
+   profile/appearance helpers that read or mutate it. Imported by
+   every client module that needs live UI state (mutated in place).
+   ============================================================ */
 import {
   APPEARANCES,
   MAX_PROFILES,
@@ -132,8 +134,8 @@ const initialAchievementRecords = loadAchievementRecords();
 
 const state = {
   
-  // Per-tab session id: sessionStorage survives reloads but is fresh for
-  // every tab, so two tabs cannot share (and hijack) one seat.
+  // Per-tab session id (audit #10): sessionStorage survives reloads but is
+  // fresh for every tab, so two tabs can no longer share — and hijack — one seat.
   clientId: loadClientId() || `client-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   account: loadAccountSession(),
   hostId: null,
@@ -142,7 +144,7 @@ const state = {
   pendingRoomMeta: null,
   suppressRoomUpdates: false,
   // Server-minus-local clock skew (ms), refreshed from every snapshot's
-  // serverTime so auction deadlines survive a skewed local clock.
+  // serverTime so auction deadlines survive a skewed local clock (audit #18).
   serverTimeOffset: 0,
   lastConnectionAnnouncement: "",
   previousTurnKey: "",
@@ -162,15 +164,13 @@ const state = {
   themePopoverOpen: false,
   maintenance: {
     mode: "normal",
-    lockout: false,
     message: "",
     releaseId: "",
     drainDeadline: null,
     activeRounds: 0,
-    bypass: false,
   },
-  profileTab: "overview",   // overview | stats | designs | history | account
-  setupTab: "preset",         // "preset" | "custom": which tab is showing in the setup grid
+  profileTab: "designs",    // overview | stats | designs | history | account
+  setupTab: "preset",         // "preset" | "custom" — which tab is showing in the setup grid
   profiles: loadProfiles(),   // persisted array of saved player designs
   achievementRecords: initialAchievementRecords,
   unlockedAchievements: new Set(initialAchievementRecords.keys()),
@@ -191,7 +191,7 @@ const state = {
   // A local action stays locked until its acknowledgement or timeout. A
   // server snapshot alone is not proof that the request was accepted.
   pendingAction: null,
-  turnStage: "roll", // roll | end; landing actions happen before explicit end
+  turnStage: "roll", // roll | end — landing actions happen before explicit end
   pool: 0,
   owners: {},
   highlight: null,
@@ -209,7 +209,6 @@ const state = {
     hud: "full",
   },
   walletView: "account",
-  flights: { enabled: false, defaultFare: 100, maxFee: 200, options: [] }, // priced flight options for the local player, from the server
   walletItemId: null,
   tradeWith: null,
   tradeCounterId: null,
@@ -220,7 +219,7 @@ const state = {
   tradeTheirCash: 0,
   houses: {},      // { [tileId]: 0..4 | 5(hotel) }
   mortgaged: {},   // { [tileId]: true }
-  offers: [],      // pending trade offers from bots to humans
+  offers: [],      // pending bot→human trade offers
   pendingTrade: null,
   voteKick: null,
   pendingBuyTile: null, // tile the human must resolve (buy/auction) before ending
@@ -245,8 +244,10 @@ const state = {
   socialSearchQuery: "",
   socialTab: "friends",
   rulesSection: "start-here",
+  rulesQuery: "",
+  rulesSearchExpanded: false,
   rulesIndexExpanded: false,
-  leaderboard: { metric: "wins", scope: "all", rows: [], snapshots: {}, generatedAt: null, loading: false, error: "", requestId: 0, page: 0 },
+  leaderboard: { metric: "wins", scope: "all", rows: [], snapshots: {}, generatedAt: null, loading: false, error: "", requestId: 0 },
   rankingSearchQuery: "",
   rankingSearchResults: [],
   rankingSearchExpanded: false,
@@ -261,15 +262,12 @@ const state = {
   botProviderStatus: null,
   card: null,           // { tile, ev, kind } modal reveal
   gameOver: null,       // { winnerName, winnerId, summary[] } end screen
-  finalPlacements: null,
   sound: loadSoundPreference(), // global effects toggle
   // Canonical global soundtrack preference. The hidden theme-music runtime
   // mirrors this value but never owns or replaces it (including across tabs).
   music: loadMusicPreference(),
   quickJoin: false,     // "quick table" uses all-default rules
   settings: {
-    rulesProfile:    "standard",
-    playerFinance:   false,
     maxPlayers:      4,       // 2 – 4
     startingCash:    1500,    // 1000 / 1500 / 2000 / 3000
     vacationPool:    true,    // free-parking jackpot on/off
@@ -277,20 +275,22 @@ const state = {
     auction:         false,   // auction unowned deeds on/off
     doubleGo:        false,   // $400 for landing exactly on GO
     noRentInJail:    true,    // owner can't collect while visiting
+    houseLimit:      32,      // house bank 10 / 20 / 32 (unlimited)
+    hotelLimit:      12,      // hotel bank 6 / 12 (unlimited)
     bankruptMode:    "elim",  // legacy snapshot key; bankruptcy always eliminates/spectates
     bots:            0,        // reserved CPU seats; bot turns are added separately
     botBrain:        "ai",    // "ai" | "no-ai" (legacy "auto" normalizes to "ai")
     botDifficulty:   "table", // "house" | "table" | "expert"
-    bankLoans:       false,
+    bankLoans:       true,
     bankLoanSeverity: "predatory",
     items:           false,
-    itemRewards:     false,
     bankAccountUpgrades: false,
     predictionMarket: false,
     globalEvents:    false,
     casino:          false,
-    flights:         false,
     market:          false,
+    rulesetPreset:   "classic",
+    rulesetBase:     "classic",
     rulesetOverrides: [],
     boardVariant:    "standard-40",
     rulesetRevision: 1,
@@ -298,7 +298,7 @@ const state = {
     globalEventDuration: 5,
     globalEventMax:  1,
   },
-  log: ["WAITING FOR GAME. CHOOSE YOUR APPEARANCE."],
+  log: ["WAITING FOR GAME — CHOOSE YOUR APPEARANCE."],
   activityNotices: [],
   activityRoomCode: "",
   lastGameFeed: [],

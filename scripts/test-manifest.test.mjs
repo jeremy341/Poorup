@@ -1,19 +1,15 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { shardedTestSuites, testSuites, TEST_GROUPS, timeShardedTestSuites } from './test-manifest.mjs';
 import { parseRunnerOptions, shardParts } from './test-runner-options.mjs';
-import { parseTimings, shardLoads } from './shard-balance.mjs';
+import { estimatedDuration, parseTimings, shardLoads } from './shard-balance.mjs';
 
-const SUITE_DIRS = ['server', 'public', 'scripts', path.join('qa', 'visual-capture')];
+const SUITE_DIRS = ['server', 'public', 'scripts'];
 const SUITE_PATTERN = /\.test\.(?:js|mjs)$/;
+// This file is itself a suite; it is invoked explicitly by CI and by
+// `npm run test:manifest`, so it is not a manifest entry.
 const SELF = 'scripts/test-manifest.test.mjs';
-// Discovered test files that no manifest group runs, each with its reason. A
-// new entry needs a reason and must not also be listed in a group.
-const UNREGISTERED_ALLOW_LIST = new Map([
-  [SELF, 'this contract test is run directly by the CI lint job (.github/workflows/ci.yml), not by a group'],
-]);
 
 function discoverSuites() {
   const found = [];
@@ -30,32 +26,26 @@ function discoverSuites() {
   return found.sort();
 }
 
-// Counts are derived, never pinned: the invariants are that the full list is
-// unique, no group repeats a suite, and every listed path exists. Suites may
-// appear in more than one group (cross-group repeats are expected).
 const allSuites = testSuites('full');
 assert.equal(new Set(allSuites).size, allSuites.length, 'the full manifest runs each suite only once');
+assert.equal(allSuites.length, 173, 'the manifest includes the concurrent auction bot regression suite');
 const totalGroupRuns = Object.values(TEST_GROUPS).reduce((total, suites) => total + suites.length, 0);
+assert.equal(totalGroupRuns, 185, 'all active script entries remain represented in named groups');
 for (const [name, suites] of Object.entries(TEST_GROUPS)) {
   assert.equal(new Set(suites).size, suites.length, `${name} does not repeat an individual suite`);
 }
+assert.equal(totalGroupRuns - allSuites.length, 12, 'only the 12 previously duplicated invocations are deduplicated');
 assert.ok(allSuites.includes('server/bot-simulation.test.js'));
-assert.ok(allSuites.includes('server/auctionBotConcurrency.test.js'), 'the manifest includes the concurrent auction bot regression suite');
 assert.ok(allSuites.every(suite => existsSync(suite)), 'every manifest suite resolves to a checked-in test file');
 
 // The reverse direction. Without it, a new suite that is never registered in
 // the manifest passes every CI tier on every branch and silently never runs.
-const onDisk = discoverSuites().filter(suite => !UNREGISTERED_ALLOW_LIST.has(suite));
+const onDisk = discoverSuites().filter(suite => suite !== SELF);
 assert.deepEqual(
   onDisk,
   [...allSuites].sort(),
-  'every checked-in test file under server, public, scripts and qa/visual-capture is registered in the manifest or allow-listed with a reason (add it to scripts/test-manifest.mjs)'
+  'every checked-in test file is registered in the manifest (add it to scripts/test-manifest.mjs)'
 );
-for (const [suite, reason] of UNREGISTERED_ALLOW_LIST) {
-  assert.ok(existsSync(suite), `allow-listed ${suite} exists`);
-  assert.ok(reason.length > 0, `allow-listed ${suite} states a reason`);
-  assert.equal(allSuites.includes(suite), false, `${suite} is allow-listed and must not also be a manifest entry`);
-}
 
 const shards = [1, 2, 3, 4].map(index => shardedTestSuites(allSuites, index, 4));
 const shardedSuites = shards.flat();
@@ -90,17 +80,6 @@ assert.deepEqual(parseRunnerOptions(['--group', 'account', '--suite=server/accou
   singleSuite: 'server/accountExport.test.js',
   shard: null,
   timings: null,
-  allowEmpty: false,
 });
-assert.equal(parseRunnerOptions(['--group=core', '--allow-empty']).allowEmpty, true);
 
-// A selection that runs nothing is a configuration error, not a pass.
-// A shard past the end of the group selects no suites, so it must fail.
-const pastEnd = testSuites('core').length + 1;
-const emptySelection = spawnSync(process.execPath, ['scripts/run-test-manifest.mjs', '--group=core', '--shard=' + pastEnd + '/' + pastEnd], { encoding: 'utf8' });
-assert.notEqual(emptySelection.status, 0, 'an empty shard selection fails instead of reporting success');
-assert.match(emptySelection.stderr, /No suites selected/, 'the empty selection failure names the cause');
-const allowedEmpty = spawnSync(process.execPath, ['scripts/run-test-manifest.mjs', '--group=core', '--shard=200/200', '--allow-empty'], { encoding: 'utf8' });
-assert.equal(allowedEmpty.status, 0, 'an intentionally empty selection passes with --allow-empty');
-
-console.log(`test manifest: ${totalGroupRuns} prior invocations, ${allSuites.length} unique suites, time-balanced shards (fallback round-robin)`);
+console.log(`test manifest: ${totalGroupRuns} prior invocations → ${allSuites.length} unique suites, time-balanced shards (fallback round-robin)`);

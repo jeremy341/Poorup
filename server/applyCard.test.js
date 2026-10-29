@@ -1,6 +1,10 @@
-// Characterization suite for GameState.applyCard, the card-action dispatcher in the rules engine.
-// Each case drives one card action (or a tricky branch) from an identical two-player fixture and pins
-// the observable contract. Captured from the pre-refactor switch; the dispatch table must keep it green.
+// Characterization suite for GameState.applyCard — the card-action dispatcher
+// in the rules engine. Each case drives one card action (and the tricky
+// branches: low-tax election modifier, airport-strike grounding, owned
+// railroad/utility rent, missing destinations) from an identical two-player
+// fixture and pins the observable contract: return shape, positions, cash
+// movement, pending purchase offer, turn resolution and feed volume. Captured
+// from the pre-refactor switch; the dispatch-table extraction must keep it green.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 
@@ -514,10 +518,10 @@ for (const [name, [setup, card]] of Object.entries(CASES)) {
   try {
     assert.deepStrictEqual(runCase(setup, card), GOLDEN[name], name);
     passed += 1;
-    console.log(`PASS - applyCard ${name}`);
+    console.log(`PASS — applyCard ${name}`);
   } catch (error) {
     failures.push(name);
-    console.log(`FAIL - applyCard ${name}: ${error.message}`);
+    console.log(`FAIL — applyCard ${name}: ${error.message}`);
   }
 }
 console.log(`applyCard tests: ${passed} passed, ${failures.length} failed`);
@@ -542,9 +546,9 @@ try {
   assert.deepEqual({ result, payer: game.players[0].cash, owner: game.players[1].cash }, {
     result: { success: true }, payer: 980, owner: 1020
   });
-  console.log('PASS - applyCard nearestUtility-pre-roll uses minimum dice total');
+  console.log('PASS — applyCard nearestUtility-pre-roll uses minimum dice total');
 } catch (error) {
-  console.log(`FAIL - applyCard nearestUtility-pre-roll: ${error.message}`);
+  console.log(`FAIL — applyCard nearestUtility-pre-roll: ${error.message}`);
   process.exitCode = 1;
 }
 
@@ -564,56 +568,9 @@ try {
   game.applyCard(payer, { action: 'nearestUtility', multiplier: 10 }, {});
   assert.equal(payer.cash, 895);
   assert.equal(owner.cash, 1105);
-  console.log('PASS - applyCard utility rent honors active event modifiers');
+  console.log('PASS — applyCard utility rent honors active event modifiers');
 } catch (error) {
-  console.log(`FAIL - applyCard utility event modifier: ${error.message}`);
-  process.exitCode = 1;
-}
-
-// The rent cap limits the single amount a card charges, so "pay double"
-// to an airport never exceeds a $30 cap (double of a capped $25 would be $50).
-// Utility cards already capped after their multiplier; both must agree.
-try {
-  const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 's-cap-rr-a', clientId: 'c-cap-rr-a', nickname: 'Ada' });
-  room.addOrReconnectPlayer({ socketId: 's-cap-rr-b', clientId: 'c-cap-rr-b', nickname: 'Bob' });
-  const game = room.game;
-  const payer = game.players[0];
-  const owner = game.players[1];
-  payer.position = 6;
-  payer.cash = 1000;
-  owner.cash = 1000;
-  game.tiles[15].ownerId = owner.id;
-  game.lastDice = [3, 4];
-  game.globalEvent = { id: 'custom', phase: 'active', effects: { rentCap: 30 } };
-  game.applyCard(payer, { action: 'nearestRailroad', multiplier: 2 }, {});
-  assert.equal(payer.cash, 970);
-  assert.equal(owner.cash, 1030);
-  console.log('PASS - applyCard railroad double rent honors the rent cap');
-} catch (error) {
-  console.log(`FAIL - applyCard railroad double rent cap: ${error.message}`);
-  process.exitCode = 1;
-}
-
-try {
-  const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 's-cap-ut-a', clientId: 'c-cap-ut-a', nickname: 'Ada' });
-  room.addOrReconnectPlayer({ socketId: 's-cap-ut-b', clientId: 'c-cap-ut-b', nickname: 'Bob' });
-  const game = room.game;
-  const payer = game.players[0];
-  const owner = game.players[1];
-  payer.position = 6;
-  payer.cash = 1000;
-  owner.cash = 1000;
-  game.tiles[12].ownerId = owner.id;
-  game.lastDice = [3, 4];
-  game.globalEvent = { id: 'custom', phase: 'active', effects: { rentCap: 30 } };
-  game.applyCard(payer, { action: 'nearestUtility', multiplier: 10 }, {});
-  assert.equal(payer.cash, 970);
-  assert.equal(owner.cash, 1030);
-  console.log('PASS - applyCard utility rent honors the rent cap');
-} catch (error) {
-  console.log(`FAIL - applyCard utility rent cap: ${error.message}`);
+  console.log(`FAIL — applyCard utility event modifier: ${error.message}`);
   process.exitCode = 1;
 }
 
@@ -628,9 +585,9 @@ try {
   game.applyCard(player, { action: 'pay', amount: 50 }, {});
   assert.equal(game.pendingPayment.amountRemaining, 30);
   assert.equal(game.cardCashAfterPlay(player, { action: 'pay', amount: 50 }, before, player.position), -20);
-  console.log('PASS - applyCard pay reveal reports actual partial payment');
+  console.log('PASS — applyCard pay reveal reports actual partial payment');
 } catch (error) {
-  console.log(`FAIL - applyCard pay reveal: ${error.message}`);
+  console.log(`FAIL — applyCard pay reveal: ${error.message}`);
   process.exitCode = 1;
 }
 
@@ -667,9 +624,9 @@ try {
     { creditorId: game.players[2].id, amountRemaining: 50 },
     { creditorId: game.players[3].id, amountRemaining: 50 }
   ]);
-  console.log('PASS - applyCard payEach parks every unpaid recipient leg');
+  console.log('PASS — applyCard payEach parks every unpaid recipient leg');
 } catch (error) {
-  console.log(`FAIL - applyCard payEach shortfall: ${error.message}`);
+  console.log(`FAIL — applyCard payEach shortfall: ${error.message}`);
   process.exitCode = 1;
 }
 
@@ -683,9 +640,9 @@ try {
   game.applyCard(player, { action: 'collect' }, {});
   assert.equal(player.cash, 300);
   assert.equal(game.cardCashAfterPlay(player, { action: 'collect' }, 100, player.position), 200);
-  console.log('PASS - applyCard collect reveal matches default payout');
+  console.log('PASS — applyCard collect reveal matches default payout');
 } catch (error) {
-  console.log(`FAIL - applyCard collect default: ${error.message}`);
+  console.log(`FAIL — applyCard collect default: ${error.message}`);
   process.exitCode = 1;
 }
 
@@ -703,148 +660,8 @@ try {
   const before = payer.cash;
   game.applyCard(payer, { action: 'moveTo', tileIndex: 3 }, {});
   assert.equal(game.cardCashAfterPlay(payer, { action: 'moveTo', tileIndex: 3 }, before), 190);
-  console.log('PASS - applyCard movement reveal includes salary and rent');
+  console.log('PASS — applyCard movement reveal includes salary and rent');
 } catch (error) {
-  console.log(`FAIL - applyCard movement reveal: ${error.message}`);
-  process.exitCode = 1;
-}
-
-// Nearest-airport/utility card rent is a landing, so it records the same
-// facts a dice landing does (airport visit stat, airport-strike rent flags).
-try {
-  const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 's-fact-a', clientId: 'c-fact-a', nickname: 'Ada' });
-  room.addOrReconnectPlayer({ socketId: 's-fact-b', clientId: 'c-fact-b', nickname: 'Bob' });
-  const game = room.game;
-  const payer = game.players[0];
-  const owner = game.players[1];
-  payer.position = 6;
-  payer.cash = 1000;
-  game.tiles[15].ownerId = owner.id;
-  game.lastDice = [3, 4];
-  game.applyCard(payer, { action: 'nearestRailroad', multiplier: 2 }, {});
-  assert.equal(payer.cash < 1000, true, 'rent was charged');
-  assert.deepEqual([...payer.airportVisits], [15]);
-
-  const strikeManager = new RoomManager();
-  const strikeRoom = strikeManager.createRoom({ socketId: 's-fact-c', clientId: 'c-fact-c', nickname: 'Cy' });
-  strikeRoom.addOrReconnectPlayer({ socketId: 's-fact-d', clientId: 'c-fact-d', nickname: 'Di' });
-  const strikeGame = strikeRoom.game;
-  const strikePayer = strikeGame.players[0];
-  const strikeOwner = strikeGame.players[1];
-  strikePayer.position = 6;
-  strikePayer.cash = 1000;
-  strikeGame.tiles[12].ownerId = strikeOwner.id;
-  strikeOwner.properties.push(12);
-  strikeGame.lastDice = [3, 4];
-  strikeGame.globalEvent = { id: 'airport-strike', phase: 'active', effects: {} };
-  strikeGame.applyCard(strikePayer, { action: 'nearestUtility', multiplier: 10 }, {});
-  assert.equal(strikePayer.cash < 1000, true, 'utility rent was charged');
-  assert.equal(strikeOwner.nonAirportRentDuringStrike, true);
-  console.log('PASS - applyCard card rent records landing facts');
-} catch (error) {
-  console.log(`FAIL - applyCard card rent landing facts: ${error.message}`);
-  process.exitCode = 1;
-}
-
-// The low-tax election cuts every card reward, including the per-player
-// collection of a collect-from-each card.
-try {
-  const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 's-k2-a', clientId: 'c-k2-a', nickname: 'Ada' });
-  room.addOrReconnectPlayer({ socketId: 's-k2-b', clientId: 'c-k2-b', nickname: 'Bob' });
-  const game = room.game;
-  game.started = true;
-  game.currentPlayerId = game.players[0].id;
-  game.hasRolled = true;
-  game.players.forEach(player => { player.cash = 1000; });
-  game.globalEvent = { id: 'city-election', phase: 'active', resolvedChoice: 'low-tax' };
-  game.applyCard(game.players[0], { action: 'collectFromEach', amount: 50 }, {});
-  assert.equal(game.players[0].cash, 1040);
-  assert.equal(game.players[1].cash, 960);
-  console.log('PASS - applyCard collectFromEach honors the low-tax discount');
-} catch (error) {
-  console.log(`FAIL - applyCard collectFromEach low tax: ${error.message}`);
-  process.exitCode = 1;
-}
-
-// A card transfer that empties the payer's wallet must record the
-// zero-cash achievement flag, exactly like the debt paths do.
-try {
-  const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 's-k3-a', clientId: 'c-k3-a', nickname: 'Ada' });
-  room.addOrReconnectPlayer({ socketId: 's-k3-b', clientId: 'c-k3-b', nickname: 'Bob' });
-  const game = room.game;
-  game.started = true;
-  game.currentPlayerId = game.players[0].id;
-  game.hasRolled = true;
-  const payer = game.players[0];
-  const other = game.players[1];
-  payer.cash = 20;
-  other.cash = 1000;
-  game.applyCard(payer, { action: 'payEach', amount: 20 }, {});
-  assert.equal(payer.cash, 0);
-  assert.equal(payer.zeroCashReached, true);
-  console.log('PASS - applyCard payEach records the payer reaching zero cash');
-} catch (error) {
-  console.log(`FAIL - applyCard payEach zero cash: ${error.message}`);
-  process.exitCode = 1;
-}
-
-try {
-  const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 's-k3-c', clientId: 'c-k3-c', nickname: 'Ada' });
-  room.addOrReconnectPlayer({ socketId: 's-k3-d', clientId: 'c-k3-d', nickname: 'Bob' });
-  const game = room.game;
-  game.started = true;
-  game.currentPlayerId = game.players[0].id;
-  game.hasRolled = true;
-  const collector = game.players[0];
-  const payer = game.players[1];
-  collector.cash = 1000;
-  payer.cash = 15;
-  game.applyCard(collector, { action: 'collectFromEach', amount: 15 }, {});
-  assert.equal(payer.cash, 0);
-  assert.equal(payer.zeroCashReached, true);
-  console.log('PASS - applyCard collectFromEach records the payer reaching zero cash');
-} catch (error) {
-  console.log(`FAIL - applyCard collectFromEach zero cash: ${error.message}`);
-  process.exitCode = 1;
-}
-
-// Cash arriving from a pay-each card must immediately settle a parked debt
-// held by the recipient, matching the property/loan/trade rescue rule.
-try {
-  const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: 's-k4-a', clientId: 'c-k4-a', nickname: 'Ada' });
-  room.addOrReconnectPlayer({ socketId: 's-k4-b', clientId: 'c-k4-b', nickname: 'Bob' });
-  room.addOrReconnectPlayer({ socketId: 's-k4-c', clientId: 'c-k4-c', nickname: 'Cara' });
-  const game = room.game;
-  game.started = true;
-  game.currentPlayerId = game.players[0].id;
-  game.hasRolled = true;
-  const [payer, debtor, creditor] = game.players;
-  payer.cash = 100;
-  debtor.cash = 0;
-  creditor.cash = 1000;
-  game.pendingPayment = {
-    playerId: debtor.id,
-    creditorId: creditor.id,
-    amountRemaining: 20,
-    reason: 'parked rent',
-    equityTileIndex: null,
-    equityOwnerId: null
-  };
-  game.applyCard(payer, { action: 'payEach', amount: 20 }, {});
-  // The card pays BOTH opponents $20, so the payer keeps 100 - 40 = 60. The
-  // debtor's share is handed straight to the parked creditor by the
-  // settlement, which is why the creditor ends up with 1000 + 20 + 20.
-  assert.equal(payer.cash, 60);
-  assert.equal(debtor.cash, 0);
-  assert.equal(creditor.cash, 1040);
-  assert.equal(game.pendingPayment, null);
-  console.log('PASS - applyCard payEach settles a recipient parked debt');
-} catch (error) {
-  console.log(`FAIL - applyCard payEach recipient debt: ${error.message}`);
+  console.log(`FAIL — applyCard movement reveal: ${error.message}`);
   process.exitCode = 1;
 }

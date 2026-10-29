@@ -1,6 +1,9 @@
-// The two wager economies as a prototype mixin: the roulette casino and the index market, plus the shared transaction-replay cache
-// and the economy snapshot both flows return to the client. gameLogic.js assigns this object onto GameState.prototype.
-// casino-bankruptcy and contracts-market tests pin every guard string, fee rounding and ledger shape.
+// The two wager economies as a prototype mixin: the roulette casino and the
+// index market, plus the shared transaction-replay cache and the economy
+// snapshot both flows return to the client. gameLogic.js assigns this object
+// onto GameState.prototype; server/casino-bankruptcy.test.js and
+// server/contracts-market.test.js pin every guard string, fee rounding, and
+// ledger shape.
 import crypto from 'crypto';
 import { randomInt } from './random.js';
 import {
@@ -52,9 +55,13 @@ function casinoSnapshot(game, player, limits) {
   };
 }
 
-// marketLogic mutates position objects in place (applyMarketBuy writes into averageCost and quantity), so a shallow {...map}
-// snapshot aliases live state. An already-returned snapshot, including the economy payload replayed on a duplicate requestId,
-// would rewrite itself retroactively. Rebuild each entry so no snapshot shares a reference with the player's book.
+// marketLogic mutates position objects IN PLACE (applyMarketBuy writes straight
+// into position.averageCost / position.quantity and economyApi reassigns the same
+// reference back into player.marketPositions[id]), so a shallow {...map} snapshot
+// aliases live state: an already-returned snapshot - including the economy
+// payload every cacheTransaction call site replays verbatim on a duplicate
+// requestId - rewrites itself retroactively. Rebuild each entry so the snapshot
+// never shares a reference with the player's book.
 function clonedPositionMap(map) {
   return Object.fromEntries(Object.entries(map || {}).map(([id, position]) => [id, { ...position }]));
 }
@@ -102,9 +109,17 @@ function shortInventory(game) {
   return game.marketShortInventory;
 }
 
-// Short buy-in debt is a forced obligation, so this path keeps the off-turn, quota-exempt reach that marketExpansion.settleShortDefault documents.
-// It skips the turn gate, quota and trading-pause check: paying an obligation is the opposite of trading, and a debt only its owner can clear must never be unreachable.
-// It still shares the expansion ladder's loan-taint and session guards. Room market settings freeze at game start, so these cannot strand an obligation.
+// Short buy-in debt is a forced obligation, so this path deliberately keeps
+// the off-turn, quota-exempt reach marketExpansion.settleShortDefault
+// documents ("callers may invoke this path on a later turn or before opening
+// another market position") and does not take the turn gate, the per-turn
+// market quota, or the trading-pause check: paying an obligation is the
+// opposite of trading, and a debt that only its owner can clear must never be
+// unreachable. It does share the rest of the expansion ladder - the same
+// loan-taint guard every other market entry uses, plus the session guards, so
+// the path cannot settle against a market the room does not run. Room market
+// settings are frozen once the game starts (rooms.js roomSettingChange-
+// RejectionReason), so these guards can never strand an outstanding obligation.
 function shortDefaultRejection(game, player) {
   if (!game.started || !player || player.bankrupt || player.disconnected) return 'Market access is unavailable right now.';
   if (game.hasLoanBackedCash?.(player)) return 'Loan-backed cash cannot fund margin, short, or option positions.';
@@ -278,7 +293,7 @@ const economyApi = {
       const forced = forceLiquidate(this, player, this.marketShortInventory || (this.marketShortInventory = {}));
       if (forced.length) {
         this.feedMessage(`${player.nickname} faced ${forced.join(' and ')}.`);
-        this.recordTelemetryEvent?.('market-liquidation', { actionCount: forced.length });
+        this.recordTelemetryEvent?.('market-liquidation', { actionCount: forced.length, actions: forced });
       }
     });
   },
@@ -332,7 +347,6 @@ const economyApi = {
     player.marketTrades = (player.marketTrades || 0) + 1;
     player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
     this.recordMarketLedger(ctx, plan);
-    this.creditBankCashback(player, plan.fee, 'MARKET FEE');
     this.recordTelemetryEvent?.('market-volatility', { action: ctx.direction, instrumentId: ctx.id, quantity: ctx.amount });
     this.feedMessage(this.marketFeedLine(ctx));
     const result = { success: true, order: this.marketOrderReceipt(ctx, plan), economy: this.economySnapshot(player.id) };
@@ -400,7 +414,7 @@ const economyApi = {
       player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
       this.marketLedger = [{ transactionId: key || crypto.randomUUID(), ...result, playerId: player.id, createdAt: new Date().toISOString() }, ...this.marketLedger].slice(0, 300);
       result.economy = this.economySnapshot(player.id);
-      this.recordTelemetryEvent?.('market-volatility', { action: 'open-margin', instrumentId: instrument.id, quantity: amount });
+      this.recordTelemetryEvent?.('market-volatility', { action: 'open-margin', instrumentId, quantity: amount });
       return this.cacheTransaction(key, result);
     }
     return result;
@@ -413,9 +427,7 @@ const economyApi = {
     if (cached) return cached;
     const rejection = expansionGuard(this, player, 'margin', 'manage');
     if (rejection) return { success: false, error: rejection };
-    const repayment = integerAmount(amount, 1_000_000);
-    if (!repayment) return { success: false, error: 'Enter a whole amount to repay.' };
-    const result = reduceMargin(player, repayment);
+    const result = reduceMargin(player, integerAmount(amount, 1_000_000));
     if (result.success) {
       player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
       result.economy = this.economySnapshot(player.id);
@@ -438,7 +450,7 @@ const economyApi = {
     if (pause) return { success: false, error: pause };
     if (!instrument || !amount) return { success: false, error: 'Choose a valid short order.' };
     const result = openShort(this, player, { instrument, amount, inventory: shortInventory(this) });
-    if (result.success) { player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1; player.marketTrades = (player.marketTrades || 0) + 1; result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'open-short', instrumentId: instrument.id, quantity: amount }); return this.cacheTransaction(key, result); }
+    if (result.success) { player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1; player.marketTrades = (player.marketTrades || 0) + 1; result.economy = this.economySnapshot(player.id); this.recordTelemetryEvent?.('market-volatility', { action: 'open-short', instrumentId, quantity: amount }); return this.cacheTransaction(key, result); }
     return result;
   },
 
@@ -458,7 +470,7 @@ const economyApi = {
       player.marketTrades = (player.marketTrades || 0) + 1;
       player.marketActionsThisTurn = (player.marketActionsThisTurn || 0) + 1;
       result.economy = this.economySnapshot(player.id);
-      this.recordTelemetryEvent?.('market-volatility', { action: 'cover-short', instrumentId: instrument.id, quantity: amount });
+      this.recordTelemetryEvent?.('market-volatility', { action: 'cover-short', instrumentId, quantity: amount });
       return this.cacheTransaction(key, result);
     }
     return result;
@@ -472,8 +484,7 @@ const economyApi = {
     const rejection = shortDefaultRejection(this, player);
     if (rejection) return { success: false, error: rejection };
     const result = settleShortDefault(this, player, amount);
-    if (!result.success) return result;
-    result.economy = this.economySnapshot(player.id);
+    if (result.success) result.economy = this.economySnapshot(player.id);
     return this.cacheTransaction(key, result);
   },
 

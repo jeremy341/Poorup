@@ -1,5 +1,6 @@
-// Regression suite for the second backend audit pass. Each check pins one verified defect: a voluntary
-// leave that froze the bank loan on a dead seat, a disconnected ghost seat that could take 1st place,
+// Regression suite for the second backend audit pass (B-05, B-06, B-07, B-09).
+// Every check pins one verified defect: a voluntary leave that froze the bank
+// loan on a dead seat, a disconnected ghost seat that could take 1st place,
 // and a board-variant downgrade that started an over-capacity table.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -37,7 +38,7 @@ check('a voluntary leave settles the bank loan on the dead seat (B-05)', () => {
   // advanceBankLoan skips bankrupt players, so a leave that only ran the old
   // ladder froze the loan at active/remaining forever: the departed seat kept
   // the principal and never paid (or lost) the premium.
-  const { manager, room } = startedThreeSeatRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const { manager, room } = startedThreeSeatRoom({ rulesetPreset: 'after-hours' });
   const game = room.game;
   const leaver = game.players[0];
   const tile = game.getTile(1);
@@ -54,7 +55,7 @@ check('a voluntary leave settles the bank loan on the dead seat (B-05)', () => {
 });
 
 check('an unsecured loan the leaver cannot pledge is written off, not frozen (B-05)', () => {
-  const { manager, room } = startedThreeSeatRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const { manager, room } = startedThreeSeatRoom({ rulesetPreset: 'after-hours' });
   const leaver = room.game.players[0];
   leaver.bankLoan = { status: 'due', remaining: 500, collateralTileIndex: null };
   assert.equal(manager.removeRoomSeat({ clientId: 'a', reason: 'leave' }).success, true);
@@ -111,7 +112,7 @@ check('bankrupt seats still rank after solvent ones once ghosts are excluded (B-
 check('a board downgrade that would strand a seat is refused (B-09)', () => {
   const manager = new RoomManager();
   const room = manager.createRoom({
-    socketId: 'a', clientId: 'a', nickname: 'A', boardVariant: 'metro-52', rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }
+    socketId: 'a', clientId: 'a', nickname: 'A', boardVariant: 'metro-52', rulesetPreset: 'after-hours'
   });
   assert.equal(room.setRoomSetting('maxPlayers', 6).rejected, false);
   ['b', 'c', 'd', 'e'].forEach(id => {
@@ -136,7 +137,7 @@ check('a board downgrade that would strand a seat is refused (B-09)', () => {
 check('a board downgrade that still fits the table is allowed (B-09)', () => {
   const manager = new RoomManager();
   const room = manager.createRoom({
-    socketId: 'a', clientId: 'a', nickname: 'A', boardVariant: 'metro-52', rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }
+    socketId: 'a', clientId: 'a', nickname: 'A', boardVariant: 'metro-52', rulesetPreset: 'after-hours'
   });
   assert.equal(room.setRoomSetting('maxPlayers', 6).rejected, false);
   ['b', 'c', 'd'].forEach(id => {

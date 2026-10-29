@@ -15,15 +15,9 @@ case "$RELEASE_SHA" in
   *[!a-fA-F0-9]*|'') echo "RELEASE_SHA must be a hexadecimal commit"; exit 2 ;;
 esac
 
-# The token goes to curl through a 0600 header file, not argv (see deploy-nest.sh).
-MAINTENANCE_HEADER="$(mktemp)"
-chmod 600 "$MAINTENANCE_HEADER"
-trap 'rm -f "$MAINTENANCE_HEADER"' EXIT
-printf 'x-poorup-maintenance-token: %s\n' "$MAINTENANCE_TOKEN" > "$MAINTENANCE_HEADER"
-
 curl --fail --silent --show-error --max-time 10 -X POST "$MAINTENANCE_URL" \
   -H "content-type: application/json" \
-  -H "@$MAINTENANCE_HEADER" \
+  -H "x-poorup-maintenance-token: $MAINTENANCE_TOKEN" \
   --data-binary "{\"mode\":\"draining\",\"releaseId\":\"$RELEASE_SHA\",\"message\":\"MAINTENANCE WINDOW · INCOMING RELEASE\"}" >/dev/null
 
 echo "Drain started for $RELEASE_SHA"

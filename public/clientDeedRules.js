@@ -1,5 +1,7 @@
-// DEED RULES (client view): ownership sets, rent ladders, and the
-// server-tile lookup. Read-only against clientState.
+/* ============================================================
+   DEED RULES (client view): ownership sets, rent ladders, and the
+   server-tile lookup. Read-only against clientState.
+   ============================================================ */
 import {
   RENT_TABLE,
   GROUP_TARGETS,

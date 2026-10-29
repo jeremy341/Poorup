@@ -1,4 +1,4 @@
-# Poorup: Visual Design System
+# Poorup — Visual Design System
 
 Source: derived from the provided 1672×941 desktop screenshot. Values are reconstruction targets from the raster reference, so colors and measurements should be treated as design tokens rather than claims about the original source code.
 
@@ -14,7 +14,7 @@ Core rules:
 4. Geometry is compact, rectangular, and mostly square-cornered.
 5. Borders do more work than shadows.
 6. Status colors are saturated but slightly dirty/muted rather than neon.
-7. UI density is high.
+7. UI density is intentionally high.
 8. Decorative texture is subtle: slight noise, vignette, inner highlights, pixel details.
 9. Main CTA is a large red arcade-style action button.
 10. Avoid modern SaaS styling: no glassmorphism, pill overload, large rounded cards, soft pastel backgrounds, or airy layouts.
@@ -57,7 +57,7 @@ The raster reference contains anti-aliasing and texture, so a single line often 
 | Token | Hex | Use |
 |---|---:|---|
 | `red.action` | `#AF2A21` | Roll Dice button base |
-| `red.bright` | `#E36B5F` | chance marks, alerts (CSS `--red-bright`; was `#D74438`, 4.3:1 on surface.panel) |
+| `red.bright` | `#D74438` | chance marks, alerts |
 | `red.dark` | `#87231E` | red property strips |
 | `green.status` | `#35A653` | online, owned, positive money |
 | `green.property` | `#4B853D` | green property group |
@@ -73,13 +73,11 @@ The raster reference contains anti-aliasing and texture, so a single line often 
 |---|---:|
 | `text.primary` | `#E8D3AB` |
 | `text.secondary` | `#A79D7D` |
-| `text.muted` | `#A79D7D` |
+| `text.muted` | `#777564` |
 | `text.gold` | `#CFA75F` |
 | `text.success` | `#35A653` |
 | `text.danger` | `#D74438` |
 | `text.blue` | `#3C8BC3` |
-
-Contrast (WCAG 2.x, computed from the CSS values): `text.muted` `#A79D7D` is 7.5:1 on `bg.canvas` `#01070A` and 7.0:1 on `surface.panel` `#071314`. The previous value `#777564` measured 4.4:1 and 4.1:1 on the same surfaces, below the 4.5:1 body-text minimum. `red.bright` `#E36B5F` is 6.3:1 on `bg.canvas` and 5.9:1 on `surface.panel`; the previous `#D74438` measured 4.6:1 and 4.3:1.
 
 ---
 
@@ -468,9 +466,9 @@ Each normal HUD cell:
 
 ---
 
-## G. Primary CTA: Roll Dice
+## G. Primary CTA — Roll Dice
 
-This is the brightest and largest UI control.
+This is deliberately the brightest and largest UI control.
 
 Approx:
 - height: 100–105 px

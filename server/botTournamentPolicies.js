@@ -39,38 +39,12 @@ function requestPrompt(request) {
   return messagePrompt(request.messages) || inputPrompt(request.input) || '{}';
 }
 
-// An auction-bid candidate declares parameterRanges, so a reply without parameters.amount fails the advisor's response
-// validation, which trips its circuit breaker and sends every later decision to the deterministic planner.
-// Bots may only raise by the offered steps; the stub picks the standard +20 when offered, else the smallest legal raise.
-export function stubBidAmount(candidate) {
-  const options = Array.isArray(candidate?.amountOptions) ? candidate.amountOptions.filter(Number.isInteger) : [];
-  if (!options.length) return null;
-  return options[Math.min(1, options.length - 1)];
-}
-
-// The stub plays the planner's best option. The advisor
-// shuffles the order (option-ID bias), so "first" is random. Pick on the planner score in the prompt (futureScore when
-// projected, else the static score), breaking ties on lower risk.
-export function stubPickCandidate(candidates) {
-  const projected = candidates.filter(candidate => Number.isFinite(candidate?.futureScore));
-  const pool = projected.length ? projected : candidates;
-  const value = candidate => (projected.length ? candidate.futureScore : Number(candidate?.score) || 0);
-  const risk = candidate => Number(candidate?.risk) || 0;
-  return pool.reduce((best, candidate) => {
-    if (value(candidate) !== value(best)) return value(candidate) > value(best) ? candidate : best;
-    return risk(candidate) < risk(best) ? candidate : best;
-  }, pool[0]);
-}
-
 function stubChoiceOutput(context) {
   const candidates = Array.isArray(context.candidates) ? context.candidates : [];
-  const picked = stubPickCandidate(candidates);
-  const amount = stubBidAmount(picked);
   return JSON.stringify({
-    actionId: picked?.actionId,
+    actionId: candidates[0]?.actionId,
     confidence: 0.55,
     reasonCode: 'evaluation-stub',
-    ...(amount == null ? {} : { parameters: { amount } }),
   });
 }
 
@@ -92,19 +66,16 @@ function stubFetch() {
   });
 }
 
-// The advisor reads the environment it is handed, not the ambient
-// process.env: the CLI validates an injected environment, so the advisor that
-// runs the campaign has to see the same one.
-function configuredValue(env, primary, secondary, fallback = undefined) {
-  return env?.[primary] || env?.[secondary] || fallback;
+function configuredValue(primary, secondary, fallback = undefined) {
+  return process.env[primary] || process.env[secondary] || fallback;
 }
 
-function aiAdvisorOptions(fetchImpl, env = process.env) {
+function aiAdvisorOptions(fetchImpl) {
   return {
-    apiKey: configuredValue(env, 'POORUP_AI_API_KEY', 'DEEPSEEK_API_KEY', 'simulation-stub'),
-    endpoint: configuredValue(env, 'POORUP_AI_BASE_URL', 'DEEPSEEK_API_URL'),
-    model: configuredValue(env, 'POORUP_AI_MODEL', 'DEEPSEEK_MODEL', 'deepseek-v4-flash'),
-    protocol: configuredValue(env, 'POORUP_AI_PROTOCOL', 'DEEPSEEK_API_FORMAT', 'auto'),
+    apiKey: configuredValue('POORUP_AI_API_KEY', 'DEEPSEEK_API_KEY', 'simulation-stub'),
+    endpoint: configuredValue('POORUP_AI_BASE_URL', 'DEEPSEEK_API_URL'),
+    model: configuredValue('POORUP_AI_MODEL', 'DEEPSEEK_MODEL', 'deepseek-v4-flash'),
+    protocol: configuredValue('POORUP_AI_PROTOCOL', 'DEEPSEEK_API_FORMAT', 'auto'),
     fetchImpl: fetchImpl || stubFetch(),
   };
 }
@@ -128,20 +99,18 @@ function createScoreAdvisor(scoreCandidate) {
   };
 }
 
-// `createAdvisor` builds a fresh advisor for each simulated match, so stateful
-// advisors (call timestamps, circuit breaker, per-game budgets) do not leak
-// between matches. `advisor` stays available for direct use and as the fallback.
-export function createBotPolicy(policyId, { brain = 'no-ai', difficulty = 'table', advisor, createAdvisor } = {}) {
-  const defaultAdvisor = advisor || (typeof createAdvisor === 'function' ? createAdvisor() : new DeterministicAdvisor());
-  return { policyId, brain, difficulty, advisor: defaultAdvisor, ...(typeof createAdvisor === 'function' ? { createAdvisor } : {}) };
+export function createBotPolicy(policyId, { brain = 'no-ai', difficulty = 'table', advisor } = {}) {
+  const defaultAdvisor = advisor || new DeterministicAdvisor();
+  return { policyId, brain, difficulty, advisor: defaultAdvisor };
 }
 
-export function createDefaultPolicySet({ fetchImpl, env = process.env } = {}) {
+export function createDefaultPolicySet({ fetchImpl } = {}) {
+  const aiAdvisor = new AiAdvisor(aiAdvisorOptions(fetchImpl));
   const greedy = createScoreAdvisor(scoreFor);
   const conservative = createScoreAdvisor(conservativeScoreFor);
   return [
     createBotPolicy('no-ai', { brain: 'no-ai', advisor: new DeterministicAdvisor() }),
-    createBotPolicy('ai-stub', { brain: 'ai', createAdvisor: () => new AiAdvisor(aiAdvisorOptions(fetchImpl, env)) }),
+    createBotPolicy('ai-stub', { brain: 'ai', advisor: aiAdvisor }),
     createBotPolicy('score-greedy', { advisor: greedy }),
     createBotPolicy('conservative-cash', { advisor: conservative }),
     createBotPolicy('random-legal', { advisor: createRandomLegalAdvisor() }),
