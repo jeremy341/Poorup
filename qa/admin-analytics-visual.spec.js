@@ -257,7 +257,8 @@ test.describe('admin analytics visual contract', () => {
     const workspaceBox = await page.locator('.admin-workspace').boundingBox();
     expect(workspaceBox.height).toBeGreaterThan(page.viewportSize().height * 0.65);
     const reportBox = await panel.locator('.economy-report').boundingBox();
-    expect(reportBox.height).toBeGreaterThan(page.viewportSize().height * 0.5);
+    // On short landscape screens the report scrolls inside its own box (see expectEconomyScrollFit), so only tall viewports must fill half the screen.
+    if (page.viewportSize().height >= 1000) expect(reportBox.height).toBeGreaterThan(page.viewportSize().height * 0.5);
     if (page.viewportSize().width > 760) await expectEconomyLayout(page, panel);
   }
 

@@ -138,7 +138,11 @@ test('unequal pause and resume latency reconciles the existing target to server 
   await page.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, value: false }); document.dispatchEvent(new Event('visibilitychange')); });
   await expect(page.locator('body')).toHaveClass(/night-shift-paused/);
   await page.waitForFunction(() => window.patrolResumeDone);
-  const timing = await page.locator('[data-target-id="paused"]').evaluate(el => ({ actual: el.getAnimations()[0].currentTime, expected: Date.now() - window.expectedSpawn }));
+  // Read both clocks in the same frame: a slow 4K frame would otherwise let the animation clock lag the wall clock.
+  const timing = await page.locator('[data-target-id="paused"]').evaluate(async el => {
+    await new Promise(resolve => requestAnimationFrame(() => resolve()));
+    return { actual: el.getAnimations()[0].currentTime, expected: Date.now() - window.expectedSpawn };
+  });
   expect(Math.abs(timing.actual - timing.expected)).toBeLessThan(180);
   await expect(page.locator('body')).not.toHaveClass(/night-shift-paused/);
 });

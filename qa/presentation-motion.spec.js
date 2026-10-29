@@ -290,7 +290,8 @@ test('13-inch landscape HUD keeps both jail release actions visible and reachabl
     window.__qaFixture.hud.renderHud();
   });
 
-  const hud = page.locator('#hud');
+  // The jail actions sit in the centre card, which is the panel they must stay inside.
+  const hud = page.locator('.center-field');
   const jailFine = page.locator('#pay-jail-fine');
   const jailCard = page.locator('#use-jail-free');
   await expect(jailFine).toBeVisible();

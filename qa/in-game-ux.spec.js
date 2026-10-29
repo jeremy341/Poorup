@@ -51,6 +51,8 @@ async function installUxFixture(page) {
       openManager(tileIndex) { state.owners[tileIndex] = 'p1'; deeds.openDeedDetail(tileIndex); },
       closeManager() { deeds.closeDeedDetail(); },
       openBank() {
+        // Bank loans are an opt-in room setting, so the emergency offer only opens when it is on.
+        state.settings = { ...state.settings, bankLoans: true };
         bank.configureBankLoanUi({
           getOffer: () => ({ available: true, principal: 300, premium: 45, totalDue: 345, dueRound: 2, cureRound: 3, collateralName: 'NONE', severity: 'standard' }),
           openSurface: (...args) => surfaces.openSurface(...args),
