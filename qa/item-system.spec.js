@@ -83,7 +83,7 @@ test('real catalog items show their value and exercise server-owned effects', as
     f.openWallet('items');
   }, { items: initialItems, ownerId: owner.id, round: game.roundNumber });
   const card = page.locator('#wallet-card');
-  for (const [name, value] of [['PRISON KEY', '$25'], ['PARLOR BOND', '$50'], ['SILVER KEEPSAKE', '$75']]) {
+  for (const [name, value] of [['PRISON KEY', '$25'], ['PARLOR BOND', '$400'], ['SILVER KEEPSAKE', '$600']]) {
     const row = card.locator('.wallet-item-row').filter({ hasText: name }); await expect(row).toContainText(value);
   }
   await expect(card.locator('.wallet-item-row')).toHaveCount(3); await expect(card).not.toContainText(/REWARD \d+/);
@@ -94,17 +94,17 @@ test('real catalog items show their value and exercise server-owned effects', as
   const bondRow = card.locator('.wallet-item-row').filter({ hasText: 'PARLOR BOND' });
   await expect(bondRow.locator('[data-wallet-item-action=use]')).toBeDisabled(); await expect(bondRow).toContainText('ROUND 7');
   await shot(page, info, 'real-items', 'Three real item types with server-owned values', '#wallet-card');
-  await bondRow.locator('[data-wallet-item-select]').click(); await expect(card.locator('.wallet-item-detail')).toContainText('$100');
+  await bondRow.locator('[data-wallet-item-select]').click(); await expect(card.locator('.wallet-item-detail')).toContainText('$800');
   await shot(page, info, 'bond-details', 'Bond value, maturity and details', '#wallet-card');
   await card.locator('.wallet-item-row').filter({ hasText: 'SILVER KEEPSAKE' }).locator('[data-wallet-item-action=sell]').click();
-  await expect.poll(() => owner.cash).toBe(initialCash + 75); await expect(card.locator('.wallet-item-row')).toHaveCount(2);
+  await expect.poll(() => owner.cash).toBe(initialCash + 600); await expect(card.locator('.wallet-item-row')).toHaveCount(2);
   await card.locator('.wallet-item-row').filter({ hasText: 'PRISON KEY' }).locator('[data-wallet-item-action=use]').click();
   await expect.poll(() => owner.inJail).toBe(false); await expect(card.locator('.wallet-item-row')).toHaveCount(1);
   game.roundNumber = 7; const readyItems = game.summaryItems(owner, owner.id);
   await page.evaluate(items => { const f = window.__ipadModalCapture; f.state.players[0].items = items; f.state.roundNumber = 7; f.wallet.renderWalletModalIfOpen(); }, readyItems);
   await expect(card.locator('[data-wallet-item-action=use]')).toBeEnabled();
   await shot(page, info, 'bond-mature', 'Mature bond with its redeem and sell choices', '#wallet-card');
-  await card.locator('[data-wallet-item-action=use]').click(); await expect.poll(() => owner.cash).toBe(initialCash + 175);
+  await card.locator('[data-wallet-item-action=use]').click(); await expect.poll(() => owner.cash).toBe(initialCash + 1400);
   await expect(card).toContainText('NO ITEMS THIS ROUND'); await noPageOverflow(page);
 });
 
@@ -135,9 +135,9 @@ test('an owner can sell an item during another player’s turn', async ({ page }
     f.wallet.configureWalletUi({ emitServer: (_event, payload, ack) => window.__offturnSale(payload).then(({ result, items, cash }) => { f.state.players[0].items = items; f.state.players[0].cash = cash; ack(result); }), createRequestId: () => 'offturn-ui-sale', refreshWalletSnapshot: () => {}, renderRightRail: () => {}, renderHud: () => {} });
     f.openWallet('items');
   }, { items, ownerId: owner.id });
-  const sell = page.locator('#wallet-card [data-wallet-item-action=sell]'); await expect(sell).toBeEnabled(); await expect(sell).toContainText('$75');
+  const sell = page.locator('#wallet-card [data-wallet-item-action=sell]'); await expect(sell).toBeEnabled(); await expect(sell).toContainText('$600');
   await shot(page, info, 'offturn-sale', 'Selling an item during another player’s turn', '#wallet-card');
-  await sell.click(); await expect.poll(() => owner.cash).toBe(before + 75); await expect(page.locator('#wallet-card')).toContainText('NO ITEMS THIS ROUND');
+  await sell.click(); await expect.poll(() => owner.cash).toBe(before + 600); await expect(page.locator('#wallet-card')).toContainText('NO ITEMS THIS ROUND');
   await noPageOverflow(page);
 });
 

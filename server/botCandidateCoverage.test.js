@@ -110,14 +110,14 @@ assert.equal(new Set(GAME_ACTION_CATALOG.map(action => action.event)).size, GAME
   game.roundNumber = bond.maturesRound;
   const redeem = game.botItemCandidates(actor)[0];
   assert.equal(candidateAction(redeem, actor).type, 'item-use');
-  assert.equal(CANDIDATE_RUNNERS['item-use'](room, actor, redeem).cashReceived, 100);
+  assert.equal(CANDIDATE_RUNNERS['item-use'](room, actor, redeem).cashReceived, 800);
   const keepsake = game.grantItem(actor, 'silver-keepsake', 'surprise');
   actor.cash = 0;
   game.chargePlayer({ player: actor, amount: 70 });
   const sell = getBotChoiceCandidates(game, actor, 'payment')[0];
   assert.equal(sell.itemId, keepsake.itemId);
   assert.equal(sell.itemAction, 'sell');
-  assert.equal(runPaymentChoice(room, actor, game, sell).cashReceived, 75);
+  assert.equal(runPaymentChoice(room, actor, game, sell).cashReceived, 600);
   assert.equal(game.pendingPayment, null);
 }
 console.log(`bot candidate coverage: ${coverage.size} action variants across ${GAME_ACTION_CATALOG.length} socket events`);
