@@ -88,7 +88,6 @@ function settlementRequestIsStale(settlement, requestGeneration) {
 }
 
 function handleFailedFinishAck(settlement, response, attempt, attempts, retrySend) {
-  if (attempt === 1 && attempts > 1) return;
   if (response?.retryable && attempt === 1 && attempts === 1) {
     clearTimeout(settlement.timer);
     retrySend();
@@ -107,8 +106,13 @@ function handleFailedFinishAck(settlement, response, attempt, attempts, retrySen
 }
 
 function handleFinishAck(settlement, response, attempt, attempts, retrySend) {
-  if (response?.success) finishSettlement(settlement, response);
-  else handleFailedFinishAck(settlement, response, attempt, attempts, retrySend);
+  if (response?.success) {
+    finishSettlement(settlement, response);
+    return;
+  }
+  // The first attempt waits for the retry that is already scheduled.
+  if (attempt === 1 && attempts > 1) return;
+  handleFailedFinishAck(settlement, response, attempt, attempts, retrySend);
 }
 
 export function sendSettlement(settlement, token) {

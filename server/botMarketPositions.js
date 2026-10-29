@@ -190,11 +190,11 @@ function marginHoldingCost(state, reserveFor) {
 }
 
 // Adds one open short's holding cost to the running total. Every charge is added to `cost` in the original order, so the sum is unchanged.
-function addShortPositionCost(cost, state, reserveFor, id, position, quantity) {
+function shortPositionCost(state, reserveFor, id, position, quantity) {
   const entry = number(position.entryQuote);
   const quote = quoteOf(state.marketQuotes, id, entry);
   const notional = quote * quantity;
-  let total = cost + reserveFor(id, quantity);
+  let total = reserveFor(id, quantity);
   total += notional * (SHORT_TAIL_RESERVE_RATE + SHORT_HOLD_CHARGE_RATE);
   if (entry > 0 && quote > entry) total += (quote - entry) * quantity * UNDERWATER_CHARGE_RATE;
   if (entry > 0 && quote >= entry * NEAR_FORCED_RATIO) total += notional * 0.5;
@@ -211,7 +211,7 @@ function shortHoldingCost(state, reserveFor) {
   Object.entries(book).forEach(([id, position]) => {
     const quantity = nonNegative(position?.quantity);
     if (!quantity) return;
-    cost = addShortPositionCost(cost, state, reserveFor, id, position, quantity);
+    cost += shortPositionCost(state, reserveFor, id, position, quantity);
   });
   return cost;
 }

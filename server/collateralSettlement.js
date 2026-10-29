@@ -33,7 +33,7 @@ export function usesCollateralCredit(contract) {
 export function collateralCreditPlan(game, borrower, contract, balance, { allowBankruptCollateral = false } = {}) {
   const outstanding = wholeNonnegative(balance) ?? 0;
   const empty = { outstanding, credit: 0, remaining: outstanding, entries: [], seizedTileIndices: [] };
-  if (!usesCollateralCredit(contract) || !borrower || (borrower.bankrupt && !allowBankruptCollateral)) return empty;
+  if (collateralCreditBlocked(contract, borrower, allowBankruptCollateral)) return empty;
   if (contract.toPlayerId != null && contract.toPlayerId !== borrower.id) return empty;
   const quotes = quoteMapFor(contract);
   const entries = [];
@@ -47,6 +47,12 @@ export function collateralCreditPlan(game, borrower, contract, balance, { allowB
     remaining -= credit;
   }
   return { outstanding, credit: outstanding - remaining, remaining, entries, seizedTileIndices: entries.map(e => e.tileIndex) };
+}
+
+function collateralCreditBlocked(contract, borrower, allowBankruptCollateral) {
+  if (!usesCollateralCredit(contract)) return true;
+  if (!borrower) return true;
+  return Boolean(borrower.bankrupt && !allowBankruptCollateral);
 }
 
 function collateralIndicesOf(contract) {

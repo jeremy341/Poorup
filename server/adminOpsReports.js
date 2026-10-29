@@ -139,13 +139,14 @@ function sinceStart(metrics, name) {
 // operatorPassword says only whether POORUP_MAINTENANCE_PASSWORD is set; this
 // view is admin-only, so the public site never learns it from here.
 function maintenanceView(snapshot, operatorPassword = false) {
+  const current = snapshot || {};
   return {
-    mode: snapshot?.mode || 'normal',
-    lockout: snapshot?.mode === 'maintenance' && snapshot?.lockout === true,
-    message: snapshot?.message || '',
-    releaseId: snapshot?.releaseId || '',
-    drainDeadline: snapshot?.drainDeadline || null,
-    activeRounds: nonNegative(snapshot?.activeRounds),
+    mode: current.mode || 'normal',
+    lockout: current.mode === 'maintenance' && current.lockout === true,
+    message: current.message || '',
+    releaseId: current.releaseId || '',
+    drainDeadline: current.drainDeadline || null,
+    activeRounds: nonNegative(current.activeRounds),
     operatorPassword: operatorPassword === true,
   };
 }

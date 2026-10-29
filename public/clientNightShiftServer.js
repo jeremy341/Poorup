@@ -116,7 +116,8 @@ function armReadyWatchdog(element, id, offer) {
   offer.watchdog = setTimeout(() => onReadyWatchdog(element, id, offer), watchdogDelay);
 }
 
-function handleServerTargetReadyAck(element, id, offer, generation, sentAt, response) {
+function handleServerTargetReadyAck(ready, response) {
+  const { element, id, offer, generation, sentAt } = ready;
   if (generation !== nightRun.nightShiftGeneration || !nightShiftState.active || nightShiftServerOffers.get(id) !== offer) return;
   if (!response?.success) {
     if (document.hidden || element.dataset.hit || element.dataset.pending) return;
@@ -140,9 +141,10 @@ function sendServerTargetReady(element, id, offer) {
   const generation = nightRun.nightShiftGeneration;
   const visibilityGeneration = nightRun.nightShiftVisibilityGeneration;
   const sentAt = Date.now();
+  const ready = { element, id, offer, generation, sentAt };
   armReadyWatchdog(element, id, offer);
   nightRun.host.emitServer("ready-patrol-target", { runToken: nightShiftState.serverRunToken, targetId: id }, (response) => {
-    handleServerTargetReadyAck(element, id, offer, generation, sentAt, response);
+    handleServerTargetReadyAck(ready, response);
   });
   markReadyWindowOpen(element, id, offer, generation, visibilityGeneration);
 }
@@ -255,6 +257,12 @@ export function applyPatrolState(response) {
   if (response.ended) endNightShift(response.endReason === "delivery-timeout" ? "NETWORK INTERRUPTION · SAVING SCORE" : "SHIFT LOST · NO HEARTS LEFT");
 }
 
+// The server's pause flag and the tab's visibility must agree once the run starts.
+function reconcilePausedRunWithVisibility(response) {
+  if (document.hidden && !response.paused) sendPatrolVisibility("pause-patrol-run");
+  else if (!document.hidden && response.paused) sendPatrolVisibility("resume-patrol-run");
+}
+
 export function nightShiftRunStartAck(response) {
   if (!response?.success || !response.runToken) {
     nightShiftState.serverRunError = String(response?.error || "Score sync unavailable.").slice(0, 120);
@@ -267,8 +275,7 @@ export function nightShiftRunStartAck(response) {
   if (!nightShiftState.active) return;
   if (document.hidden || response.paused) {
     document.body.classList.add("night-shift-paused");
-    if (document.hidden && !response.paused) sendPatrolVisibility("pause-patrol-run");
-    else if (!document.hidden && response.paused) sendPatrolVisibility("resume-patrol-run");
+    reconcilePausedRunWithVisibility(response);
   } else {
     document.body.classList.remove("night-shift-paused");
   }

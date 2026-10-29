@@ -707,6 +707,24 @@ function writeNewPassword(account, password) {
   account.passwordHash = hashPassword(password, salt);
 }
 
+function normalizedSettlementId(settlementId) {
+  return typeof settlementId === 'string' ? settlementId.trim().slice(0, 120) : '';
+}
+
+function projectedPatrolAceRuns(account, safeScore) {
+  const priorBest = Math.max(0, Number(account.stats?.patrolVerifiedBest) || 0);
+  return Math.max(0, Number(account.stats?.patrolVerifiedAceRuns) || 0) + (safeScore > priorBest && priorBest > 0 ? 1 : 0);
+}
+
+function applyPatrolSettlement(account, { safeScore, safeMisses, safeSettlementId, cleanRun }) {
+  const result = applyPatrolScore(account, safeScore, safeMisses);
+  if (safeSettlementId && patrolAchievementIds(safeScore, cleanRun, result.aceRuns).length) {
+    journalPatrolSettlement(account, safeSettlementId, safeScore, result.aceRuns, cleanRun);
+  }
+  if (safeSettlementId) result.settlementId = safeSettlementId;
+  return result;
+}
+
 export class AccountStore {
   constructor(filePath = DEFAULT_FILE) {
     this.filePath = filePath;
@@ -1249,25 +1267,15 @@ export class AccountStore {
     if (!account) return { success: false, error: 'Account not found.' };
     const safeScore = clampInt(score, Number.MAX_SAFE_INTEGER);
     const safeMisses = clampInt(misses, 999);
-    const safeSettlementId = typeof settlementId === 'string' ? settlementId.trim().slice(0, 120) : '';
+    const safeSettlementId = normalizedSettlementId(settlementId);
     const pendingSettlements = sanitizePendingPatrolAchievementSettlements(account.pendingPatrolAchievementSettlements);
     const prior = safeSettlementId && pendingSettlements.find(entry => entry.id === safeSettlementId);
     if (prior) return patrolReplayResult(account, prior, safeMisses, safeSettlementId);
-    const priorBest = Math.max(0, Number(account.stats?.patrolVerifiedBest) || 0);
-    const projectedAceRuns = Math.max(0, Number(account.stats?.patrolVerifiedAceRuns) || 0)
-      + (safeScore > priorBest && priorBest > 0 ? 1 : 0);
-    const needsJournal = Boolean(safeSettlementId) && patrolEarnsJournal(safeScore, cleanRun, projectedAceRuns);
+    const needsJournal = Boolean(safeSettlementId) && patrolEarnsJournal(safeScore, cleanRun, projectedPatrolAceRuns(account, safeScore));
     if (needsJournal && pendingSettlements.length >= PENDING_PATROL_ACHIEVEMENT_LIMIT) {
       return { success: false, retryable: true, error: 'Patrol achievement recovery is busy. Please retry this finish.' };
     }
-    return commitMutation(this, () => {
-      const result = applyPatrolScore(account, safeScore, safeMisses);
-      if (safeSettlementId && patrolAchievementIds(safeScore, cleanRun, result.aceRuns).length) {
-        journalPatrolSettlement(account, safeSettlementId, safeScore, result.aceRuns, cleanRun);
-      }
-      if (safeSettlementId) result.settlementId = safeSettlementId;
-      return result;
-    });
+    return commitMutation(this, () => applyPatrolSettlement(account, { safeScore, safeMisses, safeSettlementId, cleanRun }));
   }
 
   getPendingPatrolAchievementSettlements(accountId) {
@@ -1276,7 +1284,7 @@ export class AccountStore {
 
   completePatrolAchievementSettlement(accountId, settlementId) {
     const account = this.getAccountById(accountId);
-    const id = typeof settlementId === 'string' ? settlementId.trim().slice(0, 120) : '';
+    const id = normalizedSettlementId(settlementId);
     if (!account || !id) return { success: false, completed: false };
     const pending = sanitizePendingPatrolAchievementSettlements(account.pendingPatrolAchievementSettlements);
     if (!pending.some(entry => entry.id === id)) return { success: true, completed: false };

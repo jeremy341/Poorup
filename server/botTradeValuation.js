@@ -248,6 +248,13 @@ export function monopolyRequirement(game, outgoingIndexes, incomingIndexes, rece
   if (!giveaway.givesMonopoly) return result;
   const resolve = resolver(game);
   const completed = new Set(giveaway.groups.map(entry => entry.group));
+  addRequiredValues(result, game, resolve, outgoing, completed);
+  addIncomingValues(result, game, resolve, incoming);
+  result.needCash = result.requiredValue - result.incomingValue;
+  return result;
+}
+
+function addRequiredValues(result, game, resolve, outgoing, completed) {
   for (const index of outgoing) {
     const tile = resolve(index);
     if (!tile) continue;
@@ -255,29 +262,38 @@ export function monopolyRequirement(game, outgoingIndexes, incomingIndexes, rece
     result.requiredValue += value;
     result.requiredValue += monopolyPremiumOn(value, tile, completed);
   }
+}
+
+function addIncomingValues(result, game, resolve, incoming) {
   for (const index of incoming) {
     const tile = resolve(index);
     if (tile) result.incomingValue += deedValue(game, tile);
   }
-  result.needCash = result.requiredValue - result.incomingValue;
-  return result;
 }
 
 // Groups a player completes or breaks when `outgoingIndexes` leave and
 // `incomingIndexes` arrive. Keeps a seat from trading away its own set.
 // Net change in the seat's deed count per colour group: deeds it gives away count against it, deeds it receives count for it.
-function setDeltaByGroup(resolve, playerId, outgoingIndexes, incomingIndexes) {
-  const delta = new Map();
+function applyOutgoingDeeds(delta, resolve, playerId, outgoingIndexes) {
   for (const index of indexList(outgoingIndexes)) {
     const tile = resolve(index);
     if (!tile?.group || tile.ownerId !== playerId) continue;
     delta.set(tile.group, (delta.get(tile.group) || 0) - 1);
   }
+}
+
+function applyIncomingDeeds(delta, resolve, playerId, incomingIndexes) {
   for (const index of indexList(incomingIndexes)) {
     const tile = resolve(index);
     if (!tile?.group || tile.ownerId === playerId) continue;
     delta.set(tile.group, (delta.get(tile.group) || 0) + 1);
   }
+}
+
+function setDeltaByGroup(resolve, playerId, outgoingIndexes, incomingIndexes) {
+  const delta = new Map();
+  applyOutgoingDeeds(delta, resolve, playerId, outgoingIndexes);
+  applyIncomingDeeds(delta, resolve, playerId, incomingIndexes);
   return delta;
 }
 

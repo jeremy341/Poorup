@@ -235,11 +235,15 @@ function wireNightShiftTarget(target) {
   target.addEventListener("click", (event) => hitNightShiftTarget(target, event));
 }
 
+// Null while the run is not spawning: inactive, not on Home, or the tab is hidden
+// (the frozen queue is re-armed by the resume coordinator).
+function spawnableTargetLayer() {
+  if (!nightShiftState.active || state.phase !== "home" || document.hidden) return null;
+  return $("#night-targets");
+}
+
 export function spawnNightShiftTarget(serverTarget = null, serverTime = 0) {
-  if (!nightShiftState.active) return;
-  if (state.phase !== "home") return;
-  if (document.hidden) return; // frozen queue: the resume coordinator re-arms
-  const layer = $("#night-targets");
+  const layer = spawnableTargetLayer();
   if (!layer) return;
   const direction = targetDirection(serverTarget);
   const spawnNumber = nightShiftState.targetSeq;
