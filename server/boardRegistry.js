@@ -168,10 +168,14 @@ function deckForVariant(source, variant) {
   });
 }
 
-function decksForVariant(variant = 'standard-40') {
+function decksForVariant(variant = 'standard-40', settings = {}) {
+  const itemCards = settings.itemRewards ? [
+    { action: 'itemReward', catalogId: 'parlor-bond', itemName: 'a Parlor Bond', text: 'Receive a Parlor Bond. Redeem after two rounds or sell to the bank.' },
+    { action: 'itemReward', catalogId: 'silver-keepsake', itemName: 'a Silver Keepsake', text: 'Receive a Silver Keepsake. Sell it to the bank.' }
+  ] : [];
   return {
-    surprise: deckForVariant(SURPRISE_DECK, variant),
-    treasure: deckForVariant(TREASURE_DECK, variant)
+    surprise: deckForVariant([...SURPRISE_DECK, ...itemCards], variant),
+    treasure: deckForVariant([...TREASURE_DECK, ...itemCards], variant)
   };
 }
 

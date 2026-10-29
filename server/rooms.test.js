@@ -1,9 +1,6 @@
-// Characterization suite for the room lifecycle handlers in server.js:
-// create-room, join-room, respond-room-invite, and get-match-history.
-// These tests pin the EXACT ack payloads (error strings included), the
-// check ordering, and the public/private ack shape so the Code Health
-// refactor can be proven behavior-preserving. Wire-level only: no store
-// internals are imported.
+// Characterization suite for the room lifecycle handlers in server.js: create-room, join-room, respond-room-invite and get-match-history.
+// These tests pin the exact ack payloads (error strings included), the check ordering and the public and private ack shapes, so the
+// Code Health refactor can be proven behavior-preserving. Wire-level only: no store internals are imported.
 import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
@@ -58,7 +55,7 @@ function ask(socket, event, payload) {
 const results = [];
 function check(name, condition) {
   results.push({ name, ok: Boolean(condition) });
-  console.log(`${condition ? 'PASS' : 'FAIL'} — ${name}`);
+  console.log(`${condition ? 'PASS' : 'FAIL'} - ${name}`);
 }
 
 function ackEquals(actual, expected) {
@@ -186,6 +183,9 @@ async function capacityAndRejoin(ctx) {
   ctx.check('invalid numeric host setting is rejected with a failure ack',
     ackEquals(await ctx.ask(ctx.host, 'set-setting', { key: 'startingCash', value: 'not-number' }),
       { success: false, error: 'Invalid value for startingCash.' }));
+  ctx.check('invalid rules profile is rejected with a failure ack',
+    ackEquals(await ctx.ask(ctx.host, 'set-setting', { key: 'rulesProfile', value: 'anything' }),
+      { success: false, error: 'Invalid value for rulesProfile.' }));
   ctx.check('server-owned scaled setting is rejected with a failure ack',
     ackEquals(await ctx.ask(ctx.host, 'set-setting', { key: 'globalEventDuration', value: 10 }),
       { success: false, error: 'This setting is controlled by the server.' }));
@@ -209,11 +209,17 @@ async function capacityAndRejoin(ctx) {
   ctx.check('the same client can rejoin its existing seat',
     ackEquals(await ctx.ask(ctx.joiner, 'join-room', { clientId: 'c3', roomCode: 'FULL01', nickname: 'Guest Three' }),
       { success: true, roomCode: 'FULL01', visibility: 'private' }));
+  ctx.check('a non-host cannot change the rules profile',
+    ackEquals(await ctx.ask(ctx.joiner, 'set-setting', { key: 'rulesProfile', value: 'advanced' }),
+      { success: false, error: 'Only the host can change settings.' }));
   ctx.check('host can queue one bot via settings',
     ackEquals(await ctx.ask(ctx.host, 'set-setting', { key: 'bots', value: 1 }), { success: true }));
   ctx.check('host can start the game', ackEquals(await ctx.ask(ctx.host, 'start-game', {}), { success: true }));
   ctx.check('started-room setting change is rejected with the pinned lock error',
     ackEquals(await ctx.ask(ctx.host, 'set-setting', { key: 'maxPlayers', value: 3 }),
+      { success: false, error: 'Game settings can only be changed before the game starts.' }));
+  ctx.check('started-room profile changes preserve the table contract',
+    ackEquals(await ctx.ask(ctx.host, 'set-setting', { key: 'rulesProfile', value: 'advanced' }),
       { success: false, error: 'Game settings can only be changed before the game starts.' }));
   ctx.check('joining a started room acks the exact in-progress error',
     ackEquals(await ctx.ask(ctx.late, 'join-room', { clientId: 'c5', roomCode: 'FULL01', nickname: 'Too Late' }),
@@ -361,12 +367,9 @@ function watchStates(socket) {
   return () => seen[seen.length - 1] || null;
 }
 
-// The reconnect grace is shortened only inside this test server; the default
-// production grace remains 120 seconds and is pinned by fake-clock coverage.
-// It must drop a
-// pending player contract held by the departing seat, or the table stays
-// gated for everyone else until someone manually resolves it. These two
-// scenarios share the CT0001 fixture via ctx.
+// The reconnect grace is shortened only inside this test server; production stays at 120 seconds (pinned by fake-clock coverage).
+// It must drop a pending player contract held by the departing seat, or the table stays gated until someone resolves it.
+// These two scenarios share the CT0001 fixture via ctx.
 function seatId(latest, nickname) {
   return (latest()?.game?.players || []).find(player => player.nickname === nickname)?.id || null;
 }
@@ -376,6 +379,8 @@ async function contractGateSetup(ctx) {
   ctx.check('A creates the contract-gate fixture room CT0001',
     ackEquals(await ctx.ask(ctx.sockCT, 'create-room', { clientId: 'ca-1', nickname: 'CHost', visibility: 'private', roomCode: 'CT0001' }),
       { success: true, roomCode: 'CT0001', visibility: 'private' }));
+  ctx.check('Advanced enables player finance for the gate probe',
+    ackEquals(await ctx.ask(ctx.sockCT, 'set-setting', { key: 'rulesProfile', value: 'advanced' }), { success: true }));
   ctx.check('casino is enabled for the gate probe',
     ackEquals(await ctx.ask(ctx.sockCT, 'set-setting', { key: 'casino', value: true }), { success: true }));
   ctx.sockCB = await ctx.open();
@@ -457,6 +462,8 @@ async function contractRelayRecipients(ctx) {
       { success: true, roomCode: 'RLY001', visibility: 'private' }));
   ctx.check('B joins RLY001',
     (await ctx.ask(firstResponder, 'join-room', { clientId: 'rly-b', roomCode: 'RLY001', nickname: 'Relay B' }))?.success === true);
+  ctx.check('relay host opts in to Advanced player finance',
+    ackEquals(await ctx.ask(proposer, 'set-setting', { key: 'rulesProfile', value: 'advanced' }), { success: true }));
   ctx.check('A starts RLY001', ackEquals(await ctx.ask(proposer, 'start-game', {}), { success: true }));
   const responderId = (latestResponder()?.game?.players || []).find(player => player.nickname === 'Relay B')?.id || '';
   const initial = await ctx.ask(proposer, 'propose-player-contract', { toPlayerId: responderId, kind: 'loan', amount: 50, requestId: 'rly-initial' });
@@ -498,6 +505,8 @@ async function contractRelayRecipients(ctx) {
       { success: true, roomCode: 'RLY002', visibility: 'private' }));
   ctx.check('D joins RLY002',
     (await ctx.ask(borrower, 'join-room', { clientId: 'rly-d', roomCode: 'RLY002', nickname: 'Relay D' }))?.success === true);
+  ctx.check('lender-response host opts in to Advanced player finance',
+    ackEquals(await ctx.ask(lenderResponder, 'set-setting', { key: 'rulesProfile', value: 'advanced' }), { success: true }));
   ctx.check('C starts RLY002', ackEquals(await ctx.ask(lenderResponder, 'start-game', {}), { success: true }));
   const borrowerId = (latestBorrower()?.game?.players || []).find(player => player.nickname === 'Relay D')?.id || '';
   const secondProposal = await ctx.ask(lenderResponder, 'propose-player-contract', { toPlayerId: borrowerId, kind: 'loan', amount: 50, requestId: 'rly-response-initial' });

@@ -1,7 +1,5 @@
-/* ============================================================
-   PANEL MENU: explicit, reversible visibility controls for the two rails.
-   Critical turn state stays visible; this surface only changes presentation.
-   ============================================================ */
+// PANEL MENU: explicit, reversible visibility controls for the two rails.
+// Critical turn state stays visible; this surface only changes presentation.
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
 

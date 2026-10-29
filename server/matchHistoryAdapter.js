@@ -1,7 +1,5 @@
-// Match history currently has a durable MatchStore record and a legacy
-// AccountStore snapshot. Keep the compatibility merge in one read adapter so
-// every reader applies the same precedence and ordering until migration is
-// complete.
+// Match history has a durable MatchStore record and a legacy AccountStore snapshot. Keep the compatibility merge in one read adapter
+// so every reader applies the same precedence and ordering until migration is complete.
 
 function recordsOrEmpty(value) {
   return Array.isArray(value) ? value : [];
@@ -12,7 +10,7 @@ function mergeMatchRecords(legacyRecords = [], storedRecords = []) {
   [...recordsOrEmpty(legacyRecords), ...recordsOrEmpty(storedRecords)].forEach(record => {
     if (!record?.matchId) return;
     // MatchStore is the newer source during the compatibility window, so it
-    // intentionally overwrites a legacy record with the same match ID.
+    // overwrites a legacy record with the same match ID.
     merged.set(record.matchId, record);
   });
   return [...merged.values()]

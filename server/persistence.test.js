@@ -1,7 +1,5 @@
-// Persistence seam characterization: the exact behaviors that used to combine
-// into silent data loss are now pinned down — a corrupt store file must keep
-// its bytes in a quarantine sibling, the store must open empty beside it, and
-// the next successful persist() must never touch the quarantined original.
+// Persistence seam characterization: the behaviors that can combine into silent data loss are pinned. A corrupt store file keeps
+// its bytes in a quarantine sibling, the store opens empty beside it, and the next successful persist() never touches the quarantined original.
 import assert from 'assert';
 import fs from 'fs';
 import os from 'os';
@@ -10,7 +8,7 @@ import { AccountStore } from './accountStore.js';
 import { AchievementStore } from './achievementStore.js';
 import { MatchStore } from './matchStore.js';
 import { SocialStore } from './socialStore.js';
-import { writeJson } from './storeIO.js';
+import { loadJson, writeJson } from './storeIO.js';
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-persist-'));
 const results = [];
@@ -19,10 +17,10 @@ function check(name, fn) {
   try {
     fn();
     results.push(true);
-    console.log(`PASS — ${name}`);
+    console.log(`PASS - ${name}`);
   } catch (error) {
     results.push(false);
-    console.log(`FAIL — ${name}: ${error.message}`);
+    console.log(`FAIL - ${name}: ${error.message}`);
   }
 }
 
@@ -228,6 +226,143 @@ check('restarted legacy hashes are not rehydrated', () => {
   assert.equal(first.sessionAccount(registered.sessionToken)?.username, 'cutoverbound');
   const second = new AccountStore(filePath);
   assert.equal(second.sessionAccount(registered.sessionToken), null);
+});
+
+check('load: a UTF-8 byte order mark is not corruption (S12-M6)', () => {
+  const filePath = fileFor('bom');
+  fs.writeFileSync(filePath, '\ufeff[{"id":"a"}]', 'utf8');
+  const loaded = loadJson(filePath, value => Array.isArray(value));
+  assert.equal(loaded.corrupt, false);
+  assert.deepEqual(loaded.value, [{ id: 'a' }]);
+  assert.strictEqual(corruptSibling(filePath).length, 0, 'a BOM file is not moved aside');
+});
+
+check('quarantine: a failed copy falls back to moving the original aside (S12-M5)', () => {
+  const filePath = fileFor('quarantine-copy-fails');
+  const broken = 'not json {{{';
+  fs.writeFileSync(filePath, broken, 'utf8');
+  const originalWrite = fs.writeFileSync;
+  const originalError = console.error;
+  fs.writeFileSync = (target, ...rest) => {
+    if (String(target).includes('.corrupt-')) throw new Error('disk full');
+    return originalWrite(target, ...rest);
+  };
+  console.error = () => {};
+  try {
+    assert.equal(loadJson(filePath, value => Array.isArray(value)).corrupt, true);
+  } finally {
+    fs.writeFileSync = originalWrite;
+    console.error = originalError;
+  }
+  const moved = corruptSibling(filePath);
+  assert.equal(moved.length, 1, 'the corrupt bytes are preserved beside the store');
+  assert.equal(fs.readFileSync(path.join(tempDir, moved[0]), 'utf8'), broken);
+});
+
+check('quarantine: when the bytes cannot be preserved the load fails instead of clobbering them (S12-M5)', () => {
+  const filePath = fileFor('quarantine-all-fails');
+  const broken = 'not json {{{';
+  fs.writeFileSync(filePath, broken, 'utf8');
+  const originalWrite = fs.writeFileSync;
+  const originalRename = fs.renameSync;
+  const originalError = console.error;
+  fs.writeFileSync = (target, ...rest) => {
+    if (String(target).includes('.corrupt-')) throw new Error('disk full');
+    return originalWrite(target, ...rest);
+  };
+  fs.renameSync = () => { throw new Error('rename unavailable'); };
+  console.error = () => {};
+  try {
+    assert.throws(() => loadJson(filePath, value => Array.isArray(value)));
+  } finally {
+    fs.writeFileSync = originalWrite;
+    fs.renameSync = originalRename;
+    console.error = originalError;
+  }
+  assert.equal(fs.readFileSync(filePath, 'utf8'), broken, 'the only copy of the bytes is untouched');
+});
+
+check('atomic write: stale temp files of the same store are swept (S12-L4)', () => {
+  const filePath = fileFor('tmp-sweep');
+  const stale = `${filePath}.4242.stale-id.tmp`;
+  const fresh = `${filePath}.4242.fresh-id.tmp`;
+  const other = fileFor('tmp-sweep-other') + '.4242.other-id.tmp';
+  [stale, fresh, other].forEach(file => fs.writeFileSync(file, '[]'));
+  const old = new Date(Date.now() - 3 * 3600 * 1000);
+  fs.utimesSync(stale, old, old);
+  fs.utimesSync(other, old, old);
+  writeJson(filePath, ['x']);
+  assert.equal(fs.existsSync(stale), false, 'an hours-old temp file is removed');
+  assert.equal(fs.existsSync(fresh), true, 'a recent temp file may belong to a write in flight');
+  assert.equal(fs.existsSync(other), true, 'another store\'s temp files are not touched');
+  fs.rmSync(fresh, { force: true });
+  fs.rmSync(other, { force: true });
+});
+
+check('achievement store: a failed persist leaves memory and disk agreeing (S12-M2, S12-M1)', () => {
+  const filePath = fileFor('achievement-rollback');
+  const store = new AchievementStore(filePath);
+  const realPersist = store.persist;
+  const failing = () => { throw new Error('disk busy'); };
+  const grant = { accountId: 'acct_a', achievementId: 'first-deed', gameId: 'g1' };
+  store.persist = failing;
+  assert.throws(() => store.unlock(grant), /disk busy/);
+  assert.equal(store.records.size, 0, 'a failed unlock is not kept in memory');
+  store.persist = realPersist;
+  assert.equal(store.unlock(grant).created, true, 'the retry unlocks and persists');
+  store.persist = failing;
+  assert.throws(() => store.remove('acct_a', 'first-deed'), /disk busy/);
+  assert.equal(store.records.size, 1, 'a failed remove is rolled back');
+  assert.throws(() => store.purgeAccount('acct_a'), /disk busy/);
+  assert.equal(store.records.size, 1, 'a failed purge is rolled back, so the retry still has work to do');
+  store.persist = realPersist;
+  assert.equal(store.purgeAccount('acct_a'), 1);
+  assert.deepEqual(JSON.parse(fs.readFileSync(filePath, 'utf8')), [], 'the retried purge reaches the disk');
+});
+
+check('achievement store: only real negative headlines grant crisis manager (S12-L6)', () => {
+  const store = new AchievementStore(fileFor('crisis-manager'));
+  const grantsFor = headline => store.evaluateMatch({
+    participants: [{ accountId: 'acct_c', finalPlacement: 2, globalEventsExperienced: 1, bankrupt: false }],
+    globalEvents: [headline]
+  }).some(entry => entry.achievementId === 'crisis-manager');
+  ['', ' ', 'A', 'TA', 'BAN', 'LAB', 'HOUSING BUBB'].forEach(headline => assert.equal(grantsFor(headline), false, `"${headline}" is not a headline`));
+  ['housing-bubble', 'HOUSING BUBBLE POP', 'HOUSING BUBBLE', 'bank-run', 'TAX SCANDAL AUDIT'].forEach(headline => assert.equal(grantsFor(headline), true, headline));
+});
+
+check('match store: a failed persist is rolled back in record and anonymizeAccount (S12-M1, S12-M2)', () => {
+  const filePath = fileFor('match-rollback');
+  const store = new MatchStore(filePath);
+  const realPersist = store.persist;
+  const failing = () => { throw new Error('disk busy'); };
+  const match = { matchId: 'm1', completedAt: '2026-09-01T00:00:00.000Z', participants: [{ accountId: 'acct_gone', displayNameAtMatch: 'Gone' }] };
+  store.persist = failing;
+  assert.throws(() => store.record(match), /disk busy/);
+  assert.equal(store.get('m1'), null, 'a match that was not persisted is not kept');
+  store.persist = realPersist;
+  assert.equal(store.record(match).created, true, 'the retry records and persists it');
+  assert.ok(fs.readFileSync(filePath, 'utf8').includes('acct_gone'));
+  store.persist = failing;
+  assert.throws(() => store.anonymizeAccount('acct_gone'), /disk busy/);
+  assert.equal(store.get('m1').participants[0].accountId, 'acct_gone', 'a failed scrub is rolled back');
+  store.persist = realPersist;
+  assert.equal(store.anonymizeAccount('acct_gone'), 1, 'the retry still finds work to do');
+  assert.equal(fs.readFileSync(filePath, 'utf8').includes('acct_gone'), false, 'and reaches the disk');
+});
+
+check('match store: records without a time are oldest, and created reflects what was kept (S12-L7)', () => {
+  const store = new MatchStore(fileFor('match-order'));
+  for (let index = 0; index < 500; index += 1) {
+    store.matches.set(`m${index}`, { matchId: `m${index}`, roomVisibility: 'public', completedAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString() });
+  }
+  const undated = store.record({ matchId: 'undated', participants: [] });
+  assert.equal(undated.created, false, 'an undated record does not displace dated matches');
+  assert.equal(store.get('undated'), null);
+  assert.equal(store.get('m499') !== null, true);
+  const ancient = store.record({ matchId: 'ancient', completedAt: '1999-01-01T00:00:00.000Z' });
+  assert.equal(ancient.created, false, 'a match older than the retained 500 is not reported as created');
+  assert.equal(store.record({ matchId: 'fresh', completedAt: '2027-01-01T00:00:00.000Z' }).created, true);
+  assert.equal(store.get('m0'), null, 'the oldest retained match is evicted');
 });
 
 fs.rmSync(tempDir, { recursive: true, force: true });

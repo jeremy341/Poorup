@@ -1,7 +1,6 @@
-// Board-tile eligibility rules: what a player may trade, build on, sell
-// from, mortgage, or unmortgage. Pure module: every predicate reads the
-// GameState it is handed (via its own accessor methods) and never mutates.
-// server/property-actions.test.js and server/rent.test.js pin every branch.
+import { deedHasShareInterest, rentShareConstructionAllowed } from './rentShareRules.js';
+// Board-tile eligibility rules: what a player may trade, build on, sell from, mortgage, or unmortgage. Pure: every predicate reads the
+// GameState it is handed (via its accessor methods) and never mutates. property-actions.test.js and rent.test.js pin every branch.
 
 function tradeableTileType(tile) {
   if (tile.type === 'property') return true;
@@ -17,10 +16,14 @@ function tileEncumbered(game, owner, tile) {
 }
 
 function tradeableTileUnencumbered(game, tile) {
-  if (tile.mortgaged) return false;
-  if (tile.equityShares?.length) return false;
+  if (deedHasShareInterest(game, tile)) return false;
   if (tileEncumbered(game, game.getPlayerById(tile.ownerId), tile)) return false;
   return true;
+}
+
+function groupHasBuildingsForTrade(game, tile) {
+  if (tile.type !== 'property' || !tile.group) return false;
+  return game.getGroupTiles(tile.group).some(entry => (entry.houseCount || 0) > 0);
 }
 
 export function isTradeableTile(game, tile) {
@@ -28,18 +31,17 @@ export function isTradeableTile(game, tile) {
   if (!tile.ownerId) return false;
   if (!tradeableTileUnencumbered(game, tile)) return false;
   if (!tradeableTileType(tile)) return false;
-  return (tile.houseCount || 0) === 0;
+  if ((tile.houseCount || 0) > 0) return false;
+  return !groupHasBuildingsForTrade(game, tile);
 }
 
 function ownedUnmortgagedProperty(game, player, tile) {
   if (tile.type !== 'property') return false;
   if (tile.ownerId !== player.id) return false;
   if (tileEncumbered(game, player, tile)) return false;
-  // tileEncumbered deliberately covers only loan + contract collateral, so an
-  // outstanding equity share needs its own explicit test (as trade and
-  // mortgage each have): building on a part-sold deed costs the owner 100% and
-  // books the holder 100% of the rent.
-  if (tile.equityShares?.length) return false;
+  // A temporary rent share leaves construction and its costs with the owner.
+  // Legacy equity keeps its original construction restriction.
+  if (!rentShareConstructionAllowed(game, tile)) return false;
   return !tile.mortgaged;
 }
 
@@ -57,33 +59,8 @@ function buildOwnershipAllows(game, player, tile) {
 
 function buildGroupAllows(game, player, tile, groupTiles) {
   if (!groupTiles.length) return false;
-  if (!buildingSupplyAllows(game, tile)) return false;
   if (groupTiles.some(entry => entry.mortgaged)) return false;
   return evenBuildAllows(game, player, tile, groupTiles);
-}
-
-function buildingSupplyAllows(game, tile) {
-  const level = Math.max(0, Math.min(5, Number(tile?.houseCount) || 0));
-  if (level >= 5) return false;
-  const tiles = Array.isArray(game.tiles) ? game.tiles : [];
-  const houseLimitSetting = game.settings?.houseLimit;
-  const hotelLimitSetting = game.settings?.hotelLimit;
-  const houseLimitValue = Number(houseLimitSetting);
-  const hotelLimitValue = Number(hotelLimitSetting);
-  const unlimitedHouses = houseLimitSetting === 'unlimited';
-  const unlimitedHotels = hotelLimitSetting === 'unlimited';
-  const houseLimit = Number.isFinite(houseLimitValue) ? Math.max(0, Math.floor(houseLimitValue)) : 32;
-  const hotelLimit = Number.isFinite(hotelLimitValue) ? Math.max(0, Math.floor(hotelLimitValue)) : 12;
-  let housesUsed = 0;
-  let hotelsUsed = 0;
-  tiles.forEach(entry => {
-    if (entry?.type !== 'property') return;
-    const count = Math.max(0, Math.min(5, Number(entry.houseCount) || 0));
-    if (count >= 5) hotelsUsed += 1;
-    else housesUsed += count;
-  });
-  if (level === 4) return unlimitedHotels || hotelsUsed < hotelLimit;
-  return unlimitedHouses || housesUsed < houseLimit;
 }
 
 function evenBuildAllows(game, player, tile, groupTiles) {
@@ -114,11 +91,10 @@ function ownedPropertyTile(game, player, tile) {
   if (!tile) return false;
   if (tile.type !== 'property') return false;
   if (tile.ownerId !== player.id) return false;
-  // Selling liquidates the owner's half of a partly-sold deed, so sell needs
-  // the same security parity as mortgage: no loan/contract collateral and no
-  // outstanding equity share.
+  // Building-sale proceeds belong to the temporary rent-share deed owner.
+  // Legacy equity and pledged collateral retain their original restrictions.
   if (tileEncumbered(game, player, tile)) return false;
-  return !tile.equityShares?.length;
+  return rentShareConstructionAllowed(game, tile);
 }
 
 function sellGroupTiles(game, player, tile) {
@@ -152,8 +128,7 @@ function tileEncumberedForOwner(game, player, tile) {
 
 function groupHasBuildings(game, player, tile) {
   if (tile.type !== 'property') return false;
-  const groupTiles = game.getGroupTiles(tile.group).filter(entry => entry.ownerId === player.id);
-  return groupTiles.some(entry => (entry.houseCount || 0) > 0);
+  return game.getGroupTiles(tile.group).some(entry => (entry.houseCount || 0) > 0);
 }
 
 function mortgageOwnershipAllows(game, player, tile) {
@@ -166,7 +141,7 @@ function mortgageOwnershipAllows(game, player, tile) {
 function mortgageSecurityAllows(game, player, tile) {
   if (mortgageBlockedByEvent(game)) return false;
   if (tileEncumberedForOwner(game, player, tile)) return false;
-  return !tile.equityShares?.length;
+  return !deedHasShareInterest(game, tile);
 }
 
 function mortgageTileShapeAllows(game, player, tile) {
@@ -187,10 +162,8 @@ function unmortgageFrozen(game) {
   if (game.globalEventActive('housing-bubble')) return true;
   if (game.globalEventActive('credit-freeze')) return true;
   if (game.globalEventActive('bank-run')) return true;
-  // Effects fallback: during a combination event the merged effect set
-  // carries mortgagesBlocked from whichever parent fired into the combo,
-  // while the sibling ID gates above may have gone dark. Mirror the
-  // mortgageBlockedByEvent fallback so both directions stay frozen.
+  // Effects fallback: during a combination event the merged effect set carries mortgagesBlocked from whichever parent fired,
+  // while the sibling ID gates above may have gone dark. Mirror the mortgageBlockedByEvent fallback so both directions stay frozen.
   return Boolean(game.activeEventEffects().mortgagesBlocked);
 }
 
@@ -205,4 +178,11 @@ export function canUnmortgageTile(game, player, tile) {
   if (!unmortgageOwnershipAllows(player, tile)) return false;
   if (unmortgageFrozen(game)) return false;
   return !game.isPlayerContractCollateral(player, tile);
+}
+
+// The price to lift a mortgage: the mortgage value plus 10 percent, scaled by the event value multiplier, rounded up to whole dollars.
+// The product is trimmed to micro-dollars first: 50 * 1.1 is 55.00000000000001 in floating point, and a bare ceil would charge $56, not $55.
+export function unmortgageCostFor(price, valueMultiplier = 1) {
+  const half = Math.floor((price || 0) / 2);
+  return Math.ceil(Number((half * 1.1 * valueMultiplier).toFixed(6)));
 }

@@ -1,13 +1,15 @@
-/* ============================================================
-   SOCIAL SURFACES: friends/rankings/player/rules pages and the
-   parlor toast announcer. Server fetches and view switching are
-   injected by the entry module; everything else is local DOM.
-   ============================================================ */
+// SOCIAL SURFACES: friends/rankings/player/rules pages and the
+// parlor toast announcer. Server fetches and view switching are
+// injected by the entry module; everything else is local DOM.
 import { $, esc } from "./clientDom.js";
 import { avatarHTML, hydrateSprites } from "./clientSprites.js";
 import { state } from "./clientState.js";
 import { openSurface } from "./clientSurfaces.js";
+import { formatHistoryDate } from "./clientHistoryFormat.js";
+import { PARLOR_PATROL_ENABLED } from "./clientParlorPatrolFlag.js";
 import { mountResponsiveRankingControls } from "./clientResponsiveSocialSurfaces.js";
+import { closeButtonHTML } from "./clientCloseButton.js";
+import { getAccountAuthGeneration } from "./clientAccountIdentity.js";
 
 function noop() {}
 let host = { emitServer: noop, showView: noop };
@@ -15,6 +17,32 @@ export const SOCIAL_REQUEST_TIMEOUT_MS = 8000;
 let socialRequestId = 0;
 let socialRequestTimer = null;
 let leaderboardRequestTimer = null;
+const pendingFriendRequests = new Map();
+
+function socialAuthToken() {
+  return { accountId: state.account?.account?.id, generation: getAccountAuthGeneration() };
+}
+
+function socialAuthCurrent(token) {
+  return Boolean(token?.accountId) && token.accountId === state.account?.account?.id && token.generation === getAccountAuthGeneration();
+}
+
+export function beginFriendRequestAction(id) {
+  if (!id || !state.account?.account || friendRequestPending(id)) return null;
+  const token = socialAuthToken();
+  pendingFriendRequests.set(String(id), token);
+  return token;
+}
+
+export function friendRequestPending(id) {
+  return socialAuthCurrent(pendingFriendRequests.get(String(id)));
+}
+
+export function finishFriendRequestAction(id, token) {
+  if (pendingFriendRequests.get(String(id)) !== token) return false;
+  pendingFriendRequests.delete(String(id));
+  return socialAuthCurrent(token);
+}
 
 export function configureSocialSurfaces(hooks) {
   host = { ...host, ...hooks };
@@ -180,6 +208,14 @@ export function socialPlayerRowHTML(player, actionLabel = "VIEW") {
 }
 
 
+// Inside a game, Rankings and Social render the same content as their pages. Only the exit
+// differs: pages leave through the site header, while the in-game copy returns to the table.
+// Closing it never leaves the room. The seat, connection, turn timer and pending prompt stay put.
+function tableReturnBarHTML(closeId, label) {
+  const room = state.roomCode ? ` · ROOM ${esc(state.roomCode)}` : "";
+  return `<div class="table-return-bar"><button class="btn-dark social-close table-return-btn" id="${closeId}" type="button" aria-label="Back to table. Closes ${label}; your seat and the game keep running."><span class="table-return-arrow" aria-hidden="true">‹</span><span class="t-label f11">BACK TO TABLE</span></button><span class="t-micro ink-3 table-return-note">TABLE STAYS LIVE${room} · YOUR SEAT AND TURN ARE UNAFFECTED</span></div>`;
+}
+
 function socialRoomRosterHTML() {
   const activeRoom = state.phase !== "home" && state.players?.length;
   if (!activeRoom) return `<div class="social-context-empty"><span class="t-micro g400">NO ACTIVE ROOM</span><span class="t-body ink-2">Join a table to see the people currently sharing it.</span></div>`;
@@ -228,7 +264,7 @@ function socialSearchResultsHTML() {
   const results = state.socialSearchResults || [];
   if (state.socialSearchLoading) return `<p class="t-micro ink-3" data-social-search-status aria-live="polite">SEARCHING…</p>`;
   if (state.socialSearchError) return `<p class="t-micro red" data-social-search-status role="alert">${esc(state.socialSearchError)}</p>`;
-  if (!results.length) return "";
+  if (!results.length) return String(state.socialSearchQuery || "").trim().length >= 3 ? `<p class="t-micro ink-3">NO EXACT USERNAME MATCH.</p>` : "";
   return results.map((player) => socialPlayerRowHTML(player, "VIEW")).join("");
 }
 
@@ -245,8 +281,8 @@ function socialSyncStatusHTML() {
   return `<div class="social-sync-status social-sync-error" data-social-sync-status role="alert"><p class="t-body ink-2">${esc(state.socialError)}${socialSnapshotHasRows() ? " LAST SYNC SHOWN BELOW." : ""}</p><button class="btn-dark" type="button" data-social-retry><span class="t-label f11">TRY AGAIN</span></button></div>`;
 }
 
-function socialDataAck(response, target, requestId) {
-  if (requestId !== socialRequestId) return;
+function socialDataAck(response, target, requestId, session, preserveFocus) {
+  if (requestId !== socialRequestId || !socialAuthCurrent(session)) return;
   clearTimeout(socialRequestTimer);
   socialRequestTimer = null;
   state.socialLoading = false;
@@ -255,7 +291,7 @@ function socialDataAck(response, target, requestId) {
     state.socialError = "";
     state.socialStale = false;
     renderSocialSurface(target);
-    if (target === "#social-page-content") focusSocialPage();
+    if (target === "#social-page-content" && !preserveFocus) focusSocialPage();
     return;
   }
   state.socialError = response?.error || "Social data is temporarily unavailable. Try again.";
@@ -263,7 +299,7 @@ function socialDataAck(response, target, requestId) {
   renderSocialSurface(target);
 }
 
-export function requestSocialData(target) {
+export function requestSocialData(target, { preserveFocus = false } = {}) {
   if (!state.account?.account) {
     // Guests get the public shell and account gate only. Do not request or
     // retain relationship data that cannot be displayed without an account.
@@ -275,13 +311,14 @@ export function requestSocialData(target) {
   const requestId = socialRequestId + 1;
   socialRequestId = requestId;
   state.socialRequestId = requestId;
+  const session = socialAuthToken();
   state.socialLoading = true;
   state.socialError = "";
   state.socialStale = socialSnapshotHasRows();
   clearTimeout(socialRequestTimer);
   renderSocialSurface(target);
-  socialRequestTimer = setTimeout(() => socialDataAck({ success: false, error: "Social sync timed out. Try again." }, target, requestId), SOCIAL_REQUEST_TIMEOUT_MS);
-  host.emitServer("get-social-data", {}, (response) => socialDataAck(response, target, requestId));
+  socialRequestTimer = setTimeout(() => socialDataAck({ success: false, error: "Social sync timed out. Try again." }, target, requestId, session, preserveFocus), SOCIAL_REQUEST_TIMEOUT_MS);
+  host.emitServer("get-social-data", {}, (response) => socialDataAck(response, target, requestId, session, preserveFocus));
 }
 
 function socialFetchAndRender(target) {
@@ -295,8 +332,9 @@ function leaderboardSnapshotAck(snapshot, target, requestId) {
   state.leaderboard.loading = false;
   applyLeaderboardSnapshot(snapshot);
   state.leaderboard.stale = !snapshot?.success;
+  const pickerFocused = $(target)?.querySelector("[data-ranking-metric]") === document.activeElement;
   renderRankingsSurface(target);
-  if (target === "#rankings-page-content") focusRankingsPage();
+  if (target === "#rankings-page-content" && !pickerFocused) focusRankingsPage();
 }
 
 export function requestLeaderboardSnapshot(target) {
@@ -329,7 +367,7 @@ function applyPublicPlayerCard(response) {
 }
 
 function signinBodyHTML() {
-  return `<div class="social-signin-note"><span class="t-label f13 g100">ACCOUNT REQUIRED</span><p class="t-body ink-2">Create an account to keep friends, invitations, and social history across rooms.</p><button class="cta-red" type="button" data-social-action="account"><span class="cta-text cta-text-sm">CREATE ACCOUNT</span></button></div>`;
+  return `<div class="social-signin-note"><span class="t-label f13 g100">ACCOUNT REQUIRED</span><p class="t-body ink-2">Create an account to keep friends, invitations, and social history across rooms.</p></div>`;
 }
 
 export function socialGuestGateHTML(surfaceKey = "social") {
@@ -348,23 +386,30 @@ function friendsBodyHTML(social) {
   return social.friends?.length ? social.friends.map((player) => socialPlayerRowHTML(player)).join("") : `<p class="t-body ink-3 social-empty">NO FRIENDS YET. Search by username or open someone from the table.</p>`;
 }
 
-function requestsBodyHTML(social) {
-  const incoming = social.requests?.map((request) => `<div class="social-request-row">${socialPlayerRowHTML(request.from, "VIEW")}<div class="social-request-actions"><button class="cta-red" type="button" data-social-request="accept" data-friendship-id="${esc(request.id)}"><span class="cta-text cta-text-sm">ACCEPT</span></button><button class="btn-dark" type="button" data-social-request="decline" data-friendship-id="${esc(request.id)}"><span class="t-label f11">DECLINE</span></button></div></div>`).join("") || "";
-  const outgoing = social.outgoing?.map((request) => `<div class="social-request-row">${socialPlayerRowHTML(request.to, "VIEW")}<div class="social-request-actions"><span class="t-micro ink-3">REQUEST SENT</span><button class="btn-dark" type="button" data-social-request-cancel data-friendship-id="${esc(request.id)}"><span class="t-label f11">CANCEL</span></button></div></div>`).join("") || "";
+export function requestsBodyHTML(social) {
+  const pending = id => friendRequestPending(id) ? ' disabled aria-busy="true"' : "";
+  const incoming = social.requests?.map((request) => `<div class="social-request-row">${socialPlayerRowHTML(request.from, "VIEW")}<div class="social-request-actions"><button class="btn-dark social-request-accept" type="button" data-social-request="accept" data-friendship-id="${esc(request.id)}"${pending(request.id)}><span class="t-label f11">ACCEPT</span></button><button class="btn-dark" type="button" data-social-request="decline" data-friendship-id="${esc(request.id)}"${pending(request.id)}><span class="t-label f11">DECLINE</span></button></div></div>`).join("") || "";
+  const outgoing = social.outgoing?.map((request) => `<div class="social-request-row">${socialPlayerRowHTML(request.to, "VIEW")}<div class="social-request-actions"><span class="t-micro ink-3">REQUEST SENT</span><button class="btn-dark" type="button" data-social-request-cancel data-friendship-id="${esc(request.id)}"${pending(request.id)}><span class="t-label f11">CANCEL</span></button></div></div>`).join("") || "";
   return incoming || outgoing ? `${incoming}${outgoing}` : `<p class="t-body ink-3 social-empty">NO PENDING REQUESTS.</p>`;
 }
 
+function socialDateLabel(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).toUpperCase();
+}
+
 function invitesBodyHTML(social) {
-  return social.invites?.length ? social.invites.map((invite) => `<div class="social-invite-row"><div><strong class="t-label f12 g100">${esc(invite.roomName || "AFTER HOURS")}</strong><span class="t-micro ink-3">${String(invite.visibility || "public").toUpperCase()} ROOM · EXPIRES ${esc(String(invite.expiresAt || "").slice(0, 16))}</span></div><div class="social-request-actions"><button class="cta-red" type="button" data-social-invite="accept" data-invite-id="${esc(invite.id)}"><span class="cta-text cta-text-sm">JOIN</span></button><button class="btn-dark" type="button" data-social-invite="decline" data-invite-id="${esc(invite.id)}"><span class="t-label f11">DECLINE</span></button></div></div>`).join("") : `<p class="t-body ink-3 social-empty">NO ROOM INVITES.</p>`;
+  return social.invites?.length ? social.invites.map((invite) => `<div class="social-invite-row"><div><strong class="t-label f12 g100">${esc(invite.roomName || "AFTER HOURS")}</strong><span class="t-micro ink-3">${String(invite.visibility || "public").toUpperCase()} ROOM · EXPIRES ${esc(socialDateLabel(invite.expiresAt) || "-")}</span></div><div class="social-request-actions"><button class="cta-red" type="button" data-social-invite="accept" data-invite-id="${esc(invite.id)}"><span class="cta-text cta-text-sm">JOIN</span></button><button class="btn-dark" type="button" data-social-invite="decline" data-invite-id="${esc(invite.id)}"><span class="t-label f11">DECLINE</span></button></div></div>`).join("") : `<p class="t-body ink-3 social-empty">NO ROOM INVITES.</p>`;
 }
 
 function recentBodyHTML(social) {
   let body = social.recentPlayers?.length       ? social.recentPlayers.map((player) => socialPlayerRowHTML(player, "REVISIT")).join("")       : `<p class="t-body ink-3 social-empty">NO RECENT PLAYERS YET. COMPLETE A MATCH TO BUILD YOUR TABLE HISTORY.</p>`;
-  return `<div class="recent-players-wrap"><div class="recent-players-actions"><span class="t-micro ink-3">LAST 30 DAYS · 20 PLAYERS MAX</span><button class="btn-dark" type="button" data-social-clear-recent><span class="t-label f11">CLEAR RECENT</span></button></div>${body}</div>`;
+  return `<div class="recent-players-wrap"><div class="recent-players-actions"><span class="t-micro ink-3">LAST 30 DAYS · 20 PLAYERS MAX</span><div class="recent-players-clear"><button class="btn-dark" type="button" data-social-clear-recent><span class="t-label f11">CLEAR RECENT PLAYERS</span></button><span class="t-micro ink-3">Removes this list only; friends stay.</span></div></div>${body}</div>`;
 }
 
 function notificationsBodyHTML(social) {
-  return social.notifications?.length ? social.notifications.map((notification) => `<div class="social-notification-row${notification.readAt ? "" : " is-unread"}"><div><strong class="t-label f12 g100">${esc(notification.title)}</strong><span class="t-body ink-2">${esc(notification.body)}</span><span class="t-micro ink-3">${esc(String(notification.createdAt || "").slice(0, 16))}</span></div>${notification.readAt ? "" : `<button class="btn-dark" type="button" data-notification-read="${esc(notification.id)}"><span class="t-label f11">READ</span></button>`}</div>`).join("") : `<p class="t-body ink-3 social-empty">NO NOTIFICATIONS.</p>`;
+  return social.notifications?.length ? social.notifications.map((notification) => `<div class="social-notification-row${notification.readAt ? "" : " is-unread"}"><div><strong class="t-label f12 g100">${esc(notification.title)}</strong><span class="t-body ink-2">${esc(notification.body)}</span><span class="t-micro ink-3">${esc(socialDateLabel(notification.createdAt))}</span></div>${notification.readAt ? "" : `<button class="btn-dark" type="button" data-notification-read="${esc(notification.id)}"><span class="t-label f11">READ</span></button>`}</div>`).join("") : `<p class="t-body ink-3 social-empty">NO NOTIFICATIONS.</p>`;
 }
 
 function socialTabBody(social, signedIn) {
@@ -378,7 +423,7 @@ function socialTabBody(social, signedIn) {
 
 function socialHeroContext(social, pageSurface) {
   const shellClass = pageSurface ? "social-page-shell is-page" : "social-page-shell is-modal";
-  const closeBtn = pageSurface ? "" : '<button class="btn-dark social-close" id="social-close" type="button"><span class="t-label f11">CLOSE</span></button>';
+  const closeBtn = pageSurface ? "" : tableReturnBarHTML("social-close", "Social");
   return { shellClass, closeBtn, friendsCount: listCount(social.friends), inboxCount: unreadCount(social) };
 }
 
@@ -391,8 +436,8 @@ function socialRailContext(signedIn) {
 
 function socialTableContext() {
   const home = state.phase === "home";
-  const roomValue = home ? "—" : esc(state.roomCode || "PUBLIC");
-  const seatedValue = home ? "—" : state.players.length;
+  const roomValue = home ? "-" : esc(state.roomCode || "PUBLIC");
+  const seatedValue = home ? "-" : state.players.length;
   return { roomValue, seatedValue };
 }
 
@@ -418,27 +463,69 @@ function socialSearchMarkup(view) {
 }
 
 function socialTabsMarkup(view) {
-  return view.tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" role="tab" aria-selected="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}</span><span class="social-tab-count">${tabCount(id, view.social, view.count)}</span></button>`).join("");
+  return view.tabs.map(([id, label]) => `<button class="social-tab${state.socialTab === id ? " is-active" : ""}" type="button" aria-pressed="${state.socialTab === id}" data-social-tab="${id}"><span class="t-label f11">${label}</span><span class="social-tab-count">${tabCount(id, view.social, view.count)}</span></button>`).join("");
 }
 
 function socialNetworkMarkup(view) {
-  return `<div class="social-network-grid"><aside class="social-network-rail panel noise"><div class="social-rail-head"><span class="t-micro g400">NETWORK</span><span class="t-micro ink-3">${view.rail.networkLabel}</span></div><nav class="social-rail-nav" role="tablist" aria-label="Social views">${socialTabsMarkup(view)}</nav></aside><section class="social-feed panel noise" tabindex="0" aria-labelledby="social-${view.surfaceKey}-feed-title"><div class="social-feed-head"><div><span class="t-micro g400">ACTIVE FEED</span><h3 class="t-section g100" id="social-${view.surfaceKey}-feed-title">${view.activeLabel}</h3></div><span class="t-micro ink-3">${view.rail.feedSource}</span></div><div class="social-surface-body thin-scroll">${view.body}</div></section><aside class="social-context panel noise" aria-labelledby="social-${view.surfaceKey}-context-title"><div class="social-context-head"><div><span class="t-micro g400">TABLE CONTEXT</span><h3 class="t-section g100" id="social-${view.surfaceKey}-context-title">People nearby</h3></div><span class="t-micro ink-3">${view.rail.phaseLabel}</span></div><div class="social-context-stats"><div><span class="t-micro ink-3">ROOM</span><strong class="t-label f11 g100">${view.info.roomValue}</strong></div><div><span class="t-micro ink-3">SEATED</span><strong class="t-label f11 green">${view.info.seatedValue}</strong></div></div><div class="social-context-roster">${socialRoomRosterHTML()}</div><div class="social-context-foot"><span class="t-micro g400">PRIVACY</span><span class="t-body ink-2">Only public identity and relationship actions are shown here. Cash, loans, and hidden match details stay private.</span></div></aside></div>`;
+  return `<div class="social-network-grid"><aside class="social-network-rail panel noise"><div class="social-rail-head"><span class="t-micro g400">NETWORK</span><span class="t-micro ink-3">${view.rail.networkLabel}</span></div><nav class="social-rail-nav" aria-label="Social views">${socialTabsMarkup(view)}</nav></aside><section class="social-feed panel noise" tabindex="0" aria-labelledby="social-${view.surfaceKey}-feed-title"><div class="social-feed-head"><div><span class="t-micro g400">ACTIVE FEED</span><h3 class="t-section g100" id="social-${view.surfaceKey}-feed-title">${view.activeLabel}</h3></div><span class="t-micro ink-3">${view.rail.feedSource}</span></div><div class="social-surface-body thin-scroll">${view.body}</div></section><aside class="social-context panel noise" aria-labelledby="social-${view.surfaceKey}-context-title"><div class="social-context-head"><div><span class="t-micro g400">TABLE CONTEXT</span><h3 class="t-section g100" id="social-${view.surfaceKey}-context-title">People nearby</h3></div><span class="t-micro ink-3">${view.rail.phaseLabel}</span></div><div class="social-context-stats"><div><span class="t-micro ink-3">ROOM</span><strong class="t-label f11 g100">${view.info.roomValue}</strong></div><div><span class="t-micro ink-3">SEATED</span><strong class="t-label f11 green">${view.info.seatedValue}</strong></div></div><div class="social-context-roster">${socialRoomRosterHTML()}</div><div class="social-context-foot"><span class="t-micro g400">PRIVACY</span><span class="t-body ink-2">Only public identity and relationship actions are shown here. Cash, loans, and hidden match details stay private.</span></div></aside></div>`;
 }
 
 function socialHeroMarkup(view) {
   const guestClass = view.signedIn ? "" : " is-guest";
   const guestContentState = view.signedIn ? "" : ' aria-hidden="true"';
   const gate = view.signedIn ? "" : socialGuestGateHTML(view.surfaceKey);
-  return `<div class="${view.hero.shellClass}"><section class="social-hero panel noise"><div class="social-hero-mark"><img src="/assets/social-network.svg" alt="" width="32" height="32"></div><div class="social-hero-copy"><span class="t-micro g400">PARLOR SOCIAL · PLAYER INDEX</span><h2 class="t-section g100" id="social-${view.surfaceKey}-title">People who keep the table moving</h2><p class="t-body ink-2" id="social-${view.surfaceKey}-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><div class="social-hero-stats"><div><span class="t-micro ink-3">FRIENDS</span><strong class="t-label f20 g100">${view.hero.friendsCount}</strong></div><div><span class="t-micro ink-3">PENDING</span><strong class="t-label f20 g300">${view.pending}</strong></div><div><span class="t-micro ink-3">INBOX</span><strong class="t-label f20 green">${view.hero.inboxCount}</strong></div></div>${view.hero.closeBtn}</section>${view.syncStatus}<div class="social-guest-shell${guestClass}"><div class="social-guest-content" data-social-guest-content${guestContentState}>${socialSearchMarkup(view)}${socialNetworkMarkup(view)}</div>${gate}</div></div>`;
+  return `<div class="${view.hero.shellClass}">${view.hero.closeBtn}<section class="social-hero panel noise"><div class="social-hero-mark"><img src="/assets/social-network.svg" alt="" width="32" height="32"></div><div class="social-hero-copy"><span class="t-micro g400">PARLOR SOCIAL · PLAYER INDEX</span><h2 class="t-section g100" id="social-${view.surfaceKey}-title">People who keep the table moving</h2><p class="t-body ink-2" id="social-${view.surfaceKey}-description">Find people by their unique username, then manage friends and room invites without leaving the parlor.</p></div><div class="social-hero-stats"><div><span class="t-micro ink-3">FRIENDS</span><strong class="t-label f20 g100">${view.hero.friendsCount}</strong></div><div><span class="t-micro ink-3">PENDING</span><strong class="t-label f20 g300">${view.pending}</strong></div><div><span class="t-micro ink-3">INBOX</span><strong class="t-label f20 green">${view.hero.inboxCount}</strong></div></div></section>${view.syncStatus}<div class="social-guest-shell${guestClass}"><div class="social-guest-content" data-social-guest-content${guestContentState}>${socialSearchMarkup(view)}${socialNetworkMarkup(view)}</div>${gate}</div></div>`;
+}
+
+function focusedSocialPlayerId(card, active) {
+  if (!card.contains?.(active)) return null;
+  return active.closest?.("[data-social-player]")?.dataset.socialPlayer ?? null;
+}
+
+function socialRequestFocusWanted(card, active) {
+  if (!card.contains?.(active)) return false;
+  return Boolean(active.dataset?.friendshipId || active.matches?.(".social-feed"));
+}
+
+function captureSocialFocus(card) {
+  const active = document.activeElement;
+  return {
+    playerId: focusedSocialPlayerId(card, active),
+    requestFocus: socialRequestFocusWanted(card, active),
+    friendshipId: active?.dataset?.friendshipId,
+    action: active?.dataset?.socialRequest,
+    cancel: active?.hasAttribute?.("data-social-request-cancel"),
+  };
+}
+
+function focusSocialReplacement(card, replacement) {
+  (replacement || card.querySelector(".social-feed"))?.focus({ preventScroll: true });
+}
+
+function matchesSocialRequestControl(button, focus) {
+  const sameControl = focus.cancel ? button.hasAttribute("data-social-request-cancel") : button.dataset.socialRequest === focus.action;
+  return button.dataset.friendshipId === focus.friendshipId && sameControl && !button.disabled;
+}
+
+function restoreSocialFocus(card, focus) {
+  if (focus.playerId) {
+    focusSocialReplacement(card, [...card.querySelectorAll("[data-social-player]")].find(button => button.dataset.socialPlayer === focus.playerId));
+  }
+  if (focus.requestFocus) {
+    const controls = focus.friendshipId ? [...card.querySelectorAll("[data-friendship-id]")] : [];
+    focusSocialReplacement(card, controls.find(button => matchesSocialRequestControl(button, focus)));
+  }
 }
 
 export function renderSocialSurface(target = "#social-card") {
   const card = surfaceCard(target, "#social-card");
   if (!card) return;
+  const focus = captureSocialFocus(card);
   const view = socialSurfaceView(card);
   card.innerHTML = socialHeroMarkup(view);
   const guestContent = card.querySelector("[data-social-guest-content]");
   if (guestContent) guestContent.inert = !view.signedIn;
+  restoreSocialFocus(card, focus);
 }
 
 
@@ -459,8 +546,7 @@ export function openInGameSocialSurface(kind) {
 }
 
 function normalizeRankingMetric(metric) {
-  const allowed = ["wins", "games", "rate", "achievements", "mythical", "bankruptcies", "events", "auctions", "rent", "casino", "market", "playerloans", "equity", "loans", "patrol"];
-  if (allowed.includes(metric)) return metric;
+  if (RANKING_ORDER.includes(metric)) return metric;
   return "wins";
 }
 
@@ -492,13 +578,14 @@ function applyLeaderboardSnapshot(snapshot) {
 export function openRankingsSurface(metric = "wins", scope = state.leaderboard.scope || "all") {
   state.leaderboard.metric = normalizeRankingMetric(metric);
   state.leaderboard.scope = normalizeRankingScope(scope);
+  state.leaderboard.page = 0;
   host.showView("rankings");
   renderRankingsSurface("#rankings-page-content");
   focusRankingsPage();
   requestLeaderboardSnapshot("#rankings-page-content");
 }
 
-export const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENT SCORE", mythical: "MYTHICAL", bankruptcies: "BANKRUPTCIES", events: "EVENT SURVIVAL", auctions: "AUCTION WINS", rent: "RENT COLLECTED", casino: "CASINO NET", market: "MARKET PROFIT", playerloans: "PLAYER LOANS", equity: "EQUITY DEALS", loans: "LOAN DISCIPLINE", patrol: "PATROL BEST" };
+export const RANKING_LABELS = { wins: "WINS", rate: "WIN RATE", games: "GAMES", achievements: "ACHIEVEMENT SCORE", mythical: "MYTHICAL", bankruptcies: "BANKRUPTCIES", events: "EVENT SURVIVAL", auctions: "AUCTION WINS", rent: "RENT COLLECTED", casino: "CASINO NET", market: "MARKET PROFIT", playerloans: "PLAYER LOANS", equity: "EQUITY DEALS", loans: "LOAN DISCIPLINE", ...(PARLOR_PATROL_ENABLED ? { patrol: "PATROL BEST" } : {}) };
 export const RANKING_ORDER = Object.keys(RANKING_LABELS);
 
 function rankingPosition(metric) {
@@ -508,7 +595,9 @@ function rankingPosition(metric) {
 
 export function rankingMetricNavigationHTML(metric) {
   const position = rankingPosition(metric);
-  return `<div class="ranking-metric-navigation"><div class="ranking-stage-controls" role="group" aria-label="Change ranking category"><button class="btn-dark ranking-step" type="button" data-ranking-step="-1" aria-label="Previous ranking category"><span aria-hidden="true">‹</span><span class="sr-only">Previous ranking category</span></button><div class="ranking-position" aria-live="polite"><strong class="t-label f12 g100">${position.label}</strong><span class="t-micro ink-3">METRIC</span></div><button class="btn-dark ranking-step" type="button" data-ranking-step="1" aria-label="Next ranking category"><span aria-hidden="true">›</span><span class="sr-only">Next ranking category</span></button></div></div>`;
+  const selected = normalizeRankingMetric(metric);
+  const options = RANKING_ORDER.map(value => `<option value="${value}"${value === selected ? " selected" : ""}>${RANKING_LABELS[value]}</option>`).join("");
+  return `<div class="ranking-metric-navigation"><label class="ranking-metric-picker"><span class="t-micro ink-3">RANKING METRIC</span><select class="field" data-ranking-metric>${options}</select></label><div class="ranking-stage-controls" role="group" aria-label="Change ranking category"><button class="btn-dark ranking-step" type="button" data-ranking-step="-1" aria-label="Previous ranking category"><span aria-hidden="true">‹</span><span class="sr-only">Previous ranking category</span></button><div class="ranking-position" aria-live="polite"><strong class="t-label f12 g100">${position.label}</strong><span class="t-micro ink-3">METRIC</span></div><button class="btn-dark ranking-step" type="button" data-ranking-step="1" aria-label="Next ranking category"><span aria-hidden="true">›</span><span class="sr-only">Next ranking category</span></button></div></div>`;
 }
 
 const RANKING_DESCRIPTIONS = {
@@ -521,8 +610,8 @@ const RANKING_DESCRIPTIONS = {
   events: "Global events survived, measured from server event outcomes.",
   auctions: "Verified auctions won while keeping bids and settlements legal.",
   rent: "Cash collected from property rent in completed rounds.",
-  casino: "Net fictional casino result. Wager volume never grants rank points.",
-  market: "Net fictional market result after disclosed fees and obligations.",
+  casino: "Net in-game casino result. Wager volume never grants rank points.",
+  market: "Net in-game market result after disclosed fees and obligations.",
   playerloans: "Player-to-player loan offers completed and settled.",
   equity: "Equity deals completed with server-authoritative settlement.",
   loans: "Loan obligations paid on time, including proactive repayments.",
@@ -539,6 +628,17 @@ function rankingValueLabel(metric, value) {
   return String(Number(value) || 0);
 }
 
+export const RANKING_PAGE_SIZE = 10;
+
+export function rankingsPageSlice(rows, requestedPage = 0) {
+  const list = Array.isArray(rows) ? rows : [];
+  const total = list.length;
+  const pageCount = Math.max(1, Math.ceil(total / RANKING_PAGE_SIZE));
+  const page = Math.max(0, Math.min(pageCount - 1, Math.floor(Number(requestedPage) || 0)));
+  const start = page * RANKING_PAGE_SIZE;
+  return { rows: list.slice(start, start + RANKING_PAGE_SIZE), total, page, pageCount, start };
+}
+
 function leaderboardCurrentRows(snapshots) {
   const rows = snapshots[state.leaderboard.metric];
   if (rows) return rows;
@@ -553,7 +653,7 @@ function rankingSelfBits(currentRows) {
     ? currentRows.findIndex((row) => row.accountId === selfId || row.accountId === selfUsername || row.username === selfUsername)
     : -1;
   const selfRow = selfIndex >= 0 ? currentRows[selfIndex] : null;
-  const selfRank = selfRow ? `#${selfIndex + 1}` : "—";
+  const selfRank = selfRow ? `#${selfIndex + 1}` : "-";
   return { selfRow, selfRank };
 }
 
@@ -563,7 +663,7 @@ function rankingSelfTone(selfRow) {
 }
 
 function rankingSelfStat(selfRow) {
-  if (!selfRow) return "SIGN IN TO TRACK";
+  if (!selfRow) return state.account?.account ? "NOT RANKED YET" : "SIGN IN TO TRACK";
   const value = rankingValueLabel(state.leaderboard.metric, selfRow.value);
   return `${value} · ${RANKING_LABELS[state.leaderboard.metric]}`;
 }
@@ -595,7 +695,7 @@ function rankingsShellClass(pageSurface) {
 
 function rankingsCloseButton(pageSurface) {
   if (pageSurface) return "";
-  return '<button class="btn-dark social-close" id="rankings-close" type="button"><span class="t-label f11">CLOSE</span></button>';
+  return tableReturnBarHTML("rankings-close", "Rankings");
 }
 
 function scopesTabs() {
@@ -605,7 +705,15 @@ function scopesTabs() {
 function ledgerEmptyHTML() {
   if (state.leaderboard.loading) return `<p class="t-body ink-3 social-empty" aria-live="polite">LOADING VERIFIED RANKINGS…</p>`;
   if (state.leaderboard.error) return rankingErrorHTML(state.leaderboard.error);
-  return `<p class="t-body ink-3 social-empty">NO VERIFIED PLAYERS YET.</p>`;
+  // Every empty ranking says what to do next; the narrower scopes offer the wider ledger as one tap.
+  const scope = state.leaderboard.scope;
+  if (scope === "friends") {
+    return `<div class="social-empty"><p class="t-body ink-2">NONE OF YOUR FRIENDS ARE RANKED YET.</p><p class="t-body ink-3">Add friends from the Social tab, or look at everyone.</p><button class="btn-dark" type="button" data-ranking-scope="all"><span class="t-label f11">SHOW ALL-TIME RANKINGS</span></button></div>`;
+  }
+  if (scope === "month") {
+    return `<div class="social-empty"><p class="t-body ink-2">NO VERIFIED MATCHES IN THE LAST 30 DAYS.</p><p class="t-body ink-3">Finish a match while signed in to get on this ledger, or look at the all-time view.</p><button class="btn-dark" type="button" data-ranking-scope="all"><span class="t-label f11">SHOW ALL-TIME RANKINGS</span></button></div>`;
+  }
+  return `<div class="social-empty"><p class="t-body ink-2">NO VERIFIED PLAYERS YET.</p><p class="t-body ink-3">Sign in and finish a match to claim the first spot on the ledger.</p></div>`;
 }
 
 function rankingErrorHTML(message) {
@@ -633,7 +741,14 @@ function ledgerRowHTML(row, index) {
 
 function ledgerRowsHTML(currentRows) {
   if (!currentRows.length) return ledgerEmptyHTML();
-  return `${ledgerStatusHTML()}${currentRows.map(ledgerRowHTML).join("")}`;
+  const window = rankingsPageSlice(currentRows, state.leaderboard.page);
+  state.leaderboard.page = window.page;
+  return `${ledgerStatusHTML()}${window.rows.map((row, index) => ledgerRowHTML(row, window.start + index)).join("")}`;
+}
+
+function rankingPaginationHTML(currentRows) {
+  const window = rankingsPageSlice(currentRows, state.leaderboard.page);
+  return `<nav class="ranking-pagination" aria-label="Leaderboard pages"><button class="btn-dark" type="button" data-ranking-page="-1" aria-label="Previous leaderboard page" ${window.page === 0 ? "disabled" : ""}><span class="t-label f11">PREVIOUS</span></button><span class="t-micro ink-3" aria-live="polite">PAGE ${window.page + 1} OF ${window.pageCount} · ${window.total} PLAYERS</span><button class="btn-dark" type="button" data-ranking-page="1" aria-label="Next leaderboard page" ${window.page >= window.pageCount - 1 ? "disabled" : ""}><span class="t-label f11">NEXT</span></button></nav>`;
 }
 
 function rankingSearchResultsHTML() {
@@ -646,10 +761,13 @@ return Array.isArray(state.rankingSearchResults) && state.rankingSearchResults.l
 
 export function renderRankingsSurface(target = "#rankings-card") {
   const card = surfaceCard(target, "#rankings-card");
+  const pickerFocused = card?.querySelector("[data-ranking-metric]") === document.activeElement;
   if (!card) return;
   const pageSurface = card.id === "rankings-page-content";
   const snapshots = state.leaderboard.snapshots || {};
   const currentRows = leaderboardCurrentRows(snapshots);
+  const currentPage = rankingsPageSlice(currentRows, state.leaderboard.page);
+  state.leaderboard.page = currentPage.page;
   const self = rankingSelfBits(currentRows);
   const selfRank = self.selfRank;
   const selfTone = rankingSelfTone(self.selfRow);
@@ -660,10 +778,11 @@ export function renderRankingsSurface(target = "#rankings-card") {
   const shellClass = rankingsShellClass(pageSurface);
   const closeBtn = rankingsCloseButton(pageSurface);
   const surfaceKey = pageSurface ? "page" : "modal";
-  card.innerHTML = `<div class="${shellClass}"><section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">One clear ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div>${closeBtn}</section><div class="rankings-search-slot"></div><div class="rankings-main-grid" data-ranking-layout><section class="rankings-stage panel noise" data-ranking-stage tabindex="0" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-stage-head"><div class="rankings-stage-copy"><span class="t-micro g400">PRIMARY LEDGER · ${scopeLabel()}</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3><p class="t-body ink-2" id="rankings-${surfaceKey}-metric-description" aria-live="polite">${rankingDescription(state.leaderboard.metric)}</p></div></div>${rankingMetricNavigationHTML(state.leaderboard.metric)}<div class="rankings-stage-toolbar"><div class="ranking-scopes" role="toolbar" aria-label="Ranking scope">${scopes}</div><span class="t-micro ink-3 ranking-stage-count" aria-live="polite">${currentRows.length} VERIFIED ROWS · SELECT A METRIC</span></div><div class="ranking-list thin-scroll" aria-label="${RANKING_LABELS[state.leaderboard.metric]} leaderboard">${rows}</div></section></div></div>`;
+  card.innerHTML = `<div class="${shellClass}">${closeBtn}<section class="rankings-hero panel noise"><div class="rankings-hero-mark"><img src="/assets/rankings-podium.svg" alt="" width="32" height="32"></div><div class="rankings-hero-copy"><span class="t-micro g400">PARLOR RECORDS · VERIFIED</span><h2 class="t-section g100" id="rankings-${surfaceKey}-title">Global Rankings</h2><p class="t-body ink-2" id="rankings-${surfaceKey}-description">One clear ledger for the people who keep finishing the table.</p></div><div class="rankings-hero-stats"><div class="rankings-hero-stat"><span class="t-micro ink-3">YOUR RANK</span><strong class="t-label f20 ${selfTone}">${selfRank}</strong><span class="t-micro ink-3">${selfStat}</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">PLAYERS</span><strong class="t-label f20 g100">${currentRows.length}</strong><span class="t-micro ink-3">VERIFIED ROWS</span></div><div class="rankings-hero-stat"><span class="t-micro ink-3">DATA</span><strong class="t-label f12 g300">${syncLabel}</strong><span class="t-micro ink-3">SERVER SNAPSHOT</span></div></div></section><div class="rankings-search-slot"></div><div class="rankings-main-grid" data-ranking-layout><section class="rankings-stage panel noise" data-ranking-stage tabindex="0" aria-labelledby="rankings-${surfaceKey}-ledger-title"><div class="rankings-stage-head"><div class="rankings-stage-copy"><span class="t-micro g400">PRIMARY LEDGER · ${scopeLabel()}</span><h3 class="t-section g100" id="rankings-${surfaceKey}-ledger-title">${RANKING_LABELS[state.leaderboard.metric]} standings</h3><p class="t-body ink-2" id="rankings-${surfaceKey}-metric-description" aria-live="polite">${rankingDescription(state.leaderboard.metric)}</p></div></div>${rankingMetricNavigationHTML(state.leaderboard.metric)}<div class="rankings-stage-toolbar"><div class="ranking-scopes" role="toolbar" aria-label="Ranking scope">${scopes}</div><span class="t-micro ink-3 ranking-stage-count" aria-live="polite">${currentRows.length} VERIFIED ROWS · SELECT A METRIC</span></div><div class="ranking-list thin-scroll" aria-label="${RANKING_LABELS[state.leaderboard.metric]} leaderboard">${rows}</div>${rankingPaginationHTML(currentRows)}</section></div></div>`;
   const metricCount = card.querySelector(".ranking-stage-count");
-  if (metricCount) metricCount.textContent = `${currentRows.length} VERIFIED ROWS · USE ARROWS TO CHANGE METRIC`;
+  if (metricCount) metricCount.textContent = `${currentRows.length} VERIFIED ROWS · PAGE ${currentPage.page + 1} OF ${currentPage.pageCount}`;
   mountResponsiveRankingControls(card, { pageSurface, surfaceKey, expanded: state.rankingSearchExpanded, query: state.rankingSearchQuery, results: rankingSearchResultsHTML() });
+  if (pickerFocused) card.querySelector("[data-ranking-metric]")?.focus({ preventScroll: true });
 }
 
 const RULES_SECTIONS = [
@@ -671,10 +790,10 @@ const RULES_SECTIONS = [
     id: "start-here",
     label: "START HERE",
     kicker: "01 · QUICK BRIEF",
-    title: "One table. Forty spaces. Last wallet standing.",
+    title: "One table. Last wallet standing.",
     status: "LIVE",
-    summary: "Poorup is a real-time property game for two to four players. Roll, move clockwise, make the next legal decision, and keep the table moving.",
-    content: `<div class="rules-callout"><strong class="t-label f13 g100">THE SHORT VERSION</strong><p class="t-body ink-2">Start on GO at space 0. Salvador is space 1. Every player takes a turn in order. Buy useful property, charge rent, manage cash, and survive the table longer than everyone else.</p></div><h3 class="t-section g300">A complete turn</h3><ol class="rules-steps"><li><span class="rules-step-number">01</span><div><strong class="t-label f12 g100">ROLL</strong><p class="t-body ink-2">The active player rolls the dice once. The server moves the token one space at a time.</p></div></li><li><span class="rules-step-number">02</span><div><strong class="t-label f12 g100">RESOLVE</strong><p class="t-body ink-2">Resolve the landed space, card, rent, tax, purchase, auction, or prison rule before ending the turn.</p></div></li><li><span class="rules-step-number">03</span><div><strong class="t-label f12 g100">CHOOSE</strong><p class="t-body ink-2">Buy, trade, accept a loan, or place a legal market action. After rolling, the active player may build or sell buildings until ending the turn. Mortgaging an eligible deed is available on any turn.</p></div></li><li><span class="rules-step-number">04</span><div><strong class="t-label f12 g100">END</strong><p class="t-body ink-2">Press End Turn only after every required decision is complete. The next player then becomes active.</p></div></li></ol><div class="rules-inline-note"><span class="t-micro g400">SOURCE OF TRUTH</span><span class="t-body ink-2">The server owns balances, movement, ownership, event outcomes, and settlement. The browser renders the latest snapshot.</span></div>`,
+    summary: "Poorup is a real-time property game. The board variant sets the space count and seat limit. Roll, move clockwise, make the next legal decision, and keep the table moving.",
+    content: `<div class="rules-callout"><strong class="t-label f13 g100">THE SHORT VERSION</strong><p class="t-body ink-2">Start on GO and move clockwise around your table's board. Every player takes a turn in order. Buy useful property, charge rent, manage cash, and survive the table longer than everyone else.</p></div><h3 class="t-section g300">A complete turn</h3><ol class="rules-steps"><li><span class="rules-step-number">01</span><div><strong class="t-label f12 g100">ROLL</strong><p class="t-body ink-2">The active player rolls the dice once and the token moves one space at a time.</p></div></li><li><span class="rules-step-number">02</span><div><strong class="t-label f12 g100">RESOLVE</strong><p class="t-body ink-2">Resolve the landed space, card, rent, tax, purchase, auction, or prison rule before ending the turn.</p></div></li><li><span class="rules-step-number">03</span><div><strong class="t-label f12 g100">CHOOSE</strong><p class="t-body ink-2">Buy, trade, accept a loan, or place a legal market action. After rolling, the active player may build until ending the turn. Selling buildings evenly and mortgaging an eligible deed are available on any turn.</p></div></li><li><span class="rules-step-number">04</span><div><strong class="t-label f12 g100">END</strong><p class="t-body ink-2">Press End Turn only after every required decision is complete. The next player then becomes active.</p></div></li></ol>`,
   },
   {
     id: "board-tiles",
@@ -682,8 +801,8 @@ const RULES_SECTIONS = [
     kicker: "02 · THE MAP",
     title: "Read the board clockwise",
     status: "LIVE",
-    summary: "The board has forty spaces. The visual order and server index are the same, starting at GO space 0 and moving right across the top edge.",
-    content: `<div class="rules-board-order"><div><span class="t-micro g400">CLOCKWISE INDEX</span><strong class="t-label f20 g100">0 → 39</strong></div><div><span class="t-micro g400">CORNERS</span><strong class="t-label f12 g100">GO · PASSING BY / PRISON · VACATION · GO TO PRISON</strong></div></div><h3 class="t-section g300">Space families</h3><div class="rules-term-grid"><div><strong class="t-label f12 g100">PROPERTY</strong><p class="t-body ink-2">Buy deeds, collect rent, build evenly, and group properties by their color strip.</p></div><div><strong class="t-label f12 g100">SUPPORT</strong><p class="t-body ink-2">Airports, Electric Company, and Water Company use their own settlement rules.</p></div><div><strong class="t-label f12 g100">CARD</strong><p class="t-body ink-2">Surprise and Treasure draw from separate decks. Each card resolves on the server.</p></div><div><strong class="t-label f12 g100">TAX</strong><p class="t-body ink-2">Earnings Tax and Premium Tax remove cash. The active event can add a disclosed modifier.</p></div><div><strong class="t-label f12 g100">CORNER</strong><p class="t-body ink-2">GO pays on passage, Passing By has an outside lane and prison lane, Vacation uses the optional pool, and Go to Prison sends you to prison.</p></div><div><strong class="t-label f12 g100">NEUTRAL</strong><p class="t-body ink-2">Treasure, Surprise, and Vacation do not belong to a country group.</p></div></div>`,
+    summary: "Standard 40 and Metro 52 use different space counts, corner indexes, and seat limits. The visual order and server index match for each board.",
+    content: `<div class="rules-board-order"><div><span class="t-micro g400">STANDARD 40 · CLOCKWISE INDEX</span><strong class="t-label f20 g100">0 → 39</strong></div><div><span class="t-micro g400">STANDARD 40 · CORNERS</span><strong class="t-label f12 g100">GO · PASSING BY / PRISON · VACATION · GO TO PRISON</strong></div></div><p class="t-body ink-2">Standard 40 supports two to four players, with 10 spaces per side and corners at 0, 10, 20, and 30. Metro 52 supports up to six players, with 13 spaces per side and corners at 0, 13, 26, and 39. Use the active-board line above for the table's variant.</p><h3 class="t-section g300">Space families</h3><div class="rules-term-grid"><div><strong class="t-label f12 g100">PROPERTY</strong><p class="t-body ink-2">Buy deeds, collect rent, build evenly, and group properties by their color strip.</p></div><div><strong class="t-label f12 g100">SUPPORT</strong><p class="t-body ink-2">Airports, Electric Company, and Water Company use their own settlement rules.</p></div><div><strong class="t-label f12 g100">CARD</strong><p class="t-body ink-2">Surprise and Treasure draw from separate decks. Each card resolves on the server.</p></div><div><strong class="t-label f12 g100">TAX</strong><p class="t-body ink-2">Earnings Tax and Premium Tax remove cash. The active event can add a disclosed modifier.</p></div><div><strong class="t-label f12 g100">CORNER</strong><p class="t-body ink-2">GO pays on passage, Passing By has an outside lane and prison lane, Vacation uses the optional pool, and Go to Prison sends you to prison.</p></div><div><strong class="t-label f12 g100">NEUTRAL</strong><p class="t-body ink-2">Treasure, Surprise, and Vacation do not belong to a country group.</p></div></div>`,
   },
   {
     id: "turn-flow",
@@ -691,8 +810,8 @@ const RULES_SECTIONS = [
     kicker: "03 · TABLE RHYTHM",
     title: "The next legal action is always the priority",
     status: "LIVE",
-    summary: "Poorup uses a small state machine so movement never skips a purchase, card, auction, or payment decision.",
-    content: `<div class="rules-code-flow"><span>ROLL</span><i>→</i><span>MOVE</span><i>→</i><span>LAND</span><i>→</i><span>RESOLVE</span><i>→</i><span>END TURN</span></div><p class="t-body ink-2">Players have unlimited time for each turn; only the independent inactivity removal clock applies.</p><h3 class="t-section g300">Blocking decisions</h3><ul class="rules-bullets"><li>A purchase decision must be accepted, passed, or sent to auction before the turn can end.</li><li>A card choice, debt payment, trade confirmation, or bankruptcy decision temporarily owns the focus.</li><li>Only the active player can roll or perform turn-scoped actions. Building and selling are available to that player after rolling and until turn end.</li><li>Mortgaging an owned deed may happen on any turn when collateral and debt rules allow it. The server rejects stale or out-of-turn requests for turn-scoped actions.</li></ul><div class="rules-inline-note"><span class="t-micro g400">ROUND</span><span class="t-body ink-2">A round completes when every active player has received one turn. Global-event timing uses this round counter.</span></div>`,
+    summary: "Every turn follows the same short loop, and you cannot skip a purchase, card, auction or payment.",
+    content: `<div class="rules-code-flow"><span>ROLL</span><i>→</i><span>MOVE</span><i>→</i><span>LAND</span><i>→</i><span>RESOLVE</span><i>→</i><span>END TURN</span></div><p class="t-body ink-2">Players have unlimited time for each turn. The only clock is inactivity: after 30 seconds with no input, or at once if the game tab is hidden, a 3-minute countdown starts, and a player who stays idle through it can be removed from the room.</p><h3 class="t-section g300">Blocking decisions</h3><ul class="rules-bullets"><li>A purchase decision must be accepted, passed, or sent to auction before the turn can end.</li><li>A card choice, debt payment, trade confirmation, or bankruptcy decision temporarily owns the focus.</li><li>Only the active player can roll or perform turn-scoped actions. Building and selling are available to that player after rolling and until turn end.</li><li>Mortgaging an owned deed may happen on any turn when collateral and debt rules allow it. The server rejects stale or out-of-turn requests for turn-scoped actions.</li></ul><div class="rules-inline-note"><span class="t-micro g400">ROUND</span><span class="t-body ink-2">A round completes when every active player has received one turn. Global-event timing uses this round counter.</span></div>`,
   },
   {
     id: "cash-bank",
@@ -700,8 +819,8 @@ const RULES_SECTIONS = [
     kicker: "04 · THE LEDGER",
     title: "Every dollar has a reason",
     status: "LIVE",
-    summary: "Cash is server-authoritative. The bank pays rewards, collects taxes, settles purchases, and records every important transfer in the log.",
-    content: `<h3 class="t-section g300">Cash rules</h3><ul class="rules-bullets"><li>Each player starts with the lobby's Starting Cash value.</li><li>Passing GO pays $200. Landing exactly on GO pays the configured Double GO amount when enabled.</li><li>Cash can move through rent, cards, taxes, prizes, trades, loans, builds, mortgages, and the Vacation pool.</li><li>Payments settle atomically. If available cash is insufficient, the game opens the legal debt or bankruptcy path instead of silently going negative.</li></ul><h3 class="t-section g300">Vacation pool</h3><p class="t-body ink-2">When Vacation Pool is on, configured taxes and penalties feed the center pool. Landing on Vacation claims the pool. The setting does not change the tile order or movement index.</p><div class="rules-warning"><span class="t-micro red">DO NOT ASSUME</span><span class="t-body ink-2">A visual cash number is not a permission to spend. The server checks current cash again when an action settles.</span></div>`,
+    summary: "The bank pays rewards, collects taxes and settles purchases, and every important transfer shows in the log.",
+    content: `<h3 class="t-section g300">Cash rules</h3><ul class="rules-bullets"><li>Each player starts with the lobby's Starting Cash value.</li><li>Passing GO pays $200. Landing exactly on GO pays the configured Double GO amount when enabled.</li><li>Cash can move through rent, cards, taxes, prizes, trades, loans, builds, mortgages, and the Vacation pool.</li><li>If you cannot pay, the game opens the debt and bankruptcy steps instead of letting your cash go negative.</li></ul><h3 class="t-section g300">Vacation pool</h3><p class="t-body ink-2">When Vacation Pool is on, configured taxes and penalties feed the center pool. Landing on Vacation claims the pool. The setting does not change the tile order or movement index.</p>`,
   },
   {
     id: "properties",
@@ -710,7 +829,7 @@ const RULES_SECTIONS = [
     title: "Build a group, then make it work",
     status: "LIVE",
     summary: "Properties are grouped by their color strip. The strip is the association; the name, price, and rotation are presentation only.",
-    content: `<h3 class="t-section g300">Buying</h3><p class="t-body ink-2">When you land on an unowned property, you can buy it at the printed price. If your cash is short, or you want help, open a sponsored purchase request. Other players may reserve gifts; accepting completes the named purchase immediately. If Auction is on and you pass, the deed can go to a server-run auction.</p><h3 class="t-section g300">Rent</h3><ul class="rules-bullets"><li>Rent depends on the deed, group ownership, and building level.</li><li>Owning every deed in a group activates the group's monopoly multiplier.</li><li>Mortgaged deeds do not collect normal rent until redeemed.</li><li>No Rent In Jail prevents an owner in prison from collecting rent during the configured turn.</li></ul><h3 class="t-section g300">Building</h3><p class="t-body ink-2">After rolling on your own turn, build or sell houses and hotels before ending your turn. Build evenly across a complete group. Houses use the shared house bank. Four houses can become a hotel when a hotel is available. House and hotel limits are lobby settings.</p>`,
+    content: `<h3 class="t-section g300">Buying</h3><p class="t-body ink-2">When you land on an unowned property, you can buy it at the printed price. With Player Finance enabled, open Purchase Funding for gifts or a temporary passive rent share. Accepting completes the named purchase immediately. If Auction is on and you pass, the deed can go to a server-run auction.</p><h3 class="t-section g300">Rent</h3><ul class="rules-bullets"><li>Rent depends on the deed, group ownership, and building level.</li><li>Owning every deed in a group activates the group's monopoly multiplier.</li><li>Mortgaged deeds do not collect normal rent until redeemed.</li><li>No Rent In Jail prevents an owner in prison from collecting rent during the configured turn.</li></ul><h3 class="t-section g300">Building</h3><p class="t-body ink-2">After rolling on your own turn, build houses and hotels before ending your turn. You may sell buildings evenly for half their cost on any turn. Build evenly across a complete group. There is no shared limit on houses or hotels. Each deed can have four houses, then one hotel.</p>`,
   },
   {
     id: "support-spaces",
@@ -719,7 +838,7 @@ const RULES_SECTIONS = [
     title: "Support tiles amplify the table",
     status: "LIVE",
     summary: "Airports and utilities are independent support tiles. They are not country properties and do not change the board's physical dimensions.",
-    content: `<div class="rules-term-grid"><div><strong class="t-label f12 g100">AIRPORTS</strong><p class="t-body ink-2">ACC, BKK, AMS, and MB Airport are separate deeds priced at $200. Airport effects and rent are resolved by the server.</p></div><div><strong class="t-label f12 g100">ELECTRIC COMPANY</strong><p class="t-body ink-2">A utility deed whose charge is calculated from the dice result and ownership state.</p></div><div><strong class="t-label f12 g100">WATER COMPANY</strong><p class="t-body ink-2">A utility deed with the same support-tile settlement contract and its own printed price.</p></div><div><strong class="t-label f12 g100">COLOR STRIPS</strong><p class="t-body ink-2">Only property strips define country groups. Airports and utilities never inherit a country group.</p></div></div>`,
+    content: `<div class="rules-term-grid"><div><strong class="t-label f12 g100">AIRPORTS</strong><p class="t-body ink-2">ACC, BKK, AMS, and MB Airport are separate deeds priced at $200. Airport effects and rent are resolved by the server.</p></div><div><strong class="t-label f12 g100">ELECTRIC COMPANY</strong><p class="t-body ink-2">A utility deed whose charge is calculated from the dice result and ownership state.</p></div><div><strong class="t-label f12 g100">WATER COMPANY</strong><p class="t-body ink-2">A utility deed with the same support-tile settlement contract and its own printed price.</p></div><div><strong class="t-label f12 g100">COLOR STRIPS</strong><p class="t-body ink-2">Only property strips define country groups. Airports and utilities never inherit a country group.</p></div></div><h3 class="t-section g300">Airport flights</h3><p class="t-body ink-2">When flights are enabled, the destination owner's arrival fee takes priority. Otherwise, an eligible origin owner's departure fee applies; without an eligible owner, the standard fare applies. You pay no fee when you are the payee.</p>`,
   },
   {
     id: "cards",
@@ -737,7 +856,7 @@ const RULES_SECTIONS = [
     title: "Make deals without losing the ledger",
     status: "LIVE",
     summary: "Trading is player-driven, while auctions are server-timed. Both systems lock the assets they are settling before cash changes hands.",
-    content: `<h3 class="t-section g300">Trades</h3><ul class="rules-bullets"><li>Trading must be enabled in the room settings.</li><li>Choose deeds and cash, send the offer, and wait for the recipient's decision.</li><li>Both players must still own the offered deeds and have the offered cash when accepted.</li><li>Houses and hotels must be resolved according to the deed rules before a property can move.</li><li>Close an incoming offer to keep it pending. Open it from Finance to accept, decline, or negotiate; senders can adjust or cancel their own offer.</li></ul><h3 class="t-section g300">Auctions</h3><ul class="rules-bullets"><li>An auction starts when a buyer passes an unowned deed and Auction is enabled.</li><li>Players bid with available cash. Each valid bid resets the five-second timer.</li><li>There is no pass action during an auction; a player who does not bid remains eligible until the timer expires.</li><li>The highest valid bid wins and is charged atomically when the timer expires.</li><li>Disconnects and late bids cannot create a second winner.</li></ul>`,
+    content: `<h3 class="t-section g300">Trades</h3><ul class="rules-bullets"><li>Trading must be enabled in the room settings.</li><li>Choose deeds and cash, send the offer, and wait for the recipient's decision. A deed sale is a trade with a price agreed between the players.</li><li>Both players must still own the offered deeds and have the offered cash when accepted.</li><li>Sell every house or hotel in a color set before any deed in that set can be traded. Mortgaged deeds may be traded; the mortgage remains on the deed, with no separate transfer fee.</li><li>Close an incoming offer to keep it pending. Open it from Deals to accept, decline, or negotiate; senders can adjust or cancel their own offer.</li></ul><h3 class="t-section g300">Auctions</h3><ul class="rules-bullets"><li>An auction starts when a buyer passes an unowned deed and Auction is enabled.</li><li>Players bid with available cash. Each valid bid resets the five-second timer.</li><li>There is no pass action during an auction; a player who does not bid remains eligible until the timer expires.</li><li>The highest valid bid wins and is charged atomically when the timer expires.</li><li>Disconnects and late bids cannot create a second winner.</li></ul>`,
   },
   {
     id: "build-mortgage",
@@ -745,8 +864,8 @@ const RULES_SECTIONS = [
     kicker: "09 · ASSET CONTROL",
     title: "Liquidity has a cost",
     status: "LIVE",
-    summary: "Build during your own turn; mortgage an eligible deed on any turn. The deed manager keeps both actions visible.",
-    content: `<h3 class="t-section g300">Houses and hotels</h3><p class="t-body ink-2">After you roll and before you end your own turn, you may build or sell evenly across a complete group. Construction uses the shared bank and is blocked when a global event freezes building. A hotel replaces four houses on the same deed.</p><h3 class="t-section g300">Mortgage</h3><ul class="rules-bullets"><li>You may mortgage a deed you own on any player's turn if it is not otherwise locked.</li><li>Open debt, collateral, and ownership rules can block a mortgage.</li><li>A mortgaged deed does not collect normal rent.</li><li>Redeeming a mortgage is handled through the applicable debt rules, not as a discretionary build action.</li><li>Bank-loan collateral locks cannot be mortgaged or traded until the loan is settled.</li><li>Bankruptcy settlement liquidates or transfers assets through the server's declared order.</li></ul>`,
+    summary: "Build during your own turn; sell buildings evenly and mortgage an eligible deed on any turn. The deed manager keeps both actions visible.",
+    content: `<h3 class="t-section g300">Houses and hotels</h3><p class="t-body ink-2">After you roll and before you end your own turn, you may build evenly across a complete group. You may sell houses or hotels to the bank on any turn, for half their cost, while keeping the group even. There is no shared building-supply limit. Construction is blocked when a global event freezes building. A hotel replaces four houses on the same deed.</p><h3 class="t-section g300">Mortgage</h3><ul class="rules-bullets"><li>You may mortgage a deed you own on any player's turn if it is not otherwise locked, but every building in its color set must first be sold.</li><li>Open debt, collateral, and ownership rules can block a mortgage.</li><li>A mortgaged deed does not collect normal rent.</li><li>Redeeming a mortgage is handled through the applicable debt rules, not as a discretionary build action.</li><li>Bank-loan collateral locks cannot be mortgaged or traded until the loan is settled.</li><li>Bankruptcy settlement liquidates or transfers assets through the server's declared order.</li></ul>`,
   },
   {
     id: "prison-vacation",
@@ -759,12 +878,12 @@ const RULES_SECTIONS = [
   },
   {
     id: "loans",
-    label: "LOANS & BANKRUPTCY",
+    label: "FINANCE & BANKRUPTCY",
     kicker: "11 · FINANCING",
     title: "Borrow only when the table can carry it",
     status: "LIVE",
     summary: "Player loans and bank loans are separate contracts. Both are recorded, visible, and resolved before a player can quietly spend beyond their means.",
-  content: `<h3 class="t-section g300">Bank loans</h3><ul class="rules-bullets"><li>Bank loans are optional and use a maturity date, total interest, and collateral lock.</li><li>Collateral cannot be traded or mortgaged while pledged.</li><li>Global events may add a disclosed interest surcharge or pause new offers, but cannot rewrite a settled payment.</li><li>Default enters the server bankruptcy path and liquidates the declared collateral.</li></ul><h3 class="t-section g300">Player loans</h3><p class="t-body ink-2">A player-to-player loan, equity, or hybrid deal is a social contract recorded in the room history. Incoming deals can be negotiated from the Deals rail; the sender can adjust or cancel before acceptance.</p><h3 class="t-section g300">Wallet &amp; items</h3><p class="t-body ink-2">Press Cash On Hand to open the Wallet &amp; Items workbench. Account and Items are two views of the same private round ledger, so closing the modal never accepts, sells, or cancels anything.</p><h3 class="t-section g300">Bankruptcy</h3><p class="t-body ink-2">An unpaid player may sell, mortgage, trade, or borrow through the legal rescue path, but cannot end the turn while a payment remains open. After the debt is paid, a balance of exactly $0 is valid. If no legal rescue remains, the player declares bankruptcy: a human becomes a read-only spectator, their board token disappears, and the Sidebar shows <strong> SPECTATING</strong>. A solvent creditor receives eligible assets; bank or voluntary releases return assets to the bank.</p>`,
+  content: `<h3 class="t-section g300">Bank loans</h3><ul class="rules-bullets"><li>Bank loans are optional and use a maturity date, total interest, and collateral lock.</li><li>Collateral cannot be traded or mortgaged while pledged.</li><li>Global events may add a disclosed interest surcharge or pause new offers, but cannot rewrite a settled payment.</li><li>New collateral quotes lock each deed's printed price at agreement. At default, eligible collateral credits the unpaid balance up to that balance; no surplus cash is paid. Any residual debt stays in the debt settlement ledger. Legacy agreements keep their recorded terms.</li></ul><h3 class="t-section g300">Player loans</h3><p class="t-body ink-2">Player Finance allows player loans and temporary passive rent shares when the host enables it. Incoming current offers can be negotiated from the Deals rail; the sender can adjust or cancel before acceptance. Legacy active equity and convertible notes retain their recorded terms; old pending offers must be rebuilt or declined.</p><h3 class="t-section g300">Temporary rent shares</h3><p class="t-body ink-2">One owner and one investor agree 1–20 rounds (default 3) on any buyable deed, including airports and utilities. The investor receives the agreed percentage of rent actually collected, with no title, sale proceeds, voting or control. The owner pays construction costs and may build or sell buildings. Deed sale, mortgage and pledge stay blocked until expiry at the start of the recorded round. Expiry or either party leaving or going bankrupt ends the right without a capital refund. New rent shares cannot be resold. Purchase Funding uses these same terms.</p><h3 class="t-section g300">Wallet &amp; items</h3><p class="t-body ink-2">Press Cash On Hand to open the Wallet &amp; Items workbench. Account and Items are two views of the same private round ledger, so closing the modal never accepts, sells, or cancels anything. Rebates apply only to market-order and flight fees; rent, taxes, loans and wagers earn none. Surprise and Treasure rewards appear in Items. They can be used, traded, exchanged or sold when the table rules allow it.</p><h3 class="t-section g300">Bankruptcy</h3><p class="t-body ink-2">An unpaid player may sell, mortgage, trade, or borrow through the legal rescue path, but cannot end the turn while a payment remains open. After the debt is paid, a balance of exactly $0 is valid. If no legal rescue remains, the player declares bankruptcy: a human becomes a read-only spectator, their board token disappears, and the Sidebar shows <strong> SPECTATING</strong>. A solvent creditor receives eligible assets; bank or voluntary releases return assets to the bank.</p>`,
   },
   {
     id: "global-events",
@@ -781,8 +900,8 @@ const RULES_SECTIONS = [
     kicker: "13 · ECONOMY ADD-ONS",
     title: "Optional systems, clearly marked",
     status: "LIVE",
-    summary: "The Casino and fictional Market are optional, server-settled room add-ons. They use board money only and remain off in classic rooms.",
-    content: `<h3 class="t-section g300">Casino</h3><p class="t-body ink-2">European roulette uses red, black, and green/0 with fixed disclosed odds. It uses fictional board money only. Bets are escrowed, resolved once by the server, and logged. Players cannot use loan-funded cash for wagers.</p><h3 class="t-section g300">Market</h3><p class="t-body ink-2">The fictional exchange starts with country, airport, utilities, and property indexes. BASIC supports buy and sell. MARGIN adds a maintenance obligation, SHORTING adds finite borrowable units and deterministic buy-ins, and DERIVATIVES adds fully collateralized calls and puts. Prices update at round boundaries and event settlement.</p><h3 class="t-section g300">Shared guardrails</h3><ul class="rules-bullets"><li>Both systems are OFF by default in Classic rooms and enabled by default in After Hours.</li><li>Global Events can alter limits, fees, prices, and volatility, not hidden casino odds.</li><li>Transactions use server idempotency keys so retries cannot duplicate money.</li><li>Positions and bets appear in match history as aggregate results, without exposing other players' private details.</li></ul><div class="rules-planned"><span class="t-micro g400">OPTIONAL · VIRTUAL ECONOMY ONLY</span><span class="t-body ink-2">No deposits, withdrawals, cash-out, or cash-value prizes are part of this design.</span></div>`,
+    summary: "The Casino and fictional Market are optional, server-settled room add-ons. They use players' in-game cash and remain off in classic rooms.",
+    content: `<h3 class="t-section g300">Casino</h3><p class="t-body ink-2">European roulette uses red, black, and green/0 with fixed disclosed odds. Stakes come from your in-game cash. Bets are escrowed, resolved once by the server, and logged. Players cannot use loan-funded cash for wagers.</p><h3 class="t-section g300">Market</h3><p class="t-body ink-2">The fictional exchange starts with country, airport, utilities, and property indexes. BASIC supports buy and sell. MARGIN adds a maintenance obligation, SHORTING adds finite borrowable units and deterministic buy-ins, and DERIVATIVES adds fully collateralized calls and puts. Prices update at round boundaries and event settlement.</p><h3 class="t-section g300">Shared guardrails</h3><ul class="rules-bullets"><li>Both systems start off by default. Hosts may enable each separately with either starting preset.</li><li>Global Events can alter limits, fees, prices, and volatility, not hidden casino odds.</li><li>Transactions use server idempotency keys so retries cannot duplicate money.</li><li>Positions and bets appear in match history as aggregate results, without exposing other players' private details.</li></ul><div class="rules-planned"><span class="t-micro g400">OPTIONAL · VIRTUAL ECONOMY ONLY</span><span class="t-body ink-2">No deposits, withdrawals, cash-out, or cash-value prizes are part of this design.</span></div>`,
   },
   {
     id: "bots",
@@ -791,7 +910,7 @@ const RULES_SECTIONS = [
     title: "CPU seats follow the same contracts",
     status: "LIVE",
     summary: "Bots are reserved seats in the lobby and use the same server rules as human players. They are not allowed to bypass turn gates or money checks.",
-    content: `<ul class="rules-bullets"><li>Bots buy, pass, build, sell buildings, mortgage, unmortgage, trade, make player-loan/equity/hybrid offers, and bid according to a bounded risk profile.</li><li>They can choose jail fine, Get Out of Prison card, bank-loan repayment, market sell/rebalancing, sponsorship actions, and debt bankruptcy when no legal rescue remains.</li><li>A bot preserves a cash buffer for rent, taxes, debt, and known obligations.</li><li>Bots never borrow money to gamble and cannot see private player information.</li><li>AI BOT uses the provider when available and falls back automatically to the deterministic House Brain when credits or service fail.</li><li>NO-AI BOT skips provider calls entirely. Both modes use the same server action events, table chat signals, and legality checks.</li></ul>`,
+    content: `<ul class="rules-bullets"><li>Bots buy, pass, build, sell buildings, mortgage, unmortgage, trade, make enabled player-loan and temporary rent-share offers, and bid according to a bounded risk profile.</li><li>They can choose jail fine, Get Out of Prison card, bank-loan repayment, market sell/rebalancing, sponsorship actions, and debt bankruptcy when no legal rescue remains.</li><li>A bot preserves a cash buffer for rent, taxes, debt, and known obligations.</li><li>Bots never borrow money to gamble and cannot see private player information.</li><li>AI BOT uses the provider when available and falls back automatically to the deterministic House Brain when credits or service fail.</li><li>NO-AI BOT skips provider calls entirely. Both modes use the same server action events, table chat signals, and legality checks.</li></ul>`,
   },
   {
     id: "social-profile",
@@ -808,7 +927,7 @@ const RULES_SECTIONS = [
     kicker: "16 · RECORDS",
     title: "Badges remember the strange plays",
     status: "LIVE",
-    summary: "Achievements are grouped by tablecraft, global events, social play, secrets, and Patrol. Mythical achievements are rare and announced globally.",
+    summary: "Achievements are grouped by tablecraft, global events, social play, and secrets. Mythical achievements are rare and announced globally.",
     content: `<ul class="rules-bullets"><li>Click an achievement to open its readable detail dialog.</li><li>Filter by category, when earned, and rarity without leaving the Profile page.</li><li>Rarity uses text and color: Common, Uncommon, Rare, Epic, Legendary, and Mythical.</li><li>Mythical unlocks create one generic server-wide announcement for every currently connected player. The title stays private until the owner reveals it.</li><li>Achievement progress is never a hidden cash requirement and does not change the rules of a live match.</li></ul>`,
   },
   {
@@ -818,7 +937,7 @@ const RULES_SECTIONS = [
     title: "Every switch has a consequence",
     status: "LIVE",
     summary: "Hosts configure the table before the first round. The active rules snapshot stays visible in the lobby so nobody has to guess what changed.",
-  content: `<div class="rules-settings-table"><div><strong class="t-label f12 g100">Max Players</strong><span class="t-body ink-2">2–4 seats at the table.</span></div><div><strong class="t-label f12 g100">Bots</strong><span class="t-body ink-2">Reserve CPU seats up to the available capacity.</span></div><div><strong class="t-label f12 g100">Bot Brain</strong><span class="t-body ink-2">AI BOT uses the provider and falls back automatically to the no-AI House Brain when credits or service fail. NO-AI BOT never calls a provider.</span></div><div><strong class="t-label f12 g100">Bot Difficulty</strong><span class="t-body ink-2">House, Table, or Expert changes evaluation depth, never legality.</span></div><div><strong class="t-label f12 g100">Starting Cash</strong><span class="t-body ink-2">Bank handout when the round begins.</span></div><div><strong class="t-label f12 g100">Room Visibility</strong><span class="t-body ink-2">Public tables are joined from the directory and do not expose an invite code. Private tables use a six-character code.</span></div><div><strong class="t-label f12 g100">Vacation Pool</strong><span class="t-body ink-2">Taxes feed the Vacation pool when on.</span></div><div><strong class="t-label f12 g100">Double GO</strong><span class="t-body ink-2">Landing exactly on GO pays the configured bonus.</span></div><div><strong class="t-label f12 g100">Trading</strong><span class="t-body ink-2">Allow player-to-player offers.</span></div><div><strong class="t-label f12 g100">Auction</strong><span class="t-body ink-2">Send passed unowned deeds to auction.</span></div><div><strong class="t-label f12 g100">No Rent In Jail</strong><span class="t-body ink-2">Stop an imprisoned owner collecting rent that turn.</span></div><div><strong class="t-label f12 g100">Bank Loans</strong><span class="t-body ink-2">Allow emergency bank credit with collateral.</span></div><div><strong class="t-label f12 g100">Loan Severity</strong><span class="t-body ink-2">Fair, Predatory, or Extreme interest tier.</span></div><div><strong class="t-label f12 g100">Global Events</strong><span class="t-body ink-2">A single ON/OFF switch. The server derives rarity, duration, and severity from round progress.</span></div><div><strong class="t-label f12 g100">House / Hotel Limit</strong><span class="t-body ink-2">Shared bank supply for construction.</span></div><div><strong class="t-label f12 g100">Turn Time</strong><span class="t-body ink-2">Active players have unlimited time. A separate inactivity clock appears to everyone after 30 seconds without input; hiding the game tab starts it immediately.</span></div><div><strong class="t-label f12 g100">Bankruptcy</strong><span class="t-body ink-2">Settle an open payment through legal rescue actions or declare bankruptcy. Human bankrupt players become read-only spectators; bots are eliminated without spectator controls.</span></div></div>`,
+  content: `<div class="rules-settings-table"><div><strong class="t-label f12 g100">Max Players</strong><span class="t-body ink-2">2–4 seats on Standard 40, up to 6 on Metro 52.</span></div><div><strong class="t-label f12 g100">Bots</strong><span class="t-body ink-2">Reserve CPU seats up to the available capacity.</span></div><div><strong class="t-label f12 g100">Bot Brain</strong><span class="t-body ink-2">AI BOT uses the provider and falls back automatically to the no-AI House Brain when credits or service fail. NO-AI BOT never calls a provider.</span></div><div><strong class="t-label f12 g100">Bot Difficulty</strong><span class="t-body ink-2">House, Table, or Expert changes evaluation depth, never legality.</span></div><div><strong class="t-label f12 g100">Starting Cash</strong><span class="t-body ink-2">Bank handout when the round begins.</span></div><div><strong class="t-label f12 g100">Room Visibility</strong><span class="t-body ink-2">Public tables are joined from the directory and do not expose an invite code. Private tables use a six-character code.</span></div><div><strong class="t-label f12 g100">Vacation Pool</strong><span class="t-body ink-2">Taxes feed the Vacation pool when on.</span></div><div><strong class="t-label f12 g100">Double GO</strong><span class="t-body ink-2">Landing exactly on GO pays the configured bonus.</span></div><div><strong class="t-label f12 g100">Trading</strong><span class="t-body ink-2">Allow player-to-player offers.</span></div><div><strong class="t-label f12 g100">Auction</strong><span class="t-body ink-2">Send passed unowned deeds to auction.</span></div><div><strong class="t-label f12 g100">No Rent In Jail</strong><span class="t-body ink-2">Stop an imprisoned owner collecting rent that turn.</span></div><div><strong class="t-label f12 g100">Bank Loans</strong><span class="t-body ink-2">Allow emergency bank credit with collateral.</span></div><div><strong class="t-label f12 g100">Loan Severity</strong><span class="t-body ink-2">Fair, Predatory, or Extreme interest tier.</span></div><div><strong class="t-label f12 g100">Global Events</strong><span class="t-body ink-2">A single ON/OFF switch. The server derives rarity, duration, and severity from round progress.</span></div><div><strong class="t-label f12 g100">Inactivity</strong><span class="t-body ink-2">Turns have no timer. A player idle for 3 minutes can be removed by inactivity: the countdown starts after 30 seconds without input, or at once if the game tab is hidden, and everyone can see it.</span></div><div><strong class="t-label f12 g100">Bankruptcy</strong><span class="t-body ink-2">Settle an open payment through legal rescue actions or declare bankruptcy. Human bankrupt players become read-only spectators; bots are eliminated without spectator controls.</span></div></div>`,
   },
   {
     id: "reconnect-accessibility",
@@ -839,11 +958,21 @@ RULES_SECTIONS.push({
   kicker: "19 · EXPANSION",
   title: "Choose the table, then earn the record",
   status: "LIVE",
-  summary: "A single rules engine supports Classic, After Hours, Custom, and Metro 52.",
-  content: `<h3 class="t-section g300">Presets</h3><ul class="rules-bullets"><li>Classic is the default Standard 40 table with optional Poorup economy systems off. Hosts can still enable any existing setting.</li><li>After Hours uses the same legality guards with bank loans, casino, market, and global events enabled by default.</li><li>Custom starts from a base preset and records every override. The lobby shows the count and offers RESET TO PRESET.</li><li>Metro 52 uses 13 spaces per side, corners at 0, 13, 26, and 39, and supports up to six seats. Grand 64 is reserved until it passes balance and accessibility gates.</li></ul><h3 class="t-section g300">Market complexity</h3><p class="t-body ink-2">Basic enables buy/sell indexes. Margin adds a maintenance obligation, Shorting adds finite borrowable units and deterministic buy-ins, and Derivatives adds fully collateralized calls and puts. Every tier uses the same server candidate list for humans and bots.</p>`
+  summary: "Standard and Advanced set starting defaults. Both presets allow every optional economy system.",
+  content: `<h3 class="t-section g300">Starting presets and custom rules</h3><ul class="rules-bullets"><li>New tables start with Standard defaults: buying deeds, rent, auctions, trades, building, mortgages, cards, prison and bankruptcy form the board-game core. Optional economy modules start off, and the host can enable any of them independently.</li><li>Advanced starts Player Finance on. Neither preset locks any feature: the host can mix player finance, bank loans, casino, market, flights, bank accounts and global events however they want. Explicit choices survive preset changes.</li><li>Player Finance controls new player loans, rent shares and gift or rent-share Purchase Funding. Existing active contracts remain viewable and repayable when it is off.</li><li>The board variant is separate: Standard 40 supports up to four seats; Metro 52 has 13 spaces per side and up to six seats.</li><li>Room snapshots show the server's effective rules. Historical active agreements retain their recorded terms.</li></ul><h3 class="t-section g300">Market complexity</h3><p class="t-body ink-2">With Market Access enabled, Basic enables buy/sell indexes. Margin adds a maintenance obligation, Shorting adds finite borrowable units and deterministic buy-ins, and Derivatives adds fully collateralized calls and puts. Every tier uses the same server candidate list for humans and bots.</p>`
 });
 const marketRulesChapter = RULES_SECTIONS.find((section) => section.id === "casino-market");
 if (marketRulesChapter) marketRulesChapter.content = marketRulesChapter.content.replace("without margin, shorting, options, or real-world securities.", "with staged margin, shorting, and fully collateralized options when the host enables a higher Market Complexity tier; real-world securities remain excluded.");
+
+RULES_SECTIONS.push({
+  id: "wallet-items",
+  label: "WALLET & ITEMS",
+  kicker: "20 · INVENTORY",
+  title: "Keep, use, or sell",
+  status: "LIVE",
+  summary: "The host can enable Item Rewards with either preset. Surprise and Treasure then include bonds and keepsakes. Open Wallet & Items to manage your inventory.",
+  content: `<div class="rules-term-grid"><div><strong class="t-label f12 g100">PRISON KEY · SELL $25</strong><p class="t-body ink-2">Spend one before rolling on your turn in prison. It follows the existing prison-card rules.</p></div><div><strong class="t-label f12 g100">PARLOR BOND · SELL $50</strong><p class="t-body ink-2">Redeem for $100 after two rounds. Each bond shows its maturity round. Selling early pays $50.</p></div><div><strong class="t-label f12 g100">SILVER KEEPSAKE · SELL $75</strong><p class="t-body ink-2">Keep it or sell it to the bank. It has no additional use effect.</p></div></div><ul class="rules-bullets"><li>Item Rewards starts off. Classic prison cards still work when it is off, with no bank sale or added net worth.</li><li>Each item can be used or sold once. Items cannot be traded or exchanged. Unavailable actions show the reason.</li><li>Sales and mature bond redemptions can raise cash during debt rescue. Pending decisions can restrict use; the server checks each action.</li><li>Net worth includes the current realizable value: bonds count as $50 before maturity and $100 when mature. Reward reductions apply when items are granted.</li><li>Inventory is private, reconnects restore it, and a new match resets it. Bankruptcy and seat removal settle it once under the table's exit rules.</li></ul>`,
+});
 
 function rulesSectionById(id) {
   return RULES_SECTIONS.find((section) => section.id === id) || RULES_SECTIONS[0];
@@ -861,21 +990,6 @@ export function openRulesSurface(section = "start-here") {
     target.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
     heading?.focus({ preventScroll: true });
   });
-}
-
-function rulesQuery() {
-  return String(state.rulesQuery || "").trim().toLowerCase();
-}
-
-function sectionMatches(section, query) {
-  if (!query) return true;
-  const text = [section.label, section.title, section.summary, section.content].join(" ").toLowerCase();
-  return text.includes(query);
-}
-
-function resolveActiveSection(requested, filteredSections, query) {
-  if (sectionMatches(requested, query)) return requested;
-  return filteredSections[0] || null;
 }
 
 function previousSection(activeIndex) {
@@ -905,18 +1019,36 @@ function rulesNextNav(next) {
 }
 
 function rulesArticleHTML(active, activeIndex, prevNav, nextNav) {
-  const activeContract = active.id === "board-tiles" && state.ruleset ? `<div class="rules-inline-note"><span class="t-micro g400">ACTIVE BOARD</span><span class="t-body ink-2">${esc(String(state.ruleset.boardVariant || state.boardVariant || "standard-40").toUpperCase())} · ${state.ruleset.boardVariant === "metro-52" ? "52 SPACES · 13 PER SIDE · CORNERS 0/13/26/39" : "40 SPACES · 10 PER SIDE · CORNERS 0/10/20/30"}</span></div>` : "";
-  return `<article class="rules-book-page noise" aria-labelledby="rules-book-page-heading"><div class="rules-book-page-scroll thin-scroll" id="rules-book-page-scroll"><div class="rules-article-head"><div><span class="t-micro g400">${active.kicker}</span><h2 class="t-section g100" id="rules-book-page-heading" tabindex="-1">${active.title}</h2><p class="t-body ink-2 rules-article-summary">${active.summary}</p></div><div class="rules-article-meta"><span class="rules-status rules-status-${active.status.toLowerCase()}">${active.status}</span><span class="t-micro ink-3">${String(activeIndex + 1).padStart(2, "0")} / ${String(RULES_SECTIONS.length).padStart(2, "0")}</span></div></div>${activeContract}<div class="rules-article-body">${active.content}</div></div><footer class="rules-book-page-footer"><button class="btn-dark rules-page-turn" type="button" data-rules-section="${prevNav.id}" ${prevNav.disabled} aria-label="Previous chapter"><span aria-hidden="true">‹</span><span class="t-label f11">${prevNav.label}</span></button><span class="t-micro ink-3">CHAPTER ${String(activeIndex + 1).padStart(2, "0")} · FIELD MANUAL</span><button class="btn-dark rules-page-turn" type="button" data-rules-section="${nextNav.id}" ${nextNav.disabled} aria-label="Next chapter"><span aria-hidden="true">›</span><span class="t-label f11">${nextNav.label}</span></button></footer></article>`;
+  const activeVariant = state.ruleset?.boardVariant || state.boardVariant || "standard-40";
+  const isMetro = activeVariant === "metro-52";
+  const activeContract = active.id === "board-tiles" ? `<div class="rules-inline-note"><span class="t-micro g400">ACTIVE BOARD</span><span class="t-body ink-2">${esc(String(activeVariant).toUpperCase())} · ${isMetro ? "52 SPACES · 13 PER SIDE · CORNERS 0/13/26/39 · UP TO 6 PLAYERS" : "40 SPACES · 10 PER SIDE · CORNERS 0/10/20/30 · 2–4 PLAYERS"}</span></div>` : "";
+  return `<article class="rules-book-page noise" aria-labelledby="rules-book-page-heading"><div class="rules-book-page-scroll thin-scroll" id="rules-book-page-scroll"><div class="rules-article-head"><div><h2 class="t-section g100" id="rules-book-page-heading" tabindex="-1">${active.title}</h2><p class="t-body ink-2 rules-article-summary">${active.summary}</p></div></div>${activeContract}<div class="rules-article-body">${active.content}</div></div><footer class="rules-book-page-footer"><button class="btn-dark rules-page-turn" type="button" data-rules-section="${prevNav.id}" ${prevNav.disabled}><span aria-hidden="true">‹</span><span class="t-label f11">${prevNav.label}</span></button><span class="t-micro ink-3">${String(activeIndex + 1).padStart(2, "0")} / ${String(RULES_SECTIONS.length).padStart(2, "0")}</span><button class="btn-dark rules-page-turn" type="button" data-rules-section="${nextNav.id}" ${nextNav.disabled}><span aria-hidden="true">›</span><span class="t-label f11">${nextNav.label}</span></button></footer></article>`;
 }
 
 function rulesEmptyArticleHTML() {
   return `<article class="rules-book-page"><div class="rules-book-page-scroll"><div class="rules-empty"><span class="t-micro g400">NO MATCH IN THIS MANUAL</span><strong class="t-label f13 g100">Try another phrase.</strong></div></div></article>`;
 }
 
-function indexLinkClasses(section, active, query) {
+// Chapters most players need are always listed; the optional systems sit behind one fold.
+const MORE_SECTION_IDS = new Set(["global-events", "casino-market", "bots", "social-profile", "achievements", "lobby-settings", "reconnect-accessibility", "rulesets-market", "wallet-items"]);
+
+function rulesIndexLinkHTML(section, index, active) {
+  return `<button class="rules-index-link${indexLinkClasses(section, active)}" type="button" data-rules-section="${section.id}" aria-current="${indexAriaCurrent(section, active)}"><span class="rules-index-number">${String(index + 1).padStart(2, "0")}</span><span>${section.label}</span></button>`;
+}
+
+function rulesIndexLinksHTML(active) {
+  const core = [];
+  const more = [];
+  RULES_SECTIONS.forEach((section, index) => {
+    (MORE_SECTION_IDS.has(section.id) ? more : core).push(rulesIndexLinkHTML(section, index, active));
+  });
+  const open = active && MORE_SECTION_IDS.has(active.id);
+  return `${core.join("")}<details class="rules-more"${open ? " open" : ""}><summary class="t-label f11">MORE SYSTEMS · ${more.length}</summary>${more.join("")}</details>`;
+}
+
+function indexLinkClasses(section, active) {
   const selected = section.id === active?.id ? " is-active" : "";
-  const filtered = sectionMatches(section, query) ? "" : " is-filtered";
-  return `${selected}${filtered}`;
+  return selected;
 }
 
 function indexAriaCurrent(section, active) {
@@ -927,10 +1059,8 @@ function indexAriaCurrent(section, active) {
 export function renderRulesSurface(target = "#rules-page-content") {
   const root = $(target);
   if (!root) return;
-  const query = rulesQuery();
-  const filteredSections = RULES_SECTIONS.filter((section) => sectionMatches(section, query));
   const requested = rulesSectionById(state.rulesSection);
-  const active = resolveActiveSection(requested, filteredSections, query);
+  const active = requested || RULES_SECTIONS[0];
   if (active) state.rulesSection = active.id;
   const activeIndex = active ? RULES_SECTIONS.findIndex((section) => section.id === active.id) : -1;
   const previous = previousSection(activeIndex);
@@ -938,24 +1068,19 @@ export function renderRulesSurface(target = "#rules-page-content") {
   const prevNav = rulesPrevNav(previous);
   const nextNav = rulesNextNav(next);
   const article = active ? rulesArticleHTML(active, activeIndex, prevNav, nextNav) : rulesEmptyArticleHTML();
-  const searchValue = esc(state.rulesQuery || "");
-  const searchExpanded = state.rulesSearchExpanded === true;
   const indexExpanded = state.rulesIndexExpanded === true;
   root.innerHTML = `<div class="rules-shell">
     <div class="rules-intro panel noise">
       <div class="rules-intro-icon"><img src="/assets/rules-book.svg" alt="" width="36" height="36"></div>
-      <div class="rules-intro-copy"><div class="t-micro g400">AFTER-HOURS FIELD MANUAL</div><h1 class="t-section g100" id="rules-page-title">Poorup Rules</h1><p class="t-body ink-2">A readable guide to the board, the economy, the people, and the systems that keep a table fair.</p>${state.ruleset ? `<p class="t-micro rules-active-contract"><span class="g400">ACTIVE TABLE</span> · ${esc(String(state.ruleset.preset || "classic").toUpperCase())} · ${esc(String(state.ruleset.boardVariant || "standard-40").toUpperCase())} · ${Array.isArray(state.ruleset.overrides) ? state.ruleset.overrides.length : 0} OVERRIDES</p>` : ""}</div>
-      <div class="rules-intro-meta"><span class="t-micro ink-3">REFERENCE BUILD</span><strong class="t-label f12 g100">v2.4 · LIVE CONTRACTS</strong></div>
+      <div class="rules-intro-copy"><h1 class="t-section g100" id="rules-page-title">How to play Poorup</h1><p class="t-body ink-2">Plain rules, one short chapter at a time.</p></div>
+      <div class="rules-toolbar"><span class="t-micro ink-3">${RULES_SECTIONS.length} CHAPTERS</span></div>
     </div>
-    <div class="rules-toolbar panel noise${searchExpanded ? " is-search-open" : ""}" role="search"><button class="btn-dark rules-search-toggle" type="button" data-rules-search-toggle aria-controls="rules-search-field" aria-expanded="${searchExpanded}"><span class="t-label f11">${searchExpanded ? "CLOSE SEARCH" : "FIND IN RULES"}</span></button><label class="rules-search-label" id="rules-search-field" for="rules-search"><span class="t-micro g400">FIND IN RULES</span><input class="field" id="rules-search" name="rules-query" type="search" value="${searchValue}" placeholder="SEARCH THE FIELD MANUAL…" autocomplete="off"></label><span class="t-micro ink-3 rules-search-count" id="rules-search-count">${filteredSections.length} SECTIONS</span></div>
     <div class="rules-book-spread">
-      <aside class="rules-index panel noise${indexExpanded ? " is-index-open" : ""}" aria-label="Rules sections"><div class="rules-index-head"><span class="t-micro g400">CONTENTS</span><span class="t-micro ink-3">${RULES_SECTIONS.length} CHAPTERS</span><button class="btn-dark rules-chapters-toggle" type="button" data-rules-chapters-toggle aria-controls="rules-index-nav" aria-expanded="${indexExpanded}"><span class="t-label f11">${indexExpanded ? "CLOSE CHAPTERS" : "CHAPTERS"}</span><span class="t-micro ink-3">${RULES_SECTIONS.length}</span></button></div><nav class="rules-index-nav" id="rules-index-nav" aria-label="Rules chapters">${RULES_SECTIONS.map((section, index) => `<button class="rules-index-link${indexLinkClasses(section, active, query)}" type="button" data-rules-section="${section.id}" aria-current="${indexAriaCurrent(section, active)}"><span class="rules-index-number">${String(index + 1).padStart(2, "0")}</span><span>${section.label}</span><span class="rules-status rules-status-${section.status.toLowerCase()}">${section.status}</span></button>`).join("")}</nav></aside>
+      <aside class="rules-index panel noise${indexExpanded ? " is-index-open" : ""}" aria-label="Rules sections"><div class="rules-index-head"><span class="t-micro g400">CONTENTS</span><button class="btn-dark rules-chapters-toggle" type="button" data-rules-chapters-toggle aria-controls="rules-index-nav" aria-expanded="${indexExpanded}"><span class="t-label f11">${indexExpanded ? "CLOSE CHAPTERS" : "CHAPTERS"}</span><span class="t-micro ink-3">${RULES_SECTIONS.length}</span></button></div><nav class="rules-index-nav" id="rules-index-nav" aria-label="Rules chapters">${rulesIndexLinksHTML(active)}</nav></aside>
       ${article}
     </div>
   </div>`;
   hydrateSprites(root);
-  const count = root.querySelector("#rules-search-count");
-  if (count) count.textContent = `${filteredSections.length} SECTIONS`;
 }
 
 export function openPlayerSurface(playerId) {
@@ -1022,15 +1147,17 @@ function declaredHistoryResult(entry) {
   return 'RESULT NOT RECORDED';
 }
 
+// A bankrupt finish reads BANKRUPT here exactly as it does in the owner's own
+// profile history, not a bare placement number.
 function historyRowResult(participant, entry) {
+  if (participant?.bankrupt === true) return 'BANKRUPT';
   const placement = placementHistoryResult(participant);
   if (placement) return placement;
-  if (participant?.bankrupt === true) return 'BANKRUPT';
   return declaredHistoryResult(entry);
 }
 
 function historyRowDate(entry) {
-  return String(entry.completedAt || entry.playedAt || '').slice(0, 10) || 'UNKNOWN DATE';
+  return formatHistoryDate(entry.completedAt || entry.playedAt, 'UNKNOWN DATE');
 }
 
 function historyRowDeeds(participant, entry) {
@@ -1054,14 +1181,17 @@ function historyRowHTML(entry, index, history, player) {
   const participants = Array.isArray(entry.participants) ? entry.participants.length : 'NOT RECORDED';
   const events = Array.isArray(entry.globalEvents) ? entry.globalEvents.length : 'NOT RECORDED';
   const combos = Array.isArray(entry.eventCombinations) ? entry.eventCombinations.length : 'NOT RECORDED';
-  return '<article class="player-history-row' + (won ? ' is-win' : '') + '"><div class="player-history-main"><span class="t-micro ink-3">' + esc(date) + ' · MATCH ' + String(history.length - index).padStart(2, '0') + '</span><strong class="t-label f12 ' + (won ? 'green' : 'g100') + '">' + esc(result) + '</strong></div>' + playerHistoryMetaHTML(participants, deeds, events, combos);
+  const bankrupt = result === 'BANKRUPT';
+  const tone = won ? 'green' : bankrupt ? 'red' : 'g100';
+  return '<article class="player-history-row' + (won ? ' is-win' : '') + (bankrupt ? ' is-bankrupt' : '') + '"><div class="player-history-main"><span class="t-micro ink-3">' + esc(date) + ' · MATCH ' + String(history.length - index).padStart(2, '0') + '</span><strong class="t-label f12 ' + tone + '">' + esc(result) + '</strong></div>' + playerHistoryMetaHTML(participants, deeds, events, combos);
 }
 
 export function playerHistoryHTML(history, player) {
   const scope = state.selectedPlayerHistoryScope || "all";
   const filtered = history.filter((entry) => historyScopeMatch(entry, scope));
   if (!filtered.length) return '<p class="t-body ink-3 social-empty">NO MATCHES IN THIS HISTORY VIEW.</p>';
-  return filtered.map((entry, index) => historyRowHTML(entry, index, history, player)).join('');
+  // Number each match by its place in the full history, so a scope filter never renumbers rows.
+  return filtered.map((entry) => historyRowHTML(entry, history.indexOf(entry), history, player)).join('');
 }
 
 function currentFriendStatus(accountId) {
@@ -1084,10 +1214,10 @@ function playerIdentityBits(player) {
 }
 
 function playerFactsBits(player) {
-  const games = player.stats?.gamesPlayed ?? "—";
-  const wins = player.stats?.wins ?? "—";
-  const achievements = player.achievementsPrivate ? "PRIVATE" : player.achievementsFriendsOnly ? "FRIENDS ONLY" : (player.achievements?.length ?? "—");
-  const mutual = player.mutualFriends ?? "—";
+  const games = player.stats?.gamesPlayed ?? "-";
+  const wins = player.stats?.wins ?? "-";
+  const achievements = player.achievementsPrivate ? "PRIVATE" : player.achievementsFriendsOnly ? "FRIENDS ONLY" : (player.achievements?.length ?? "-");
+  const mutual = player.mutualFriends ?? "-";
   return { games, wins, achievements, mutual };
 }
 
@@ -1149,7 +1279,7 @@ function renderPlayerHistoryView(card, player) {
   const history = state.selectedPlayerHistory || [];
   const name = esc(player.displayName || player.name);
   const scopes = historyScopesHTML();
-  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER RECORD · SHARED VIEW</div><h2 class="t-section g100" id="player-modal-title">${name}</h2><p class="t-body ink-2" id="player-modal-description">Recent match records visible to you.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-history-scopes" role="tablist" aria-label="Match history scope">${scopes}</div><div class="player-history-list thin-scroll">${playerHistoryHTML(history, player)}</div><button class="btn-dark social-back" id="player-modal-back" type="button"><span class="t-label f11">BACK TO PLAYER</span></button>`;
+  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER RECORD · SHARED VIEW</div><h2 class="t-section g100" id="player-modal-title">${name}</h2><p class="t-body ink-2" id="player-modal-description">Recent match records visible to you.</p></div>${closeButtonHTML({ id: "player-modal-close", label: "Close player profile", className: "social-close" })}</div><div class="player-history-scopes" role="tablist" aria-label="Match history scope">${scopes}</div><div class="player-history-list thin-scroll">${playerHistoryHTML(history, player)}</div><button class="btn-dark social-back" id="player-modal-back" type="button"><span class="t-label f11">BACK TO PLAYER</span></button>`;
 }
 
 function isVoteKickPhase(phase) {
@@ -1200,7 +1330,7 @@ function playerProfileViewModel(player, accountId) {
 
 function playerProfileHTML(view) {
   const { player, bits, facts, canSocial, actions, friendLabel, voteAction } = view;
-  return `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER CARD · IN THIS ROOM</div><h2 class="t-section g100" id="player-modal-title">${bits.name}</h2><p class="t-body ink-2" id="player-modal-description">Public details only. Private cash, loans, and hidden records stay hidden.</p></div><button class="btn-dark social-close" id="player-modal-close" type="button"><span class="t-label f11">CLOSE</span></button></div><div class="player-profile-head"><div class="player-profile-avatar">${avatarHTML(player, 6, 0)}</div><div><strong class="t-label f14 g100">${bits.name}</strong><span class="t-micro ink-3">${bits.online}</span></div></div><div class="player-profile-facts"><div><span class="t-micro ink-3">GAMES</span><strong class="t-label f13 g100">${facts.games}</strong></div><div><span class="t-micro ink-3">WINS</span><strong class="t-label f13 green">${facts.wins}</strong></div><div><span class="t-micro ink-3">ACHIEVEMENTS</span><strong class="t-label f13 g300">${facts.achievements}</strong></div><div><span class="t-micro ink-3">MUTUAL FRIENDS</span><strong class="t-label f13 g300">${facts.mutual}</strong></div></div><div class="player-profile-actions">${playerActionPanelHTML(player, canSocial, actions, friendLabel)}</div>${voteAction}`;
+  return `<div class="social-surface-head"><div><div class="t-micro g400">PLAYER CARD · IN THIS ROOM</div><h2 class="t-section g100" id="player-modal-title">${bits.name}</h2><p class="t-body ink-2" id="player-modal-description">Public details only. Private cash, loans, and hidden records stay hidden.</p></div>${closeButtonHTML({ id: "player-modal-close", label: "Close player profile", className: "social-close" })}</div><div class="player-profile-head"><div class="player-profile-avatar">${avatarHTML(player, 6, 0)}</div><div><strong class="t-label f14 g100">${bits.name}</strong><span class="t-micro ink-3">${bits.online}</span></div></div><div class="player-profile-facts"><div><span class="t-micro ink-3">GAMES</span><strong class="t-label f13 g100">${facts.games}</strong></div><div><span class="t-micro ink-3">WINS</span><strong class="t-label f13 green">${facts.wins}</strong></div><div><span class="t-micro ink-3">ACHIEVEMENTS</span><strong class="t-label f13 g300">${facts.achievements}</strong></div><div><span class="t-micro ink-3">MUTUAL FRIENDS</span><strong class="t-label f13 g300">${facts.mutual}</strong></div></div><div class="player-profile-actions">${playerActionPanelHTML(player, canSocial, actions, friendLabel)}</div>${voteAction}`;
 }
 
 function renderPlayerProfileView(card, player, accountId) {

@@ -1,10 +1,10 @@
-// The global-event domain as a prototype mixin: headline lifecycle, voting,
-// activation settlements, and the election policy flags. Every method runs
-// with `this` bound to the GameState instance, exactly as when they lived in
-// the class body; gameLogic.js assigns this object onto GameState.prototype.
-import { randomFloat, randomInt } from './random.js';
+// The global-event domain as a prototype mixin: headline lifecycle, voting, activation settlements and election policy flags.
+// Methods run with `this` bound to the GameState instance, as when they lived in the class body; gameLogic.js assigns this object onto GameState.prototype.
+import { randomFloat } from './random.js';
+import { normalizeRequestId } from './requestId.js';
 import {
   GLOBAL_EVENT_ACTIVATION_HOOKS,
+  BANK_RUN_DISTRESS_CASH_RATIO,
   GLOBAL_EVENT_COOLDOWN_ROUNDS,
   GLOBAL_EVENT_COMBINATIONS,
   GLOBAL_EVENT_DEFINITIONS,
@@ -25,6 +25,49 @@ const globalEventsApi = {
     return this.globalEvent?.phase === 'active' && this.globalEvent.id === id;
   },
 
+  // A combination runs under its own id, but it is made of the headlines it
+  // fused. Every component id is a first-class part of the running event, so
+  // the hooks, the recovery rules, and the tile rules can all key off it.
+  globalEventCombo(comboId) {
+    if (!comboId) return null;
+    return GLOBAL_EVENT_COMBINATIONS.find(candidate => candidate.id === comboId) || null;
+  },
+
+  globalEventComponentIds(event = this.globalEvent) {
+    if (!event) return [];
+    const ids = new Set();
+    if (event.id) ids.add(event.id);
+    const combo = this.globalEventCombo(event.comboId);
+    (combo?.required || []).forEach(id => ids.add(id));
+    return [...ids];
+  },
+
+  // True when the running event - or any headline fused into it - is the
+  // named one and is live. A combination is not a different world from its
+  // halves: the airport-strike tile rule still runs inside travel-chaos.
+  globalEventIncludes(id, event = this.globalEvent) {
+    if (!event || event.phase !== 'active') return false;
+    return this.globalEventComponentIds(event).includes(id);
+  },
+
+  // A finished match closes its headline. The headline stays in the history
+  // (the match summary reads it), but the ladder stops with the match: a late
+  // ballot must not resolve an election nobody will ever see play out.
+  globalEventMatchEnded() {
+    return !this.started;
+  },
+
+  closeGlobalEventAfterMatch() {
+    const event = this.globalEvent;
+    if (!event) return false;
+    if (!this.globalEventHistory.some(entry => entry.id === event.id && entry.startedRound === event.startedRound)) {
+      this.globalEventHistory.unshift({ id: event.id, title: event.title, comboId: event.comboId || null, startedRound: event.startedRound, endedRound: this.roundNumber });
+      this.globalEventHistory = this.globalEventHistory.slice(0, 8);
+    }
+    this.globalEvent = null;
+    return true;
+  },
+
   activeEventEffects() {
     return this.globalEvent?.phase === 'active' ? (this.globalEvent.effects || {}) : {};
   },
@@ -42,6 +85,10 @@ const globalEventsApi = {
   // matures goes active, an active event burns a round, and a finished one
   // spends its recovery round before it is archived.
   advanceGlobalEventPhase() {
+    if (this.globalEventMatchEnded()) {
+      this.closeGlobalEventAfterMatch();
+      return;
+    }
     const phase = this.globalEvent?.phase;
     if (phase === 'voting') {
       this.resolveGlobalEventVoteIfDue();
@@ -85,7 +132,9 @@ const globalEventsApi = {
   },
 
   beginGlobalEventRecovery() {
-    if (this.globalEvent.id === 'housing-bubble') this.endHousingBubble();
+    // The housing-bubble recovery rule belongs to the headline, so it also
+    // runs when the bubble was fused into a combination.
+    if (this.globalEventComponentIds().includes('housing-bubble')) this.endHousingBubble();
     this.activePlayers().forEach(player => {
       player.globalEventsSurvived = (player.globalEventsSurvived || 0) + 1;
     });
@@ -191,21 +240,41 @@ const globalEventsApi = {
     return (combo?.choices || definition.choices)?.map(choice => ({ ...choice })) || null;
   },
 
+  // A combination is the sum of the headlines it fused, so every component contributes its effects. The order the halves arrived in
+  // must not decide the payload: components merge in the combination's declared order (the later one wins a shared key), and its own
+  // explicit effects win over both.
+  globalEventEffects(definition, combo) {
+    const components = combo?.required?.length
+      ? combo.required.map(id => this.globalEventDefinition(id)).filter(Boolean)
+      : [definition];
+    const effects = {};
+    components.forEach(component => Object.assign(effects, component.effects || {}));
+    Object.assign(effects, combo?.effects || {});
+    return effects;
+  },
+
   globalEventBaseFields(definition, combo) {
     const base = {
       id: definition.id,
       title: definition.title,
       category: definition.category,
       summary: definition.summary,
-      effects: { ...(definition.effects || {}) }
+      effects: this.globalEventEffects(definition, combo)
     };
     if (!combo) return base;
     base.id = combo.id;
     base.title = combo.title;
     base.category = 'COMBINATION';
     base.summary = combo.summary;
-    base.effects = { ...base.effects, ...combo.effects };
     return base;
+  },
+
+  // The election instance needs a name of its own: the same headline can run
+  // twice in a match, so a ballot is bound to the id AND the round AND the
+  // nonce of the election it was cast in.
+  globalEventNextVoteNonce(id) {
+    this.globalEventSequence = (this.globalEventSequence || 0) + 1;
+    return `${id}-${this.roundNumber}-${this.globalEventSequence}`;
   },
 
   buildGlobalEvent(definition, combo) {
@@ -221,6 +290,7 @@ const globalEventsApi = {
       roundsRemaining: choices ? 1 : 1,
       choices,
       votes: {},
+      voteNonce: this.globalEventNextVoteNonce(combo?.id || definition.id),
       resolvedChoice: null,
       targetPlayerId: target?.id || null
     };
@@ -230,8 +300,13 @@ const globalEventsApi = {
     this.globalEvent = this.buildGlobalEvent(definition, combo);
     this.globalEvent.comboId = combo?.id || null;
     if (combo) this.activePlayers().forEach(player => { player.comboExperienced = true; });
-    const onActivate = GLOBAL_EVENT_ACTIVATION_HOOKS[definition.id];
-    if (onActivate) onActivate(this);
+    // Every headline that went into the event runs its activation hook, not
+    // just the half that happened to fire the combination.
+    const componentIds = new Set([definition.id, ...(combo?.required || [])]);
+    componentIds.forEach(componentId => {
+      const onActivate = GLOBAL_EVENT_ACTIVATION_HOOKS[componentId];
+      if (onActivate) onActivate(this);
+    });
     this.activePlayers().forEach(player => {
       player.globalEventsExperienced = (player.globalEventsExperienced || 0) + 1;
     });
@@ -243,19 +318,19 @@ const globalEventsApi = {
       : `${this.globalEvent.title} is building. The table has one round to prepare.`);
   },
 
-  globalEventVoteWinners(event) {
+  // A choice is enacted only with a strict majority of the ACTIVE seats. Abstentions count as no change, so a split or thin turnout
+  // returns null. Only active seats shape the outcome: a ballot cast before the voter went bankrupt or disconnected is not tallied,
+  // or a departed ballot could flip what the live table decided.
+  globalEventVoteChoice(event) {
+    const seats = this.activePlayers().length;
     const counts = Object.fromEntries((event.choices || []).map(choice => [choice.id, 0]));
-    // Only active seats may shape the outcome: a vote cast before the voter
-    // went bankrupt or disconnected is validated at cast time but must not
-    // be tallied after the seat leaves, or a departed ballot can flip the
-    // policy the live table decided.
     const eligibleIds = new Set(this.activePlayers().map(player => player.id));
     Object.entries(event.votes || {}).forEach(([playerId, choiceId]) => {
       if (!eligibleIds.has(playerId)) return;
       if (counts[choiceId] != null) counts[choiceId] += 1;
     });
-    const top = Math.max(...Object.values(counts), 0);
-    return Object.entries(counts).filter(([, count]) => count === top).map(([id]) => id);
+    const winner = Object.entries(counts).find(([, count]) => count * 2 > seats);
+    return winner ? winner[0] : null;
   },
 
   voterPicked(event, player) {
@@ -285,15 +360,22 @@ const globalEventsApi = {
   resolveGlobalEventVote() {
     const event = this.globalEvent;
     if (!event || event.phase !== 'voting') return;
-    const winners = this.globalEventVoteWinners(event);
-    event.resolvedChoice = winners.length ? winners[randomInt(0, winners.length - 1)] : event.choices?.[0]?.id || null;
+    // A finished match does not resolve its election: the ballot is stale by
+    // definition, so the headline is closed instead of played out.
+    if (this.globalEventMatchEnded()) {
+      this.closeGlobalEventAfterMatch();
+      return;
+    }
+    event.resolvedChoice = this.globalEventVoteChoice(event);
     this.recordTelemetryEvent?.('event-choice', { eventId: event.id, turnout: Object.keys(event.votes || {}).length, voters: this.activePlayers().length, resolvedChoice: event.resolvedChoice });
     this.applyGlobalEventVoteOutcomes(event);
     event.phase = 'active';
     event.startedRound = this.roundNumber;
     event.roundsRemaining = event.durationRounds;
     this.applyGlobalEventActivationSettlements();
-    this.feedMessage(`${event.title} resolved: ${String(event.resolvedChoice || '').replaceAll('-', ' ').toUpperCase()}.`);
+    this.feedMessage(event.resolvedChoice
+      ? `${event.title} resolved: ${event.resolvedChoice.replaceAll('-', ' ').toUpperCase()}.`
+      : `${event.title} resolved: NO MAJORITY, NO CHANGE.`);
   },
 
   voteOpenFor(player, event) {
@@ -302,24 +384,96 @@ const globalEventsApi = {
     return event.phase === 'voting';
   },
 
-  globalEventVoteRejection(player, event, choiceId) {
+  // The identity of the running election: the headline, the round it opened
+  // in, and the nonce of this election instance.
+  globalEventVoteIdentity(event = this.globalEvent) {
+    if (!event) return null;
+    return {
+      eventId: event.id ?? null,
+      voteRound: event.voteRound ?? null,
+      voteNonce: event.voteNonce ?? null
+    };
+  },
+
+  // A ballot names the election it was cast in. The headline alone is not
+  // enough - the same headline can run twice in a match, and a stale ballot
+  // must not land in the election that follows it.
+  globalEventBallot(ballot) {
+    if (!ballot || typeof ballot !== 'object') return { eventId: null, voteRound: null, voteNonce: null, requestId: '' };
+    return {
+      eventId: ballot.eventId ?? null,
+      voteRound: ballot.voteRound ?? null,
+      voteNonce: ballot.voteNonce ?? null,
+      requestId: normalizeRequestId(ballot.requestId)
+    };
+  },
+
+  globalEventBallotMismatch(event, ballot) {
+    if (!event || !ballot) return false;
+    const identity = this.globalEventVoteIdentity(event);
+    if (ballot.eventId != null && ballot.eventId !== identity.eventId) return true;
+    if (ballot.voteNonce != null && ballot.voteNonce !== identity.voteNonce) return true;
+    if (ballot.voteRound != null && String(ballot.voteRound) !== String(identity.voteRound)) return true;
+    return false;
+  },
+
+  globalEventVoteRejection(player, event, choiceId, ballot = {}) {
     if (!this.voteOpenFor(player, event)) return 'There is no active global vote.';
+    // A ballot cast in another election is stale, whatever it would vote for.
+    if (this.globalEventBallotMismatch(event, ballot)) return 'That vote belongs to a different election.';
+    // Full-turnout resolution reprices loans and pays bailouts at once, which
+    // must not happen under an open pending payment or auction.
+    if (this.pendingPayment || this.auction?.active) return 'Resolve the table obligation before voting.';
     if (!this.activePlayers().some(candidate => candidate.id === player.id)) return 'Only active players can vote.';
     if (!event.choices?.some(choice => choice.id === choiceId)) return 'That policy is not available.';
     if (event.votes[player.id]) return 'You already voted in this election.';
     return null;
   },
 
-  voteGlobalEvent(socketId, choiceId) {
+  // A vote is a write, so it is idempotent: the same request id answers the
+  // same way twice and is counted once.
+  globalEventVoteTransactionKey(playerId, requestId) {
+    const value = normalizeRequestId(requestId);
+    return value ? `${playerId}:global-event-vote:${value}` : null;
+  },
+
+  cachedGlobalEventVote(key) {
+    if (!key) return null;
+    if (!this.globalEventVoteTransactions) this.globalEventVoteTransactions = new Map();
+    return this.globalEventVoteTransactions.get(key) || null;
+  },
+
+  cacheGlobalEventVote(key, result) {
+    if (!key) return result;
+    if (!this.globalEventVoteTransactions) this.globalEventVoteTransactions = new Map();
+    this.globalEventVoteTransactions.set(key, result);
+    while (this.globalEventVoteTransactions.size > 100) {
+      this.globalEventVoteTransactions.delete(this.globalEventVoteTransactions.keys().next().value);
+    }
+    return result;
+  },
+
+  voteGlobalEvent(socketId, choiceId, ballot = {}) {
     const player = this.getPlayerBySocket(socketId);
     const event = this.globalEvent;
-    const rejection = this.globalEventVoteRejection(player, event, choiceId);
+    if (!event) return { success: false, error: 'There is no active global vote.' };
+    // A finished match closes its headline: the ballot is stale by definition
+    // and the ladder stops with the match.
+    if (this.globalEventMatchEnded()) {
+      this.closeGlobalEventAfterMatch();
+      return { success: false, error: 'The match has ended.' };
+    }
+    const identity = this.globalEventBallot(ballot);
+    const key = this.globalEventVoteTransactionKey(player?.id, identity.requestId);
+    const cached = this.cachedGlobalEventVote(key);
+    if (cached) return cached;
+    const rejection = this.globalEventVoteRejection(player, event, choiceId, identity);
     if (rejection) return { success: false, error: rejection };
     event.votes[player.id] = choiceId;
     this.feedMessage(`${player.nickname} cast a vote in the ${event.title.toLowerCase()}.`);
     const voters = this.activePlayers().filter(candidate => event.votes[candidate.id]).length;
     if (voters >= this.activePlayers().length) this.resolveGlobalEventVote();
-    return { success: true };
+    return this.cacheGlobalEventVote(key, { success: true });
   },
 
   applyGlobalEventActivationSettlements() {
@@ -327,6 +481,10 @@ const globalEventsApi = {
     if (!event) return;
     if (event.phase !== 'active') return;
     if (event.settlementApplied) return;
+    // A settlement reprices loans and pays bailouts against the table's cash. Under an open payment or live auction that money is
+    // already spoken for, so the settlement waits for the obligation to clear instead of landing on a balance about to change
+    // (the ballot guard does the same for votes).
+    if (this.pendingPayment || this.auction?.active) return;
     event.settlementApplied = true;
     GLOBAL_EVENT_SETTLEMENT_STEPS.forEach(step => {
       if (step.appliesTo(this, event)) this[step.handler](event);
@@ -350,13 +508,14 @@ const globalEventsApi = {
     this.feedMessage(`${event.title} settled a visible cash adjustment across the table.`);
   },
 
+  // Only distressed players are paid. A loan does not qualify a solvent seat:
+  // the bailout is a rescue, not a loan-holder payout.
   isBailoutRecipient(player, threshold) {
-    if (player.cash < threshold) return true;
-    return ['active', 'due'].includes(player.bankLoan?.status);
+    return player.cash < threshold;
   },
 
   settleEmergencyBailout() {
-    const threshold = this.settings.startingCash * 0.5;
+    const threshold = this.settings.startingCash * BANK_RUN_DISTRESS_CASH_RATIO;
     const rescue = Math.max(50, Math.floor(this.settings.startingCash * 0.1));
     this.activePlayers().filter(player => this.isBailoutRecipient(player, threshold)).forEach(player => {
       player.cash += rescue;

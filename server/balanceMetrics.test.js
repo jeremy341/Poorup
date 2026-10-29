@@ -92,3 +92,38 @@ assert.equal(incompleteSummary.incompletePairs, 100 * 3);
 assert.equal(incompleteSummary.independentCompletedClusters, 29, 'incomplete seed/opponent strata do not increase the independent sample count');
 assert.equal(incompleteSummary.intervalStatus, 'insufficient-sample');
 assert.equal(incompleteSummary.winRateDeltaCI95, null);
+
+// Median and p95 use the textbook definitions, not an upward-biased index.
+{
+  const rowsOf = rounds => rounds.map(round => ({ ended: true, completed: true, winnerSeat: 0, round, steps: round }));
+  assert.equal(summarizeBalanceCampaign(rowsOf([10, 20])).duration.rounds.median, 15, 'median of two values is their mean');
+  assert.equal(summarizeBalanceCampaign(rowsOf([1, 2, 3, 4])).duration.rounds.median, 2.5);
+  assert.equal(summarizeBalanceCampaign(rowsOf([1, 2, 3])).duration.rounds.median, 2);
+  const hundred = summarizeBalanceCampaign(rowsOf(Array.from({ length: 100 }, (_, index) => index + 1))).duration.rounds;
+  assert.equal(hundred.median, 50.5);
+  assert.equal(hundred.p95, 95, 'nearest-rank p95 of 1..100');
+  assert.equal(summarizeBalanceCampaign(rowsOf([])).duration.rounds.median, null, 'no samples is no data, not a median of 0');
+}
+
+// A completed row without a winner seat gets an explicit bucket instead of "undefined".
+{
+  const shares = summarizeBalanceCampaign([{ completed: true, round: 1, steps: 1 }, { completed: true, winnerSeat: 2, round: 1, steps: 1 }]).winnerShareBySeat;
+  assert.deepEqual(Object.keys(shares).sort(), ['2', 'none']);
+  assert.equal(shares.none, 0.5);
+}
+
+// Per-seat income divides by seats, not by distinct policies. Four seats
+// on two policies earn 400 total rent, which is 100 per seat, not 200.
+const sharedPolicyIncome = summarizeBalanceCampaign([{
+  ended: true,
+  completed: true,
+  winnerSeat: 0,
+  steps: 10,
+  round: 3,
+  bankruptcies: 0,
+  featureUsage: {},
+  policyBySeat: ['shared-a', 'shared-a', 'shared-b', 'shared-b'],
+  netWorthByPolicy: { 'shared-a': 1000, 'shared-b': 1000 },
+  incomeComposition: { totals: { rent: 400, market: 0, casino: 0, loans: 0 } }
+}]);
+assert.equal(sharedPolicyIncome.incomeComposition.perSeat.rent, 100, 'income per seat counts every seat, even when seats share a policy');

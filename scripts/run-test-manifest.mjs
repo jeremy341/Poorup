@@ -147,10 +147,11 @@ function summarizeResults(results) {
 
 async function main() {
   const args = process.argv.slice(2);
-  const { group, singleSuite, shard, timings } = parseRunnerOptions(args, process.env.POORUP_TEST_TIMING_FILE);
+  const { group, singleSuite, shard, timings, allowEmpty } = parseRunnerOptions(args, process.env.POORUP_TEST_TIMING_FILE);
   const allSuites = testSuites(group);
   const timingsBaseline = shard && !singleSuite ? loadTimings(TIMINGS_BASELINE_PATH) : null;
   const selected = selectedSuites(singleSuite, shard, allSuites, testSuites('full'), timingsBaseline);
+  if (!selected.length && !allowEmpty) throw new Error(`No suites selected for ${group}${shard ? ` shard ${shard.index}/${shard.count}` : ''}; pass --allow-empty to run nothing on purpose.`);
   console.log(`Test manifest: ${group} · ${selected.length}/${allSuites.length} suites${shard ? ` · shard ${shard.index}/${shard.count}${timingsBaseline ? ' (time-balanced)' : ' (count-balanced)'}` : ''}${PARALLELISM > 1 ? ` · parallelism ${PARALLELISM}` : ''}`);
   const results = await runSelected(selected, shard, PARALLELISM);
   writeTimings(timings, results, shard);

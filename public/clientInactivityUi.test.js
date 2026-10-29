@@ -1,42 +1,36 @@
 import assert from "node:assert/strict";
-import { buildCountdownRingSvg, createInactivityUi, formatInactiveTime } from "./clientInactivityUi.js";
+import { createInactivityUi, formatInactiveTime, inactiveBadgeHTML } from "./clientInactivityUi.js";
 
 assert.equal(formatInactiveTime(180_000), "3:00");
 assert.equal(formatInactiveTime(1), "0:01");
 assert.equal(formatInactiveTime(0), "0:00");
 assert.equal(formatInactiveTime(-1000), "0:00");
 
-const full = buildCountdownRingSvg(1);
-const half = buildCountdownRingSvg(0.5);
-const empty = buildCountdownRingSvg(0);
-const goldSegments = svg => [...svg.matchAll(/<rect[^>]+fill="#E5A52D"/g)].length;
-assert.equal(goldSegments(full), 70, "the complete ring is segmented gold");
-assert.equal(goldSegments(half), 35, "clockwise progress removes half the segments");
-assert.equal(goldSegments(empty), 0, "an expired visual has no active gold segment");
-assert.match(full, /rotate\(5 128 128\)/, "progress begins just clockwise of the top gap");
-assert.match(full, /rotate\(350 128 128\)/, "the final segment leaves a top-center opening");
-assert.match(full, /rect x="29" y="29" width="198" height="198"/, "frame keeps the reference inset proportions");
-assert.match(full, /rect x="126" y="49" width="4" height="6"/, "ring uses separated square-pixel segments");
-assert.match(full, /viewBox="0 0 256 256"/);
+// Row badge markup
+assert.equal(inactiveBadgeHTML({ id: "a", name: "A", presence: { state: "active" } }, 0), "", "active players get no badge");
+assert.equal(inactiveBadgeHTML({ id: "b", name: "B", isBot: true, presence: { state: "inactive", inactiveUntil: 9e9 } }, 0), "", "bots get no badge");
+const badge = inactiveBadgeHTML({ id: "p1", name: "Marlow", presence: { state: "inactive", inactiveUntil: 150_000 } }, 6_000);
+assert.match(badge, /data-timer-player="p1"/);
+assert.match(badge, />2:24</);
+assert.match(badge, /data-urgent="false"/);
+assert.match(inactiveBadgeHTML({ id: "p1", name: "Marlow", presence: { state: "inactive", inactiveUntil: 20_000 } }, 0), /data-urgent="true"/, "the last 30 seconds are urgent");
 
 let currentTime = 5_000;
 let nextTimer = 1;
 const timers = new Map();
 const announcer = { textContent: "", setAttribute() {} };
-const timerHost = {
-  hidden: true,
-  innerHTML: "",
-  querySelector: selector => selector === "[data-inactivity-announcer]" ? announcer : null,
-};
-const sidebarHost = { innerHTML: "" };
+const badgeFor = id => ({
+  dataset: { timerPlayer: id, urgent: "false" },
+  textContent: "",
+});
+const badges = { p1: badgeFor("p1"), p2: badgeFor("p2") };
+const listHost = { querySelectorAll: () => Object.values(badges) };
 const ui = createInactivityUi({
-  timerHost,
-  sidebarHost,
+  listHost,
   announcementHost: announcer,
   now: () => currentTime,
   schedule: callback => { const id = nextTimer++; timers.set(id, callback); return id; },
   cancel: id => timers.delete(id),
-  reducedMotion: () => true,
 });
 const clockPlayers = [
   { id: "p1", name: "Marlow", presence: { state: "inactive", inactiveSince: 0, inactiveUntil: 150_000 } },
@@ -44,28 +38,20 @@ const clockPlayers = [
   { id: "bot", name: "CPU", isBot: true, presence: { state: "inactive", inactiveSince: 0, inactiveUntil: 100_000 } },
 ];
 ui.update(clockPlayers, 6_000);
-assert.equal(timerHost.hidden, false);
-assert.match(timerHost.innerHTML, /Marlow/);
-assert.match(timerHost.innerHTML, /2:24/);
-assert.match(timerHost.innerHTML, /E5A52D/);
-assert.match(sidebarHost.innerHTML, /Marlow/);
-assert.match(sidebarHost.innerHTML, /Juno/);
-assert.doesNotMatch(sidebarHost.innerHTML, /CPU/);
-assert.ok(sidebarHost.innerHTML.indexOf("Marlow") < sidebarHost.innerHTML.indexOf("Juno"), "sidebar lists the earliest deadline first");
-assert.match(timerHost.innerHTML, /role="group"/);
+assert.equal(badges.p1.textContent, "2:24");
+assert.equal(badges.p2.textContent, "2:39", "every inactive player's row gets its own countdown");
+assert.equal(badges.p1.dataset.urgent, "false");
 assert.equal(announcer.textContent, "Marlow is inactive. Juno is inactive");
 const firstTransitionAnnouncement = announcer.textContent;
 currentTime = 6_000;
 const tick = timers.values().next().value;
 timers.clear();
 tick();
-assert.match(timerHost.innerHTML, /2:23/);
+assert.equal(badges.p1.textContent, "2:23");
 assert.equal(announcer.textContent, firstTransitionAnnouncement, "ticks do not announce every second");
 ui.update([], currentTime);
 assert.equal(announcer.textContent, "Marlow is active again. Juno is active again");
 ui.destroy();
-assert.equal(timerHost.hidden, true);
-assert.equal(sidebarHost.innerHTML, "");
 assert.equal(timers.size, 0);
 
 console.log("client inactivity UI tests: passed");

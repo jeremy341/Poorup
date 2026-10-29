@@ -34,7 +34,7 @@ function check(name, fn) {
 check("purchase backdrop and Escape dismissal stay neutral", () => {
   assert.match(modals, /function closeChoiceModalWithoutAction\(\)/);
   assert.match(modals, /scrim\.onclick = closeChoiceModalWithoutAction/);
-  assert.match(modals, /Dismissal is intentionally neutral/i);
+  assert.match(modals, /Dismissal is neutral/i);
   assert.match(keyboard, /"choice-modal": \(\) => closeSurface\("#choice-modal"\)/);
   assert.doesNotMatch(keyboard, /"choice-modal": \(\) => host\.closeChoiceModalAsPass\(\)/);
 });
@@ -85,7 +85,8 @@ check("player contract summaries call premium interest and rules explain unlimit
   assert.doesNotMatch(deal, /PREMIUM/);
   assert.doesNotMatch(rail, /% PREMIUM/);
   assert.match(social, /unlimited time for each turn/i);
-  assert.match(social, /inactivity removal clock/i);
+  assert.match(social, /3-minute countdown/i);
+  assert.match(social, /idle for 3 minutes can be removed by inactivity/i);
   assert.doesNotMatch(social, /<strong[^>]*>Turn Timer<\/strong>/i);
   assert.doesNotMatch(social, /Off, 30 seconds, 60 seconds, or 2 minutes/i);
   assert.match(social, /total interest/i);

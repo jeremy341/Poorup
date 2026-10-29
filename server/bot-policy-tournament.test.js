@@ -4,6 +4,9 @@ import { AiAdvisor } from './botAdvisor.js';
 import { buildBotStrategicContext } from './botStrategicContext.js';
 import { buildMatchResult, playerNetWorth } from './botTournamentResults.js';
 import { buildTournamentSummary } from './botTournamentSummary.js';
+import { runTournamentCli } from './botTournamentCli.js';
+import { stubBidAmount } from './botTournamentPolicies.js';
+import { rollDice } from './gameData.js';
 import {
   createBotPolicy,
   createDefaultPolicySet,
@@ -25,11 +28,19 @@ assert.equal(policies[0].difficulty, 'table');
 assert.equal(policies[1].brain, 'ai');
 assert.equal(policies[1].difficulty, 'expert');
 
-const defaultAiChoice = await defaultAiStub.chooseAction({
-  botBrain: 'ai', gameId: 'default-ai-stub', candidates: [{ id: 'selected-candidate', kind: 'roll', score: 1 }]
-});
-assert.equal(defaultAiChoice.provider, 'ai');
-assert.equal(defaultAiChoice.actionId, 'selected-candidate');
+// A lone candidate is no decision and never reaches the provider, so the stub is
+// offered a real choice; it must pick the planner-best option wherever the advisor shows it.
+for (let game = 1; game <= 12; game += 1) {
+  const defaultAiChoice = await defaultAiStub.chooseAction({
+    botBrain: 'ai', gameId: `default-ai-stub-${game}`, candidates: [
+      { id: 'weaker-candidate', kind: 'build', score: 0, cost: 100 },
+      { id: 'selected-candidate', kind: 'roll', score: 1 },
+      { id: 'weakest-candidate', kind: 'mortgage', score: -1 }
+    ]
+  });
+  assert.equal(defaultAiChoice.provider, 'ai');
+  assert.equal(defaultAiChoice.actionId, 'selected-candidate', 'the stub picks the best-scored option wherever the shuffled prompt lists it');
+}
 
 const greedyAdvisor = createDefaultPolicySet().find(policy => policy.policyId === 'score-greedy').advisor;
 const greedyChoice = await greedyAdvisor.chooseAction({ candidates: [{ id: 'low', score: 1 }, { id: 'high', score: 2 }] });
@@ -67,7 +78,9 @@ const cappedCampaign = await runBotTournament({
     createBotPolicy('campaign-ai-b', { brain: 'ai', advisor: campaignAdvisor })
   ]],
   seatRotations: [0],
-  stepLimit: 12,
+  // Decisions with nothing to choose between do not reach the provider, so the
+  // second (cap-exhausting) request needs a few more steps than it once did.
+  stepLimit: 40,
   callCapTracker: campaignTransport
 });
 assert.equal(cappedCampaign.liveAiCalls, 1);
@@ -89,6 +102,16 @@ await withSeededSimulationGlobals(15, async ({ advanceTime }) => {
   advanceTime(300);
   assert.equal(Date.now(), startedAt + 300, 'simulations advance deterministic virtual time for timed game rules');
 });
+// Seeded dice must roll doubles at the real rate. A plain LCG alternates
+// parity on every draw, so die one and die two could never match.
+const DICE_SAMPLE = 20_000;
+const seededDicePairs = seed => withSeededSimulationGlobals(seed, () => Array.from({ length: DICE_SAMPLE }, () => rollDice()));
+const seededDice = await seededDicePairs(4242);
+const doublesRate = seededDice.filter(([first, second]) => first === second).length / seededDice.length;
+assert.ok(doublesRate >= 0.15 && doublesRate <= 0.18, `seeded dice roll doubles at about 1 in 6 (got ${doublesRate.toFixed(4)})`);
+assert.ok(seededDice.every(pair => pair.every(face => Number.isInteger(face) && face >= 1 && face <= 6)), 'seeded dice faces stay within 1-6');
+assert.deepEqual(await seededDicePairs(4242), seededDice, 'the same seed reproduces the dice sequence');
+assert.notDeepEqual(await seededDicePairs(4243), seededDice, 'different seeds produce different dice sequences');
 const delayedProvider = new AiAdvisor({
   apiKey: 'latency-test-key',
   fetchImpl: async (_url, options) => {
@@ -106,12 +129,13 @@ const delayedProvider = new AiAdvisor({
 const delayedDecision = await withSeededSimulationGlobals(16, () => delayedProvider.chooseAction({
   botBrain: 'ai',
   gameId: 'virtual-clock-provider-latency',
-  candidates: [{ id: 'roll', kind: 'roll', score: 1 }]
+  candidates: [{ id: 'roll', kind: 'roll', score: 1 }, { id: 'build:1', kind: 'build', score: 0, cost: 100 }]
 }));
 assert.ok(delayedDecision.latencyMs >= 10, 'AI provider latency uses elapsed wall time, not the frozen simulation clock');
 
-const first = await simulateBotMatch({ seed: 7123, policyBySeat: policies, stepLimit: 10, captureTrace: true });
-const replay = await simulateBotMatch({ seed: 7123, policyBySeat: policies, stepLimit: 10, captureTrace: true });
+// 30 steps: the stub is only asked at real decisions, and the first one falls after step 10.
+const first = await simulateBotMatch({ seed: 7123, policyBySeat: policies, stepLimit: 30, captureTrace: true });
+const replay = await simulateBotMatch({ seed: 7123, policyBySeat: policies, stepLimit: 30, captureTrace: true });
 assert.deepEqual(replay.decisionTrace, first.decisionTrace, 'same seed and policies reproduce the decision trace');
 const firstLegality = first.legalityByPolicy?.first;
 assert.ok(firstLegality, 'match output includes an explicit legality metric for each policy');
@@ -150,11 +174,15 @@ const shadowStub = new AiAdvisor({
   fetchImpl: async (_url, options) => {
     const body = JSON.parse(options.body);
     const providerContext = JSON.parse(body.messages[1].content);
-    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify({ actionId: providerContext.candidates[0].actionId, confidence: 0.75, reasonCode: 'best-value' }) } }] }) };
+    // An auction bid must carry a legal amount or the reply is invalid and trips the breaker.
+    const picked = providerContext.candidates[0];
+    const amount = stubBidAmount(picked);
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: JSON.stringify({ actionId: picked.actionId, confidence: 0.75, reasonCode: 'best-value', ...(amount == null ? {} : { parameters: { amount } }) }) } }] }) };
   }
 });
 const shadowPolicy = createBotPolicy('shadow-eval', { brain: 'ai', advisor: shadowStub });
-const shadowMatch = await simulateBotMatch({ seed: 611, policyBySeat: [shadowPolicy, createBotPolicy('shadow-control')], stepLimit: 6, captureShadowTrace: true });
+// The shadow advisor is only asked at real decisions (not a lone roll), which take longer to reach.
+const shadowMatch = await simulateBotMatch({ seed: 611, policyBySeat: [shadowPolicy, createBotPolicy('shadow-control')], stepLimit: 150, captureShadowTrace: true });
 assert.ok(shadowMatch.shadowTrace.length > 0);
 for (const entry of shadowMatch.shadowTrace) {
   assert.equal(typeof entry.actionKind, 'string');
@@ -177,7 +205,7 @@ const shadowTournament = await runBotTournament({
   seeds: [612],
   policySets: [[shadowPolicy, createBotPolicy('shadow-aggregate-control')]],
   seatRotations: [0],
-  stepLimit: 6,
+  stepLimit: 100,
   captureShadowTrace: true
 });
 const aggregateShadow = shadowTournament.shadowEvaluationSummary['shadow-eval'];
@@ -206,7 +234,7 @@ try {
 assert.equal(new Set(rotatedRandomChoices.map(decision => decision.actionId)).size, 1,
   'random-legal chooses the same action for a policy decision index across seat rotations');
 
-const tile = { index: 1, ownerId: 'player-a', mortgaged: false, houseCount: 0, hotelCount: 0, equityShares: [] };
+const tile = { index: 1, ownerId: 'player-a', mortgaged: false, houseCount: 0, equityShares: [] };
 const fingerprintGame = {
   currentPlayerId: 'player-a',
   hasRolled: false,
@@ -310,6 +338,28 @@ const ledgerResult = buildMatchResult(ledgerRoom, {
 });
 assert.equal(ledgerResult.marketPnlByPolicy['market-a'], 33, 'market P&L includes realized sales, fees, and remaining holdings');
 
+// Buildings count toward tournament net worth. A developed Brown set
+// (4 houses, then a hotel stored as houseCount 5) must outrank an equal-cash
+// bare Light Blue pair; the old tileAssetValue counted buildings as $0.
+const developedGame = createSimulationRoom({ settings: { seatCount: 2 } }).game;
+const [developedOwner, bareOwner] = developedGame.players;
+for (const player of [developedOwner, bareOwner]) {
+  player.cash = 1000;
+  player.bankLoan = null;
+  player.marketPositions = {};
+}
+developedOwner.properties = [1, 3];
+bareOwner.properties = [6, 8];
+for (const index of developedOwner.properties) developedGame.getTile(index).ownerId = developedOwner.id;
+for (const index of bareOwner.properties) developedGame.getTile(index).ownerId = bareOwner.id;
+developedGame.getTile(1).houseCount = 4;
+developedGame.getTile(3).houseCount = 5;
+const brownHouseCost = developedGame.getPropertyHouseCost(developedGame.getTile(1));
+assert.equal(playerNetWorth(developedGame, developedOwner), 1000 + 60 + 60 + Math.floor(4 * brownHouseCost / 2) + Math.floor(5 * brownHouseCost / 2),
+  'houses and the hotel count at half their build cost');
+assert.ok(playerNetWorth(developedGame, developedOwner) > playerNetWorth(developedGame, bareOwner),
+  'a developed Brown set outranks an equal-cash bare Light Blue pair');
+
 const reportingSummary = buildTournamentSummary([{
   ended: true,
   completed: false,
@@ -335,5 +385,66 @@ assert.equal(reportingSummary.strategyMetricsByPolicy.reporting.providerCalls, 2
 assert.equal(reportingSummary.strategyMetricsByPolicy.reporting.auctionBidFacePremiumTotal, 40);
 assert.equal(reportingSummary.strategyMetricsByPolicy.reporting.completedGroupsLost, 1);
 assert.equal(reportingSummary.strategyMetricsByPolicy.reporting.marketPnl, 15);
+
+// The documented COUNT knob must run seeds 1..COUNT, and an empty or
+// blank SEEDS must not be read as seed 0.
+const cliRuns = [];
+const runCli = env => runTournamentCli({
+  runBotTournament: async options => {
+    cliRuns.push(options);
+    return { matches: [] };
+  },
+  createCappedFetch: tournamentApi.createCappedFetch,
+  env,
+  write: () => {},
+});
+await runCli({ POORUP_BOT_EVAL_COUNT: '2' });
+assert.deepEqual(cliRuns.at(-1).seeds, [1, 2], 'POORUP_BOT_EVAL_COUNT alone runs seeds 1 through COUNT');
+await runCli({ POORUP_BOT_EVAL_COUNT: '3', POORUP_BOT_EVAL_SEEDS: '   ' });
+assert.deepEqual(cliRuns.at(-1).seeds, [1, 2, 3], 'a blank POORUP_BOT_EVAL_SEEDS is treated as unset');
+await runCli({ POORUP_BOT_EVAL_COUNT: '5', POORUP_BOT_EVAL_SEEDS: '0, 42,' });
+assert.deepEqual(cliRuns.at(-1).seeds, [0, 42], 'an explicit seed list is used as given, ignoring empty entries');
+await assert.rejects(runCli({ POORUP_BOT_EVAL_COUNT: '2', POORUP_BOT_EVAL_SEEDS: '7,seven' }), /POORUP_BOT_EVAL_SEEDS/,
+  'a malformed explicit seed list fails loudly instead of silently dropping entries');
+await assert.rejects(runCli({ POORUP_BOT_EVAL_SEEDS: '4294967296' }), /POORUP_BOT_EVAL_SEEDS/,
+  'a seed outside the unsigned 32-bit range is rejected instead of being truncated');
+
+// The CLI validates an injected environment, so the default advisor has to
+// read the same one instead of the ambient process environment.
+const cliEnvRuns = [];
+const runCliWithEnv = env => runTournamentCli({
+  runBotTournament: async options => { cliEnvRuns.push(options); return { matches: [] }; },
+  createCappedFetch: tournamentApi.createCappedFetch,
+  env,
+  write: () => {},
+});
+await runCliWithEnv({ POORUP_AI_MODEL: 'policy-cli-model' });
+const cliStubPolicy = cliEnvRuns.at(-1).policySets.flat().find(policy => policy.policyId === 'ai-stub');
+assert.equal(cliStubPolicy.createAdvisor().model, 'policy-cli-model',
+  'the CLI environment reaches the default advisor');
+
+// The tournament reports and orders seats on the canonical net worth
+// (netWorth.js): short-default debt counts against a seat's worth.
+const canonicalRoom = createSimulationRoom({ settings: { seatCount: 2 } });
+const [debtSeat] = canonicalRoom.game.players;
+for (const player of canonicalRoom.game.players) {
+  player.cash = 1000;
+  player.bankLoan = null;
+  player.marketPositions = {};
+  player.properties = [];
+}
+debtSeat.shortDefaultDebt = 400;
+const canonicalResult = buildMatchResult(canonicalRoom, {
+  seed: 1,
+  policyBySeat: [createBotPolicy('debt-seat'), createBotPolicy('solvent-seat')],
+  steps: 1,
+  stepLimit: 1
+});
+assert.equal(canonicalResult.netWorthByPolicy['debt-seat'], 600,
+  'short default debt counts against the canonical net worth');
+assert.equal(canonicalResult.placementsByPolicy['solvent-seat'], 1,
+  'the solvent seat is placed first');
+assert.equal(canonicalResult.placementsByPolicy['debt-seat'], 2,
+  'the seat in debt is placed below the solvent seat');
 
 console.log('bot policy tournament: determinism, rotation, censoring, seeded restoration passed');

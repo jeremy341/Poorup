@@ -8,6 +8,7 @@ async function openCollateralSurface(page, surface) {
     const { configureTradeUi, openFinancingModal, openFinancingNegotiation } = await import('/clientTradeUi.js');
     const deeds = TILES.filter(tile => tile.kind === 'property').slice(0, 4);
     state.phase = 'playing';
+    state.settings.playerFinance = true;
     state.roomCode = 'COLLAT';
     state.roomPlayerId = 'p1';
     state.players = [
@@ -104,4 +105,42 @@ test('negotiation collateral selector preserves existing selections', async ({ p
   const trigger = page.locator('#financing-modal [data-collateral-trigger]');
   await expect(trigger).toHaveAttribute('placeholder', /1 SELECTED/);
   await expect(page.locator('#financing-modal [data-collateral-option]').filter({ hasText: fixture.excludedName })).toHaveCount(0);
+});
+
+
+test('legacy loan negotiation sends the correct action and refuses stale limits', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(async () => {
+    const { state } = await import('/clientState.js');
+    const trade = await import('/clientTradeUi.js');
+    state.settings.playerFinance = true;
+    state.phase = 'playing';
+    state.players = [
+      { id: 'p1', serverId: 'borrower', name: 'BORROWER', cash: 1500 },
+      { id: 'p2', serverId: 'lender', name: 'LENDER', cash: 1500 }
+    ];
+    state.owners = {};
+    state.mortgaged = {};
+    state.playerContractOffer = { id: 'legacy', rulesVersion: 1, kind: 'loan', fromPlayerId: 'lender', toPlayerId: 'borrower', lastProposerId: 'lender', counterDepth: 0, amount: 100, premiumRate: 10, durationRounds: 3 };
+    window.__legacyEmissions = [];
+    window.__legacyState = state;
+    window.__legacyTrade = trade;
+    trade.configureTradeUi({ emitServer: (event, payload) => window.__legacyEmissions.push({ event, payload }), createRequestId: () => 'legacy-request' });
+    trade.openFinancingNegotiation('legacy');
+  });
+  await expect(page.locator('#financing-negotiate-send')).toContainText('SEND COUNTER');
+  await page.locator('#financing-negotiate-send').click();
+  expect(await page.evaluate(() => window.__legacyEmissions[0])).toMatchObject({ event: 'counter-player-contract', payload: { contractId: 'legacy', kind: 'loan', amount: 100 } });
+  await page.evaluate(() => {
+    window.__legacyTrade.closeFinancingModal();
+    window.__legacyState.playerContractOffer.lastProposerId = 'borrower';
+    window.__legacyState.playerContractOffer.counterDepth = 1;
+    window.__legacyTrade.openFinancingNegotiation('legacy');
+  });
+  await expect(page.locator('#financing-negotiate-send')).toContainText('SEND ADJUSTMENT');
+  await page.locator('#financing-negotiate-send').click();
+  expect(await page.evaluate(() => window.__legacyEmissions[1].event)).toBe('adjust-player-contract');
+  await page.evaluate(() => { window.__legacyState.playerContractOffer.counterDepth = 2; });
+  await page.locator('#financing-negotiate-send').click();
+  expect(await page.evaluate(() => window.__legacyEmissions.length)).toBe(2);
 });

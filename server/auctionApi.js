@@ -1,12 +1,11 @@
-// Property auctions as a prototype mixin: the open-outcome flow that starts
-// when a deed is declined (or unaffordable), the bid mini-game, and the
-// timed close. gameLogic.js assigns this object onto GameState.prototype and
-// re-exports AUCTION_DURATION_MS for server.js; server/gameLogic.test.js pins
-// every rejection string and precedence.
-import { auctionWillingness } from './botAuctionPolicy.js';
+// Property auctions as a prototype mixin: the open-outcome flow that starts when a deed is declined
+// (or unaffordable), the bid mini-game, and the timed close. gameLogic.js assigns this object onto
+// GameState.prototype and re-exports AUCTION_DURATION_MS for server.js. server/gameLogic.test.js pins every rejection string.
+import { auctionWillingness, isAuctionRaise, AUCTION_BID_INCREMENTS } from './botAuctionPolicy.js';
 
 const AUCTION_DURATION_MS = 5000;
 const AUCTION_BID_COOLDOWN_MS = 300;
+export const AUCTION_COMMITTED_CASH_ERROR = 'You cannot spend cash that is committed to your leading auction bid.';
 
 class AuctionState {
   constructor(propertyTile, startingPlayerId) {
@@ -28,15 +27,25 @@ const auctionApi = {
     if (this.auction?.active) {
       return { success: false, error: 'An auction is already active.' };
     }
-    if (this.globalEventActive('bank-run') || this.activeEventEffects().auctionBlocked) {
+    if (this.auctionPausedByEvent()) {
       this.feedMessage('The active global event pauses auctions until liquidity returns.');
       this.resolveTurnAfterAction({ allowExtraRoll: false });
-      return { success: false, error: 'Auctions are paused by the active Bank Run.' };
+      // auctionPaused: the turn is already resolved, so a caller whose own action
+      // succeeded (decline, unaffordable landing) can still report success.
+      return { success: false, error: 'Auctions are paused by the active Bank Run.', auctionPaused: true };
     }
     const participants = this.players.filter(player => !player.bankrupt && !player.disconnected).map(player => player.id);
     this.auction = new AuctionState(tile, initiatingPlayerId);
     this.auction.participants = participants;
     this.feedMessage(`Auction started for ${tile.name}. Players may place bids.`);
+  },
+
+  // The active global event blocks NEW auctions. An auction that is already
+  // running keeps its clock and finishes normally: freezing a live
+  // auction would strand the bids that are already on the table.
+  auctionPausedByEvent() {
+    if (this.globalEventActive('bank-run')) return true;
+    return Boolean(this.activeEventEffects().auctionBlocked);
   },
 
   placeAuctionBid(socketId, amount) {
@@ -56,7 +65,30 @@ const auctionApi = {
     if (player.disconnected) return { success: false, error: 'You cannot bid right now.' };
     const rejection = this.auctionSeatRejection(player);
     if (rejection) return rejection;
-    return this.auctionBidValueRejection(player, amount, now);
+    const timing = this.auctionTimingRejection(player, now);
+    if (timing) return timing;
+    const debt = this.auctionDebtRejection(player);
+    if (debt) return debt;
+    return this.auctionBidValueRejection(player, amount);
+  },
+
+  // A seat that owes money cannot bid. The cash behind a bid is the cash the
+  // debt collects, so a bid the debt eats leaves the winner unable to pay and
+  // voids the sale at close ("Auction ended without a valid winner").
+  auctionDebtRejection(player) {
+    if (this.auctionBidderDebt(player) <= 0) return null;
+    return { success: false, error: 'Settle your pending payment before bidding.' };
+  },
+
+  // Everything the seat still owes: the parked claim plus the queued ones.
+  auctionBidderDebt(player) {
+    if (!player) return 0;
+    const parked = this.pendingPayment?.playerId === player.id
+      ? Number(this.pendingPayment.amountRemaining) || 0 : 0;
+    const queued = (this.pendingPaymentQueue || [])
+      .filter(entry => entry?.payment?.playerId === player.id)
+      .reduce((sum, entry) => sum + (Number(entry.payment.amountRemaining) || 0), 0);
+    return parked + queued;
   },
 
   auctionSeatRejection(player) {
@@ -66,12 +98,14 @@ const auctionApi = {
     return null;
   },
 
-  auctionBidValueRejection(player, amount, now) {
-    const timing = this.auctionTimingRejection(player, now);
-    if (timing) return timing;
+  auctionBidValueRejection(player, amount) {
     const price = this.auctionPriceRejection(player, amount);
     if (price) return price;
     if (!player.isBot) return null;
+    // Bots raise with the same buttons as players (+1, +20, +100); nothing else.
+    if (!isAuctionRaise(this.auction.highestBid, amount)) {
+      return { success: false, error: `A bot must raise the bid by ${AUCTION_BID_INCREMENTS.map(step => '$' + step).join(', ')}.` };
+    }
     const ceiling = auctionWillingness(this.auction, player, this);
     if (!Number.isFinite(ceiling) || amount > ceiling) {
       return { success: false, error: 'The bot bid exceeds its auction valuation.' };
@@ -108,6 +142,15 @@ const auctionApi = {
     this.feedMessage(`${player.nickname} bid $${amount}.`);
   },
 
+  // Cash the player may spend right now. The leading bid of an open auction is
+  // reserved: an outflow that dips into it would void the bid at close.
+  spendableCash(player) {
+    const auction = this.auction;
+    const leading = Boolean(auction?.active && player && auction.highestBidderId === player.id);
+    const reserved = leading ? Number(auction.highestBid) || 0 : 0;
+    return Number(player?.cash) - reserved;
+  },
+
   finishAuction() {
     const auction = this.auction;
     if (!auction) return;
@@ -120,11 +163,17 @@ const auctionApi = {
     const winner = this.getPlayerById(auction.highestBidderId);
     if (!this.auctionWinnerEligible(winner, auction.highestBid)) {
       this.feedMessage('Auction ended without a valid winner.');
-      this.resolveTurnAfterAction();
+      this.resolveAuctionTurn(auction);
       this.auction = null;
       return;
     }
     this.completeAuctionSale(auction, winner);
+  },
+
+  closeAuctionWhilePaused(auction) {
+    this.feedMessage(`The auction for ${auction.propertyTile.name} was cancelled: the active global event pauses auctions until liquidity returns.`);
+    this.resolveAuctionTurn(auction);
+    this.auction = null;
   },
 
   auctionWinnerEligible(winner, amount) {
@@ -143,13 +192,34 @@ const auctionApi = {
 
   closeAuctionWithoutBids(auction) {
     this.feedMessage(`No bids were placed for ${auction.propertyTile.name}. The property remains unsold.`);
-    this.resolveTurnAfterAction();
+    this.resolveAuctionTurn(auction);
     this.auction = null;
+  },
+
+  // Only the roll that opened an auction resolves when it closes. A passed
+  // purchase can open one for a successor whose roll has not happened yet;
+  // closing it must leave that successor free to roll.
+  resolveAuctionTurn(auction) {
+    if (!this.hasRolled) return;
+    if (auction.startingPlayerId !== this.currentPlayerId) return;
+    this.resolveTurnAfterAction();
+  },
+
+  // The departing seat that opened an auction has no roll left to close it.
+  // Cancel it before the turn advances; no cash is reserved while bidding, so
+  // the deed simply stays unowned.
+  cancelAuctionStartedBy(player) {
+    const auction = this.auction;
+    if (!auction?.active) return false;
+    if (auction.startingPlayerId !== player.id || player.id !== this.currentPlayerId) return false;
+    this.feedMessage(`The auction for ${auction.propertyTile.name} was cancelled because ${player.nickname} left the table.`);
+    this.auction = null;
+    return true;
   },
 
   completeAuctionSale(auction, winner) {
     if (!this.auctionWinnerCanAfford(winner, auction.highestBid)) {
-      this.failAuctionForInsolventWinner();
+      this.failAuctionForInsolventWinner(auction);
       return;
     }
     this.deductAuctionPrice(winner, auction.highestBid);
@@ -158,12 +228,12 @@ const auctionApi = {
     this.feedAuctionWin(auction, winner);
     this.auctionsCompleted += 1;
     this.auction = null;
-    this.resolveTurnAfterAction();
+    this.resolveAuctionTurn(auction);
   },
 
-  failAuctionForInsolventWinner() {
+  failAuctionForInsolventWinner(auction) {
     this.feedMessage('Auction ended without a valid winner.');
-    this.resolveTurnAfterAction();
+    this.resolveAuctionTurn(auction);
     this.auction = null;
   },
 
@@ -175,13 +245,15 @@ const auctionApi = {
   transferAuctionDeed(auction, winner) {
     this.terminateTileEquityShares?.(auction.propertyTile);
     auction.propertyTile.ownerId = winner.id;
+    auction.propertyTile.purchasePricePaid = Math.max(0, Math.floor(Number(auction.highestBid) || 0));
     auction.propertyTile.mortgaged = false;
     auction.propertyTile.houseCount = 0;
     auction.propertyTile.equityShares = [];
     if (!winner.properties.includes(auction.propertyTile.index)) winner.properties.push(auction.propertyTile.index);
-    // Auctions are another acquisition path. Keep the same completed-group
-    // facts as direct purchases and trades so rent rules and achievements do
-    // not lag behind the visible ownership state.
+    // Auctions are another acquisition path: keep the same completed-group facts as direct purchases
+    // and trades, or rent rules and achievements lag the visible ownership state.
+    // The housing-bubble purchase fact belongs to the acquisition, not the payment route.
+    if (this.globalEventActive('housing-bubble')) winner.boughtDuringHousingBubble = true;
     this.refreshPlayerGroups(winner);
   },
 

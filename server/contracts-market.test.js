@@ -1,8 +1,6 @@
-// Characterization suite for GameState.proposePlayerContract and
-// GameState.tradeMarket (the two cc 44 twins). Pins every guard order and
-// error string, the replay-cache semantics, loan/equity/hybrid term
-// derivation, buy/sell cash+position math, crisis-buy tracking, and the
-// ledger/feed tails. Captured from the pre-refactor methods.
+// Characterization suite for GameState.proposePlayerContract and GameState.tradeMarket. Pins every guard order and error string,
+// the replay-cache semantics, loan, equity and hybrid term derivation, buy and sell cash and position math, crisis-buy tracking,
+// and the ledger and feed tails. Captured from the pre-refactor methods.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 
@@ -23,6 +21,8 @@ function startedRoom(settings = {}) {
   const room = manager.createRoom({ socketId: 'socket-a', clientId: 'client-a', nickname: 'A' });
   room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'client-b', nickname: 'B' });
   for (const [key, value] of Object.entries(settings)) room.setRoomSetting(key, value);
+  room.setRoomSetting('rulesProfile', 'advanced');
+  room.setRoomSetting('playerFinance', true);
   assert.equal(room.startGame().success, true);
   const game = room.game;
   game.currentPlayerId = game.players[0].id;
@@ -176,10 +176,7 @@ check('contract negotiation roles alternate after each counter', () => {
   const adjusted = game.adjustPlayerContract('socket-b', { contractId: counter.contract.id, amount: 95, premiumRate: 8, durationRounds: 4 });
   assert.equal(adjusted.success, true);
   assert.equal(game.pendingPlayerContract.toPlayerId, b.id);
-  // B authored every surviving term, so the decision belongs to A. This line
-  // used to assert the inverted hand-off (B accepting their own counter),
-  // which was the B-01 exploit: the responder fell back to counterDepth
-  // parity once the same seat negotiated twice in a row.
+  // B authored every surviving term, so the decision belongs to A: B's own accept must be refused.
   assert.deepEqual(game.respondPlayerContract('socket-b', true, 'role-accept', adjusted.contract.id), {
     success: false, error: 'No matching player contract was found.'
   });
@@ -196,12 +193,12 @@ check('loan collateral must be an unencumbered borrower deed', () => {
   assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, amount: 50, collateralTileIndex: 1 }), { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' });
 });
 
-check('equity terms clamp share, verify owner, cap at 100 percent', () => {
+check('rent shares clamp share, verify owner and allow one investor', () => {
   const { game, b } = startedRoom();
   const property = game.getTile(1);
   property.ownerId = b.id;
-  assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'equity', amount: 50, propertyIndex: 6 }), { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' });
-  const result = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'equity', amount: 50, propertyIndex: 1, equityShare: 3, equityControl: 'hostile' });
+  assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'equity', amount: 50, propertyIndex: 6 }), { success: false, error: 'Rent shares need an unmortgaged deed owned by the recipient.' });
+  const result = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'equity', amount: 50, propertyIndex: 1, equityShare: 3, equityControl: 'passive' });
   assert.equal(result.success, true);
   const contract = game.pendingPlayerContract;
   assert.equal(contract.equityShare, 5);
@@ -210,21 +207,21 @@ check('equity terms clamp share, verify owner, cap at 100 percent', () => {
   assert.equal(contract.propertyIndex, 1);
   game.pendingPlayerContract = null;
   property.equityShares = [{ share: 96 }];
-  assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'equity', amount: 50, propertyIndex: 1, equityShare: 5 }), { success: false, error: 'That property has no remaining equity to sell.' });
+  assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'equity', amount: 50, propertyIndex: 1, equityShare: 5 }), { success: false, error: 'A deed may have only one rent-share investor.' });
 });
 
-check('permanent equity terms survive negotiation', () => {
+check('permanent equity proposals and negotiated control are rejected explicitly', () => {
   const { game, b } = startedRoom();
-  const property = game.getTile(1);
-  property.ownerId = b.id;
+  game.getTile(1).ownerId = b.id;
   const first = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'equity', amount: 50, propertyIndex: 1, equityShare: 20, permanent: true });
-  assert.equal(first.success, true);
-  assert.equal(game.pendingPlayerContract.permanent, true);
-  assert.equal(game.pendingPlayerContract.expiresRound, null);
-  const adjusted = game.adjustPlayerContract('socket-a', { contractId: first.contract.id, amount: 60, equityShare: 25 });
-  assert.equal(adjusted.success, true);
-  assert.equal(game.pendingPlayerContract.permanent, true);
-  assert.equal(game.pendingPlayerContract.expiresRound, null);
+  assert.equal(first.success, false);
+  assert.match(first.error, /temporary/);
+  const temporary = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'equity', amount: 50, propertyIndex: 1, equityShare: 20 });
+  assert.equal(temporary.success, true);
+  const adjusted = game.adjustPlayerContract('socket-a', { contractId: temporary.contract.id, equityControl: 'shared' });
+  assert.equal(adjusted.success, false);
+  assert.match(adjusted.error, /passive/);
+  assert.equal(game.pendingPlayerContract, temporary.contract);
 });
 
 check('requestId replays return the memoized contract result', () => {
@@ -358,7 +355,7 @@ check('a padded requestId replays as the same request instead of executing twice
   assert.equal(first.success, true);
   // " padded-proposal " names the same logical request. Keying on the raw
   // string misses the memo, so the second call runs the guard ladder again
-  // and returns a different result object instead of the memoized one.
+  // and returns a new result object, not the memoized one.
   const pendingAfterFirst = game.pendingPlayerContract;
   game.pendingPlayerContract = null;
   const padded = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 10, premiumRate: 12, durationRounds: 3, requestId: '  padded-proposal  ' });
@@ -378,20 +375,29 @@ check('requestId replays return the memoized market result', () => {
   assert.equal(replay, first);
 });
 
+// Accepted pre-upgrade data is constructed directly: new hybrid proposals are
+// forbidden, while legacy due/default/conversion and repayment remain supported.
 function hybridRoom(conversionShare = 30) {
   const ctx = startedRoom();
   const property = ctx.game.getTile(1);
   property.ownerId = ctx.b.id;
   ctx.b.properties.push(1);
-  const result = ctx.game.proposePlayerContract('socket-a', {
-    toPlayerId: ctx.b.id, kind: 'hybrid', amount: 100, premiumRate: 10,
-    durationRounds: 2, propertyIndex: 1, conversionShare
-  });
-  assert.equal(result.success, true);
-  return { ...ctx, property, contract: ctx.game.pendingPlayerContract };
+  const contract = {
+    id: 'legacy-hybrid', kind: 'hybrid', fromPlayerId: ctx.a.id, toPlayerId: ctx.b.id,
+    amount: 100, premiumRate: 10, totalDue: 110, remaining: 110, durationRounds: 2,
+    dueRound: ctx.game.roundNumber + 2, cureRound: ctx.game.roundNumber + 3,
+    propertyIndex: 1, conversionShare, status: 'active', collateralTileIndex: null,
+    collateralTileIndices: [], equityShare: 0
+  };
+  ctx.game.playerContracts.push(contract);
+  ctx.a.playerContractIds.push(contract.id);
+  ctx.b.playerContractIds.push(contract.id);
+  ctx.a.cash -= 100;
+  ctx.b.cash += 100;
+  return { ...ctx, property, contract };
 }
 
-check('hybrid proposal derives loan math plus conversion share', () => {
+check('legacy accepted hybrid terms remain unchanged', () => {
   const { game, contract } = hybridRoom();
   assert.equal(contract.totalDue, 110);
   assert.equal(contract.remaining, 110);
@@ -399,45 +405,48 @@ check('hybrid proposal derives loan math plus conversion share', () => {
   assert.equal(contract.cureRound, contract.dueRound + 1);
   assert.equal(contract.propertyIndex, 1);
   assert.equal(contract.conversionShare, 30);
+  assert.equal(contract.rulesVersion, undefined);
 });
 
-check('hybrid rejects unowned targets, full cap tables, clamps conversion', () => {
-  const { game, b, property } = hybridRoom(3);
-  assert.equal(game.pendingPlayerContract.conversionShare, 5);
-  game.pendingPlayerContract = null;
-  assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'hybrid', amount: 50, propertyIndex: 6, conversionShare: 10 }), { success: false, error: 'Equity needs an unencumbered property owned by the recipient.' });
+check('new hybrid proposals reject every conversion target explicitly', () => {
+  const { game, b, property } = hybridRoom(5);
+  for (const propertyIndex of [1, 6]) {
+    const result = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'hybrid', amount: 50, propertyIndex, conversionShare: 10 });
+    assert.equal(result.success, false);
+    assert.match(result.error, /Hybrid contracts are no longer available/);
+  }
   property.equityShares = [{ share: 80 }];
-  assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'hybrid', amount: 50, propertyIndex: 1, conversionShare: 30 }), { success: false, error: 'That property has no remaining equity to sell.' });
+  assert.equal(game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'hybrid', amount: 50, propertyIndex: 1, conversionShare: 30 }).success, false);
 });
 
-check('hybrid accept moves cash with no equity recorded yet', () => {
-  const { game, a, b, contract, property } = hybridRoom();
-  const cashA = a.cash;
-  const cashB = b.cash;
-  assert.equal(game.respondPlayerContract('socket-b', true).success, true);
-  assert.equal(a.cash, cashA - 100);
-  assert.equal(b.cash, cashB + 100);
+check('legacy active hybrid cash and unconverted state are preserved', () => {
+  const { a, b, contract, property } = hybridRoom();
+  assert.equal(a.cash, 1400);
+  assert.equal(b.cash, 1600);
   assert.equal(contract.status, 'active');
   assert.deepEqual(property.equityShares || [], []);
 });
 
-check('hybrid conversion target stays encumbered until the note resolves', () => {
+check('legacy hybrid conversion target stays encumbered until the note resolves', () => {
   const { game, contract, property, b } = hybridRoom();
-  assert.equal(game.respondPlayerContract('socket-b', true).success, true);
   assert.equal(game.isTradeableTile(property), false);
   assert.equal(game.canMortgageTile(b, property), false);
   assert.equal(contract.status, 'active');
 });
 
-check('hybrid accept revalidates the conversion target at settlement', () => {
-  const { game, a, property } = hybridRoom();
-  property.ownerId = a.id;
-  assert.deepEqual(game.respondPlayerContract('socket-b', true), { success: false, error: 'The equity property is no longer available.' });
+check('legacy pending hybrid must be rebuilt or declined', () => {
+  const { game, contract } = hybridRoom();
+  game.playerContracts = [];
+  contract.status = 'pending';
+  game.pendingPlayerContract = contract;
+  assert.match(game.respondPlayerContract('socket-b', true).error, /rebuilt/);
+  assert.equal(game.pendingPlayerContract, contract);
+  assert.equal(game.respondPlayerContract('socket-b', false).success, true);
 });
 
-check('hybrid repays to paid before the due round', () => {
+check('legacy hybrid repays to paid before the due round with finance off', () => {
   const { game, contract } = hybridRoom();
-  assert.equal(game.respondPlayerContract('socket-b', true).success, true);
+  game.settings.playerFinance = false;
   assert.equal(game.repayPlayerContract('socket-b', { contractId: contract.id }).success, true);
   assert.equal(contract.status, 'paid');
 });
@@ -467,7 +476,7 @@ check('contract acceptance rechecks loan-backed lender cash', () => {
 
 function convertedHybrid() {
   const ctx = hybridRoom();
-  assert.equal(ctx.game.respondPlayerContract('socket-b', true).success, true);
+  ctx.game.settings.playerFinance = false;
   ctx.game.roundNumber = ctx.contract.dueRound;
   ctx.game.processPlayerContracts();
   assert.equal(ctx.contract.status, 'due');
@@ -499,7 +508,6 @@ check('converted hybrid equity pays rent and dies with the deed', () => {
 
 check('hybrid with a lost conversion target falls back to loan default', () => {
   const { game, contract, property } = hybridRoom();
-  assert.equal(game.respondPlayerContract('socket-b', true).success, true);
   game.roundNumber = contract.dueRound;
   game.processPlayerContracts();
   assert.equal(contract.status, 'due');
@@ -510,28 +518,170 @@ check('hybrid with a lost conversion target falls back to loan default', () => {
   assert.deepEqual(property.equityShares || [], []);
 });
 
-check('hybrid with collateral validates borrower ownership instead of crashing', () => {
-  const { game, b } = startedRoom();
-  const deed = game.getTile(1);
-  deed.ownerId = b.id;
-  const spare = game.getTile(3);
-  spare.ownerId = b.id;
-  const result = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'hybrid', amount: 100, premiumRate: 10, durationRounds: 3, propertyIndex: 1, conversionShare: 25, collateralTileIndex: 3 });
-  assert.equal(result.success, true);
-  assert.equal(game.pendingPlayerContract.collateralTileIndex, 3);
-  assert.equal(game.pendingPlayerContract.conversionShare, 25);
-});
-
-check('hybrid rejects collateral owned by someone else', () => {
+check('new hybrid proposals reject even valid or invalid collateral explicitly', () => {
   const { game, a, b } = startedRoom();
   const deed = game.getTile(1);
   deed.ownerId = b.id;
   const spare = game.getTile(3);
-  spare.ownerId = a.id;
-  assert.deepEqual(
-    game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'hybrid', amount: 100, premiumRate: 10, durationRounds: 3, propertyIndex: 1, conversionShare: 25, collateralTileIndex: 3 }),
-    { success: false, error: 'Collateral must be an unencumbered deed owned by the borrower.' }
-  );
+  for (const ownerId of [b.id, a.id]) {
+    spare.ownerId = ownerId;
+    const result = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'hybrid', amount: 100, premiumRate: 10, durationRounds: 3, propertyIndex: 1, conversionShare: 25, collateralTileIndex: 3 });
+    assert.equal(result.success, false);
+    assert.match(result.error, /Hybrid contracts are no longer available/);
+    assert.equal(game.pendingPlayerContract, null);
+  }
+});
+
+// Contract table invariants
+
+const NOT_RUNNING = { success: false, error: 'The game is not running.' };
+
+check('every contract verb is refused once the match is not running', () => {
+  const { game, a, b } = startedRoom();
+  const proposal = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 50 });
+  assert.equal(proposal.success, true);
+  game.started = false;
+  assert.deepEqual(game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 50, requestId: 'after-end' }), NOT_RUNNING);
+  assert.deepEqual(game.proposeEquityShareTransfer('socket-a', { fromPlayerId: a.id, toPlayerId: b.id, contractId: 'any', sharePct: 10, price: 20 }), NOT_RUNNING);
+  assert.deepEqual(game.counterPlayerContract('socket-b', { contractId: proposal.contract.id, amount: 60 }), NOT_RUNNING);
+  assert.deepEqual(game.adjustPlayerContract('socket-a', { contractId: proposal.contract.id, amount: 60 }), NOT_RUNNING);
+  assert.deepEqual(game.respondPlayerContract('socket-b', true, 'after-end-accept', proposal.contract.id), NOT_RUNNING);
+  assert.deepEqual(game.repayPlayerContract('socket-b', { contractId: proposal.contract.id }), NOT_RUNNING);
+  assert.equal(game.pendingPlayerContract.id, proposal.contract.id, 'the open offer is untouched');
+  assert.equal(a.cash, 1500);
+  assert.equal(b.cash, 1500);
+});
+
+check('a player-loan repayment refuses loan-backed cash', () => {
+  const { game, b } = startedRoom();
+  const proposal = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 100, premiumRate: 10 });
+  assert.equal(proposal.success, true);
+  assert.equal(game.respondPlayerContract('socket-b', true).success, true);
+  const contract = game.playerContracts[0];
+  b.bankLoan = { status: 'active', remaining: 450 };
+  const cashBefore = b.cash;
+  assert.deepEqual(game.repayPlayerContract('socket-b', { contractId: contract.id }), { success: false, error: 'Loan-backed cash cannot be used for player contracts.' });
+  assert.equal(b.cash, cashBefore, 'no cash moved');
+  assert.equal(contract.status, 'active');
+  assert.equal(contract.remaining, 110);
+});
+
+check('a loan repayment settles the lender own parked debt', () => {
+  const { game, a, b } = startedRoom();
+  const proposal = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 100 });
+  assert.equal(proposal.success, true);
+  assert.equal(game.respondPlayerContract('socket-b', true).success, true);
+  const contract = game.playerContracts[0];
+  game.pendingPayment = { playerId: a.id, creditorId: null, amountRemaining: 50, reason: 'rent' };
+  const cashBefore = a.cash;
+  assert.equal(game.repayPlayerContract('socket-b', { contractId: contract.id }).success, true);
+  assert.equal(a.cash, cashBefore + 100 - 50, 'the repayment paid the lender debt');
+  assert.equal(game.pendingPayment, null);
+  assert.equal(contract.status, 'paid');
+});
+
+// Two live equity shares of the same deed, each 50% of its rent.
+function twoHolderEquityRoom() {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ socketId: 'socket-a', clientId: 'two-a', nickname: 'A' });
+  room.addOrReconnectPlayer({ socketId: 'socket-b', clientId: 'two-b', nickname: 'B' });
+  room.addOrReconnectPlayer({ socketId: 'socket-c', clientId: 'two-c', nickname: 'C' });
+  room.setRoomSetting('rulesProfile', 'advanced');
+  room.setRoomSetting('playerFinance', true);
+  assert.equal(room.startGame().success, true);
+  const game = room.game;
+  const [owner, firstHolder, secondHolder] = game.players;
+  const property = game.getTile(1);
+  property.ownerId = owner.id;
+  owner.properties.push(property.index);
+  const contractFor = (id, holderId) => {
+    const contract = {
+      id, kind: 'equity', fromPlayerId: holderId, toPlayerId: owner.id, amount: 100,
+      propertyIndex: property.index, equityShare: 50, equityControl: 'passive',
+      permanent: false, expiresRound: game.roundNumber + 5, durationRounds: 3,
+      createdRound: game.roundNumber, status: 'active'
+    };
+    game.playerContracts.push(contract);
+    return contract;
+  };
+  contractFor('two-holder-a', firstHolder.id);
+  contractFor('two-holder-b', secondHolder.id);
+  property.equityShares = [
+    { holderId: firstHolder.id, share: 50, contractId: 'two-holder-a', control: 'passive' },
+    { holderId: secondHolder.id, share: 50, contractId: 'two-holder-b', control: 'passive' }
+  ];
+  return { game, owner, firstHolder, secondHolder, property };
+}
+
+check('an equity rent share settles the holder debt only after every share is paid', () => {
+  const { game, owner, firstHolder, secondHolder, property } = twoHolderEquityRoom();
+  owner.cash = 100;
+  game.pendingPayment = {
+    playerId: firstHolder.id, creditorId: null, amountRemaining: 60, reason: 'rent',
+    equityTileIndex: property.index, equityOwnerId: owner.id
+  };
+  const firstCash = firstHolder.cash;
+  const secondCash = secondHolder.cash;
+  game.settleEquityShares(property, owner, 100);
+  assert.equal(secondHolder.cash - secondCash, 50, 'the other share was paid in full before the debt was settled');
+  assert.equal(firstHolder.cash - firstCash, -10, 'the holder paid its own parked debt out of its rent share');
+  assert.equal(owner.cash, 0);
+  assert.equal(game.pendingPayment, null, 'the parked debt was settled by the rent inflow');
+});
+
+check('an equity rent share still settles a distinct queued debt of the recipient', () => {
+  const { game, owner, firstHolder, secondHolder, property } = twoHolderEquityRoom();
+  owner.cash = 100;
+  const firstCash = firstHolder.cash;
+  const secondCash = secondHolder.cash;
+  // The holder owes two claims of its own, neither of them the rent that the
+  // share is paid for: a head claim and a queued one behind it.
+  game.pendingPayment = {
+    playerId: firstHolder.id, creditorId: secondHolder.id, amountRemaining: 50, reason: 'bank',
+    equityTileIndex: null, equityOwnerId: null
+  };
+  game.pendingPaymentQueue = [{
+    payment: {
+      playerId: firstHolder.id, creditorId: secondHolder.id, amountRemaining: 30, reason: 'tax',
+      equityTileIndex: null, equityOwnerId: null
+    },
+    hooks: {}, turnOptions: {}
+  }];
+  game.settleEquityShares(property, owner, 100);
+  assert.equal(game.pendingPayment, null, 'the distinct head claim and the queued claim are both settled');
+  assert.equal(game.pendingPaymentQueue.length, 0, 'the queue is empty once the claims are paid');
+  assert.equal(firstHolder.cash - firstCash, -30, 'the rent share paid the recipient own claims');
+  assert.equal(secondHolder.cash - secondCash, 130, 'the creditor of both claims was paid');
+});
+
+check('equity payouts never exceed the rent collected', () => {
+  const { game, owner, firstHolder, secondHolder, property } = twoHolderEquityRoom();
+  // The deed is over-booked: 60% + 60% of the same rent.
+  property.equityShares = [
+    { holderId: firstHolder.id, share: 60, contractId: 'two-holder-a', control: 'passive' },
+    { holderId: secondHolder.id, share: 60, contractId: 'two-holder-b', control: 'passive' }
+  ];
+  const ownerCash = owner.cash;
+  const firstCash = firstHolder.cash;
+  const secondCash = secondHolder.cash;
+  game.settleEquityShares(property, owner, 100);
+  assert.equal(firstHolder.cash - firstCash, 60);
+  assert.equal(secondHolder.cash - secondCash, 40, 'the share past 100 percent is prorated away');
+  assert.equal(owner.cash, ownerCash - 100, 'the deed never pays out more than the rent collected');
+});
+
+check('a failed contract activation moves no cash and keeps the offer open', () => {
+  const { game, a, b } = startedRoom();
+  const proposal = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 100, premiumRate: 10 });
+  assert.equal(proposal.success, true);
+  game.feedMessage = () => { throw new Error('injected commit failure'); };
+  const accepted = game.respondPlayerContract('socket-b', true, 'failed-activation', proposal.contract.id);
+  assert.equal(accepted.success, false);
+  assert.equal(a.cash, 1500, 'the lender keeps its cash');
+  assert.equal(b.cash, 1500, 'the borrower is not paid');
+  assert.deepEqual(game.playerContracts, [], 'no half-booked contract');
+  assert.equal(game.pendingPlayerContract.id, proposal.contract.id, 'the offer stays open for a retry');
+  assert.equal(game.pendingPlayerContract.status, 'pending');
 });
 
 const failed = results.filter(r => !r).length;
