@@ -76,17 +76,23 @@ function denominatorText(item) {
 
 const STATES = ['ok', 'warn', 'bad'];
 
+// Only a value that reaches a threshold is classed as warn or bad; a KPI with
+// thresholds but no breach is ok.
+function stateFromThresholds(value, thresholds) {
+  const warn = finiteNumber(thresholds.warn);
+  const bad = finiteNumber(thresholds.bad);
+  if (bad !== null && value >= bad) return 'bad';
+  if (warn !== null && value >= warn) return 'warn';
+  return warn !== null || bad !== null ? 'ok' : 'none';
+}
+
 export function kpiState(item) {
   const given = String(item.state || '').toLowerCase();
   if (STATES.includes(given)) return given;
   const thresholds = item.thresholds && typeof item.thresholds === 'object' ? item.thresholds : null;
   const value = finiteNumber(item.value);
   if (!thresholds || value === null) return 'none';
-  const warn = finiteNumber(thresholds.warn);
-  const bad = finiteNumber(thresholds.bad);
-  if (bad !== null && value >= bad) return 'bad';
-  if (warn !== null && value >= warn) return 'warn';
-  return warn !== null || bad !== null ? 'ok' : 'none';
+  return stateFromThresholds(value, thresholds);
 }
 
 const STATE_WORDS = Object.freeze({ ok: 'WITHIN LIMIT', warn: 'WATCH', bad: 'OVER LIMIT', none: '' });

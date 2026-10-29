@@ -28,28 +28,41 @@ function r(value) {
  * Accepts `{ kind, labels, series: [{ id, name, tone, values }], unit, title, markers, baseline, orientation }`
  * and returns a clamped, finite-only spec. `values[i]` lines up with `labels[i]`; null leaves a gap.
  */
-export function normalizeChartSpec(input = {}) {
-  const kind = KINDS.includes(input.kind) ? input.kind : "line";
-  const labels = (Array.isArray(input.labels) ? input.labels : []).slice(0, MAX_CHART_POINTS).map(label => String(label ?? "").slice(0, 80));
-  const unit = String(input.unit || "value").slice(0, 24);
-  const rawSeries = (Array.isArray(input.series) ? input.series : []).slice(0, MAX_SERIES).map((entry, index) => ({
+function normalizeSeriesList(input, labels) {
+  return (Array.isArray(input.series) ? input.series : []).slice(0, MAX_SERIES).map((entry, index) => ({
     id: String(entry?.id ?? `s${index}`).slice(0, 40),
     name: String(entry?.name ?? `Series ${index + 1}`).slice(0, 40),
     tone: TONES.includes(entry?.tone) ? entry.tone : TONES[index % TONES.length],
     raw: labels.map((_, position) => finite(entry?.values?.[position])),
   }));
-  // A 0..1 share is drawn as 0..100% so ticks, bars and tables read the same.
-  const scale = unitKind(unit) === "percent" && rawSeries.length && rawSeries.every(series => series.raw.every(value => value === null || Math.abs(value) <= 1)) ? 100 : 1;
-  const series = rawSeries.map(entry => ({ ...entry, values: entry.raw.map(value => (value === null ? null : value * scale)) }));
-  const markers = (Array.isArray(input.markers) ? input.markers : [])
+}
+
+// A 0..1 share is drawn as 0..100% so ticks, bars and tables read the same.
+function displayScale(unit, rawSeries) {
+  const shares = rawSeries.length && rawSeries.every(series => series.raw.every(value => value === null || Math.abs(value) <= 1));
+  return unitKind(unit) === "percent" && shares ? 100 : 1;
+}
+
+function normalizeMarkers(input, labels, seriesCount) {
+  return (Array.isArray(input.markers) ? input.markers : [])
     .filter(marker => Number.isInteger(marker?.index) && marker.index >= 0 && marker.index < labels.length)
     .slice(0, 60)
     .map(marker => ({
       index: marker.index,
       kind: MARKER_KINDS.includes(marker.kind) ? marker.kind : "note",
       label: String(marker.label ?? "").slice(0, 60),
-      series: clamp(Number.isInteger(marker.series) ? marker.series : 0, 0, Math.max(0, series.length - 1)),
+      series: clamp(Number.isInteger(marker.series) ? marker.series : 0, 0, Math.max(0, seriesCount - 1)),
     }));
+}
+
+export function normalizeChartSpec(input = {}) {
+  const kind = KINDS.includes(input.kind) ? input.kind : "line";
+  const labels = (Array.isArray(input.labels) ? input.labels : []).slice(0, MAX_CHART_POINTS).map(label => String(label ?? "").slice(0, 80));
+  const unit = String(input.unit || "value").slice(0, 24);
+  const rawSeries = normalizeSeriesList(input, labels);
+  const scale = displayScale(unit, rawSeries);
+  const series = rawSeries.map(entry => ({ ...entry, values: entry.raw.map(value => (value === null ? null : value * scale)) }));
+  const markers = normalizeMarkers(input, labels, series.length);
   return {
     kind,
     title: String(input.title || "Chart").slice(0, 120),

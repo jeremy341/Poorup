@@ -191,10 +191,15 @@ export function createAdminOpsController({
   // a read that still says draining is drawn without a countdown, which stops this from looping.
   function stopCountdown() { if (countdownTimer !== null) { clearInterval(countdownTimer); countdownTimer = null; } }
 
+  // The countdown runs only while the release tab is open on a live controller with a valid deadline.
+  function countdownIsLive(target, deadline) {
+    return Boolean(target) && !destroyed && activeTab === 'release' && Number.isFinite(deadline);
+  }
+
   function tickCountdown() {
     const target = find(find(root, '[data-release-summary]'), '[data-release-countdown]');
     const deadline = Date.parse(target?.getAttribute('data-deadline') || '');
-    if (!target || destroyed || activeTab !== 'release' || !Number.isFinite(deadline)) { stopCountdown(); return; }
+    if (!countdownIsLive(target, deadline)) { stopCountdown(); return; }
     const remaining = deadline - clock();
     target.textContent = formatCountdown(remaining);
     if (remaining > 0) return;

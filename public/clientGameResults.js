@@ -19,23 +19,28 @@ function legacyPlacement(player) {
 
 // Final placements are authoritative server data. The cash ordering remains
 // available for legacy fixtures and snapshots produced before this field.
+function placementFor(player, finalPlacements) {
+  const id = playerServerId(player);
+  return Number.isFinite(finalPlacements?.[id]) ? finalPlacements[id] : null;
+}
+
+// Ranked seats first, by placement; then the legacy tier, the winner, and cash.
+function compareRankedRows(a, b) {
+  if (a.placement !== null && b.placement !== null) return a.placement - b.placement || a._index - b._index;
+  if (a.placement !== null) return -1;
+  if (b.placement !== null) return 1;
+  const tierDifference = legacyPlacement(a) - legacyPlacement(b);
+  if (tierDifference) return tierDifference;
+  if (a.isWinner !== b.isWinner) return a.isWinner ? -1 : 1;
+  return (Number(b.cash) || 0) - (Number(a.cash) || 0) || a._index - b._index;
+}
+
 function rankGameOverPlayers(players, finalPlacements = null, winnerId = null) {
   const rows = (Array.isArray(players) ? players : []).map((player, index) => {
     const id = playerServerId(player);
-    const placement = Number.isFinite(finalPlacements?.[id])
-      ? finalPlacements[id]
-      : null;
-    return { ...player, placement, isWinner: Boolean(winnerId && (id === winnerId || player.id === winnerId)), _index: index };
+    return { ...player, placement: placementFor(player, finalPlacements), isWinner: Boolean(winnerId && (id === winnerId || player.id === winnerId)), _index: index };
   });
-  rows.sort((a, b) => {
-    if (a.placement !== null && b.placement !== null) return a.placement - b.placement || a._index - b._index;
-    if (a.placement !== null) return -1;
-    if (b.placement !== null) return 1;
-    const tierDifference = legacyPlacement(a) - legacyPlacement(b);
-    if (tierDifference) return tierDifference;
-    if (a.isWinner !== b.isWinner) return a.isWinner ? -1 : 1;
-    return (Number(b.cash) || 0) - (Number(a.cash) || 0) || a._index - b._index;
-  });
+  rows.sort(compareRankedRows);
   return rows.map(({ _index, ...row }) => row);
 }
 

@@ -13,6 +13,15 @@ const DEFAULT_WIDTH = 360;
  * null when there is no container. The container becomes a focusable group:
  * arrow keys step through the points and the value is announced politely.
  */
+// The chart index an arrow, Home or End key moves to, or null when the key does not move the focus.
+function chartKeyTarget(key, active, last) {
+  if (key === "ArrowRight" || key === "ArrowDown") return active < 0 ? 0 : Math.min(last, active + 1);
+  if (key === "ArrowLeft" || key === "ArrowUp") return active < 0 ? last : Math.max(0, active - 1);
+  if (key === "Home") return 0;
+  if (key === "End") return last;
+  return null;
+}
+
 export function mountChart(container, input, options = {}) {
   if (!container) return null;
   disposeChart(container);
@@ -94,20 +103,14 @@ export function mountChart(container, input, options = {}) {
   listen("keydown", event => {
     const last = spec.labels.length - 1;
     if (last < 0) return;
-    const forward = event.key === "ArrowRight" || event.key === "ArrowDown";
-    const backward = event.key === "ArrowLeft" || event.key === "ArrowUp";
     if (event.key === "Escape") {
       if (state.active < 0) return;
       event.stopPropagation();
       show(-1);
       return;
     }
-    let next;
-    if (forward) next = state.active < 0 ? 0 : Math.min(last, state.active + 1);
-    else if (backward) next = state.active < 0 ? last : Math.max(0, state.active - 1);
-    else if (event.key === "Home") next = 0;
-    else if (event.key === "End") next = last;
-    else return;
+    const next = chartKeyTarget(event.key, state.active, last);
+    if (next === null) return;
     event.preventDefault();
     show(next, true);
   });

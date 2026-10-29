@@ -60,23 +60,19 @@ export const airportApi = {
     return Number.isInteger(stored) ? stored : AIRPORT_DEFAULT_FARE;
   },
 
-  airportFare(origin, destination, traveler) {
+  // Which owner's fee sets the fare, and the fee: the destination's arrival fee first, then the origin's departure fee.
+  airportFareBasis(origin, destination) {
     const destinationOwner = this.airportFeeOwner(destination);
+    if (destinationOwner) return { fare: this.airportFee(destination, 'arrival'), basis: 'arrival', payee: destinationOwner };
     const originOwner = this.airportFeeOwner(origin);
-    let fare = AIRPORT_DEFAULT_FARE;
-    let basis = 'default';
-    let payee = null;
-    if (destinationOwner) {
-      fare = this.airportFee(destination, 'arrival');
-      basis = 'arrival';
-      payee = destinationOwner;
-    } else if (originOwner) {
-      fare = this.airportFee(origin, 'departure');
-      basis = 'departure';
-      payee = originOwner;
-    }
-    if (payee && payee.id === traveler.id) fare = 0;
-    return { fare, basis, payeeId: payee ? payee.id : null };
+    if (originOwner) return { fare: this.airportFee(origin, 'departure'), basis: 'departure', payee: originOwner };
+    return { fare: AIRPORT_DEFAULT_FARE, basis: 'default', payee: null };
+  },
+
+  airportFare(origin, destination, traveler) {
+    const { fare, basis, payee } = this.airportFareBasis(origin, destination);
+    const payable = payee && payee.id === traveler.id ? 0 : fare;
+    return { fare: payable, basis, payeeId: payee ? payee.id : null };
   },
 
   // Why this player cannot fly right now, or null. Destination is optional so
@@ -113,6 +109,28 @@ export const airportApi = {
     return base;
   },
 
+  // Pays the fare to the fee owner (or the bank) and credits the bank cashback.
+  settleFlightFare(player, fare, payeeId) {
+    const payee = payeeId ? this.getPlayerById(payeeId) : null;
+    player.cash -= fare;
+    if (payee) payee.cash += fare;
+    this.creditBankCashback(player, fare, 'FLIGHT');
+    return payee;
+  },
+
+  // Flying is the turn's move: no roll, no extra roll, and no Start salary.
+  // The position is assigned directly, so no tile is walked and Start is never crossed.
+  // lastFlight tells clients to snap the token instead of animating a walk.
+  moveByFlight(player, origin, destination) {
+    this.lastFlight = { playerId: player.id, from: origin.index, to: destination.index };
+    player.position = destination.index;
+    this.trackRailroadVisit(player, destination);
+    this.hasRolled = true;
+    this.turnAllowsExtraRoll = false;
+    this.extraRollPending = false;
+    this.consecutiveDoubles = 0;
+  },
+
   flyToAirport(socketId, tileIndex) {
     const player = this.getPlayerBySocket(socketId);
     const destination = this.getTile(Number(tileIndex));
@@ -125,21 +143,8 @@ export const airportApi = {
     const { fare, basis, payeeId } = this.airportFare(origin, destination, player);
     if (player.cash < fare) return { success: false, error: `You need $${fare} to book this flight.` };
 
-    const payee = payeeId ? this.getPlayerById(payeeId) : null;
-    player.cash -= fare;
-    if (payee) payee.cash += fare;
-    this.creditBankCashback(player, fare, 'FLIGHT');
-
-    // Flying is the turn's move: no roll, no extra roll, and no Start salary.
-    // The position is assigned directly, so no tile is walked and Start is never crossed.
-    // lastFlight tells clients to snap the token instead of animating a walk.
-    this.lastFlight = { playerId: player.id, from: origin.index, to: destination.index };
-    player.position = destination.index;
-    this.trackRailroadVisit(player, destination);
-    this.hasRolled = true;
-    this.turnAllowsExtraRoll = false;
-    this.extraRollPending = false;
-    this.consecutiveDoubles = 0;
+    const payee = this.settleFlightFare(player, fare, payeeId);
+    this.moveByFlight(player, origin, destination);
 
     const destinationOwner = this.airportFeeOwner(destination);
     const where = `${origin.name} to ${destination.name}`;

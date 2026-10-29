@@ -33,27 +33,37 @@ function setOpen(next) {
   if (next) $("#chat-input")?.focus({ preventScroll: true });
 }
 
-export function renderChatDock() {
-  const panel = $(".chat-panel");
-  const toggle = $("#chat-toggle");
-  if (!panel || !toggle) return;
-  const count = state.messages?.length || 0;
+// Unread messages since the panel was last open; a new room starts from its current count.
+function trackUnread(count) {
   if (state.roomCode !== seenRoom) {
     seenRoom = state.roomCode;
     seenCount = count;
   }
   if (open) seenCount = count;
-  const unread = Math.max(0, count - seenCount);
+  return Math.max(0, count - seenCount);
+}
+
+function syncUnreadBadge(unread) {
+  const badge = $("#chat-unread");
+  if (!badge) return;
+  badge.hidden = open || unread === 0;
+  setText(badge, unread > 9 ? "9+" : String(unread));
+}
+
+function bindChatToggleOnce(toggle) {
+  if (bound) return;
+  bound = true;
+  toggle.addEventListener("click", () => setOpen(!open));
+}
+
+export function renderChatDock() {
+  const panel = $(".chat-panel");
+  const toggle = $("#chat-toggle");
+  if (!panel || !toggle) return;
+  const unread = trackUnread(state.messages?.length || 0);
   panel.classList.toggle("is-collapsed", !open);
   toggle.setAttribute("aria-expanded", String(open));
-  const badge = $("#chat-unread");
-  if (badge) {
-    badge.hidden = open || unread === 0;
-    setText(badge, unread > 9 ? "9+" : String(unread));
-  }
+  syncUnreadBadge(unread);
   toggle.setAttribute("aria-label", unread > 0 && !open ? `Parlor chat, ${unread} unread` : "Parlor chat");
-  if (!bound) {
-    bound = true;
-    toggle.addEventListener("click", () => setOpen(!open));
-  }
+  bindChatToggleOnce(toggle);
 }

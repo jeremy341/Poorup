@@ -23,7 +23,7 @@ export function sameOrigin(req, configuredOrigin = '') {
 // and do not count it as a server error. Anything else goes to the app's own handler.
 export function jsonBodyErrorHandler(error, _req, res, next) {
   const status = Number(error?.status || error?.statusCode);
-  if (res.headersSent || !(status >= 400 && status < 500)) return next(error);
+  if (res.headersSent || !isClientBodyError(status)) return next(error);
   const message = status === 415 ? 'The request encoding is not supported.' : 'The request body is not valid JSON.';
   return res.status(status).json({ success: false, error: message });
 }
@@ -36,6 +36,27 @@ const writeBudgets = new Map();
 // clock). A window that starts more than half a window ahead of ours belongs
 // to another clock, so it is not ours to extend: the caller opens a fresh one.
 const CLOCK_SKEW_TOLERANCE_MS = ADMIN_WRITE_WINDOW_MS / 2;
+
+// The account's open window when it is ours to extend, otherwise a fresh one.
+function usableWriteBucket(existing, current) {
+  const elapsed = existing ? current - existing.startedAt : Infinity;
+  const ahead = existing ? existing.startedAt - current : 0;
+  const usable = existing && elapsed < ADMIN_WRITE_WINDOW_MS && ahead <= CLOCK_SKEW_TOLERANCE_MS;
+  return usable ? existing : { startedAt: current, count: 0 };
+}
+
+// Keep the shared map from growing without end: only admins write, and a
+// window that is long gone is worth nothing.
+function pruneWriteBudgets(current) {
+  if (writeBudgets.size <= 64) return;
+  for (const [id, old] of writeBudgets) {
+    if (current - old.startedAt >= ADMIN_WRITE_WINDOW_MS) writeBudgets.delete(id);
+  }
+}
+
+function isClientBodyError(status) {
+  return status >= 400 && status < 500;
+}
 
 export function createAdminGuard({
   accountStore = null,
@@ -73,20 +94,10 @@ export function createAdminGuard({
   function writeGuard(req, res, next) {
     const current = now();
     const accountId = String(req.adminAccountId || '');
-    const existing = writeBudgets.get(accountId);
-    const elapsed = existing ? current - existing.startedAt : Infinity;
-    const ahead = existing ? existing.startedAt - current : 0;
-    const usable = existing && elapsed < ADMIN_WRITE_WINDOW_MS && ahead <= CLOCK_SKEW_TOLERANCE_MS;
-    const bucket = usable ? existing : { startedAt: current, count: 0 };
+    const bucket = usableWriteBucket(writeBudgets.get(accountId), current);
     bucket.count += 1;
     writeBudgets.set(accountId, bucket);
-    // Keep the shared map from growing without end: only admins write, and a
-    // window that is long gone is worth nothing.
-    if (writeBudgets.size > 64) {
-      for (const [id, old] of writeBudgets) {
-        if (current - old.startedAt >= ADMIN_WRITE_WINDOW_MS) writeBudgets.delete(id);
-      }
-    }
+    pruneWriteBudgets(current);
     if (bucket.count > ADMIN_WRITE_LIMIT) {
       res.setHeader('Retry-After', String(Math.ceil((bucket.startedAt + ADMIN_WRITE_WINDOW_MS - current) / 1000)));
       return res.status(429).json({ success: false, error: writeLimitMessage });

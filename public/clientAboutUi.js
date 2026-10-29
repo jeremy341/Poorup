@@ -76,6 +76,18 @@ function restoreView(view) {
   target?.focus({ preventScroll: true });
 }
 
+// A primary click without modifier keys: the only clicks the About links take over.
+function isPlainPrimaryClick(event) {
+  return event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey;
+}
+
+function scrollToAboutAnchor(event) {
+  event.preventDefault();
+  const target = document.getElementById(event.target.closest('a').getAttribute('href').slice(1));
+  target?.scrollIntoView({ block: 'start' });
+  target?.focus({ preventScroll: true });
+}
+
 export function bindAboutUi() {
   if (bound) return;
   bound = true;
@@ -96,19 +108,15 @@ export function bindAboutUi() {
   });
   hydrateSprites();
   document.addEventListener('click', event => {
+    const plain = isPlainPrimaryClick(event);
     const link = event.target.closest('a[href="/about"], [data-about-link]');
-    if (link && event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+    if (link && plain) {
       event.preventDefault();
       openAboutSurface();
     } else if (event.target.closest('[data-about-back]')) returnToPreviousView();
-    else if (event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.target.closest('#view-about a[href^="#about-"]')) {
-      event.preventDefault();
-      const target = document.getElementById(event.target.closest('a').getAttribute('href').slice(1));
-      target?.scrollIntoView({ block: 'start' });
-      target?.focus({ preventScroll: true });
-    }
+    else if (plain && event.target.closest('#view-about a[href^="#about-"]')) scrollToAboutAnchor(event);
     const entry = event.target.closest('#about-page-content [data-home-tab], #about-page-content [data-top-surface]');
-    if (entry && event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+    if (entry && plain) {
       event.preventDefault();
       if (entry.dataset.homeTab) openHomeTab(entry);
       else openTopSurface(entry);

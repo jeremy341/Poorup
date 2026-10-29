@@ -1,7 +1,11 @@
 import { esc } from './clientDom.js';
 
+function isNonBlankString(value) {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
 export function closeButtonHTML({ id, label, className = '' }) {
-  if (typeof id !== 'string' || !id.trim() || typeof label !== 'string' || !label.trim()) {
+  if (!isNonBlankString(id) || !isNonBlankString(label)) {
     throw new TypeError('A close button needs an id and an accessible label.');
   }
   const classes = ['btn-dark', 'surface-close', className].filter(Boolean).join(' ');
