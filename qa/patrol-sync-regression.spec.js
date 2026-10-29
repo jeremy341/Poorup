@@ -619,28 +619,32 @@ test('a ready acknowledgement delayed 2.1 seconds does not interrupt a playable 
   await expect(page.locator('[data-target-id="slow-ready"]')).toHaveCount(1);
 });
 
+// Runs in the page: starts a run with one offer whose ready acknowledgement never
+// arrives. The server replies to start and finish; ready attempts are only counted.
+async function startUnackedOffer({ kind, duration }) {
+  const { state } = await import('/clientState.js');
+  const patrol = await import('/clientNightShift.js');
+  state.account = { account: { id: 'test' } };
+  const now = Date.now();
+  const offer = { id: 'no-ack', kind, direction: 'right', lane: 32, duration, wave: 1, deliveryPending: true, offeredAt: now, readyBy: now + 10000, spawnedAt: null, actionableAt: null, expiresAt: null };
+  const base = { success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [offer], ended: false, paused: false };
+  window.watchdogStart = null; window.watchdogFinish = null; window.watchdogAttempts = 0;
+  const serverHandlers = {
+    'start-patrol-run': ({ callback }) => callback(base),
+    'ready-patrol-target': () => { window.watchdogAttempts++; window.watchdogStart = window.watchdogStart || performance.now(); },
+    'finish-patrol-run': ({ callback }) => { window.watchdogFinish = performance.now(); callback({ success: true, score: 0, best: 0 }); },
+  };
+  patrol.configureNightShift({ ...window.patrolNoopDeps(),
+    emitServer(event, payload, callback) { serverHandlers[event]?.({ payload, callback }); } });
+  patrol.startNightShift();
+}
+
 test('missing ready acknowledgements time out near but before each target flight ends', async ({ page }) => {
   await enable(page);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   for (const [kind, duration] of [['airplane', 2800], ['helicopter', 7340]]) {
     await page.goto('/');
-    await page.evaluate(async ({ kind, duration }) => {
-      const { state } = await import('/clientState.js');
-      const patrol = await import('/clientNightShift.js');
-      state.account = { account: { id: 'test' } };
-      const now = Date.now();
-      const offer = { id: 'no-ack', kind, direction: 'right', lane: 32, duration, wave: 1, deliveryPending: true, offeredAt: now, readyBy: now + 10000, spawnedAt: null, actionableAt: null, expiresAt: null };
-      const base = { success: true, runToken: 'run', serverTime: now, revision: 1, wave: 1, endsAt: now + 60000, score: 0, hearts: 3, misses: 0, targets: [offer], ended: false, paused: false };
-      window.watchdogStart = null; window.watchdogFinish = null; window.watchdogAttempts = 0;
-      const serverHandlers = {
-        'start-patrol-run': (payload, callback) => callback(base),
-        'ready-patrol-target': () => { window.watchdogAttempts++; window.watchdogStart = window.watchdogStart || performance.now(); },
-        'finish-patrol-run': (payload, callback) => { window.watchdogFinish = performance.now(); callback({ success: true, score: 0, best: 0 }); },
-      };
-      patrol.configureNightShift({ ...window.patrolNoopDeps(),
-        emitServer(event, payload, callback) { serverHandlers[event]?.(payload, callback); } });
-      patrol.startNightShift();
-    }, { kind, duration });
+    await page.evaluate(startUnackedOffer, { kind, duration });
     await expect.poll(() => page.evaluate(() => window.watchdogFinish), { timeout: 10000 }).not.toBeNull();
     const timing = await page.evaluate(() => ({ elapsed: window.watchdogFinish - window.watchdogStart, attempts: window.watchdogAttempts }));
     expect(timing.attempts, kind).toBe(2);
