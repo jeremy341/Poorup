@@ -27,7 +27,8 @@ test('funding request names its room-wide audience and preserves equity terms', 
       state,
       surfaces,
       sponsorship,
-      openRequest() { sponsorship.requestSponsorship(5); },
+      // Live room sync can reset the opt-in setting; re-apply it on every open.
+      openRequest() { state.settings = { ...state.settings, playerFinance: true }; sponsorship.requestSponsorship(5); },
       openActiveEquity() {
         const offer = {
           id: 'visual-equity-active', mode: 'equity', sharePct: 25,

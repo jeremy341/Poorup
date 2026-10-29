@@ -67,7 +67,8 @@ test('emergency credit presents the complete bank terms and returns focus on can
       getOffer: () => ({ available: true, principal: 300, premium: 45, totalDue: 345, dueRound: 4, cureRound: 5, collateralName: 'Salvador', severity: 'standard' }),
       openSurface: surfaces.openSurface, closeSurface: surfaces.closeSurface,
     });
-    window.__reopenBankOffer = () => bank.openBankLoanOffer(document.querySelector('#open-create-btn'));
+    // Live room sync can reset the opt-in setting; re-apply it on every open.
+    window.__reopenBankOffer = () => { state.settings = { ...state.settings, bankLoans: true }; return bank.openBankLoanOffer(document.querySelector('#open-create-btn')); };
     window.__reopenBankOffer();
   });
   const card = page.locator('#bank-loan-card');

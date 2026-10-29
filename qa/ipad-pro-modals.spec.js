@@ -120,6 +120,8 @@ function captureContext(page, testInfo, outputDir) {
 async function captureSurface(context, surface) {
   const { page, testInfo, outputDir, capturedGameSurfaceIds } = context;
   const [filename, selector, openMethod, args, closeMethod] = surface;
+  // Live room sync can reset these opt-in settings while the page is busy; re-apply them before each surface opens.
+  await page.evaluate(() => { Object.assign(window.__ipadModalCapture.state.settings, { playerFinance: true, bankLoans: true }); });
   await page.evaluate(({ method, parameters }) => window.__ipadModalCapture[method](...parameters), { method: openMethod, parameters: args });
   await assertSurfaceOpen(page, selector);
   await assertPlayerCardBounds(page, selector);
