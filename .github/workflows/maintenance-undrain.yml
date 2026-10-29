@@ -3,9 +3,8 @@ name: Maintenance Undrain
 # If CI fails or is cancelled after Maintenance Drain opened the drain, return
 # the app to normal service so new rounds are not paused indefinitely. A
 # successful CI run instead proceeds to Deploy Nest, which ends in normal mode
-# itself. (Edge: a failed run can undrain a drain that a newer push reopened;
-# the newer push's own drain already ran first, and its CI will re-drain on
-# the deploy path if needed, so the window is seconds, not stuck states.)
+# itself. A newer CI run on main that is still pending owns the drain state, so
+# this run leaves it alone; the newer run's own drain and deploy finish the job.
 on:
   workflow_run:
     workflows: ["CI"]
@@ -21,20 +20,47 @@ concurrency:
 
 jobs:
   undrain:
+    # Same gates as Deploy Nest: a push to main from this repository only.
     if: >-
       ${{ github.event.workflow_run.conclusion != 'success'
         && github.event.workflow_run.head_branch == 'main'
+        && github.event.workflow_run.event == 'push'
+        && github.event.workflow_run.head_repository.full_name == github.repository
         && vars.NEST_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment: nest-production
+    permissions:
+      contents: read
+      actions: read
     steps:
       - name: Check out scripts
+        # end-drain.sh has no release coupling, so it comes from the default
+        # branch rather than from the commit that failed.
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
 
+      - name: Check for a newer pending CI run on main
+        id: newer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          THIS_RUN: ${{ github.event.workflow_run.id }}
+        run: |
+          # If the query itself fails, return to normal as before: a stuck drain
+          # is the worse outcome.
+          pending="$(gh run list --repo "$REPO" --workflow ci.yml --branch main --json databaseId,status --limit 20 --jq "[.[] | select(.status != \"completed\" and .databaseId != $THIS_RUN)] | length" 2>/dev/null || echo 0)"
+          echo "Pending newer CI runs on main: $pending"
+          if [ "$pending" -gt 0 ] 2>/dev/null; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "A newer CI run is pending; leaving the drain state to it."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Configure SSH
+        if: steps.newer.outputs.skip != 'true'
         env:
           NEST_DEPLOY_KEY: ${{ secrets.NEST_DEPLOY_KEY }}
           NEST_KNOWN_HOSTS: ${{ secrets.NEST_KNOWN_HOSTS }}
@@ -45,6 +71,7 @@ jobs:
           printf '%s\n' "$NEST_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
 
       - name: Return to normal service
+        if: steps.newer.outputs.skip != 'true'
         env:
           NEST_HOST: ${{ secrets.NEST_HOST }}
           NEST_USER: ${{ secrets.NEST_USER }}

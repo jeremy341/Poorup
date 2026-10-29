@@ -1,9 +1,10 @@
-// Property acquisition and the four build/sell/mortgage verbs as a
+// Property acquisition and deed/building/mortgage management as a
 // prototype mixin. gameLogic.js assigns this object onto GameState.prototype;
 // server/property-actions.test.js pins every error string and its precedence.
 import { PROPERTY_HOUSE_COST_BY_GROUP } from './gameData.js';
+import { unmortgageCostFor } from './propertyRules.js';
 
-// Property action dispatch: the four manageProperty verbs mapped to their
+// Property action dispatch: the manageProperty verbs mapped to their
 // handler method names on GameState, replacing the original if/else ladder.
 const PROPERTY_ACTION_HANDLERS = {
   'build-house': 'buildHousePropertyAction',
@@ -14,10 +15,36 @@ const PROPERTY_ACTION_HANDLERS = {
 
 const buildingLabel = (houseCount) => (houseCount >= 5 ? 'hotel' : 'house');
 
+// A finished match owns no property: every management verb is refused.
+const GAME_NOT_RUNNING_ERROR = 'The game is not running.';
+const BANK_DEED_BUYBACK_UNAVAILABLE = 'Bank deed buyback is unavailable. Trade the deed to another player.';
+
+// What the seat still owes through the shared claim queue: the head claim plus
+// every queued one. gameLogic.js exposes the same total as
+// pendingDebtAmountFor; the fallback keeps this mixin usable on its own.
+function pendingDebtOwedBy(game, player) {
+  if (!player) return 0;
+  if (typeof game.pendingDebtAmountFor === 'function') return game.pendingDebtAmountFor(player.id);
+  let owed = game.pendingPayment?.playerId === player.id
+    ? Math.max(0, Number(game.pendingPayment.amountRemaining) || 0)
+    : 0;
+  (Array.isArray(game.pendingPaymentQueue) ? game.pendingPaymentQueue : []).forEach(entry => {
+    if (entry?.payment?.playerId === player.id) owed += Math.max(0, Number(entry.payment.amountRemaining) || 0);
+  });
+  return owed;
+}
+
+// The cash a seat may still spend: the debt it owes through the claim queue
+// is reserved for the creditor, so it cannot be spent on a house or a deed.
+function spendableCash(game, player) {
+  return player.cash - pendingDebtOwedBy(game, player);
+}
+
 function propertyCashReason(game, player, cost, insufficientMessage) {
-  if (player.cash < cost) return insufficientMessage;
+  const spendable = spendableCash(game, player);
+  if (spendable < cost) return insufficientMessage;
   const auction = game.auction;
-  if (auction?.active && auction.highestBidderId === player.id && player.cash - cost < auction.highestBid) {
+  if (auction?.active && auction.highestBidderId === player.id && spendable - cost < auction.highestBid) {
     return 'Keep enough cash to cover your current auction bid.';
   }
   return null;
@@ -38,6 +65,7 @@ function unmortgageActionReason(game, player, tile, unmortgageCost) {
 function propertyActionSpecificReason({ game, player, tile, action, costs }) {
   if (action === 'build-house') return buildActionReason(game, player, tile, costs.houseCost);
   if (action === 'sell-house' && !game.canSellFromTile(player, tile)) return 'You cannot sell a house from this property right now.';
+  if (action === 'trade-deed') return game.tradeDeedActionRejection(player, tile);
   if (action === 'mortgage' && !game.canMortgageTile(player, tile)) return 'You cannot mortgage this property right now.';
   if (action === 'unmortgage') return unmortgageActionReason(game, player, tile, costs.unmortgageCost);
   return null;
@@ -94,7 +122,7 @@ const propertyApi = {
     if (this.pendingPurchaseOffer.playerId !== player.id) return unavailable;
     if (this.pendingPurchaseOffer.tileIndex !== tileIndex) return unavailable;
     if (this.pendingSponsoredPurchase?.buyerId === player.id) return { success: false, error: 'Resolve the open sponsorship before buying this property.' };
-    if (player.cash < tile.price) return { success: false, error: 'Insufficient cash to purchase this property.' };
+    if (spendableCash(this, player) < tile.price) return { success: false, error: 'Insufficient cash to purchase this property.' };
     return null;
   },
 
@@ -111,7 +139,11 @@ const propertyApi = {
 
   acceptPurchaseOffer(player, tile) {
     player.cash -= tile.price;
+    // Spending the last dollar is an empty wallet, exactly like an auction win
+    // or a debt payment: the null-player fact has to be recorded here.
+    if (player.cash === 0) player.zeroCashReached = true;
     tile.ownerId = player.id;
+    tile.purchasePricePaid = tile.price;
     tile.mortgaged = false;
     tile.houseCount = 0;
     if (!player.properties.includes(tile.index)) player.properties.push(tile.index);
@@ -142,6 +174,7 @@ const propertyApi = {
   },
 
   auctionStartResult(auction) {
+    if (auction.auctionPaused) return { success: true, message: auction.error };
     if (auction.success === false) return auction;
     return { success: true, auctionStarted: true, message: 'Auction started for the declined property.' };
   },
@@ -173,11 +206,14 @@ const propertyApi = {
 
   manageProperty(socketId, payload = {}) {
     const { tileIndex, action } = payload || {};
+    if (action === 'sell-deed') return { success: false, error: BANK_DEED_BUYBACK_UNAVAILABLE };
     const player = this.getPlayerBySocket(socketId);
     const tile = this.getTile(Number(tileIndex));
     const rejection = this.propertyActionRejection(player, tile, action);
     if (rejection) return rejection;
-    const handlerName = PROPERTY_ACTION_HANDLERS[action];
+    // Own keys only: 'constructor' or 'toString' would otherwise resolve to a
+    // non-string and throw on the dispatch below.
+    const handlerName = typeof action === 'string' && Object.hasOwn(PROPERTY_ACTION_HANDLERS, action) ? PROPERTY_ACTION_HANDLERS[action] : null;
     if (!handlerName) return { success: false, error: 'Unknown property action.' };
     const result = this[handlerName](player, tile);
     this.settleDebtAfterPropertyAction(player, result);
@@ -193,11 +229,13 @@ const propertyApi = {
     this.trySettlePendingPayment();
   },
 
-  // The shared gates of all four actions, in the historical order: existence,
-  // ownership, then the build/sell turn window (relaxed while settling debt).
-  // Mortgage legs skip the turn window; live-seat, property-specific offer,
-  // and cash-reservation checks still apply.
+  // The shared gates of management actions, in historical order: existence and ownership first. Building follows the turn window;
+  // selling buildings stays legal off-turn for classic liquidity and debt rescue. Mortgage legs also skip the turn window;
+  // live-seat and property-offer gates still apply.
   propertyActionRejection(player, tile, action) {
+    // A finished match owns no property: build, sell, mortgage and unmortgage
+    // are refused before any gate below can touch the table.
+    if (!this.started) return { success: false, error: GAME_NOT_RUNNING_ERROR };
     if (!player) return { success: false, error: 'Property not found.' };
     if (!tile) return { success: false, error: 'Property not found.' };
     // Dead seats act on nothing: the live-seat gate leads every leg
@@ -207,6 +245,12 @@ const propertyApi = {
     if (tile.ownerId !== player.id) return { success: false, error: 'You do not own this property.' };
     const openOffer = this.propertyOpenOfferRejection(tile);
     if (openOffer) return openOffer;
+    // An open escrow is sized against the buyer's cash, so no cash-moving
+    // leg may run until it resolves (see purchaseTermsRejection).
+    if (this.pendingSponsoredPurchase?.buyerId === player.id) {
+      return { success: false, error: 'Resolve the open sponsorship before managing this property.' };
+    }
+    if (action === 'sell-deed') return { success: false, error: BANK_DEED_BUYBACK_UNAVAILABLE };
     if (this.isBuildOrSellAction(action)) return this.buildSellRejection(player, action);
     if (action === 'unmortgage') return this.unmortgageActionRejection(player);
     return this.mortgageActionRejection(player);
@@ -232,6 +276,7 @@ const propertyApi = {
   },
 
   buildSellRejection(player, action) {
+    if (action === 'sell-house') return null;
     if (!this.pendingDebtFor(player)) return this.buildWindowRejection(player);
     if (action === 'build-house') return { success: false, error: 'You cannot build while settling a debt.' };
     return null;
@@ -253,15 +298,15 @@ const propertyApi = {
     return action === 'sell-house';
   },
 
+  // Every claim the seat still owes, head plus queue: a claim parked behind
+  // another debtor is still owed cash, so it gates the same verbs.
   pendingDebtFor(player) {
-    const pending = this.pendingPayment;
-    if (!pending) return false;
-    return pending.playerId === player.id;
+    return pendingDebtOwedBy(this, player) > 0;
   },
 
   buildWindowRejection(player) {
     if (player.id !== this.currentPlayerId) {
-      return { success: false, error: 'You can only build or sell during your turn.' };
+      return { success: false, error: 'You can only build during your turn.' };
     }
     if (this.hasRolled && !this.awaitingEndTurn) return this.rolledWindowRejection();
     return null;
@@ -269,7 +314,7 @@ const propertyApi = {
 
   rolledWindowRejection() {
     if (this.extraRollPending) return null;
-    return { success: false, error: 'You can only build or sell before rolling the dice.' };
+    return { success: false, error: 'You can only build before rolling the dice.' };
   },
 
   buildingLimitRejection(player) {
@@ -323,13 +368,24 @@ const propertyApi = {
     if (!this.canSellFromTile(player, tile)) {
       return { success: false, error: 'You cannot sell a house from this property right now.' };
     }
-    const cost = this.getPropertyHouseCost(tile);
+    const saleValue = this.houseResaleValue(tile);
     const wasHotel = (tile.houseCount || 0) >= 5;
     tile.houseCount = Math.max(0, (tile.houseCount || 0) - 1);
-    player.cash += Math.floor(cost * this.buildingSaleMultiplier());
+    player.cash += saleValue;
     if (this.globalEventActive('housing-bubble')) player.soldBuildingsDuringHousingBubble = (player.soldBuildingsDuringHousingBubble || 0) + 1;
     this.feedMessage(`${player.nickname} sold a ${buildingLabel(wasHotel ? 5 : 0)} from ${tile.name}.`);
     return { success: true };
+  },
+
+  // A house sells back for half its cost. The basis is the printed group house cost, capped at the current build cost, so a
+  // cost-raising event cannot let a house built earlier (or during a cost-cutting event) sell for more than was paid for it.
+  houseResaleBasis(tile) {
+    const printed = PROPERTY_HOUSE_COST_BY_GROUP[tile?.group] || 0;
+    return Math.min(printed, this.getPropertyHouseCost(tile));
+  },
+
+  houseResaleValue(tile) {
+    return Math.max(0, Math.floor(this.houseResaleBasis(tile) * this.buildingSaleMultiplier()));
   },
 
   buildingSaleMultiplier() {
@@ -342,16 +398,22 @@ const propertyApi = {
   propertyActionProjection(player, tile) {
     if (!ownsProperty(player, tile)) return null;
     const houseCost = this.getPropertyHouseCost(tile);
-    const saleValue = Math.floor(houseCost * this.buildingSaleMultiplier());
+    const saleValue = this.houseResaleValue(tile);
     const mortgageValue = Math.floor((tile.price || 0) / 2 * this.propertyValueMultiplier());
-    const unmortgageCost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1 * this.propertyValueMultiplier());
+    const unmortgageCost = unmortgageCostFor(tile.price, this.propertyValueMultiplier());
     const costs = { houseCost, unmortgageCost };
+    const tradeDeedReason = this.tradeDeedActionRejection(player, tile);
     return {
       buildHouse: projectedAction({ game: this, player, tile, action: 'build-house', cost: houseCost, costs }),
       sellHouse: projectedAction({ game: this, player, tile, action: 'sell-house', cost: saleValue, costs }),
       mortgage: projectedAction({ game: this, player, tile, action: 'mortgage', cost: mortgageValue, costs }),
-      unmortgage: projectedAction({ game: this, player, tile, action: 'unmortgage', cost: unmortgageCost, costs })
+      unmortgage: projectedAction({ game: this, player, tile, action: 'unmortgage', cost: unmortgageCost, costs }),
+      tradeDeed: { enabled: !tradeDeedReason, reason: tradeDeedReason }
     };
+  },
+
+  sellDeedPropertyAction(player, tile) {
+    return { success: false, error: BANK_DEED_BUYBACK_UNAVAILABLE };
   },
 
   mortgagePropertyAction(player, tile) {
@@ -376,7 +438,7 @@ const propertyApi = {
     if (!this.canUnmortgageTile(player, tile)) {
       return { success: false, error: 'You cannot unmortgage this property right now.' };
     }
-    const cost = Math.ceil(Math.floor((tile.price || 0) / 2) * 1.1 * this.propertyValueMultiplier());
+    const cost = unmortgageCostFor(tile.price, this.propertyValueMultiplier());
     const cashReason = propertyCashReason(this, player, cost, 'Insufficient cash to unmortgage this property.');
     if (cashReason) return { success: false, error: cashReason };
     player.cash -= cost;

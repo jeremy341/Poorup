@@ -160,7 +160,7 @@ test.describe('iPad external pages', () => {
     await expectNoDocumentScroll(page);
   });
 
-  test('portrait rules progressively discloses search and chapter navigation', async ({ page }, testInfo) => {
+  test('portrait rules keeps chapter navigation without a search feature', async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 820, height: 1180 });
     await page.goto('/');
     await page.locator('#home-rules-tab').click();
@@ -169,20 +169,12 @@ test.describe('iPad external pages', () => {
     const searchInput = page.locator('#rules-page-content #rules-search');
     const chapterToggle = page.locator('#rules-page-content [data-rules-chapters-toggle]');
     const chapterNav = page.locator('#rules-page-content .rules-index-nav');
-    await expect(searchToggle).toBeVisible();
-    await expect(searchToggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(searchInput).toBeHidden();
-    expect(await searchToggle.evaluate((button) => button.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+    await expect(searchToggle).toHaveCount(0);
+    await expect(searchInput).toHaveCount(0);
     await expect(chapterToggle).toBeVisible();
     await expect(chapterToggle).toHaveAttribute('aria-expanded', 'false');
     await expect(chapterNav).toBeHidden();
     expect(await chapterToggle.evaluate((button) => button.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
-
-    await searchToggle.click();
-    await expect(searchInput).toBeVisible();
-    await searchInput.fill('prison');
-    await expect(searchToggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(searchInput).toHaveValue('prison');
 
     await chapterToggle.click();
     await expect(chapterNav).toBeVisible();

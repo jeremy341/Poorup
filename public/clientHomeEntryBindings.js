@@ -1,10 +1,6 @@
-/* ============================================================
-   HOME ENTRY BINDINGS: the "join a table" form, the room-code /
-   nickname sanitising inputs and the guest-alias editor. They only
-   mutate state.alias via the shared profile helpers; opening the
-   parlor and closing the rooms modal are injected by the entry
-   module (they live in the rooms/lobby cluster).
-   ============================================================ */
+// HOME ENTRY BINDINGS: the join-a-table form, room-code and nickname sanitising inputs, and the
+// guest-alias editor. They only mutate state.alias via the shared profile helpers. Opening the
+// parlor and closing the rooms modal are injected by the entry module (they live in the rooms/lobby cluster).
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { saveGuestAlias } from "./clientSanitize.js";

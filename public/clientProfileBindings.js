@@ -1,14 +1,13 @@
-/* ============================================================
-   PROFILE BINDINGS: the profile/account/achievements surface
-   bindings plus the design-editor state machine (draft, save,
-   delete, face painting). showView and emitServer are injected by
-   the entry module; every selector, string and payload is the
-   exact old main.js code.
-   ============================================================ */
+// PROFILE BINDINGS: the profile/account/achievements surface
+// bindings plus the design-editor state machine (draft, save,
+// delete, face painting). showView and emitServer are injected by
+// the entry module; every selector, string and payload is the
+// exact main.js code.
 import { $ } from "./clientDom.js";
 import { state, getProfileById, upsertProfile, deleteProfile } from "./clientState.js";
 import { MAX_PROFILES, profileDesignName } from "./clientSanitize.js";
 import { emptyFaceGrid, faceGridFromPreset, cloneFaceGrid } from "./clientSprites.js";
+import { saveFaceToAccount } from "./clientAccountAppearance.js";
 import {
   renderProfileSummary,
   renderProfileLibrary,
@@ -16,9 +15,13 @@ import {
   updateProfilePreview,
   paintFaceCell,
   renderAccountPanel,
-  profileHistoryToggleAccessibleName,
+  setProfileHistoryExpanded,
+  selectProfileHistoryDetailTab,
+  setProfileHistoryFilter,
+  setAllProfileHistoryRowsExpanded,
 } from "./clientProfileRender.js";
 import { openConfirmModal } from "./clientSurfaces.js";
+import { setFaceFocus } from "./clientProfileRender.js";
 import {
   openAchievementModal,
   closeAchievementModal,
@@ -104,34 +107,30 @@ function onProfileStatsClick(event) {
 }
 
 function onProfileHistoryClick(event) {
+  const filter = event.target.closest("[data-profile-history-filter]");
+  if (filter && filter.tagName !== "SELECT") {
+    setProfileHistoryFilter(filter.getAttribute("data-profile-history-filter"));
+    return;
+  }
+  const bulk = event.target.closest("[data-profile-history-bulk]");
+  if (bulk) {
+    setAllProfileHistoryRowsExpanded(bulk.getAttribute("data-profile-history-bulk") === "expand");
+    return;
+  }
   const toggle = event.target.closest("[data-profile-history-toggle]");
   if (toggle) {
-    const details = document.getElementById(toggle.getAttribute("aria-controls"));
-    if (!details) return;
     const scrollContainer = toggle.closest("#view-profile")?.querySelector(".profile-main");
     const scrollTop = scrollContainer?.scrollTop ?? 0;
     const expanded = toggle.getAttribute("aria-expanded") !== "true";
-    toggle.setAttribute("aria-expanded", String(expanded));
-    toggle.setAttribute("aria-label", profileHistoryToggleAccessibleName(toggle.getAttribute("aria-label"), expanded));
-    toggle.querySelector("[aria-hidden='true']")?.replaceChildren(document.createTextNode(expanded ? "DETAILS −" : "DETAILS +"));
-    details.hidden = !expanded;
+    if (!setProfileHistoryExpanded(toggle, expanded)) return;
     toggle.focus({ preventScroll: true });
     if (scrollContainer) scrollContainer.scrollTop = scrollTop;
     return;
   }
 
   const tab = event.target.closest("[data-profile-history-detail-tab]");
-  if (!tab) return;
-  const details = tab.closest(".profile-history-details");
-  const selected = tab.getAttribute("aria-controls");
-  details.querySelectorAll("[data-profile-history-detail-tab]").forEach((button) => {
-    const active = button === tab;
-    button.setAttribute("aria-selected", String(active));
-    button.tabIndex = active ? 0 : -1;
-  });
-  details.querySelectorAll("[role='tabpanel']").forEach((panel) => {
-    panel.hidden = panel.id !== selected;
-  });
+  if (!tab || !tab.closest(".profile-history-details")) return;
+  selectProfileHistoryDetailTab(tab);
   tab.focus({ preventScroll: true });
 }
 
@@ -139,7 +138,24 @@ function onProfileHistoryKeydown(event) {
   const statsTablist = event.target.closest(".profile-stat-tabs");
   if (statsTablist && focusTabWithKey(event, statsTablist, "[data-profile-stat-tab]")) return;
   const detailTablist = event.target.closest(".profile-history-detail-tabs");
-  if (detailTablist) focusTabWithKey(event, detailTablist, "[data-profile-history-detail-tab]");
+  if (detailTablist) {
+    focusTabWithKey(event, detailTablist, "[data-profile-history-detail-tab]");
+    return;
+  }
+  const row = event.target.closest(".profile-history-toggle");
+  if (!row) return;
+  // Up/Down walk the round list; Home/End jump to its ends. Past either end the key keeps its normal scroll.
+  const toggles = [...event.currentTarget.querySelectorAll(".profile-history-toggle")];
+  const at = toggles.indexOf(row);
+  const target = { ArrowDown: toggles[at + 1], ArrowUp: toggles[at - 1], Home: toggles[0], End: toggles[toggles.length - 1] }[event.key];
+  if (!target) return;
+  event.preventDefault();
+  target.focus();
+}
+
+function onProfileHistoryChange(event) {
+  const select = event.target.closest?.("select[data-profile-history-filter]");
+  if (select) setProfileHistoryFilter(`${select.getAttribute("data-profile-history-filter")}:${select.value}`);
 }
 
 /** Open editor. Pass a profile id to edit, or nothing to create a new one. */
@@ -191,26 +207,18 @@ function draftProfilePayload(d, asNew) {
   };
 }
 
-function accountUpdateAck(response) {
-  if (response?.success) {
-    updateAccountFromResponse(response);
-    return;
-  }
-  const error = response?.error;
-  if (!error) return;
-  const announcer = $("#error-announcer");
-  if (announcer) announcer.textContent = error;
-}
-
 function syncSavedDesignToAccount(saved) {
-  if (!state.account?.sessionToken) return;
-  host.emitServer("account-update", {
-    sessionToken: state.account.sessionToken,
-    color: saved.color,
-    avatarGrid: saved.avatarGrid,
-  }, accountUpdateAck);
+  if (!state.account) return;
+  saveFaceToAccount({ color: saved.color, avatarGrid: saved.avatarGrid }).then((result) => {
+    if (result.success) {
+      renderAccountPanel();
+      return;
+    }
+    if (result.skipped) return;
+    const announcer = $("#error-announcer");
+    if (announcer) announcer.textContent = result.error;
+  });
 }
-
 function stayAfterSave(saved) {
   state.editingProfileId = saved.id;
   state.profileDraft = draftFromSource(saved);
@@ -382,6 +390,24 @@ function onFaceCellClick(e) {
 function onFaceCellKeydown(e) {
   const cell = e.target.closest(".face-cell");
   if (!cell) return;
+  const step = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] }[e.key];
+  if (step) {
+    e.preventDefault();
+    const canvas = cell.closest("#face-canvas") || cell.parentElement;
+    const cells = [...canvas.querySelectorAll(".face-cell")];
+    const cols = Math.max(...cells.map(c => Number(c.dataset.x))) + 1;
+    const rows = Math.max(...cells.map(c => Number(c.dataset.y))) + 1;
+    const x = Math.min(cols - 1, Math.max(0, Number(cell.dataset.x) + step[0]));
+    const y = Math.min(rows - 1, Math.max(0, Number(cell.dataset.y) + step[1]));
+    const next = canvas.querySelector(`.face-cell[data-x="${x}"][data-y="${y}"]`);
+    if (next) {
+      setFaceFocus(x, y);
+      cells.forEach(c => { c.tabIndex = -1; });
+      next.tabIndex = 0;
+      next.focus();
+    }
+    return;
+  }
   if (e.key !== "Enter" && e.key !== " ") return;
   e.preventDefault();
   paintFaceCell(Number(cell.dataset.x), Number(cell.dataset.y));
@@ -408,7 +434,8 @@ export function bindProfileUi() {
   $("#profile-statistics-content")?.addEventListener("keydown", onProfileHistoryKeydown);
   $("#profile-history-content")?.addEventListener("click", onProfileHistoryClick);
   $("#profile-history-content")?.addEventListener("keydown", onProfileHistoryKeydown);
-  // profile editor — entry points
+  $("#profile-history-content")?.addEventListener("change", onProfileHistoryChange);
+  // profile editor: entry points
   document.querySelectorAll("[data-global-profile-trigger]").forEach((button) => {
     button.addEventListener("click", onActiveProfileEditClick);
   });
@@ -452,10 +479,10 @@ export function bindProfileUi() {
   $("#account-logout-btn")?.addEventListener("click", logoutAccount);
   $("#account-scrim")?.addEventListener("click", closeAccountModal);
 
-  // profile editor — delete
+  // profile editor: delete
   $("#profile-delete-btn")?.addEventListener("click", onProfileDeleteBtnClick);
 
-  // profile editor — identity
+  // profile editor: identity
   $("#profile-name")?.addEventListener("input", (e) => {
     state.profileDraft.designName = e.target.value.toUpperCase().slice(0, 12);
     updateProfilePreview();
@@ -471,7 +498,7 @@ export function bindProfileUi() {
     renderProfileEditor();
   });
 
-  // profile editor — face canvas painting (click + drag)
+  // profile editor: face canvas painting (click + drag)
   const faceCanvasEl = $("#face-canvas");
   faceCanvasEl?.addEventListener("mousedown", onFaceMouseDown);
   faceCanvasEl?.addEventListener("mouseover", onFaceMouseOver);
@@ -483,7 +510,7 @@ export function bindProfileUi() {
   window.addEventListener("pointerup", () => { isPainting = false; });
   faceCanvasEl?.addEventListener("dragstart", (e) => e.preventDefault());
 
-  // profile editor — ink palette + tools
+  // profile editor: ink palette + tools
   $("#face-palette")?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-ink]");
     if (!btn) return;
@@ -513,7 +540,7 @@ export function bindProfileUi() {
     renderProfileEditor();
   });
 
-  // profile editor — save / cancel / back
+  // profile editor: save / cancel / back
   $("#profile-cancel-btn")?.addEventListener("click", () => closeProfileEditor(false));
   $("#profile-back-btn")?.addEventListener("click", () => closeProfileEditor(false));
 }

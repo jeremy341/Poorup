@@ -1,19 +1,19 @@
-/* ============================================================
-   SOCKET LISTENERS: every socket.on(...) boundary for the client.
-   The listeners update shared state and re-render through hooks
-   injected by the entry module (emitServer, setConnectionStatus,
-   renderAll, say, renderChat, handleRestoreSessionResponse,
-   openChoiceModal, openCardReveal, openOfferModal, serverSyncHost).
-   Event names and payload shapes are byte-identical to the old
-   inline block in main.js.
-   ============================================================ */
+// SOCKET LISTENERS: every socket.on(...) boundary. Listeners update shared state and re-render
+// through hooks from the entry module (emitServer, renderAll, say, openChoiceModal and so on).
+// Event names and payload shapes must stay byte-identical to the inline block in main.js.
 import { state, saveAccountSession, activeAppearance, buildPlayers } from "./clientState.js";
 import { $ } from "./clientDom.js";
-import { afterPieceMovement, applyServerState } from "./clientStateSync.js";
+import { afterPieceMovement, applyServerState, markContractOfferAnnounced } from "./clientStateSync.js";
 import { TILES, TILE_COUNT } from "./clientBoardData.js";
 import { serverTileFor } from "./clientDeedRules.js";
 import { renderRightRail } from "./clientRailRender.js";
 import {
+  ACCOUNT_SESSION_READY_KEY,
+  bootstrapAccountCookieSession,
+  canApplyAccountSocialUpdate,
+  getAccountAuthGeneration,
+  isAccountAuthGenerationCurrent,
+  resetAccountScopedClientState,
   renderAchievements,
   updateAccountFromResponse,
 } from "./clientAccountIdentity.js";
@@ -25,7 +25,7 @@ import {
 } from "./clientSocialSurfaces.js";
 import { applyRoomsUpdated } from "./clientRoomsUi.js";
 import { onSponsorshipUpdate } from "./clientSponsorshipUi.js";
-import { ACCOUNT_SESSION_KEY, clearLocalPlayerData, loadGuestAlias } from "./clientSanitize.js";
+import { ACCOUNT_SESSION_KEY, clearLocalPlayerData, loadAccountSession, loadGuestAlias } from "./clientSanitize.js";
 import { DEFAULT_THEME_ID } from "./clientThemeData.js";
 import { reconcileAccountLifecycleEvent } from "./clientAccountRights.js";
 import { isTradeOfferDismissed } from "./clientTradeOfferDismissal.js";
@@ -47,16 +47,42 @@ let host = {
   applyMaintenanceState: noop,
   syncAudioButtons: noop,
   syncHomeMusic: noop,
+  closePlayerSurface: noop,
+  reconnectSocket: noop,
   serverSyncHost: {},
 };
 let storageListenerInstalled = false;
 let pendingAccountSync = null;
+let cookieSessionReady = null;
+let pendingCrossTabAccountId = null;
 
 function noop() {}
 
-export function reconcileSignedOutState(message = "This account session ended in another tab.") {
-  clearLocalPlayerData();
-  saveAccountSession(null);
+function clearLocalPlayerDataPreservingAccountSession() {
+  const storage = globalThis.localStorage;
+  if (!storage || typeof storage.length !== "number") return clearLocalPlayerData();
+  const keys = [];
+  try {
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (typeof key === "string" && key !== ACCOUNT_SESSION_KEY) keys.push(key);
+    }
+  } catch { return clearLocalPlayerData(); }
+  return clearLocalPlayerData({
+    get length() { return keys.length; },
+    key(index) { return keys[index] || null; },
+    removeItem(key) { storage.removeItem(key); },
+  });
+}
+
+export function reconcileSignedOutState(message = "This account session ended in another tab.", { persistSession = true, notify = true } = {}) {
+  resetAccountScopedClientState();
+  pendingAccountSync = null;
+  cookieSessionReady = null;
+  const clearPrivateStorage = persistSession ? clearLocalPlayerData : clearLocalPlayerDataPreservingAccountSession;
+  clearPrivateStorage();
+  if (persistSession) saveAccountSession(null);
+  else state.account = null;
   state.account = null;
   state.profiles = [];
   state.appearance = 0;
@@ -70,34 +96,66 @@ export function reconcileSignedOutState(message = "This account session ended in
   state.music = false;
   state.unlockedAchievements = new Set();
   state.achievementRecords = new Map();
-  state.selectedPlayer = null;
-  state.selectedPlayerRelationship = "none";
-  state.selectedPlayerHistory = null;
-  state.social = { friends: [], requests: [], outgoing: [], invites: [], notifications: [], recentPlayers: [] };
   renderAccountPanel();
   applyProfileToHomeUI();
   renderProfileLibrary();
   host.syncAudioButtons();
   host.syncHomeMusic();
   host.renderAll();
-  // A live-room render can persist a guest save; ensure account-owned local
-  // data stays cleared after the render hook has completed.
-  clearLocalPlayerData();
-  host.notice("ACCOUNT", message);
+  host.renderSocialSurfaces?.();
+  host.closePlayerSurface?.();
+  // A live-room render can persist a guest save. Account-owned local data
+  // must stay cleared after the render hook completes.
+  clearPrivateStorage();
+  if (notify) host.notice("ACCOUNT", message);
+}
+
+function applyLifecycleStorage(newValue) {
+  try {
+    reconcileAccountLifecycleEvent(JSON.parse(newValue), state);
+    renderAccountPanel();
+    host.renderAll();
+  } catch { /* malformed cross-tab lifecycle data is ignored */ }
+}
+
+function applySessionReadyStorage(newValue) {
+  try {
+    const ready = JSON.parse(newValue);
+    const account = loadAccountSession()?.account;
+    if (!account || account.id !== ready?.accountId) return;
+    if (state.account?.account?.id && state.account.account.id !== account.id) {
+      pendingCrossTabAccountId = account.id;
+      reconcileSignedOutState("Account changed in another tab.", { persistSession: false });
+    }
+    if (pendingCrossTabAccountId && pendingCrossTabAccountId !== account.id) return;
+    pendingCrossTabAccountId = null;
+    pendingAccountSync = null;
+    cookieSessionReady = null;
+    updateAccountFromResponse({ account, sessionToken: "", logoutToken: "" });
+    host.reconnectSocket();
+  } catch { /* malformed cross-tab session readiness is ignored */ }
 }
 
 export function onStorage(event) {
   if (event?.key === "poorup.account.lifecycle.v1" && event.newValue) {
-    try {
-      reconcileAccountLifecycleEvent(JSON.parse(event.newValue), state);
-      renderAccountPanel();
-      host.renderAll();
-    } catch { /* malformed cross-tab lifecycle data is ignored */ }
+    applyLifecycleStorage(event.newValue);
     return;
   }
-  if (event?.key !== ACCOUNT_SESSION_KEY || event.newValue !== null) return;
-  if (!state.account?.account?.id) return;
-  reconcileSignedOutState();
+  if (event?.key === ACCOUNT_SESSION_READY_KEY && event.newValue) {
+    applySessionReadyStorage(event.newValue);
+    return;
+  }
+  if (event?.key !== ACCOUNT_SESSION_KEY) return;
+  if (event.newValue === null) {
+    pendingCrossTabAccountId = null;
+    if (state.account?.account?.id) reconcileSignedOutState();
+    return;
+  }
+  const nextAccount = loadAccountSession()?.account;
+  const currentAccountId = state.account?.account?.id || null;
+  if (!nextAccount?.id || !currentAccountId || nextAccount.id === currentAccountId) return;
+  pendingCrossTabAccountId = nextAccount.id;
+  reconcileSignedOutState("Account changed in another tab.", { persistSession: false });
 }
 
 export function isExplicitSessionInvalidation(response) {
@@ -106,41 +164,23 @@ export function isExplicitSessionInvalidation(response) {
   return /expired|invalid|revoked|sign in again|not found/.test(`${code} ${message}`);
 }
 
-function onSocketConnect(socket) {
+function onSocketConnect() {
   host.setConnectionStatus("online", true);
   if (state.account) {
-    bootstrapCookieSession();
-    if (state.account.sessionToken) restoreAccountSession(socket);
-  }
-  host.emitServer("restore-session", {}, (response) => host.handleRestoreSessionResponse(response, false));
-}
-
-function restoreAccountSession(socket) {
-  socket.emit("account-restore", { sessionToken: state.account.sessionToken }, (response) => {
-    if (response?.success) updateAccountFromResponse({ account: response.account, sessionToken: state.account.sessionToken });
-    else if (isExplicitSessionInvalidation(response)) reconcileSignedOutState(response.error || "Account session expired. Sign in again.");
-    else host.notice("ACCOUNT", "Account restore is temporarily unavailable. We will retry when the connection returns.");
-  });
-}
-
-function bootstrapCookieSession() {
-  if (typeof fetch !== "function" || !state.account) return;
-  const headers = state.account.sessionToken ? { "x-poorup-session-token": state.account.sessionToken } : {};
-  fetch("/account/session", { credentials: "include", headers }).then(response => {
-    if (!response.ok) {
-      if (response.status === 401 && !state.account?.sessionToken) reconcileSignedOutState("Account session expired. Sign in again.");
-      return null;
-    }
-    return response.json();
-  }).then(payload => {
-    if (!payload?.success || !payload.account) return;
-    updateAccountFromResponse({ account: payload.account, sessionToken: state.account?.sessionToken || "" });
-    if (pendingAccountSync) {
+    const generation = getAccountAuthGeneration();
+    const accountId = state.account.account?.id || null;
+    Promise.resolve(bootstrapAccountCookieSession()).then((ready) => {
+      if (!ready || !isAccountAuthGenerationCurrent(generation) || state.account?.account?.id !== accountId) return;
+      cookieSessionReady = { accountId, generation };
+      if (!pendingAccountSync) return;
       const buffered = pendingAccountSync;
       pendingAccountSync = null;
-      updateAccountFromResponse({ account: buffered, sessionToken: state.account?.sessionToken || "" });
-    }
-  }).catch(() => {});
+      if (buffered.generation === generation && buffered.account?.id === accountId) {
+        updateAccountFromResponse({ account: buffered.account, sessionToken: state.account?.sessionToken || "", logoutToken: state.account?.logoutToken || "" });
+      }
+    }).catch(() => {});
+  }
+  host.emitServer("restore-session", {}, (response) => host.handleRestoreSessionResponse(response, false));
 }
 
 function onSocialNotification(notification) {
@@ -152,8 +192,9 @@ function onSocialNotification(notification) {
   renderSocialSurface("#social-card");
 }
 
-function onMythicalAchievement(notification) {
+function onMythicalAchievement(notification, { includePrivate = true } = {}) {
   announceSocialNotification(notification);
+  if (!includePrivate) return;
   state.social.notifications = [notification, ...(state.social.notifications || [])].slice(0, 50);
   renderSocialSurface("#social-page-content");
 }
@@ -204,7 +245,8 @@ function onBotProviderStatus(status) {
     if (show) banner.textContent = "AI CREDITS EXHAUSTED · BOT IS NOW USING NO-AI MODE";
   }
   if (next.state === "quota-exhausted" && (!previous || previous.state !== next.state || previous.revision !== next.revision)) {
-    $("#error-announcer").textContent = "AI credits are exhausted. Bots are now using No-AI mode.";
+    // Informational, so it goes to the polite status region, not the assertive alert one.
+    $("#status-announcer").textContent = "AI credits are exhausted. Bots are now using No-AI mode.";
   }
   host.renderAll();
 }
@@ -246,14 +288,23 @@ function onAchievementUnlocked(notification) {
 }
 
 function onAccountSync({ account } = {}) {
-  if (!state.account?.sessionToken) {
-    if (account) pendingAccountSync = account;
+  const session = state.account;
+  const accountId = session?.account?.id;
+  if (!account || !accountId || account.id !== accountId) return;
+  const generation = getAccountAuthGeneration();
+  const hasActiveBearer = Boolean(session.sessionToken);
+  const hasVerifiedCookieSession = cookieSessionReady?.accountId === accountId && cookieSessionReady.generation === generation;
+  if (!hasActiveBearer && !hasVerifiedCookieSession) {
+    pendingAccountSync = { account, generation };
     return;
   }
-  if (!account) return;
-  updateAccountFromResponse({ account, sessionToken: state.account.sessionToken });
+  pendingAccountSync = null;
+  updateAccountFromResponse({
+    account,
+    sessionToken: session.sessionToken || "",
+    logoutToken: session.logoutToken || "",
+  });
 }
-
 function onAccountLifecycle(event) {
   if (!event?.state) return;
   reconcileAccountLifecycleEvent(event, state);
@@ -274,7 +325,7 @@ function onPlayerContractUpdate({ contract }) {
 
 function onChatMessage({ nickname, text, senderId }) {
   // senderId is the authoritative server player id; nickname matching stays
-  // only as a fallback (A4-F7: duplicate names cross-wire attribution).
+  // only as a fallback, since duplicate names cross-wire attribution.
   const sender = findChatSender(nickname, senderId);
   host.say(text, sender || { name: nickname, textColor: "#a79d7d" });
   host.renderChat();
@@ -378,7 +429,7 @@ function onTradeOffer({ trade }) {
 }
 
 function attachConnectionListeners(socket) {
-  socket.on("connect", () => onSocketConnect(socket));
+  socket.on("connect", onSocketConnect);
   socket.on("connect_error", () => host.setConnectionStatus("offline", true));
   socket.on("update-state", (snapshot) => {
     applyServerState(snapshot, host.serverSyncHost);
@@ -390,13 +441,18 @@ function attachConnectionListeners(socket) {
 
 function attachSocialListeners(socket) {
   socket.on("social-update", (social) => {
+    if (!canApplyAccountSocialUpdate()) return;
     state.social = social || state.social;
     syncSelectedPlayerRelationship();
     renderSocialSurface("#social-page-content");
     renderSocialSurface("#social-card");
   });
-  socket.on("social-notification", onSocialNotification);
-  socket.on("mythical-achievement", onMythicalAchievement);
+  socket.on("social-notification", (notification) => {
+    if (canApplyAccountSocialUpdate()) onSocialNotification(notification);
+  });
+  socket.on("mythical-achievement", (notification) => {
+    onMythicalAchievement(notification, { includePrivate: canApplyAccountSocialUpdate() });
+  });
   socket.on("achievement-unlocked", onAchievementUnlocked);
   socket.on("bot-status", onBotStatus);
   socket.on("bot-provider-status", onBotProviderStatus);
@@ -407,7 +463,8 @@ function attachAccountListeners(socket) {
   socket.on("account-lifecycle", onAccountLifecycle);
   socket.on("player-contract-offer", ({ contract }) => {
     state.playerContractOffer = contract || null;
-    announceSocialNotification({ body: "A player contract is waiting in Finance." });
+    markContractOfferAnnounced(contract);
+    announceSocialNotification({ title: "CONTRACT OFFER", body: "A player contract is waiting in Finance." });
     renderRightRail();
     if (contract?.id) host.openDealDetails("contract", contract.id);
   });

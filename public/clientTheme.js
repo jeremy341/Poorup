@@ -1,7 +1,5 @@
-/* ============================================================
-   THEME UI: keyboard-safe, local-only parlor look selector.
-   It changes atmosphere and CSS tokens only; no server payload is touched.
-   ============================================================ */
+// THEME UI: keyboard-safe, local-only parlor look selector.
+// It changes atmosphere and CSS tokens only; no server payload is touched.
 import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { MUSIC_MANIFEST, MUSIC_PREFERENCES_STORAGE_KEY, sanitizeTrackId } from "./clientMusicData.js";

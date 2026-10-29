@@ -56,8 +56,10 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await page.goto('/?rules=book');
     await expect(page.locator('#view-rules')).toBeVisible();
     if (await page.locator('#home-rules-tab').isVisible()) await page.locator('#home-rules-tab').click();
-    await expect(page.locator('#rules-page-content')).toContainText('Poorup Rules');
+    await expect(page.locator('#rules-page-content')).toContainText('How to play Poorup');
     await expect(page.locator('#rules-book-page-scroll')).toBeVisible();
+    // Optional systems live under one fold so the contents list stays short.
+    await page.locator('#rules-page-content .rules-more > summary').click();
     await expect(page.locator('#rules-page-content')).toContainText('GLOBAL EVENTS');
   });
 
@@ -175,10 +177,11 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await page.locator('#open-create-btn').click();
     await page.locator('#rc-create-btn').click();
     await page.locator('#su-start').click();
-    await expect(page.locator('#lobby-settings-body .lobby-player-row')).toHaveCount(1);
-    await expect(page.locator('#lobby-settings-body .lobby-host-badge')).toHaveCount(1);
+    await expect(page.locator('#lobby-settings-body .lobby-player-row')).toHaveCount(0);
+    await expect(page.locator('#player-list .player-row')).toHaveCount(1);
+    await expect(page.locator('#player-list .pr-tag-host')).toHaveCount(1);
     await expect(page.locator('#lobby-settings-body [data-setting="boardVariant"]')).toHaveValue('standard-40');
-    await expect(page.locator('#lobby-settings-body .lobby-player-row')).not.toContainText('BOT');
+    await expect(page.locator('#player-list .player-row')).not.toContainText('BOT');
     await expect(page.locator('#focus-btn')).toHaveCount(0);
     const shell = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, scrollHeight: document.documentElement.scrollHeight, width: window.innerWidth, height: window.innerHeight }));
     expect(shell).toEqual({ scrollWidth: shell.width, scrollHeight: shell.height, width: 1920, height: 1080 });
@@ -202,25 +205,27 @@ test.describe('Poorup ruleset and social surfaces', () => {
   test('Metro 52 and advanced Market keep the Activity rail contract', async ({ page, context }, testInfo) => {
     test.skip(testInfo.project.name !== 'desktop-1920x1080', 'The full two-seat integration evidence is captured on the 1920px project.');
     const guest = await context.newPage();
+    const metroCode = `MT${Math.floor(Math.random() * 9000 + 1000)}`;
     await page.goto('/');
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await page.locator('#home-alias').fill('ALPHA');
     await page.locator('#open-create-btn').click();
     await page.locator('#rc-vis-selector [data-vis="private"]').click();
-    await page.locator('#rc-room-code').fill('METRO1');
+    await page.locator('#rc-room-code').fill(metroCode);
     await page.locator('#rc-create-btn').click();
     await page.locator('#su-start').click();
     await page.locator('#lobby-settings-body [data-setting="boardVariant"]').selectOption('metro-52');
-    await expect(page.locator('#lobby-settings-body')).toContainText('METRO 52');
+    await expect(page.locator('#lobby-settings-body')).toContainText('METRO · 52');
 
     await guest.goto('/');
     await guest.locator('#home-alias').fill('BETA');
     await guest.locator('#open-join-btn').click();
-    await guest.locator('#room-join').fill('METRO1');
+    await guest.locator('#room-join').fill(metroCode);
     await guest.locator('#join-nickname').fill('BETA');
     await guest.locator('#join-room-submit').click();
-    await guest.locator('#su-start').click();
-    await expect(page.locator('#lobby-settings-body')).toContainText('BETA');
+    await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
+    if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
+    await expect(page.locator('#player-list')).toContainText('BETA');
     const marketToggle = page.locator('#lobby-settings-body [data-setting="market"]');
     if (!await marketToggle.evaluate((node) => node.classList.contains('is-on'))) await marketToggle.click();
     const complexity = page.locator('#lobby-settings-body [data-setting="marketComplexity"]');
@@ -247,7 +252,7 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(page.locator('#market-card .market-derivatives-unavailable')).toHaveCount(1);
     await page.locator('#market-card .market-advanced-settings > summary').click();
     await expect(page.locator('#market-card .market-derivatives-unavailable')).toBeVisible();
-    await expect(page.locator('#market-card .market-derivatives-unavailable')).toContainText('SERVER PRICING POLICY NOT CONFIGURED');
+    await expect(page.locator('#market-card .market-derivatives-unavailable')).toContainText("Options aren't available on this table yet.");
     await expect(page.locator('#market-card [data-market-advanced="open-option"]')).toHaveCount(0);
     await page.locator('#market-modal-close').click();
     await page.locator('#rr-body #activity-mode-casino').click();
@@ -283,7 +288,7 @@ test.describe('Landscape iPad desk contract', () => {
       return;
     }
     expect(geometry.header.height, `${surfaceId} wide landscape header minimum`).toBeGreaterThanOrEqual(56);
-    expect(geometry.header.height, `${surfaceId} wide landscape header maximum`).toBeLessThanOrEqual(80);
+    expect(geometry.header.height, `${surfaceId} wide landscape header maximum`).toBeLessThanOrEqual(geometry.viewport.width >= 2400 ? 96 : 80);
   }
 
   function internalScrollSelector(surfaceId) {
@@ -441,7 +446,7 @@ test.describe('Landscape iPad desk contract', () => {
   test('live game uses a board-first desk without page scrolling @ui-smoke', async ({ page, context }, testInfo) => {
     skipNonTablet(testInfo);
     const guest = await context.newPage();
-    const code = `IP${String(page.viewportSize().width).padStart(4, '0')}`;
+    const code = `IP${Math.floor(Math.random() * 9000 + 1000)}`;
     await page.goto('/');
     await page.locator('#home-alias').fill('ALPHA');
     await page.locator('#open-create-btn').click();
@@ -456,16 +461,13 @@ test.describe('Landscape iPad desk contract', () => {
     await guest.locator('#room-join').fill(code);
     await guest.locator('#join-nickname').fill('BETA');
     await guest.locator('#join-room-submit').click();
-    await guest.locator('#su-start').click();
+    await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
+    if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
     await page.locator('#lobby-start-btn').click();
     await expect(page.locator('#view-game')).toBeVisible();
 
     const geometry = await page.evaluate(() => {
       const box = selector => { const el = document.querySelector(selector); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right, bottom: r.bottom }; };
-      const hudCells = [...document.querySelectorAll('#hud > .hud-cell')];
-      const turnBox = hudCells[0]?.getBoundingClientRect();
-      const moneyBox = hudCells[1]?.getBoundingClientRect();
-      const vacationBox = hudCells[3]?.getBoundingClientRect();
       const cashAction = document.querySelector('#hud-cash-action')?.getBoundingClientRect();
       const cashValue = document.querySelector('#hud-cash')?.getBoundingClientRect();
       const cashIcon = document.querySelector('#hud-cash-action [data-sprite="note"]');
@@ -482,9 +484,7 @@ test.describe('Landscape iPad desk contract', () => {
         boardArea: box('#view-game .board-area'),
         boardHolder: box('#view-game .board-holder'),
         hud: box('#hud'),
-        turnBox: turnBox ? { width: turnBox.width } : null,
-        moneyBox: moneyBox ? { width: moneyBox.width } : null,
-        vacationBox: vacationBox ? { width: vacationBox.width } : null,
+        centerField: box('#center-field'),
         cashContents: cashAction && cashValue && cashIcon ? {
           iconHidden: getComputedStyle(cashIcon).display === 'none',
           valueInside: cashValue.right <= cashAction.right,
@@ -508,9 +508,11 @@ test.describe('Landscape iPad desk contract', () => {
       expect(geometry[key].y).toBeGreaterThanOrEqual(0);
       expect(geometry[key].bottom).toBeLessThanOrEqual(geometry.viewport.height + 2);
     }
-    expect(geometry.moneyBox.width / geometry.turnBox.width).toBeGreaterThanOrEqual(0.85);
-    expect(geometry.vacationBox.width / geometry.moneyBox.width).toBeGreaterThanOrEqual(1.1);
-    expect(geometry.cashContents.iconHidden).toBe(true);
+    // The turn controls sit inside the board centre, never below the board.
+    expect(geometry.hud.x).toBeGreaterThanOrEqual(geometry.centerField.x - 1);
+    expect(geometry.hud.right).toBeLessThanOrEqual(geometry.centerField.right + 1);
+    expect(geometry.hud.y).toBeGreaterThanOrEqual(geometry.centerField.y - 1);
+    expect(geometry.hud.bottom).toBeLessThanOrEqual(geometry.centerField.bottom + 1);
     expect(geometry.cashContents.valueInside, JSON.stringify(geometry.cashContents)).toBe(true);
     expect(Math.abs(geometry.boardHolder.width - geometry.boardHolder.height)).toBeLessThanOrEqual(2);
     expect(geometry.boardHolder.width).toBeLessThanOrEqual(geometry.boardArea.width + 2);

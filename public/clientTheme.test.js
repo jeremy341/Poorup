@@ -49,10 +49,10 @@ check("selector previews resolve each theme's home scene", () => {
   }
 });
 
-check("original keeps its UI tokens while exposing a home-only city world", () => {
+check("original keeps its UI tokens and shares its SVG across home, pages and board", () => {
   const original = getTheme("original");
   assert.deepEqual(original.tokens, {});
-  assert.equal(original.scene, null);
+  assert.match(original.scene, /themes\/original\/scene\.svg$/);
   assert.match(original.homeScene, /themes\/original\/scene\.svg$/);
   assert.deepEqual(Object.keys(original.homeProps), ["fog"]);
   const home = themeSceneMarkup(original, "home");
@@ -60,8 +60,8 @@ check("original keeps its UI tokens while exposing a home-only city world", () =
   assert.equal((home.match(/theme-prop-fog/g) || []).length, 2);
   assert.match(home, /theme-fog-a/);
   assert.match(home, /theme-fog-b/);
-  assert.equal(themeSceneMarkup(original, "page"), "");
-  assert.equal(themeSceneMarkup(original, "board"), "");
+  assert.match(themeSceneMarkup(original, "page"), /themes\/original\/scene\.svg/);
+  assert.match(themeSceneMarkup(original, "board"), /themes\/original\/scene\.svg/);
   for (const id of expectedIds.slice(1)) {
     const theme = getTheme(id);
     assert.ok(Object.keys(theme.tokens).length >= 16, `${id} needs UI tokens`);

@@ -1,14 +1,24 @@
-// Bounded, side-effect-free future evaluation for bot candidates. The planner
-// consumes the provider-safe strategic snapshot and never receives or mutates
-// a live GameState. It is deliberately small: a deterministic horizon is a
-// better first step than an unbounded tree in a real-time table.
+// Bounded, side-effect-free future evaluation for bot candidates. The planner consumes the provider-safe
+// strategic snapshot and never receives or mutates a live GameState. A small deterministic horizon beats an unbounded
+// tree in a real-time table.
 import { MARKET_FEE_RATE } from './marketLogic.js';
+import { PROPERTY_HOUSE_COST_BY_GROUP } from './gameData.js';
 import { forecastMarketOrder } from './botMarketForecast.js';
-import { bestGainGroup, forecastMaxHit } from './botDevelopmentForecast.js';
+import {
+  applyCoverShort,
+  applyOpenMargin,
+  applyOpenShort,
+  applyReduceMargin,
+  applySettleShortDefault,
+  leveragedHoldingCost,
+  leveragedNetWorth
+} from './botMarketPositions.js';
+import { bestGainGroup, dynamicReserve } from './botDevelopmentForecast.js';
+import { trafficPercent } from './botTradeValuation.js';
 import { calculateRentFromFacts, rentFactsFromSnapshot } from './botRentForecast.js';
 
 export const PLANNING_HORIZONS = { house: 0, table: 1, expert: 3 };
-export const NO_AI_POLICY_VERSION = 'no-ai-outcome-v1';
+export const NO_AI_POLICY_VERSION = 'no-ai-outcome-v2';
 export const OPPONENT_PROFILE_POLICY_ENABLED = false;
 export const NO_AI_OUTCOME_WEIGHTS = Object.freeze({
   survival: 1,
@@ -18,14 +28,25 @@ export const NO_AI_OUTCOME_WEIGHTS = Object.freeze({
   cardCash: 0.35,
   passStartCash: 0.25,
   rentIncome: 0.5,
+  investmentRent: 1,
   groupPotential: 1,
   setCompletion: 90,
   concentration: 1,
   eventExposure: 1,
   debtRisk: -1,
-  opportunityCost: -0.05
+  marketExposure: -1,
+  opportunityCost: -0.05,
+  // A jail fine is cash the seat hands over, not rent it collects: it is
+  // worth its full amount, so it carries its own weight.
+  jailFine: -1
 });
 const MAX_HORIZON = 3;
+// A deed, house or unmortgage keeps paying long after the 0-3 turn dice horizon, so its extra rent is credited over an
+// investment horizon: House 8 rounds (it under-invests), Table 16, Expert 32. Measured on unseen seeds (2001-2100),
+// Expert won 44.3% of 300 mixed three-seat games (House 23.0%, Table 32.7%). With one shared horizon: 36.0 / 32.7 / 31.3%.
+export const INVESTMENT_ROUNDS_BY_DIFFICULTY = Object.freeze({ house: 8, table: 16, expert: 32 });
+export const INVESTMENT_ROUNDS = INVESTMENT_ROUNDS_BY_DIFFICULTY.table;
+export const INVESTMENT_DISCOUNT = 0.6;
 const DICE_TOTALS = [
   [2, 1 / 36], [3, 2 / 36], [4, 3 / 36], [5, 4 / 36], [6, 5 / 36],
   [7, 6 / 36], [8, 5 / 36], [9, 4 / 36], [10, 3 / 36], [11, 2 / 36], [12, 1 / 36]
@@ -84,7 +105,8 @@ function stateClone(snapshot) {
     jailFreeCards: nonNegative(bot.jailFreeCards),
     expectedRent: 0,
     expectedRisk: 0,
-    expectedCashFlow: 0
+    expectedCashFlow: 0,
+    expectedFine: 0
   };
 }
 
@@ -101,13 +123,12 @@ function completeGroupCount(snapshot, state) {
   return [...groups].filter(group => propertyGroupCount(state, group) >= groupTarget(snapshot, group)).length;
 }
 
-function currentReserve(snapshot) {
-  // Static floor plus half the forecasted max opponent hit (capped): the
-  // liquidity target now follows board development instead of sitting at
-  // 120 while hotels go up. Bounded so bare-board fixtures are unaffected.
+// Liquidity target: the static purchase floor or the dynamic reserve (live opponent hit plus one house), whichever is higher.
+// The dynamic reserve follows development as hotels go up; half a hit capped at $400 did not. The snapshot travels with the
+// board so the reserve covers rent as the engine would charge it, event modifiers included.
+export function currentReserve(snapshot) {
   const staticReserve = Math.max(120, number(snapshot.rulesDigest?.purchaseReserve, 120));
-  const forecastFloor = Math.min(400, Math.floor(forecastMaxHit(snapshot.board) / 2));
-  return Math.max(staticReserve, forecastFloor);
+  return Math.max(staticReserve, dynamicReserve(snapshot.board, 100, snapshot));
 }
 
 function applyPropertyTransfer(state, indexes, fromSeat, toSeat) {
@@ -116,7 +137,6 @@ function applyPropertyTransfer(state, indexes, fromSeat, toSeat) {
     if (!tile || tile.ownerSeat !== fromSeat) return;
     tile.ownerSeat = toSeat;
     tile.houseCount = 0;
-    tile.mortgaged = false;
   });
   state.properties = state.board.filter(tile => tile.ownerSeat === 'self' && tile.group).map(tile => ({ ...tile }));
 }
@@ -189,7 +209,14 @@ function applyMarketBuy(state, context) {
   return true;
 }
 
+// The server refuses every market order (sells included) while a global event
+// pauses trading, so a paused market has no legal outcome to project.
+function marketTradingPaused(snapshot) {
+  return snapshot.rulesDigest?.globalEvents?.activeEffects?.tradingEnabled === false;
+}
+
 function applyMarketCandidate(snapshot, state, candidate) {
+  if (marketTradingPaused(snapshot)) return false;
   const context = marketOrderContext(snapshot, candidate);
   if (!context) return false;
   if (candidate.side === 'sell') return applyMarketSell(state, context);
@@ -199,9 +226,12 @@ function applyMarketCandidate(snapshot, state, candidate) {
 function applyCasinoCandidate(snapshot, state, candidate) {
   const fee = nonNegative(snapshot.rulesDigest?.casino?.entryFee);
   const stake = nonNegative(candidate.stake);
-  state.cash = Math.max(0, state.cash - stake - fee);
-  // Conservative expectation: account for the house edge, never a lucky spin.
-  state.casinoNet -= Math.ceil(stake / 37) + fee;
+  // Expected cost of one spin: 37 pockets at 1:1 (colours) or 35:1 (green)
+  // return stake * 36/37 in expectation, so the house edge is stake/37. The
+  // full stake is only lost on a losing spin, which the expectation nets out.
+  const houseEdge = Math.ceil(stake / 37);
+  state.cash = Math.max(0, state.cash - houseEdge - fee);
+  state.casinoNet -= houseEdge + fee;
   return true;
 }
 
@@ -211,6 +241,22 @@ function applyTradeCandidate(state, candidate) {
   applyPropertyTransfer(state, candidate.givePropertyIndexes, 'self', partnerSeat);
   applyPropertyTransfer(state, candidate.requestPropertyIndexes, partnerSeat, 'self');
   return true;
+}
+
+// The leading auction bid is reserved cash: the engine will not fund a
+// short-default repayment out of it (marketExpansion.settleShortDefault
+// spends spendableCash), so the forecast must not either.
+function reservedAuctionCash(snapshot) {
+  const auction = snapshot?.obligations?.auction;
+  if (!auction || auction.highestBidderSeat !== 'self') return 0;
+  return nonNegative(auction.highestBid);
+}
+
+function applySettleShortDefaultCandidate(snapshot, state, candidate) {
+  const spendable = Math.max(0, state.cash - reservedAuctionCash(snapshot));
+  const amount = Math.min(nonNegative(candidate.amount), spendable);
+  if (amount <= 0) return false;
+  return applySettleShortDefault(state, { ...candidate, amount });
 }
 
 function marketExpansionNeedsQuote(kind) {
@@ -224,7 +270,7 @@ function marketExpansionQuoteMissing(kind, quote) {
 
 function marketExpansionState(state) {
   const expansion = state.marketExpansion || (state.marketExpansion = {});
-  const margin = expansion.margin || (expansion.margin = { balance: 0, maintenance: 0, positions: {} });
+  const margin = expansion.margin || (expansion.margin = { balance: 0, maintenance: 0, collateral: 0, positions: {} });
   margin.positions ||= {};
   const shorts = expansion.shorts || (expansion.shorts = {});
   shorts.positions ||= {};
@@ -245,56 +291,9 @@ function marketExpansionContext(snapshot, state, candidate) {
     projectionQuote: quote ?? 0,
     quantity: nonNegative(candidate.quantity || 1),
     fee: expansionOrderFee(quote, candidate),
+    pool: snapshot.rulesDigest?.market?.borrowableUnits,
     ...positionState,
   };
-}
-
-function openMarginCandidate(state, candidate, context) {
-  if (!candidate.instrumentId) return false;
-  state.cash = Math.max(0, state.cash - context.fee);
-  const position = context.margin.positions[candidate.instrumentId] || { quantity: 0, averageCost: 0 };
-  const oldQuantity = nonNegative(position.quantity);
-  position.averageCost = ((number(position.averageCost) * oldQuantity) + context.projectionQuote * context.quantity) / Math.max(1, oldQuantity + context.quantity);
-  position.quantity = oldQuantity + context.quantity;
-  context.margin.positions[candidate.instrumentId] = position;
-  context.margin.balance = number(context.margin.balance) + context.projectionQuote * context.quantity;
-  context.margin.maintenance = number(context.margin.maintenance) + context.projectionQuote * context.quantity * 0.25;
-  return true;
-}
-
-function reduceMarginCandidate(state, candidate, context) {
-  if (number(context.margin.balance) <= 0) return false;
-  const repayment = Math.min(number(context.margin.balance), nonNegative(candidate.amount));
-  state.cash = Math.max(0, state.cash - repayment);
-  context.margin.balance = Math.max(0, number(context.margin.balance) - repayment);
-  return repayment > 0;
-}
-
-function openShortCandidate(state, candidate, context) {
-  if (!candidate.instrumentId) return false;
-  const gross = context.projectionQuote * context.quantity;
-  const collateral = Math.ceil(gross * 0.5);
-  state.cash = Math.max(0, state.cash + gross - context.fee - collateral);
-  context.shorts.reservedCash = number(context.shorts.reservedCash) + collateral;
-  const position = context.shortPositions[candidate.instrumentId] || { quantity: 0, entryQuote: 0, collateral: 0 };
-  const oldQuantity = nonNegative(position.quantity);
-  position.entryQuote = ((number(position.entryQuote) * oldQuantity) + gross) / Math.max(1, oldQuantity + context.quantity);
-  position.quantity = oldQuantity + context.quantity;
-  position.collateral = number(position.collateral) + collateral;
-  context.shortPositions[candidate.instrumentId] = position;
-  return true;
-}
-
-function coverShortCandidate(state, candidate, context) {
-  const position = context.shortPositions[candidate.instrumentId];
-  if (!position) return false;
-  if (!candidate.instrumentId) return false;
-  const collateral = Math.min(number(position.collateral), number(context.shorts.reservedCash));
-  state.cash = Math.max(0, state.cash - Math.max(0, context.projectionQuote * context.quantity + context.fee - collateral));
-  context.shorts.reservedCash = Math.max(0, number(context.shorts.reservedCash) - collateral);
-  position.quantity = Math.max(0, nonNegative(position.quantity) - context.quantity);
-  if (!position.quantity) delete context.shortPositions[candidate.instrumentId];
-  return true;
 }
 
 function openOptionCandidate(state, candidate, context) {
@@ -304,16 +303,16 @@ function openOptionCandidate(state, candidate, context) {
 }
 
 const MARKET_EXPANSION_APPLIERS = {
-  'open-margin': openMarginCandidate,
-  'reduce-margin': reduceMarginCandidate,
-  'open-short': openShortCandidate,
-  'cover-short': coverShortCandidate,
+  'open-margin': applyOpenMargin,
+  'reduce-margin': applyReduceMargin,
+  'open-short': applyOpenShort,
+  'cover-short': applyCoverShort,
   'open-option': openOptionCandidate,
 };
 
 function applyMarketExpansionCandidate(snapshot, state, candidate) {
   const apply = MARKET_EXPANSION_APPLIERS[candidate.kind];
-  if (!apply) return false;
+  if (!apply || marketTradingPaused(snapshot)) return false;
   const context = marketExpansionContext(snapshot, state, candidate);
   if (!context) return false;
   return apply(state, candidate, context);
@@ -339,9 +338,11 @@ const CANDIDATE_APPLIERS = {
   'open-short': applyMarketExpansionCandidate,
   'cover-short': applyMarketExpansionCandidate,
   'open-option': applyMarketExpansionCandidate,
+  // Paying forced buy-in debt is an obligation, not a trade: it stays legal while a global event pauses trading.
+  'settle-short-default': (snapshot, state, candidate) => applySettleShortDefaultCandidate(snapshot, state, candidate),
   'close-position': (snapshot, state, candidate) => applyOptionCandidate(snapshot, state, candidate, true),
-  'jail-fine': (_snapshot, state, candidate) => applyJailCandidate(state, candidate),
-  'jail-free': (_snapshot, state, candidate) => applyJailCandidate(state, candidate),
+  'jail-fine': (snapshot, state, candidate) => applyJailCandidate(snapshot, state, candidate),
+  'jail-free': (snapshot, state, candidate) => applyJailCandidate(snapshot, state, candidate),
   'end-finance-window': () => true,
   'end-turn': () => true,
   chat: () => true,
@@ -367,8 +368,11 @@ function expectedCardDelta(snapshot, tile) {
 
 function applyRepayCandidate(state, candidate) {
   const contract = state.contracts.find(entry => entry.id === candidate.contractId);
-  const amount = Math.min(state.cash, nonNegative(candidate.amount));
-  if (!contract || amount <= 0) return false;
+  if (!contract) return false;
+  // A contract can only be repaid out of the principal it still owes: an
+  // equity contract carries none, so there is nothing to repay.
+  const amount = Math.min(state.cash, nonNegative(candidate.amount), nonNegative(contract.remaining));
+  if (amount <= 0) return false;
   state.cash -= amount;
   contract.remaining = Math.max(0, nonNegative(contract.remaining) - amount);
   if (contract.remaining === 0) contract.status = 'paid';
@@ -387,18 +391,22 @@ function landingRent(snapshot, board, tile, diceTotal, ownerSeat = tileOwner(til
   return calculateRentFromFacts(facts);
 }
 
+// Sell and unmortgage edit the projected board entry, never the snapshot's
+// own tile (tileFor returns that object), so the provider snapshot stays intact.
 function applySellCandidate(state, candidate, tile) {
-  if (!tile || nonNegative(tile.houseCount) <= 0) return false;
+  const target = tile && state.board.find(entry => entry.index === tile.index);
+  if (!target || nonNegative(target.houseCount) <= 0) return false;
   state.cash += nonNegative(candidate.proceeds);
-  tile.houseCount -= 1;
+  target.houseCount -= 1;
   state.properties = state.board.filter(entry => entry.ownerSeat === 'self' && entry.group).map(entry => ({ ...entry }));
   return true;
 }
 
 function applyUnmortgageCandidate(state, candidate, tile) {
-  if (!tile || !tile.mortgaged) return false;
+  const target = tile && state.board.find(entry => entry.index === tile.index);
+  if (!target || !target.mortgaged) return false;
   state.cash = Math.max(0, state.cash - nonNegative(candidate.cost));
-  tile.mortgaged = false;
+  target.mortgaged = false;
   return true;
 }
 
@@ -455,6 +463,10 @@ function applyOptionCandidate(snapshot, state, candidate, close = false) {
   const quote = marketQuote(snapshot, option.instrumentId);
   if (quote === null) return false;
   const intrinsic = optionIntrinsicValue(option, quote);
+  // The engine refuses an exercise with no exercise value
+  // (marketExpansion.exerciseValueError), so the planner must not project
+  // one as a legal action either.
+  if (!close && intrinsic <= 0) return false;
   state.cash += optionPayout(option, intrinsic, close);
   option.reserveHeld = 0;
   option.status = close ? 'closed' : 'exercised';
@@ -462,10 +474,12 @@ function applyOptionCandidate(snapshot, state, candidate, close = false) {
   return true;
 }
 
-function applyJailCandidate(state, candidate) {
+function applyJailCandidate(snapshot, state, candidate) {
   if (!state.inJail) return false;
   const paysFine = candidate.kind === 'jail-fine';
-  const fine = nonNegative(candidate.fine || 50);
+  // The fine the engine charges is the one the rules digest carries, not a
+  // hard-coded default.
+  const fine = nonNegative(candidate.fine) || nonNegative(number(snapshot?.rulesDigest?.jailFine, 50));
   if (paysFine && state.cash < fine) return false;
   if (!paysFine && state.jailFreeCards <= 0) return false;
   if (paysFine) state.cash -= fine;
@@ -618,19 +632,22 @@ function movementCardRentFacts({ snapshot, state, tile, move, card }) {
   };
 }
 
-function movementCardRentMultiplier(amount, card) {
-  if (card?.action !== 'nearestRailroad') return amount;
-  return amount * nonNegative(card.multiplier || 2);
+// A double-rent railroad card stacks its multiplier on the table rent first;
+// the event factors and the rent cap then apply once. This is the order
+// cardApi.cardRentAmount uses, so the forecast and the charge agree.
+function railroadCardRent(snapshot, board, tile, move, card) {
+  const facts = rentFactsFromSnapshot({ ...snapshot, board }, tile, move);
+  const tableRent = calculateRentFromFacts({ ...facts, eventFactors: [], rentCap: null }) * nonNegative(card.multiplier || 2);
+  return calculateRentFromFacts({ ...facts, tile: { type: 'other', rent: tableRent }, hasFullSet: false, doubleRent: false });
 }
 
 function movementCardRent({ snapshot, state, tile, move, card }) {
   if (!canCollectMovementRent(snapshot, tile, card)) return 0;
-  const amount = calculateRentFromFacts(movementCardRentFacts({ snapshot, state, tile, move, card }));
-  const multiplied = movementCardRentMultiplier(amount, card);
   const owner = tileOwner(tile);
   if (owner !== 'self') return 0;
   if (state.inJail && snapshot.rulesDigest?.noRentWhileInPrison) return 0;
-  return multiplied;
+  if (card?.action === 'nearestRailroad') return railroadCardRent(snapshot, state.board, tile, move, card);
+  return calculateRentFromFacts(movementCardRentFacts({ snapshot, state, tile, move, card }));
 }
 
 function directLandingOutcome({ snapshot, state, position, move, probability, boardLength, landing, tile }) {
@@ -673,9 +690,7 @@ function nearestUtilityCardRisk({ snapshot, state, destination, move, card }) {
 function movementCardLandingRentRisk(context) {
   const { snapshot, state, destination, move, card } = context;
   if (!isOpponentRentRiskDestination(snapshot, destination)) return 0;
-  if (card.action === 'nearestRailroad') {
-    return landingRent(snapshot, state.board, destination, move) * nonNegative(card.multiplier || 2);
-  }
+  if (card.action === 'nearestRailroad') return railroadCardRent(snapshot, state.board, destination, move, card);
   if (card.action === 'nearestUtility') return nearestUtilityCardRisk(context);
   return landingRent(snapshot, state.board, destination, move);
 }
@@ -748,16 +763,16 @@ function scenarioUnit(seed, index) {
   return (value >>> 0) / 0x100000000;
 }
 
-function sampledDiceRolls(actorState, budget, seed) {
+function sampledDiceRolls(actorState, budget, seed, lockTurns) {
   const counts = new Map();
   for (let sample = 0; sample < budget; sample += 1) {
     const stratifiedPoint = (sample + scenarioUnit(seed, sample)) / budget;
     const pair = DICE_PAIRS[Math.min(DICE_PAIRS.length - 1, Math.floor(stratifiedPoint * DICE_PAIRS.length))];
     const isDouble = pair.first === pair.second;
-    const move = actorState.inJail && actorState.jailTurns < 2 && !isDouble
+    const move = actorState.inJail && actorState.jailTurns < lockTurns && !isDouble
       ? null
       : pair.first + pair.second;
-    const trackDouble = actorState.inJail && actorState.jailTurns >= 2;
+    const trackDouble = actorState.inJail && actorState.jailTurns >= lockTurns;
     const key = `${move ?? 'jail'}:${trackDouble && isDouble ? 1 : 0}`;
     const previous = counts.get(key) || { move, isDouble: trackDouble && isDouble, count: 0 };
     previous.count += 1;
@@ -766,13 +781,14 @@ function sampledDiceRolls(actorState, budget, seed) {
   return [...counts.values()].map(outcome => ({ move: outcome.move, isDouble: outcome.isDouble, probability: outcome.count / budget }));
 }
 
-function diceRolls(actorState, { rolloutBudget = 0, seed = 'poorup' } = {}) {
-  if (ALLOWED_ROLLOUT_BUDGETS.has(rolloutBudget)) return sampledDiceRolls(actorState, rolloutBudget, seed);
+function diceRolls(actorState, { rolloutBudget = 0, seed = 'poorup', lockTurns = 2 } = {}) {
+  if (ALLOWED_ROLLOUT_BUDGETS.has(rolloutBudget)) return sampledDiceRolls(actorState, rolloutBudget, seed, lockTurns);
   if (!actorState.inJail) return DICE_TOTALS.map(([move, probability]) => ({ move, probability, isDouble: false }));
-  if (actorState.jailTurns < 2) return [
-    { move: 4, probability: 1 / 36, isDouble: true },
-    { move: 8, probability: 1 / 36, isDouble: true },
-    { move: 12, probability: 1 / 36, isDouble: true },
+  if (actorState.jailTurns < lockTurns) return [
+    // Every double escapes (2,4,...,12); hand-listing three of them dropped
+    // (1,1), (3,3) and (5,5) and left the escape mass at 1/12 instead of 1/6.
+    ...DICE_PAIRS.filter(pair => pair.first === pair.second)
+      .map(pair => ({ move: pair.first + pair.second, probability: 1 / 36, isDouble: true })),
     { move: null, probability: 5 / 6, isDouble: false }
   ];
   return DICE_PAIRS.map(pair => ({ move: pair.first + pair.second, probability: 1 / 36, isDouble: pair.first === pair.second }));
@@ -796,9 +812,22 @@ function jailedNoMoveOutcome(actorState, moveProbability) {
   };
 }
 
+// The engine charges the fine on the turn that reaches the jail limit (JAIL_MAX_TURNS), and only when the seat can pay it.
+// A seat that cannot pay stays in jail. The digest carries both numbers, so the forecast reads them rather than assuming.
+function jailMaxTurns(snapshot) {
+  const turns = nonNegative(snapshot?.rulesDigest?.jailMaxTurns);
+  return turns > 0 ? turns : 3;
+}
+
+// The turn before the limit: a seat is still locked in and cannot move.
+function jailLockTurns(snapshot) {
+  return Math.max(1, jailMaxTurns(snapshot) - 1);
+}
+
 function jailFineForRoll(snapshot, actorState, isDouble) {
   if (!actorState.inJail) return 0;
-  if (actorState.jailTurns < 2 || isDouble) return 0;
+  if (isDouble) return 0;
+  if (actorState.jailTurns + 1 < jailMaxTurns(snapshot)) return 0;
   return number(snapshot.rulesDigest?.jailFine, 50);
 }
 
@@ -807,16 +836,24 @@ function actorRollLandingOutcomes(context, actorState, roll) {
   const { move, probability, isDouble } = roll;
   if (move == null) return [jailedNoMoveOutcome(actorState, probability)];
   const weight = actorState.probability * probability;
-  const fine = jailFineForRoll(snapshot, actorState, isDouble) * weight;
+  const fine = jailFineForRoll(snapshot, actorState, isDouble);
   const projectionState = { ...state, inJail: false };
+  if (fine > 0) {
+    // The seat only leaves jail when it can pay the fine. A seat that
+    // cannot stays in jail and keeps its turn there, so the roll buys no
+    // movement and no rent.
+    if (state.cash < fine) return [jailedNoMoveOutcome(actorState, probability)];
+    return landingOutcome({ snapshot, state: projectionState, position: actorState.position, move, probability: weight, boardLength })
+      .map(outcome => ({ ...outcome, position: outcome.landing, fine: fine * weight }));
+  }
   return landingOutcome({ snapshot, state: projectionState, position: actorState.position, move, probability: weight, boardLength })
-    .map(outcome => ({ ...outcome, position: outcome.landing, risk: outcome.risk + fine }));
+    .map(outcome => ({ ...outcome, position: outcome.landing }));
 }
 
 function actorTurnOutcomes(context, actorState) {
-  const { options, turn } = context;
-  const seed = `${options.seed}:${options.candidateId}:self:${turn}:${actorState.position}:${actorState.jailTurns}`;
-  const rolls = diceRolls(actorState, { rolloutBudget: options.rolloutBudget, seed });
+  const { options, turn, snapshot } = context;
+  const seed = `${options.seed}:self:${turn}:${actorState.position}:${actorState.jailTurns}`;
+  const rolls = diceRolls(actorState, { rolloutBudget: options.rolloutBudget, seed, lockTurns: jailLockTurns(snapshot) });
   return rolls.flatMap(roll => actorRollLandingOutcomes(context, actorState, roll));
 }
 
@@ -841,9 +878,37 @@ function mergeLandingPositions(outcomes) {
   return next;
 }
 
+// The dice projection reads only the board, the pawn and the jail state. Candidates
+// that leave those alone (market orders, loans, repayments, proposals, standing
+// still) share one enumeration per snapshot, so no caller pays for its own copy.
+const LANDING_CACHE = new WeakMap();
+
+function landingCacheKey(state, horizon, options) {
+  return [boardSignature(state), state.position, state.inJail ? 1 : 0, state.jailTurns, state.jailFreeCards, horizon, options.seed, options.rolloutBudget].join('~');
+}
+
 function expectedLandingValue(snapshot, state, horizon, options = {}) {
+  let cache = LANDING_CACHE.get(snapshot);
+  if (!cache) { cache = new Map(); LANDING_CACHE.set(snapshot, cache); }
+  const key = landingCacheKey(state, horizon, options);
+  const hit = cache.get(key);
+  if (hit) {
+    Object.assign(state, hit);
+    return;
+  }
+  computeLandingValue(snapshot, state, horizon, options);
+  cache.set(key, {
+    expectedRisk: state.expectedRisk,
+    expectedCardDelta: state.expectedCardDelta,
+    expectedCashFlow: state.expectedCashFlow,
+    expectedRent: state.expectedRent,
+    expectedFine: state.expectedFine
+  });
+}
+
+function computeLandingValue(snapshot, state, horizon, options = {}) {
   const boardLength = Math.max(1, (snapshot.board || []).length || 40);
-  const totals = { rent: 0, risk: 0, cardDelta: 0, cashFlow: 0 };
+  const totals = { rent: 0, risk: 0, cardDelta: 0, cashFlow: 0, fine: 0 };
   let positions = initialActorPositions(state);
   for (let turn = 0; turn < horizon; turn += 1) {
     const context = { snapshot, state, options, positions, boardLength, turn };
@@ -854,6 +919,7 @@ function expectedLandingValue(snapshot, state, horizon, options = {}) {
   state.expectedRisk = totals.risk;
   state.expectedCardDelta = totals.cardDelta;
   state.expectedCashFlow = totals.cashFlow;
+  state.expectedFine = totals.fine;
   state.expectedRent = expectedOpponentRent({ snapshot, state, horizon, boardLength, options });
 }
 
@@ -907,7 +973,7 @@ function opponentRollProjection(context, actorState, roll) {
 
 function opponentTurnSeed(context, actorState) {
   const { options, opponentIndex, turn } = context;
-  return `${options.seed}:${options.candidateId}:opponent:${opponentIndex}:${turn}:${actorState.position}:${actorState.jailTurns}`;
+  return `${options.seed}:opponent:${opponentIndex}:${turn}:${actorState.position}:${actorState.jailTurns}`;
 }
 
 function projectOpponentTurn(context) {
@@ -936,8 +1002,15 @@ function opponentRentOverHorizon(context) {
   return rent;
 }
 
+// A seat that is bankrupt or disconnected is out of the game: it does not
+// move, it never pays rent and it does not scale the table's rent. The
+// canonical live seats are gameLogic.activePlayers.
+function liveOpponents(snapshot) {
+  return (snapshot.opponents || []).filter(opponent => opponent && !opponent.bankrupt && !opponent.disconnected);
+}
+
 function expectedOpponentRent({ snapshot, state, horizon, boardLength, options = {} }) {
-  return (snapshot.opponents || []).reduce((total, opponent, opponentIndex) => total + opponentRentOverHorizon({
+  return liveOpponents(snapshot).reduce((total, opponent, opponentIndex) => total + opponentRentOverHorizon({
     snapshot,
     state,
     horizon,
@@ -969,26 +1042,83 @@ function debtRisk(state) {
   return bank + margin + short;
 }
 
-function deedNetWorth(tile) {
-  if (tile.ownerSeat !== 'self') return 0;
-  const faceValue = nonNegative(tile.price);
-  return tile.mortgaged ? Math.floor(faceValue / 2) : faceValue;
+// Houses count at resale (sale rate x house cost), so a build is only the
+// part of its cost that is actually lost and a sale at resale is neutral.
+function houseSaleRate(snapshot) {
+  const rate = Number(snapshot?.rulesDigest?.globalEvents?.activeEffects?.buildingSaleMultiplier);
+  return Number.isFinite(rate) && rate >= 0 ? rate : 0.5;
 }
 
+// The engine builds at getPropertyHouseCost: the group's base cost times the event's buildingCostMultiplier.
+// A house bought while a cost-raising event runs is worth more when sold back, so the static table alone under-values it.
+function houseCostFor(snapshot, tile) {
+  const base = number(PROPERTY_HOUSE_COST_BY_GROUP[tile?.group]);
+  const multiplier = Number(snapshot?.rulesDigest?.globalEvents?.activeEffects?.buildingCostMultiplier);
+  if (!Number.isFinite(multiplier) || multiplier <= 0) return base;
+  return Math.max(1, Math.ceil(base * multiplier));
+}
+
+function houseResaleValue(snapshot, tile, saleRate) {
+  return Math.floor(houseCostFor(snapshot, tile) * saleRate);
+}
+
+function deedNetWorth(snapshot, tile, saleRate) {
+  if (tile.ownerSeat !== 'self') return 0;
+  const faceValue = nonNegative(tile.price);
+  const deedValue = tile.mortgaged ? Math.floor(faceValue / 2) : faceValue;
+  return deedValue + nonNegative(tile.houseCount) * houseResaleValue(snapshot, tile, saleRate);
+}
+
+// Equity contracts carry no principal: they are a share of a property's
+// rent, not a loan. The canonical net worth (netWorth.js) values only loan
+// and hybrid contracts, so an equity leg is neither an asset nor a debt.
 function contractNetWorth(contract) {
+  if (!['loan', 'hybrid'].includes(contract.kind)) return 0;
   if (!['active', 'due', 'pending'].includes(contract.status)) return 0;
   const exposure = nonNegative(contract.remaining || contract.amount);
   return contract.role === 'lender' ? exposure : -exposure;
 }
 
+// A held option is an asset: the canonical net worth (netWorth.js) carries
+// an open, unexpired holder option at its intrinsic value, capped by the
+// reserve it holds. Without it, exercising an option looks like free money.
+function optionNetWorth(state, snapshot) {
+  const options = state.marketExpansion?.options || [];
+  const round = number(snapshot?.roundNumber, 0);
+  return options.reduce((sum, option) => {
+    if (!option || option.status !== 'open' || option.role === 'writer') return sum;
+    if (Number.isFinite(Number(option.expiryRound)) && round > Number(option.expiryRound)) return sum;
+    const quote = marketQuote(snapshot, option.instrumentId) ?? nonNegative(option.strike);
+    const strike = number(option.strike);
+    const intrinsic = option.side === 'put' ? Math.max(0, strike - quote) : Math.max(0, quote - strike);
+    return sum + Math.min(Math.floor(intrinsic * nonNegative(option.quantity)), nonNegative(option.reserveHeld));
+  }, 0);
+}
+
 function bankDebtNetWorth(state) {
   if (!state.bankLoan) return 0;
-  if (['paid', 'defaulted'].includes(state.bankLoan.status)) return 0;
+  // A defaulted bank loan keeps its balance until the bank is actually paid (loanLogic.defaultUnsecuredBankLoan),
+  // so only a paid loan leaves the books. The canonical net worth (netWorth.bankLoanDebt) reads it the same way.
+  if (state.bankLoan.status === 'paid') return 0;
   return -nonNegative(state.bankLoan.remaining);
 }
 
-function estimatedNetWorth(state) {
-  const deedValue = state.board.reduce((sum, tile) => sum + deedNetWorth(tile), 0);
+// A defaulted contract leaves contractNetWorth (its status is terminal), but the principal it still owes does not vanish.
+// The canonical net worth counts it through the claim ledger (netWorth.defaultClaimValue). Until the snapshot ships claims,
+// the planner reads the defaulted contract for the owing seat only. When claims are shipped, the ledger wins so nothing is counted twice.
+function defaultedContractDebt(state, snapshot) {
+  if (Array.isArray(snapshot?.botState?.defaultClaims)) return 0;
+  return state.contracts.reduce((sum, contract) => {
+    if (!contract || contract.status !== 'defaulted' || contract.role === 'lender') return sum;
+    return sum - nonNegative(contract.remaining || contract.amount);
+  }, 0);
+}
+
+// The planner's own net worth, kept in step with the canonical server definition (netWorth.js): deeds at face value,
+// houses at resale, market positions at quote, held options at intrinsic value, loan and hybrid contracts as
+// receivables or debts, and the bank loan and short-default debt owed.
+export function estimatedNetWorth(state, saleRate = 0.5, snapshot = null) {
+  const deedValue = state.board.reduce((sum, tile) => sum + deedNetWorth(snapshot, tile, saleRate), 0);
   const marketValue = Object.entries(state.marketPositions || {}).reduce((sum, [instrumentId, position]) => {
     const quantity = nonNegative(position?.quantity);
     const quote = Number(state.marketQuotes?.[instrumentId]);
@@ -999,28 +1129,119 @@ function estimatedNetWorth(state) {
     return sum + quantity * mark;
   }, 0);
   const contractValue = state.contracts.reduce((sum, contract) => sum + contractNetWorth(contract), 0);
-  const expansionDebt = nonNegative(state.marketExpansion?.margin?.balance);
+  const optionValue = optionNetWorth(state, snapshot);
+  const defaultedDebt = defaultedContractDebt(state, snapshot);
   const shortDebt = nonNegative(state.shortDefaultDebt);
-  return state.cash + deedValue + marketValue + contractValue + bankDebtNetWorth(state) - expansionDebt - shortDebt;
+  // Margin and short books at the quote (botMarketPositions.js): collateral and units
+  // are assets, the loan, the units owed and the borrow fee are liabilities.
+  return state.cash + deedValue + marketValue + contractValue + optionValue + defaultedDebt + bankDebtNetWorth(state) + leveragedNetWorth(state) - shortDebt;
 }
 
-function marketDecisionEdge(snapshot, candidate) {
-  if (candidate?.kind !== 'market') return 0;
-  const forecast = forecastMarketOrder({
-    instrumentId: candidate.instrumentId,
-    quote: snapshot.marketQuotes?.[candidate.instrumentId],
-    quantity: candidate.quantity || 1,
-    side: candidate.side,
+// Expected rent the opponents pay this bot over one round on the projected board.
+// Memoised per snapshot and board signature: every candidate that leaves the board
+// as it is (and the stand-still baseline) shares one enumeration.
+const ROUND_RENT_CACHE = new WeakMap();
+
+function boardSignature(state) {
+  return state.board.map(tile => tile.ownerSeat + ':' + nonNegative(tile.houseCount) + ':' + (tile.mortgaged ? 1 : 0)).join('|');
+}
+
+// Long-run rent per round: each opponent lands on a given tile about once every boardLength turns, scaled by the group's
+// traffic tier (botTradeValuation). A single-turn dice projection misses every tile out of reach this turn, which would
+// make a deed or house look worthless depending on where the pawns stand.
+function stationaryRentPerRound(snapshot, state) {
+  const opponents = liveOpponents(snapshot).length;
+  if (!opponents) return 0;
+  const boardLength = Math.max(1, (snapshot.board || []).length || 40);
+  return state.board.reduce((sum, tile) => {
+    if (tile.ownerSeat !== 'self' || tile.mortgaged) return sum;
+    return sum + landingRent(snapshot, state.board, tile, 7) * trafficPercent(tile.group) / 100 / boardLength * opponents;
+  }, 0);
+}
+
+function rentPerRound(snapshot, state) {
+  let cache = ROUND_RENT_CACHE.get(snapshot);
+  if (!cache) { cache = new Map(); ROUND_RENT_CACHE.set(snapshot, cache); }
+  const key = boardSignature(state);
+  if (cache.has(key)) return cache.get(key);
+  const value = stationaryRentPerRound(snapshot, state);
+  cache.set(key, value);
+  return value;
+}
+
+// Rent is convex in houses (x1, x5, x15, x45): the first house of a plan pays little and the third pays most.
+// A build is credited with the average rent gain per step up to three houses, so a bot does not stall at the cheap,
+// low-yield first step of a plan that pays back well.
+const PATH_HOUSES = 3;
+
+function buildPathRentGain(snapshot, state, candidate) {
+  const target = state.board.find(tile => tile.index === candidate?.tileIndex);
+  if (!target) return null;
+  const level = nonNegative(target.houseCount) - 1;
+  const steps = PATH_HOUSES - level;
+  if (steps <= 1) return null;
+  const path = stateClone(snapshot);
+  const pathTarget = path.board.find(tile => tile.index === target.index);
+  if (!pathTarget) return null;
+  pathTarget.houseCount = PATH_HOUSES;
+  return (rentPerRound(snapshot, path) - rentPerRound(snapshot, state)) / steps;
+}
+
+function baselineRentPerRound(snapshot) {
+  return rentPerRound(snapshot, stateClone(snapshot));
+}
+
+function marketForecastFor(snapshot, { instrumentId, quote, quantity, side }) {
+  return forecastMarketOrder({
+    instrumentId,
+    quote,
+    quantity,
+    side,
     history: snapshot.marketQuoteHistory,
     marketVolatility: snapshot.rulesDigest?.globalEvents?.activeEffects?.marketVolatility,
     activeEventId: snapshot.activeEvent?.phase === 'active' ? snapshot.activeEvent.id : null,
     activeEventStartedRound: snapshot.activeEvent?.startedRound,
     eventPriceMultiplier: snapshot.rulesDigest?.globalEvents?.activeEffects?.marketPriceMultiplier
   });
+}
+
+// Orders that take or shed price exposure the way a spot order does: a margin long
+// buys, a short sells, a cover buys back.
+const LEVERAGED_EDGE_SIDES = { 'open-margin': 'buy', 'open-short': 'sell', 'cover-short': 'buy' };
+
+function marketDecisionEdge(snapshot, candidate) {
+  const side = candidate?.kind === 'market' ? candidate.side : LEVERAGED_EDGE_SIDES[candidate?.kind];
+  if (!side) return 0;
+  const forecast = marketForecastFor(snapshot, {
+    instrumentId: candidate.instrumentId,
+    quote: snapshot.marketQuotes?.[candidate.instrumentId],
+    quantity: candidate.quantity || 1,
+    side
+  });
   if (!forecast.supported) return 0;
-  // applyMarketCandidate already prices the fee through cash. Only add the
-  // risk-adjusted price movement here so fees are counted exactly once.
-  return forecast.expectedPnl + forecast.fee;
+  // The fee is already in cash (applyMarketCandidate). Risk is not charged on
+  // the order: heldMarketRisk prices every unit held after it, so a buy pays
+  // for the exposure it adds and a sale is credited for the exposure it sheds.
+  return forecast.expectedMove;
+}
+
+// Exposure carried by the held market units after the projected action. Each
+// position is priced as if bought today at its quote, so the baseline (holding)
+// is charged its risk and an exit is credited the risk it removes.
+function heldMarketRisk(snapshot, state) {
+  const reserveFor = (instrumentId, quantity) => {
+    const forecast = marketForecastFor(snapshot, {
+      instrumentId,
+      quote: snapshot.marketQuotes?.[instrumentId],
+      quantity,
+      side: 'buy'
+    });
+    return forecast.supported ? forecast.riskReserve : 0;
+  };
+  const spot = Object.entries(state.marketPositions || {}).reduce((sum, [instrumentId, position]) => (
+    sum + reserveFor(instrumentId, position?.quantity)
+  ), 0);
+  return spot + leveragedHoldingCost(state, reserveFor);
 }
 
 function eventHedgeValue(snapshot, state) {
@@ -1037,33 +1258,29 @@ export function planningHorizon(difficulty) {
   return PLANNING_HORIZONS[difficulty] ?? PLANNING_HORIZONS.table;
 }
 
-export function evaluateCandidate(snapshot, candidate, { difficulty = 'table', seed = 'poorup', rolloutBudget = 0 } = {}) {
-  const horizon = clamp(planningHorizon(difficulty), 0, MAX_HORIZON);
-  const safeRolloutBudget = normalizeRolloutBudget(rolloutBudget);
+export function investmentRounds(difficulty) {
+  return INVESTMENT_ROUNDS_BY_DIFFICULTY[difficulty] ?? INVESTMENT_ROUNDS;
+}
+
+const STAND_STILL_CANDIDATE = Object.freeze({ id: 'stand-still', kind: 'roll' });
+
+function projectionOptions({ difficulty = 'table', seed = 'poorup', rolloutBudget = 0 } = {}) {
+  return { seed, horizon: clamp(planningHorizon(difficulty), 0, MAX_HORIZON), rolloutBudget: normalizeRolloutBudget(rolloutBudget), investmentRounds: investmentRounds(difficulty) };
+}
+
+// Absolute strategic value of one projected outcome. evaluateCandidate scores a
+// candidate by its marginal value over the same projection of standing still.
+function projectOutcome(snapshot, candidate, options) {
   const state = stateClone(snapshot);
+  const saleRate = houseSaleRate(snapshot);
   const beforeGroups = completeGroupCount(snapshot, state);
-  const beforeNetWorth = estimatedNetWorth(state);
+  const beforeNetWorth = estimatedNetWorth(state, saleRate, snapshot);
   const beforeCash = state.cash;
   const projectionStatus = applyCandidate(snapshot, state, candidate);
-  if (projectionStatus !== 'projected') {
-    return {
-      score: 0,
-      horizon,
-      policyVersion: NO_AI_POLICY_VERSION,
-      rolloutBudget: safeRolloutBudget,
-      expectedRent: 0,
-      expectedRisk: 0,
-      expectedCardDelta: 0,
-      expectedCashFlow: 0,
-      profileAdjustment: 0,
-      liquidity: null,
-      completeGroups: null,
-      projectionStatus
-    };
-  }
-  expectedLandingValue(snapshot, state, horizon, { seed, candidateId: candidate?.id, rolloutBudget: safeRolloutBudget });
+  if (projectionStatus !== 'projected') return { projectionStatus };
+  expectedLandingValue(snapshot, state, options.horizon, options);
   const afterGroups = completeGroupCount(snapshot, state);
-  const estimatedNetWorthDelta = estimatedNetWorth(state) - beforeNetWorth;
+  const estimatedNetWorthDelta = estimatedNetWorth(state, saleRate, snapshot) - beforeNetWorth;
   const expectedMarketEdge = marketDecisionEdge(snapshot, candidate);
   // Concentration bonus (bounded +8): develop the single highest-gain
   // group first instead of spreading houses. Needs no cost data; the
@@ -1077,47 +1294,88 @@ export function evaluateCandidate(snapshot, candidate, { difficulty = 'table', s
   // Heads-up survival: with exactly two seats, damp risky plays so the
   // bot preserves winning lines instead of gambling them. Skipped when
   // the snapshot carries no opponent list (fixtures stay pinned).
-  const survival = Array.isArray(snapshot.opponents) && snapshot.opponents.length === 1
+  const survival = liveOpponents(snapshot).length === 1
     ? -Math.max(0, Number(candidate?.risk) || 0) * 10
     : 0;
   const weights = NO_AI_OUTCOME_WEIGHTS;
-  const opportunityCost = Math.max(0, beforeCash - state.cash);
+  // Cash that turns into net worth (a deed at face, half of a house) is not lost, so
+  // only the part of a spend that leaves net worth carries an opportunity cost.
+  const opportunityCost = Math.min(Math.max(0, beforeCash - state.cash), Math.max(0, -estimatedNetWorthDelta));
+  const stepGain = rentPerRound(snapshot, state) - baselineRentPerRound(snapshot);
+  const pathGain = candidate?.kind === 'build' ? buildPathRentGain(snapshot, state, candidate) : null;
+  const investmentRent = Math.max(stepGain, pathGain ?? stepGain) * (options.investmentRounds ?? INVESTMENT_ROUNDS) * INVESTMENT_DISCOUNT;
   const strategic = survival * weights.survival
     + estimatedNetWorthDelta * weights.netWorth
     + liquidityValue(snapshot, state) * weights.liquidity
     + state.expectedRisk * weights.rentRisk
     + state.expectedCardDelta * weights.cardCash
     + state.expectedCashFlow * weights.passStartCash
+    + state.expectedFine * weights.jailFine
     + state.expectedRent * weights.rentIncome
+    + investmentRent * weights.investmentRent
     + groupPotential(snapshot, state) * weights.groupPotential
     + (afterGroups - beforeGroups) * weights.setCompletion
     + concentration * weights.concentration
     + eventHedgeValue(snapshot, state) * weights.eventExposure
     + debtRisk(state) * weights.debtRisk
     + opportunityCost * weights.opportunityCost
+    + heldMarketRisk(snapshot, state) * weights.marketExposure
     + expectedMarketEdge
     + 0;
+  return { projectionStatus, strategic, state, afterGroups, estimatedNetWorthDelta, expectedMarketEdge };
+}
+
+// Scores a candidate by its marginal value against the stand-still baseline (a roll that changes nothing, projected
+// under the same seed and dice). Anything leaving the position as it is, such as the neutral end-turn, scores 0,
+// so an action must add value over doing nothing to be preferred.
+export function evaluateCandidate(snapshot, candidate, { difficulty = 'table', seed = 'poorup', rolloutBudget = 0 } = {}, standStill = null) {
+  const horizon = clamp(planningHorizon(difficulty), 0, MAX_HORIZON);
+  const safeRolloutBudget = normalizeRolloutBudget(rolloutBudget);
+  const options = { seed, horizon, rolloutBudget: safeRolloutBudget, investmentRounds: investmentRounds(difficulty) };
+  const outcome = projectOutcome(snapshot, candidate, options);
+  if (outcome.projectionStatus !== 'projected') {
+    return {
+      score: 0,
+      horizon,
+      policyVersion: NO_AI_POLICY_VERSION,
+      rolloutBudget: safeRolloutBudget,
+      expectedRent: 0,
+      expectedRisk: 0,
+      expectedCardDelta: 0,
+      expectedCashFlow: 0,
+      expectedFine: 0,
+      profileAdjustment: 0,
+      liquidity: null,
+      completeGroups: null,
+      projectionStatus: outcome.projectionStatus
+    };
+  }
+  const baseline = standStill || projectOutcome(snapshot, STAND_STILL_CANDIDATE, options);
+  const { state } = outcome;
   return {
-    score: strategic,
+    score: outcome.strategic - baseline.strategic,
     horizon,
     policyVersion: NO_AI_POLICY_VERSION,
-    estimatedNetWorthDelta,
+    estimatedNetWorthDelta: outcome.estimatedNetWorthDelta,
     expectedRent: state.expectedRent,
     expectedRisk: state.expectedRisk,
     expectedCardDelta: state.expectedCardDelta,
     expectedCashFlow: state.expectedCashFlow,
-    expectedMarketEdge,
+    expectedFine: state.expectedFine,
+    expectedMarketEdge: outcome.expectedMarketEdge,
     profileAdjustment: 0,
     liquidity: state.cash,
-    completeGroups: afterGroups,
-    projectionStatus,
+    completeGroups: outcome.afterGroups,
+    projectionStatus: outcome.projectionStatus,
     rolloutBudget: safeRolloutBudget
   };
 }
-
 export function rankCandidates(snapshot, candidates = [], options = {}) {
+  if (!candidates.length) return [];
+  // Standing still is the same for every candidate in one decision, so it is projected once.
+  const standStill = projectOutcome(snapshot, STAND_STILL_CANDIDATE, projectionOptions(options));
   return candidates.map((candidate, index) => {
-    const evaluation = evaluateCandidate(snapshot, candidate, options);
+    const evaluation = evaluateCandidate(snapshot, candidate, options, standStill);
     return { candidate, index, evaluation, projectionStatus: evaluation.projectionStatus, policyVersion: evaluation.policyVersion };
   }).sort((a, b) => b.evaluation.score - a.evaluation.score || Number(a.candidate.risk || 0) - Number(b.candidate.risk || 0) || a.index - b.index);
 }

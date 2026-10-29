@@ -186,4 +186,21 @@ assert.deepEqual(conflictAck, {
 });
 assert.equal(replayManager.rooms.size, 1, 'request-id payload conflicts must not mutate rooms');
 
-console.log('server socket account settings/replay: 18 scenarios passed, 0 failed');
+{
+  const logoutCalls = [];
+  const logoutSocket = { id: 'logout-probe', data: {}, rooms: new Set(), join() {}, leave() {}, emit() {} };
+  const handlers = new Map();
+  const logoutRuntime = {
+    accountStore: { logout(token) { logoutCalls.push(['legacy', token]); return { success: true }; } },
+    sessionStore: { revokeLegacyTokenSessions(token) { logoutCalls.push(['lineage', token]); return 1; } },
+    roomManager: new RoomManager(),
+    social: { accountForSocket() { return null; } },
+  };
+  registerAccountSocketHandlers((event, handler) => handlers.set(event, handler), logoutSocket, logoutRuntime);
+  let response;
+  handlers.get('account-logout')({ sessionToken: 'captured-legacy-token' }, value => { response = value; });
+  assert.deepEqual(response, { success: true });
+  assert.deepEqual(logoutCalls, [['legacy', 'captured-legacy-token'], ['lineage', 'captured-legacy-token']], 'socket logout revokes only cookie sessions derived from the captured legacy token');
+}
+
+console.log('server socket account settings/replay: 19 scenarios passed, 0 failed');

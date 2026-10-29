@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict';
-import { assertProductionCors, createCorsOrigin, isOriginAllowed, parseAllowedOrigins } from './serverConfig.js';
+import { assertProductionCors, createCorsOrigin, isOriginAllowed, parseAllowedOrigins, resolveRetentionToken, tokensMatch } from './serverConfig.js';
 import { createSocketRateLimiter } from './socketRateLimiter.js';
+
+// Operator tokens are compared in constant time, and the retention job falls
+// back to the maintenance token only with a one-time warning.
+assert.equal(tokensMatch('maintenance-secret', 'maintenance-secret'), true);
+assert.equal(tokensMatch('maintenance-secreT', 'maintenance-secret'), false);
+assert.equal(tokensMatch('', 'maintenance-secret'), false);
+assert.equal(tokensMatch(undefined, 'maintenance-secret'), false);
+assert.equal(tokensMatch('maintenance-secret', ''), false, 'an unset token never matches');
+const retentionWarnings = [];
+assert.equal(resolveRetentionToken({ POORUP_RETENTION_TOKEN: 'retention-secret', POORUP_MAINTENANCE_TOKEN: 'maintenance-secret' }, message => retentionWarnings.push(message)), 'retention-secret');
+assert.equal(retentionWarnings.length, 0, 'a dedicated retention token needs no warning');
+assert.equal(resolveRetentionToken({ POORUP_MAINTENANCE_TOKEN: 'maintenance-secret' }, message => retentionWarnings.push(message)), 'maintenance-secret');
+assert.equal(resolveRetentionToken({ POORUP_MAINTENANCE_TOKEN: 'maintenance-secret' }, message => retentionWarnings.push(message)), 'maintenance-secret');
+assert.equal(retentionWarnings.length, 1, 'the maintenance-token fallback warns exactly once');
 
 assert.deepEqual(parseAllowedOrigins({ POORUP_ALLOWED_ORIGINS: ' https://poorup.example, https://play.example ' }), ['https://poorup.example', 'https://play.example']);
 assert.deepEqual(parseAllowedOrigins({ POORUP_ALLOWED_ORIGINS: 'https://poorup.example/' }), ['https://poorup.example']);
@@ -29,4 +43,4 @@ assert.equal(limiter.allow('socket-a'), true);
 limiter.forget('socket-a');
 assert.equal(limiter.allow('socket-a'), true);
 
-console.log('release hardening tests: 13 passed, 0 failed');
+console.log('release hardening tests: 28 passed, 0 failed');

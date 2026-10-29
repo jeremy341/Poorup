@@ -11,11 +11,20 @@ function nonNegative(value) {
   return Math.max(0, finite(value));
 }
 
+// Nearest-rank percentile.
 function percentile(values, fraction) {
   if (!values.length) return 0;
   const sorted = values.slice().sort((a, b) => a - b);
-  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((sorted.length - 1) * fraction)));
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * fraction) - 1));
   return sorted[index];
+}
+
+// No samples is "no data", not a median of 0: a zero reads as a real, very short game.
+function median(values) {
+  if (!values.length) return null;
+  const sorted = values.slice().sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
 function ratio(numerator, denominator) {
@@ -92,7 +101,7 @@ export function summarizeBalanceCampaign(results = []) {
   const completed = completedRows.length;
   const winnerCounts = {};
   completedRows.forEach(row => {
-    const seat = String(row.winnerSeat);
+    const seat = row.winnerSeat == null ? 'none' : String(row.winnerSeat);
     winnerCounts[seat] = (winnerCounts[seat] || 0) + 1;
   });
   const winnerShareBySeat = Object.fromEntries(Object.entries(winnerCounts).map(([seat, count]) => [seat, ratio(count, completed)]));
@@ -110,11 +119,11 @@ export function summarizeBalanceCampaign(results = []) {
   let composedSeats = 0;
   composed.forEach(row => {
     const totals = row.incomeComposition.totals;
-    const seats = Math.max(1, Object.keys(row.netWorthByPolicy || {}).length);
-    seatTotals.rent += Number(totals.rent) || 0 / seats;
-    seatTotals.market += Number(totals.market) || 0 / seats;
-    seatTotals.casino += Number(totals.casino) || 0 / seats;
-    seatTotals.loans += Number(totals.loans) || 0 / seats;
+    const seats = Math.max(1, Array.isArray(row.policyBySeat) ? row.policyBySeat.length : 0);
+    seatTotals.rent += Number(totals.rent) || 0;
+    seatTotals.market += Number(totals.market) || 0;
+    seatTotals.casino += Number(totals.casino) || 0;
+    seatTotals.loans += Number(totals.loans) || 0;
     composedSeats += seats;
   });
   const incomeComposition = composedSeats > 0
@@ -139,8 +148,8 @@ export function summarizeBalanceCampaign(results = []) {
     featureAdoption,
     incomeComposition,
     duration: {
-      rounds: { median: percentile(rounds, 0.5), p95: percentile(rounds, 0.95) },
-      steps: { median: percentile(steps, 0.5), p95: percentile(steps, 0.95) }
+      rounds: { median: median(rounds), p95: percentile(rounds, 0.95) },
+      steps: { median: median(steps), p95: percentile(steps, 0.95) }
     }
   };
 }

@@ -1,8 +1,6 @@
-/* ============================================================
-   ENTRY MODULE: game logic, renderers, and event wiring.
-   Shared data and state live in the client*.js modules imported here.
-   ============================================================ */
-import { $, esc } from "./clientDom.js";
+// ENTRY MODULE: game logic, renderers, and event wiring.
+// Shared data and state live in the client*.js modules imported here.
+import { $, esc, setHtml } from "./clientDom.js";
 import {
   hydrateSprites,
   spriteHTML,
@@ -29,6 +27,13 @@ import {
 } from "./clientTopNavRender.js";
 import { renderRightRail } from "./clientRailRender.js";
 import { bindBankLoanUi, configureBankLoanUi, openBankLoanOffer } from "./clientBankLoanUi.js";
+import {
+  bindFlightUi,
+  closeFlightDesk,
+  configureFlightUi,
+  openFlightDesk,
+  renderFlightDeskIfOpen,
+} from "./clientFlightUi.js";
 import {
   bindWalletUi,
   closeWalletModal,
@@ -65,14 +70,17 @@ import {
   openConfirmModal,
   setSurfaceReturnFocus,
   bindBeforeUnloadGuard,
+  hideSurfaceResolved,
 } from "./clientSurfaces.js";
 import {
   toggleLogDrawerFromButton,
   closeLogDrawer,
-  applyLogDrawerFilter,
   isLogDrawerOpen,
   renderLogDrawer,
 } from "./clientLogDrawer.js";
+import { renderBoardFeed } from "./clientBoardFeed.js";
+import { renderChatDock } from "./clientChatDock.js";
+import { bindHomeMenu, closeHeaderMenus } from "./clientHomeMenu.js";
 import { bindKeyboard } from "./clientKeyboard.js";
 import {
   configureRailEvents,
@@ -81,21 +89,32 @@ import {
 } from "./clientRailEvents.js";
 import { configureProfileRender, renderAccountPanel } from "./clientProfileRender.js";
 import {
+  applyPatrolState,
   configureNightShift,
+  handlePatrolDisconnect,
+  handlePatrolReconnect,
+  hasPendingPatrolSettlement,
   nightShiftState,
   startNightShift,
   stopNightShift,
 } from "./clientNightShift.js";
+import { PARLOR_PATROL_ENABLED, syncParlorPatrolAvailability } from "./clientParlorPatrolFlag.js";
 import {
+  announceSocialNotification,
   configureSocialSurfaces,
   parlorNotice,
   openSocialSurface,
   openInGameSocialSurface,
   openRankingsSurface,
   openRulesSurface,
+  renderSocialSurface,
   renderRulesSurface,
 } from "./clientSocialSurfaces.js";
 import {
+  bootstrapAccountCookieSession,
+  getAccountAuthGeneration,
+  guardAccountAuthCallback,
+  markAccountSocialStateFresh,
   configureAccountIdentity,
   renderAchievements,
   closeAchievementModal,
@@ -118,8 +137,10 @@ import {
   closeTradeModal,
 } from "./clientTradeUi.js";
 import { bindParlorSurfaces, syncRoomVoteKickUi } from "./clientParlorBindings.js";
+import { friendlyActionError } from "./clientActionErrorCopy.js";
+import { createChatSender } from "./clientChatSend.js";
 import { createPresenceMonitor } from "./clientPlayerPresence.js";
-import { createInactivityUi } from "./clientInactivityUi.js";
+import { createInactivityUi, inactiveBadgeHTML } from "./clientInactivityUi.js";
 import {
   bindDealUi,
   closeDealDetails,
@@ -144,6 +165,7 @@ import {
 } from "./clientAuctionUi.js";
 import { bindHomeEntry } from "./clientHomeEntryBindings.js";
 import { bindAudioControls, syncAudioButtons } from "./clientAudioControls.js";
+import { bindShortcutToggles } from "./clientShortcutPrefs.js";
 import { copyRoomCode } from "./clientRoomShare.js";
 import { configureThemeUi, initThemePreference, bindThemeVisibility } from "./clientTheme.js";
 import { renderTheme } from "./clientThemeRender.js";
@@ -153,6 +175,7 @@ import { initAnalytics } from "./clientAnalytics.js";
 import { initAdminAiProvider } from "./clientAdminAiProvider.js";
 import { configureAccountRights, bindAccountRights } from "./clientAccountRights.js";
 import { setDocumentMeta } from "./clientDocumentMeta.js";
+import { configureAboutUi, bindAboutUi, openAboutSurface, syncAboutNavigation } from "./clientAboutUi.js";
 import {
   bindRoomsUi,
   closeRoomsModal,
@@ -165,9 +188,9 @@ import {
   setHomeTab,
   syncGlobalNavigation,
 } from "./clientRoomsUi.js";
-import { configureSocketListeners } from "./clientSocketListeners.js";
+import { configureSocketListeners, reconcileSignedOutState } from "./clientSocketListeners.js";
 import { syncLog } from "./clientStateSync.js";
-import { getChatRenderPlan } from "./clientChatView.js";
+import { getChatRenderPlan, hasUnrenderedMessages } from "./clientChatView.js";
 import { TILES } from "./clientBoardData.js";
 import {
   bindGameModalSurfaces,
@@ -177,11 +200,14 @@ import {
   openCardReveal,
   openCardPreviewFromUrl,
   openBankruptcyModal,
-  openChoiceModal,
+  presentPurchaseChoice,
+  renderInlineChoice,
   openOfferModal,
   closeOfferWithoutResponse,
+  closeOfferIfWithdrawn,
   showGameOver,
 } from "./clientGameModalsUi.js";
+import { emitIntent } from "./clientRequestController.js";
 import {
   bindSponsorshipUi,
   closeSponsorshipModal,
@@ -190,6 +216,7 @@ import {
 } from "./clientSponsorshipUi.js";
 import {
   bindDeedDetail,
+  openDeedDetail,
   closeDeedDetail,
   configureDeedDetail,
   renderDeedDetail,
@@ -266,13 +293,28 @@ function playSound(name) {
 
 syncLocalAppearance();
 
-/* ============================================================
-   LIVE SOCKET.IO ADAPTER
-   The ZIP remains the complete UI source; this small boundary maps its
-   renderer state to the existing server-authoritative game protocol.
-   ============================================================ */
+// LIVE SOCKET.IO ADAPTER
+// The ZIP remains the complete UI source; this small boundary maps its
+// renderer state to the existing server-authoritative game protocol.
 const socket = typeof window.io === "function" ? window.io() : null;
+function isPatrolRetryCurrent(ready, accountId) {
+  return Boolean(ready && socket?.connected && state.account?.account?.id === accountId);
+}
+function retryPatrolAfterAuthReady() {
+  const accountId = state.account?.account?.id;
+  if (!hasPendingPatrolSettlement() || !accountId) return;
+  bootstrapAccountCookieSession().then((ready) => {
+    if (isPatrolRetryCurrent(ready, accountId)) handlePatrolReconnect();
+  }).catch(() => {});
+}
+function reconnectAccountSocket() {
+  if (!socket) return;
+  if (socket.connected) socket.disconnect();
+  socket.connect();
+}
 const SERVER_SETTING_KEYS = {
+  rulesProfile: "rulesProfile",
+  playerFinance: "playerFinance",
   maxPlayers: "maxPlayers",
   startingCash: "startingCash",
   vacationPool: "vacationCash",
@@ -280,23 +322,40 @@ const SERVER_SETTING_KEYS = {
   noRentInJail: "noRentWhileInPrison",
   trading: "trading",
   doubleGo: "doubleGo",
-  houseLimit: "houseLimit",
-  hotelLimit: "hotelLimit",
   bankruptMode: "bankruptMode",
   bankLoans: "bankLoans",
   bankLoanSeverity: "bankLoanSeverity",
   globalEvents: "globalEvents",
   casino: "casino",
+  flights: "flights",
+  bankAccountUpgrades: "bankAccountUpgrades",
+  itemRewards: "itemRewards",
   market: "market",
   bots: "bots",
   botBrain: "botBrain",
   botDifficulty: "botDifficulty",
-  rulesetPreset: "rulesetPreset",
-  rulesetBase: "rulesetBase",
   rulesetOverrides: "rulesetOverrides",
   boardVariant: "boardVariant",
   marketComplexity: "marketComplexity",
 };
+
+const ACCOUNT_SCOPED_RESPONSE_EVENTS = new Set([
+  "get-social-data",
+  "get-leaderboard-snapshot",
+  "get-public-player-card",
+  "search-players",
+  "respond-friend-request",
+  "respond-room-invite",
+  "mark-notification-read",
+  "clear-recent-players",
+  "cancel-friend-request",
+  "send-friend-request",
+  "remove-friend",
+  "send-room-invite",
+  "get-match-history",
+  "block-player",
+  "report-player",
+]);
 
 function emitServer(event, payload = {}, callback) {
   if (!socket) {
@@ -306,6 +365,14 @@ function emitServer(event, payload = {}, callback) {
   }
   const packet = { ...payload, clientId: state.clientId };
   if (state.account?.sessionToken) packet.sessionToken = state.account.sessionToken;
+  if (typeof callback === "function" && ACCOUNT_SCOPED_RESPONSE_EVENTS.has(event)) {
+    const generation = getAccountAuthGeneration();
+    const onResponse = callback;
+    callback = guardAccountAuthCallback((response) => {
+      if (event === "get-social-data" && response?.success && response.social) markAccountSocialStateFresh(generation);
+      onResponse(response);
+    }, generation);
+  }
   socket.emit(event, packet, callback);
 }
 
@@ -335,10 +402,8 @@ function handleSettingResult(settingResult, context) {
 
 function restoreRejectedServerSetting(key, previousSettings, previousRuleset, previousBoardVariant) {
   state.settings[key] = previousSettings[key];
-  const rulesetKey = ["rulesetPreset", "rulesetBase", "rulesetOverrides"].includes(key);
+  const rulesetKey = ["rulesetOverrides"].includes(key);
   if (rulesetKey) {
-    state.settings.rulesetPreset = previousSettings.rulesetPreset;
-    state.settings.rulesetBase = previousSettings.rulesetBase;
     state.settings.rulesetOverrides = previousSettings.rulesetOverrides;
     state.ruleset = previousRuleset;
   }
@@ -366,13 +431,24 @@ const serverSyncHost = {
   },
   retireButton: () => $("#game-retire-btn"),
   bankruptcyHidden: () => Boolean($("#bankruptcy-modal")?.classList.contains("is-hidden")),
-  hideBankruptcyModal: () => $("#bankruptcy-modal")?.classList.add("is-hidden"),
+  hideBankruptcyModal: () => hideSurfaceResolved("#bankruptcy-modal"),
+  syncOfferSurface: closeOfferIfWithdrawn,
   placePiecesSoon: () => requestAnimationFrame(() => placePieces()),
   rebuildBoard: () => buildBoard(onTileClick),
   announceDiceRoll: showDiceRollTotal,
+  // Polite toast only: no modal, no focus move. The offer waits under Finance.
+  noticeContractOffer: (offer, proposerName) => announceSocialNotification({
+    title: "CONTRACT OFFER",
+    body: `${proposerName} sent you a contract offer. Open Finance, then Needs You, to respond.`,
+  }),
   cancelPieceMovement: () => state.players.forEach(player => cancelPieceWalk(player.id)),
 };
 
+
+function renderAccountSocialSurfaces() {
+  renderSocialSurface("#social-page-content");
+  renderSocialSurface("#social-card");
+}
 
 configureSocketListeners(socket, {
   setConnectionStatus,
@@ -383,7 +459,7 @@ configureSocketListeners(socket, {
   renderChat,
   renderAll,
   addActivityNotice,
-  openChoiceModal,
+  openChoiceModal: presentPurchaseChoice,
   openCardReveal,
   openOfferModal,
   renderDealDetailsIfOpen,
@@ -391,6 +467,9 @@ configureSocketListeners(socket, {
   applyMaintenanceState,
   syncAudioButtons,
   syncHomeMusic,
+  renderSocialSurfaces: renderAccountSocialSurfaces,
+  closePlayerSurface: () => closeSurface("#player-modal"),
+  reconnectSocket: reconnectAccountSocket,
   serverSyncHost,
 });
 
@@ -422,7 +501,7 @@ function say(text, who) {
 }
 
 function announceActionStatus(message, statusNode = null) {
-  const text = String(message || "Action could not be completed.");
+  const text = friendlyActionError(message || "Action could not be completed.");
   if (statusNode) {
     statusNode.textContent = text;
     statusNode.hidden = false;
@@ -494,10 +573,8 @@ function setConnectionStatus(status, announce = false) {
   }
 }
 
-/* ============================================================
-   OPTIONAL ACCOUNT / PROFILE IDENTITY
-   Guest play stays local; an account only adds durable identity and stats.
-   ============================================================ */
+// OPTIONAL ACCOUNT / PROFILE IDENTITY
+// Guest play stays local; an account only adds durable identity and stats.
 
 function createRequestId(kind) {
   return String(state.clientId || "client") + ":" + String(kind || "action") + ":" + Date.now() + ":" + Math.random().toString(36).slice(2, 8);
@@ -511,9 +588,7 @@ function record(text) {
   if (state.log.length > 40) state.log.length = 40;
 }
 
-/* ============================================================
-   5. HOME SCREEN
-   ============================================================ */
+// HOME SCREEN
 
 function refreshEconomySnapshot() {
   emitServer("get-economy-snapshot", {}, (response) => {
@@ -596,16 +671,15 @@ function retryAudioAfterGesture() {
 // The hidden theme runtime owns playback and status announcements.
 
 
-/* ============================================================
-   6. GAME RENDERERS
-   ============================================================ */
+// GAME RENDERERS
 
 function renderPlayers() {
   const seated = state.players.slice(0, state.settings.maxPlayers);
-  $("#player-list").innerHTML = seated.map(playerRowHTML).join("");
+  const serverNow = currentServerTime();
+  setHtml($("#player-list"), seated.map((p, i) => playerRowHTML(p, i, serverNow)).join(""));
 }
 
-function playerRowHTML(p, i) {
+function playerRowHTML(p, i, serverNow = currentServerTime()) {
   const active = i === state.turnIndex && state.phase === "playing";
   const spectating = isSpectatingPlayer(p);
   const eliminated = Boolean(p.bankrupt);
@@ -618,6 +692,8 @@ function playerRowHTML(p, i) {
           <div class="pr-nameline">
             ${active ? spriteHTML("crown", 2) : ""}
             <span class="t-label pr-name" style="color:${p.textColor}">${esc(p.name)}</span>
+            ${lobbyTagHTML(p)}
+            ${state.phase === "playing" ? inactiveBadgeHTML(p, serverNow) : ""}
           </div>
           ${spectating ? `<span class="t-micro pr-spectating-label">SPECTATING</span>` : ""}
           <div class="t-label pr-cash numeric">$${Number(p.visualCash ?? p.cash ?? 0).toLocaleString()}</div>
@@ -627,6 +703,16 @@ function playerRowHTML(p, i) {
           <span class="t-micro ink-3">${status}</span>
         </div>
       </button>`;
+}
+
+/* Before the game starts the left rail is the only seat list, so it carries the
+   host and CPU markers of the lobby panel. */
+function lobbyTagHTML(p) {
+  if (state.phase === "playing") return "";
+  const isHost = Boolean(p.isHost) || Boolean(p.serverId && p.serverId === state.hostId);
+  if (isHost) return `<span class="pr-tag pr-tag-host t-micro">HOST</span>`;
+  if (p.bot) return `<span class="pr-tag t-micro">CPU</span>`;
+  return "";
 }
 
 function playerDotHTML(p) {
@@ -658,8 +744,7 @@ let lastRenderedChatCount = 0;
 let lastRenderedChatTail = null;
 
 function hasUnrenderedChatMessages() {
-  return state.messages.length !== lastRenderedChatCount
-    || state.messages.at(-1) !== lastRenderedChatTail;
+  return hasUnrenderedMessages(state.messages, lastRenderedChatCount, lastRenderedChatTail);
 }
 
 function chatRenderPlan(body) {
@@ -680,8 +765,21 @@ function chatMessageHTML(message) {
   return `<p class="t-body chat-line"><span style="color:${message.color}">${esc(message.who)}:</span> <span class="ink-2">${esc(message.text)}</span></p>`;
 }
 
+// A role="log" region must only receive the new rows. Appending (and trimming the oldest)
+// keeps the reader's selection and avoids re-announcing the whole buffer; a first render, room
+// change or unknown tail falls back to one full render.
 function renderChatMessages(body) {
-  body.innerHTML = state.messages.slice(-60).map(chatMessageHTML).join("");
+  const recent = state.messages.slice(-60);
+  const tailIndex = hasRenderedChat && state.roomCode === lastRenderedChatRoomCode && lastRenderedChatTail
+    ? recent.lastIndexOf(lastRenderedChatTail)
+    : -1;
+  if (tailIndex >= 0) {
+    const fresh = recent.slice(tailIndex + 1);
+    if (fresh.length) body.insertAdjacentHTML("beforeend", fresh.map(chatMessageHTML).join(""));
+    while (body.childElementCount > recent.length) body.firstElementChild.remove();
+  } else {
+    body.innerHTML = recent.map(chatMessageHTML).join("");
+  }
   hasRenderedChat = true;
   lastRenderedChatRoomCode = state.roomCode;
   lastRenderedChatCount = state.messages.length;
@@ -712,6 +810,7 @@ function renderChat() {
   if (renderPlan.updateContent) renderChatMessages(body);
   syncChatScroll(body, $("#chat-new-message"), renderPlan);
   syncChatInput();
+  renderChatDock();
 }
 
 
@@ -719,7 +818,7 @@ function renderChat() {
 
 
 
-/* Deed detail/house manager + card reveal now live in
+/* Deed detail/house manager + card reveal live in
    clientDeedDetailUi.js / clientGameModalsUi.js. */
 function renderStep(label, render) {
   try {
@@ -737,12 +836,15 @@ function renderAll() {
   renderStep("Room presence", syncRoomPresenceUi);
   renderStep("Chat", renderChat);
   if (isLogDrawerOpen()) renderStep("Event log", renderLogDrawer);
+  renderStep("Board feed", renderBoardFeed);
   renderStep("Board", renderBoardState);
   renderStep("Player pieces", placePieces);
   renderStep("Global event", renderGlobalEvent);
   renderStep("HUD", renderHud);
+  renderStep("Purchase choice", renderInlineChoice);
   renderStep("Right rail", renderRightRail);
   renderStep("Wallet", renderWalletModalIfOpen);
+  renderStep("Flight desk", renderFlightDeskIfOpen);
   renderStep("Market desk", renderMarketDeskIfOpen);
   renderStep("Casino desk", renderCasinoDeskIfOpen);
   renderStep("Panel menu", renderPanelMenu);
@@ -779,8 +881,7 @@ function ensureRoomPresenceMonitor() {
 function ensureRoomInactivityUi() {
   if (!roomInactivityUi) {
     roomInactivityUi = createInactivityUi({
-      timerHost: $("#inactivity-timer-host"),
-      sidebarHost: $("#inactive-player-sidebar"),
+      listHost: $("#player-list"),
     });
   }
 }
@@ -797,18 +898,17 @@ function syncRoomPresenceUi() {
   ensureRoomPresenceMonitor();
   ensureRoomInactivityUi();
   const serverTime = currentServerTime();
-  roomInactivityUi.update(state.players, serverTime);
+  // Nobody times out in the lobby, so the countdown only shows once a game runs.
+  roomInactivityUi.update(state.phase === "playing" ? state.players : [], serverTime);
   syncRoomVoteKickUi(state.voteKick || null, state.players, serverTime);
 }
 
-/* Lobby settings rail + profile editor/identity bindings now live in
+/* Lobby settings rail + profile editor/identity bindings live in
    clientLobbyUi.js / clientProfileBindings.js. */
 
 
 
-/* ============================================================
-   8. GAME LOGIC
-   ============================================================ */
+// GAME LOGIC
 
 function isLocalPlayerBlocked() {
   const localPlayer = state.players[0];
@@ -864,7 +964,7 @@ async function runTurn(idx) {
     requestId,
     event: "roll-dice",
     errorMessage: "The roll could not be completed.",
-    timeoutMessage: "Roll could not be confirmed — try again.",
+    timeoutMessage: "Roll could not be confirmed. Try again.",
   });
 }
 
@@ -879,7 +979,7 @@ function endTurn(idx) {
     requestId,
     event: "end-turn",
     errorMessage: "The turn could not be ended.",
-    timeoutMessage: "The turn could not be confirmed — try again.",
+    timeoutMessage: "The turn could not be confirmed. Try again.",
   });
 }
 
@@ -898,11 +998,23 @@ function openPendingPurchaseChoice() {
   if (state.pendingBuyTile == null) return false;
   const tile = TILES[state.pendingBuyTile];
   if (!tile) return true;
-  openChoiceModal(tile);
+  presentPurchaseChoice(tile);
+  return true;
+}
+
+/* A live auction whose card was dismissed is reopened from the HUD button
+   (labelled "Resolve Auction"); any seated player may bid, turn or not. */
+function reopenDismissedAuction() {
+  if (!state.auction || state.phase !== "playing") return false;
+  const me = state.players[0];
+  if (me?.bankrupt || me?.spectating) return false;
+  if (!$("#auction-modal").classList.contains("is-hidden")) return true;
+  serverSyncHost.openAuctionSurface();
   return true;
 }
 
 function primaryTurnAction() {
+  if (reopenDismissedAuction()) return;
   if (!canUsePrimaryTurnAction()) return;
   if (openPendingPurchaseChoice()) return;
   if (mustResolveAcquisition()) return;
@@ -918,26 +1030,28 @@ function startGame() {
 function buyTile(tile, submittedStatusNode = null, onSuccess = null) {
   if (tile?.i == null) return;
   const statusNode = submittedStatusNode || captureActionStatusNode();
-  emitServer("purchase-property", { tileIndex: tile.i }, (response) => {
-    reportChatError(response, "That deed is no longer available.", statusNode);
-    if (response?.success === false) return;
-    if (onSuccess) {
-      onSuccess();
-      closePopup();
-    }
-    else {
-      state.pendingBuyTile = null;
-      $("#choice-modal")?.classList.add("is-hidden");
-      closePopup();
-    }
+  // One BUY per intent: a double click / Enter repeat must not double-charge.
+  emitIntent(emitServer, `purchase-property:${tile.i}`, "purchase-property", { tileIndex: tile.i }, {
+    onResponse: (response) => {
+      reportChatError(response, "That deed is no longer available.", statusNode);
+      if (response?.success === false) return;
+      if (onSuccess) {
+        onSuccess();
+        closePopup();
+      }
+      else {
+        state.pendingBuyTile = null;
+        $("#choice-modal")?.classList.add("is-hidden");
+        closePopup();
+      }
+    },
+    onTimeout: () => announceActionStatus("The purchase could not be confirmed. Try again.", statusNode),
   });
 }
 /* Forced choice/auction, trading modals and the persist/resume cluster
    live in clientGameModalsUi.js / clientGameSave.js. */
 
-/* ============================================================
-   9. ROUTING + EVENTS
-   ============================================================ */
+// ROUTING + EVENTS
 function syncViewVisibility(name) {
   $("#view-home").classList.toggle("is-hidden", name !== "home");
   $("#view-game").classList.toggle("is-hidden", name !== "game");
@@ -946,18 +1060,21 @@ function syncViewVisibility(name) {
     ["#view-rankings", "rankings"],
     ["#view-social", "social"],
     ["#view-rules", "rules"],
+    ["#view-about", "about"],
     ["#view-admin-analytics", "analytics"],
   ];
   optionalViews.forEach(([selector, view]) => $(selector)?.classList.toggle("is-hidden", name !== view));
 }
 
 function prepareViewExit(name) {
+  closeHeaderMenus();
   if (name !== "home" && nightShiftState.active) stopNightShift();
   if (name !== "game") closePanelMenu({ restore: false });
 }
 
 function syncViewMetadata(name) {
   syncGlobalNavigation(name);
+  syncAboutNavigation(name);
   setDocumentMeta({ view: name, roomCode: state.roomCode });
   window.scrollTo(0, 0);
   syncSurfaceA11y();
@@ -1057,16 +1174,6 @@ function onHomeSignalClick(event) {
 }
 
 function onRulesSectionClick(event) {
-  const searchToggle = event.target.closest("[data-rules-search-toggle]");
-  if (searchToggle) {
-    state.rulesSearchExpanded = !state.rulesSearchExpanded;
-    renderRulesSurface("#rules-page-content");
-    requestAnimationFrame(() => {
-      const target = state.rulesSearchExpanded ? $("#rules-search") : $("[data-rules-search-toggle]");
-      target?.focus({ preventScroll: true });
-    });
-    return;
-  }
   const chaptersToggle = event.target.closest("[data-rules-chapters-toggle]");
   if (chaptersToggle) {
     state.rulesIndexExpanded = !state.rulesIndexExpanded;
@@ -1081,27 +1188,13 @@ function onRulesSectionClick(event) {
   }
 }
 
-function restoreRulesFocus(value) {
-  const input = $("#rules-search");
-  input?.focus({ preventScroll: true });
-  input?.setSelectionRange(value.length, value.length);
-}
-
-function onRulesSearchInput(event) {
-  if (event.target.id !== "rules-search") return;
-  const value = event.target.value;
-  state.rulesQuery = value;
-  state.rulesSearchExpanded = true;
-  renderRulesSurface("#rules-page-content");
-  requestAnimationFrame(() => restoreRulesFocus(value));
-}
-
 function bindHomeNavigation() {
   // Home destinations. Play stays in the stage; rooms uses the existing
   // server-backed directory surface; profile keeps the current editor flow.
   $("#home-nav")?.addEventListener("click", onHomeNavClick);
   $("#home-signal-line")?.addEventListener("click", onHomeSignalClick);
   document.querySelectorAll("[data-top-surface]").forEach((button) => {
+    if (button.closest("#about-page-content")) return;
     button.addEventListener("click", () => onTopSurfaceClick(button));
   });
   document.querySelectorAll("[data-top-back]").forEach((button) => {
@@ -1109,31 +1202,29 @@ function bindHomeNavigation() {
   });
   document.querySelectorAll("[data-home-tab]").forEach((button) => {
     if (button.closest("#home-nav")) return;
+    if (button.closest("#about-page-content")) return;
     button.addEventListener("click", () => onHomeTabClick(button));
   });
 }
 
 function bindRulesPage() {
   $("#rules-page-content")?.addEventListener("click", onRulesSectionClick);
-  $("#rules-page-content")?.addEventListener("input", onRulesSearchInput);
 }
 
 function bindDrawerAndBoardModes() {
-  // resume round
   $("#resume-btn")?.addEventListener("click", () => resumeGame());
 
-  // log drawer
   $("#log-toggle-btn")?.addEventListener("click", toggleLogDrawerFromButton);
   $("#drawer-close")?.addEventListener("click", closeLogDrawer);
-  document.querySelectorAll(".drawer-filter").forEach((btn) => {
-    btn.addEventListener("click", () => applyLogDrawerFilter(btn));
-  });
 
   // panel visibility controls
   bindPanelMenu();
 }
 
 function bindAmbientExits() {
+  // Keep Patrol controls synchronized with the client feature flag.
+  syncParlorPatrolAvailability();
+  if (!PARLOR_PATROL_ENABLED) return;
   $("#home-helicopter")?.addEventListener("click", hitHomeHelicopter);
   $("#home-night-shift-start")?.addEventListener("click", startNightShift);
   $("#night-exit")?.addEventListener("click", stopNightShift);
@@ -1164,7 +1255,7 @@ function onGlobalEventVoteClick(event) {
 }
 
 function bindGameActions() {
-  // game → home
+  // game to home
   $("#brand-home").addEventListener("click", leaveRoomForHome);
   $("#tn-room-copy").addEventListener("click", copyRoomCode);
   $("#hud-cash-action")?.addEventListener("click", (event) => {
@@ -1183,15 +1274,17 @@ function bindGameActions() {
   });
 }
 
-function onChatFormSubmit(e) {
-  e.preventDefault();
-  const input = $("#chat-input");
-  const text = input.value.trim();
-  if (!text) return;
-  if (!state.players.some(player => player.clientId === state.clientId)) return;
-  input.value = "";
-  emitWithChatError("send-chat", { text }, "Message could not be sent.");
-}
+const onChatFormSubmit = createChatSender({
+  getInput: () => $("#chat-input"),
+  canSend: () => state.players.some(player => player.clientId === state.clientId),
+  send: (text, done) => {
+    const statusNode = captureActionStatusNode();
+    emitServer("send-chat", { text }, (response) => {
+      reportChatError(response, "Message could not be sent.", statusNode);
+      done(response);
+    });
+  },
+});
 
 $("#chat-new-message")?.addEventListener("click", () => {
   const body = $("#chat-body");
@@ -1216,6 +1309,7 @@ function bindBoardLayout() {
 
   // the main arcade button rolls first, then ends the resolved turn
   $("#roll-btn").addEventListener("click", primaryTurnAction);
+  $("#open-flight-desk")?.addEventListener("click", event => openFlightDesk(event.currentTarget));
 }
 
 function tabNeedsEconomySnapshot() {
@@ -1260,7 +1354,6 @@ function onRailTabKeyDown(event) {
 }
 
 function bindRail() {
-  // tabs
   $("#tabs").addEventListener("click", onRailTabClick);
   $("#tabs").addEventListener("keydown", onRailTabKeyDown);
 
@@ -1272,7 +1365,6 @@ function bindRail() {
     if (event.target.matches("details.finance-bank")) state.financeBankOpen = event.target.open;
   }, true);
 
-  // popup
   $("#popup-scrim").addEventListener("click", closePopup);
   $("#trade-scrim").addEventListener("click", closeTradeModal);
   $("#financing-scrim").addEventListener("click", closeFinancingModal);
@@ -1298,10 +1390,12 @@ function bindEvents() {
   bindGameModalSurfaces();
   bindDealUi();
   bindWalletUi();
+  bindFlightUi();
   bindMarketUi();
   bindCasinoUi();
   bindSponsorshipUi();
   bindDeedDetail();
+  bindHomeMenu();
 
   // profile editor, account and achievements surfaces (clientProfileBindings.js)
   bindProfileUi();
@@ -1309,6 +1403,7 @@ function bindEvents() {
 
   // Global effects/music toggles (main + every surface) live in clientAudioControls.js.
   bindAudioControls({ playSound, syncHomeMusic, musicController, setMusicEnabled });
+  bindShortcutToggles();
   window.addEventListener("pointerdown", retryAudioAfterGesture, { passive: true });
   window.addEventListener("keydown", retryAudioAfterGesture);
   bindAmbientExits();
@@ -1318,7 +1413,6 @@ function bindEvents() {
 
   bindGameActions();
 
-  // chat
   $("#chat-form").addEventListener("submit", onChatFormSubmit);
 
   bindBoardLayout();
@@ -1337,6 +1431,7 @@ function bindEvents() {
     closeAchievementModal,
     closeFinancingModal,
     closeWalletModal,
+    closeFlightDesk,
     closeMarketDesk,
     closeCasinoDesk,
     closePanelMenu,
@@ -1356,26 +1451,38 @@ function bindEvents() {
 }
 
 
-/* ============================================================
-   10. INIT
-   ============================================================ */
+// INIT
 document.documentElement.style.setProperty('--dice-shake-cycle', `${DICE_SHAKE_CYCLE_MS}ms`);
 document.documentElement.style.setProperty('--modal-enter-duration', `${MODAL_ENTER_MS}ms`);
 configureSurfaces({ notice: parlorNotice });
 bindBeforeUnloadGuard();
 configureSocialSurfaces({ emitServer, showView });
+configureAboutUi({ showView, openHomeTab: onHomeTabClick, openTopSurface: onTopSurfaceClick });
+bindAboutUi();
 configureDealUi({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, renderRightRail, openTradeNegotiation, openFinancingNegotiation, openConfirmModal });
-configureAccountIdentity({ emitServer, say, notice: parlorNotice, announceActionStatus, syncAudioButtons, syncHomeMusic });
+configureAccountIdentity({
+  emitServer,
+  say,
+  notice: parlorNotice,
+  announceActionStatus,
+  syncAudioButtons,
+  syncHomeMusic,
+  renderSocialSurfaces: renderAccountSocialSurfaces,
+  closePlayerSurface: () => closeSurface("#player-modal"),
+  reconnectSocket: reconnectAccountSocket,
+  reconcileSignedOutState,
+});
 configureAccountRights({ state, emitServer, announce: say, refresh: renderAccountPanel, setSurfaceReturnFocus });
 configureRailEvents({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, renderRightRail, createRequestId, buyTile, openTradeModal, openFinancingModal, openFinancingNegotiation, openFinancingContract, openDealDetails, openWalletModal, openMarketDesk, openCasinoDesk, openBankLoanOffer, refreshEconomySnapshot, leaveRoomForHome });
 configureBankLoanUi({ getOffer: () => state.players[0]?.bankLoanOffer, openSurface, closeSurface, emitServer, createRequestId, announceActionStatus, captureActionStatusNode, refreshEconomySnapshot });
 bindBankLoanUi();
-configureWalletUi({ emitServer, renderRightRail, renderHud, createRequestId, notice: message => parlorNotice("WALLET", message) });
+configureWalletUi({ emitServer, renderRightRail, renderHud, createRequestId, refreshWalletSnapshot: () => emitServer("restore-session", {}, response => handleRestoreSessionResponse(response, false)), notice: message => parlorNotice("WALLET", message) });
+configureFlightUi({ emitServer, renderAll, notice: message => parlorNotice("FLIGHTS", message) });
 configureMarketUi({ emitServer, renderRightRail, createRequestId, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat });
 configureCasinoUi({ emitServer, renderRightRail, createRequestId, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, playSound, refreshEconomySnapshot });
 configureTradeUi({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, record, createRequestId, renderRightRail });
 configureAuctionUi({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat });
-configurePopup({ buyTile, record });
+configurePopup({ buyTile, record, openDeedDetail });
 configureProfileRender({ renderAchievements, loadSavedGame, renderHomeSignals });
 configureGameModals({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat, renderAll, buyTile,
   openHoldings: () => { state.tab = "holdings"; renderRightRail(); },
@@ -1409,6 +1516,9 @@ configureLobbyUi({
   createRequestId,
 });
 socket?.on("update-state", reconcileParlorEntrySnapshot);
+socket?.on("patrol-state", applyPatrolState);
+socket?.on("disconnect", handlePatrolDisconnect);
+socket?.on("connect", retryPatrolAfterAuthReady);
 configureNightShift({
   emitServer,
   parlorNotice,
@@ -1419,9 +1529,12 @@ configureNightShift({
   stopHomeClock,
   stopHomeHelicopter,
   scheduleHomeHelicopter,
+  retryPendingSettlement: retryPatrolAfterAuthReady,
 });
+if (socket?.connected) retryPatrolAfterAuthReady();
 configureThemeUi({ applyTheme: renderTheme, onThemeChange: (themeId) => ensureMusicController()?.setTheme(themeId, { play: state.music }) });
-configureMaintenanceUi({ emitServer });
+// The operator cookie is read only at the Socket.IO handshake, so sign-in and sign-out reconnect.
+configureMaintenanceUi({ emitServer, reconnectSocket: () => { if (!socket) return; socket.disconnect(); socket.connect(); } });
 bindThemeVisibility();
 initThemePreference();
 ensureMusicController();
@@ -1436,7 +1549,10 @@ renderAll();
 const analyticsPathActive = initAnalytics();
 if (analyticsPathActive) initAdminAiProvider();
 if (!analyticsPathActive) {
-  showView("home");
-  openCardPreviewFromUrl();
-  openSurfaceFromUrl();
+  if (window.location.pathname === "/about") openAboutSurface({ history: false });
+  else {
+    showView("home");
+    openCardPreviewFromUrl();
+    openSurfaceFromUrl();
+  }
 }

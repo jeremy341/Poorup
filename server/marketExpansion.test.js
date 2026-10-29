@@ -3,7 +3,7 @@ import { RoomManager } from './gameLogic.js';
 import { forceLiquidate, maintenanceDue } from './marketExpansion.js';
 
 function roomAt(complexity) {
-  const room = new RoomManager().createRoom({ socketId: 'a', clientId: 'a', nickname: 'A', rulesetPreset: 'after-hours', marketComplexity: complexity });
+  const room = new RoomManager().createRoom({ rulesProfile: 'advanced', socketId: 'a', clientId: 'a', nickname: 'A', rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }, marketComplexity: complexity });
   room.addOrReconnectPlayer({ socketId: 'b', clientId: 'b', nickname: 'B' });
   room.setRoomSetting('market', true);
   room.setRoomSetting('marketComplexity', complexity);
@@ -76,10 +76,8 @@ assert.equal(margin.openMargin('a', 'brazil', 1, 'blocked').success, false);
 derivatives.game.players[0].marketActionsThisTurn = 0;
 assert.ok(derivatives.marketExpansionCandidates(derivatives.game.players[0]).length >= 1);
 
-// Margin maintenance is based on account equity, not the gross marked value:
-// $130 marked value + $35 held collateral - $100 remaining debt = $65 equity.
-// Multiple positions and partial debt make each term observable at the strict
-// maintenance boundary.
+// Margin maintenance is based on account equity, not gross marked value: $130 marked value + $35 held collateral - $100 remaining debt = $65 equity.
+// Multiple positions and partial debt make each term observable at the strict maintenance boundary.
 const marginEquityGame = { marketQuotes: { brazil: 40, ghana: 25 } };
 function marginEquityPlayer(maintenance) {
   return {
@@ -126,10 +124,16 @@ liquidationRoom.game.marketQuotes.brazil = 10;
 const liquidationActions = forceLiquidate(liquidationRoom.game, liquidationPlayer, {});
 assert.equal(liquidationActions.includes('margin-liquidation'), true);
 assert.equal(liquidationPlayer.cash, cashBeforeLiquidation);
-assert.equal(liquidationPlayer.marginBalance, marginDebtBeforeLiquidation - 34);
+// The liquidation closes the position, so no margin debt may survive it. The
+// $66 the collateral and the sale could not cover stays owed to the house as
+// an explicit obligation instead of a balance with no position behind it.
+assert.equal(liquidationPlayer.marginBalance, 0);
+assert.equal(liquidationPlayer.shortDefaultDebt, marginDebtBeforeLiquidation - 34);
 assert.equal(liquidationPlayer.marginCollateral, 0);
 assert.equal(liquidationPlayer.reservedCash, 0);
 assert.deepEqual(liquidationPlayer.marginPositions, {});
+// The forced sale is a realized trade: $9 of proceeds against a $102 basis.
+assert.equal(liquidationPlayer.marketPositions.brazil.realizedPnl, 9 - 102);
 
 // A forced short buy-in must close deterministically even when the player
 // cannot fund the quote. The shortfall becomes an explicit bounded obligation
@@ -229,4 +233,152 @@ const closeResult = closeRoom.closePosition('a', closeOpen.option.id, 'close-1')
 assert.equal(closeResult.success, true);
 assert.deepEqual(closeRoom.closePosition('a', closeOpen.option.id, 'close-1'), closeResult);
 assert.deepEqual(closeRoom.closePosition('a', closeOpen.option.id, 'close-2'), { success: false, error: 'You have already placed a market order this turn.' });
-console.log('market expansion: 14 passed, 0 failed');
+
+// Units stay on margin until the balance is fully repaid, then become
+// ordinary spot inventory that can be sold. Margin still open at game end is
+// settled from its liquidation proceeds instead of being stranded.
+const repaidRoom = roomAt('margin');
+const repaidPlayer = repaidRoom.game.players[0];
+assert.equal(repaidRoom.openMargin('a', 'brazil', 2, 'f34-open').success, true);
+repaidPlayer.marketActionsThisTurn = 0;
+assert.equal(repaidRoom.reduceMargin('a', 50, 'f34-partial').success, true);
+assert.equal(repaidPlayer.marginPositions.brazil.quantity, 2);
+assert.equal(repaidPlayer.marketPositions.brazil, undefined);
+repaidPlayer.marketActionsThisTurn = 0;
+assert.equal(repaidRoom.reduceMargin('a', 150, 'f34-repay').success, true);
+assert.deepEqual(repaidPlayer.marginPositions, {});
+assert.equal(repaidPlayer.marketPositions.brazil.quantity, 2);
+// The margin opening fee ($4 on a $200 gross) is part of the cost basis, so
+// the converted units carry it into the spot book and the realized P&L of the
+// sale reports it.
+assert.equal(repaidPlayer.marketPositions.brazil.averageCost, 102);
+repaidPlayer.marketActionsThisTurn = 0;
+assert.equal(repaidRoom.tradeMarket('a', 'brazil', 'sell', 2, 'f34-sell').success, true);
+assert.equal(repaidPlayer.marketPositions.brazil.quantity, 0);
+assert.equal(repaidPlayer.marketPositions.brazil.realizedPnl, (100 - 102) * 2 - 4);
+
+const endRoom = roomAt('margin');
+const endPlayer = endRoom.game.players[0];
+assert.equal(endRoom.openMargin('a', 'brazil', 2, 'f34-end').success, true);
+const cashAtEnd = endPlayer.cash;
+endRoom.game.endGame();
+assert.deepEqual(endPlayer.marginPositions, {});
+assert.equal(endPlayer.marginBalance, 0);
+assert.equal(endPlayer.marginCollateral, 0);
+assert.equal(endPlayer.reservedCash, 0);
+assert.equal(endPlayer.cash, cashAtEnd + 46);
+
+// Loan-backed cash may not open exposure, but it must never lock a seat
+// out of the risk-reducing side of its own book. Reducing or covering a
+// position is how a borrower funds the repayment, so those paths stay open.
+{
+  const loanRoom = roomAt('margin');
+  const loanPlayer = loanRoom.game.players[0];
+  assert.equal(loanRoom.openMargin('a', 'brazil', 1, 'loan-margin-open').success, true);
+  loanPlayer.marketActionsThisTurn = 0;
+  loanPlayer.bankLoan = { status: 'active', remaining: 500, collateralTileIndex: null };
+  assert.deepEqual(loanRoom.openMargin('a', 'brazil', 1, 'loan-margin-open-2'), {
+    success: false,
+    error: 'Loan-backed cash cannot fund margin, short, or option positions.'
+  });
+  const reduced = loanRoom.reduceMargin('a', 50, 'loan-margin-reduce');
+  assert.equal(reduced.success, true, JSON.stringify(reduced));
+}
+{
+  const loanShortRoom = roomAt('shorting');
+  const loanShortPlayer = loanShortRoom.game.players[0];
+  assert.equal(loanShortRoom.openShort('a', 'brazil', 1, 'loan-short-open').success, true);
+  loanShortPlayer.marketActionsThisTurn = 0;
+  loanShortPlayer.bankLoan = { status: 'active', remaining: 500, collateralTileIndex: null };
+  assert.deepEqual(loanShortRoom.openShort('a', 'brazil', 1, 'loan-short-open-2'), {
+    success: false,
+    error: 'Loan-backed cash cannot fund margin, short, or option positions.'
+  });
+  const covered = loanShortRoom.coverShort('a', 'brazil', 1, 'loan-short-cover');
+  assert.equal(covered.success, true, JSON.stringify(covered));
+}
+
+// A forced or terminal settlement pays a buyer option what it is worth.
+// The reserve still bounds the payout, and only the unused part returns to
+// the house.
+{
+  const settleRoom = roomAt('derivatives');
+  const settlePlayer = settleRoom.game.players[0];
+  const buyerOption = settleRoom.openOption('a', {
+    instrumentId: 'brazil',
+    role: 'buyer',
+    side: 'call',
+    quantity: 1,
+    strike: 80,
+    premium: 10,
+    expiryRounds: 5,
+    requestId: 'settle-option'
+  });
+  assert.equal(buyerOption.success, true);
+  settleRoom.game.marketQuotes.brazil = 140;
+  settleRoom.game.roundNumber += 1;
+  const reserveBeforeSettlement = settleRoom.game.marketOptionReserve;
+  settleRoom.game.liquidateAllMarketPositions(settlePlayer);
+  assert.equal(settlePlayer.optionPositions[0].status, 'closed');
+  assert.equal(settlePlayer.optionPositions[0].reserveHeld, 0);
+  assert.equal(settlePlayer.cash, 1500 - 10 + 60, 'the holder is paid the intrinsic value');
+  assert.equal(settleRoom.game.marketOptionReserve, reserveBeforeSettlement + 20, 'only the unused reserve returns to the house');
+}
+
+// The trade fee the short open already took out of the proceeds belongs in the realized P&L of the closed short, next to the cover fee
+// and the borrow fee: $20 + $20 + $10 on a $1,000 notional opened and closed at the same quote.
+{
+  const shortFeeRoom = roomAt('shorting');
+  const shortFeePlayer = shortFeeRoom.game.players[0];
+  shortFeeRoom.game.marketQuotes.brazil = 100;
+  assert.equal(shortFeeRoom.openShort('a', 'brazil', 10, 'open-fee-short').success, true);
+  shortFeePlayer.marketActionsThisTurn = 0;
+  const shortCover = shortFeeRoom.coverShort('a', 'brazil', 10, 'cover-fee-short');
+  assert.equal(shortCover.success, true);
+  assert.equal(shortCover.realizedPnl, -50);
+}
+
+// An unpaid short buy-in is a forced obligation to the house, but it must not trap the seat inside it: reducing margin, covering a short
+// and closing a position are how a levered seat raises the cash that repays the debt. Only new exposure (the 'open' ladder) stays blocked.
+{
+  const debtMarginRoom = roomAt('margin');
+  const debtMarginPlayer = debtMarginRoom.game.players[0];
+  assert.equal(debtMarginRoom.openMargin('a', 'brazil', 2, 'debt-margin-open').success, true);
+  debtMarginPlayer.marketActionsThisTurn = 0;
+  debtMarginPlayer.shortDefaultDebt = 100;
+  assert.deepEqual(debtMarginRoom.openMargin('a', 'brazil', 1, 'debt-margin-open-2'), {
+    success: false,
+    error: 'Settle your short buy-in debt before opening another market position.'
+  });
+  const reducedDebtMargin = debtMarginRoom.reduceMargin('a', 50, 'debt-margin-reduce');
+  assert.equal(reducedDebtMargin.success, true, JSON.stringify(reducedDebtMargin));
+}
+{
+  const debtShortRoom = roomAt('shorting');
+  const debtShortPlayer = debtShortRoom.game.players[0];
+  assert.equal(debtShortRoom.openShort('a', 'brazil', 1, 'debt-short-open').success, true);
+  debtShortPlayer.marketActionsThisTurn = 0;
+  debtShortPlayer.shortDefaultDebt = 100;
+  assert.deepEqual(debtShortRoom.openShort('a', 'brazil', 1, 'debt-short-open-2'), {
+    success: false,
+    error: 'Settle your short buy-in debt before opening another market position.'
+  });
+  const coveredDebtShort = debtShortRoom.coverShort('a', 'brazil', 1, 'debt-short-cover');
+  assert.equal(coveredDebtShort.success, true, JSON.stringify(coveredDebtShort));
+}
+{
+  const debtOptionRoom = roomAt('derivatives');
+  const debtOptionPlayer = debtOptionRoom.game.players[0];
+  const debtOption = debtOptionRoom.openOption('a', { instrumentId: 'brazil', role: 'buyer', side: 'call', quantity: 1, strike: 80, premium: 10, expiryRounds: 5, requestId: 'debt-option' });
+  assert.equal(debtOption.success, true);
+  debtOptionPlayer.marketActionsThisTurn = 0;
+  debtOptionPlayer.shortDefaultDebt = 100;
+  assert.deepEqual(debtOptionRoom.openOption('a', { instrumentId: 'brazil', role: 'buyer', side: 'call', quantity: 1, strike: 80, premium: 10, expiryRounds: 5, requestId: 'debt-option-2' }), {
+    success: false,
+    error: 'Settle your short buy-in debt before opening another market position.'
+  });
+  const closedDebtOption = debtOptionRoom.closePosition('a', debtOption.option.id, 'debt-close');
+  assert.equal(closedDebtOption.success, true, JSON.stringify(closedDebtOption));
+}
+
+console.log('market expansion: 28 passed, 0 failed');

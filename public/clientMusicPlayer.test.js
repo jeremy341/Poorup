@@ -383,3 +383,25 @@ test("selectTrack updates the choice without starting disabled playback", async 
   assert.equal(audioA.paused, true);
   assert.equal(audioB.paused, true);
 });
+
+test("creating the player does not let either audio node fetch a track while music is off", () => {
+  const { audioA, audioB, player } = setup();
+  assert.equal(audioA.preload, "none");
+  assert.equal(audioB.preload, "none");
+  assert.equal(player.snapshot().playing, false);
+  assert.equal(audioA.src, "/assets/audio/pondering-the-cosmos.mp3", "the approved current track is still the active node's source");
+});
+
+test("a crossfade loads the incoming track with preload enabled before its source is set", () => {
+  const seen = [];
+  const listeners = {};
+  const audioB = { ...media(), _src: "", get src() { return this._src; }, set src(value) { seen.push([this.preload, value]); this._src = value; }, addEventListener(type, fn) { listeners[type] = fn; }, removeEventListener() {} };
+  const { player, audioA } = setup({ audioB });
+  audioA.play = () => {};
+  player.togglePlay();
+  player.setTheme("spring");
+  assert.deepEqual(seen.map(([preload]) => preload), ["metadata"], "preload must allow loading when the incoming source is assigned, or canplay never fires");
+  assert.equal(seen[0][1].startsWith("/assets/audio/themes/spring/"), true, "only an approved local track is assigned");
+  assert.equal(typeof listeners.canplay, "function");
+  assert.equal(player.snapshot().playing, true);
+});

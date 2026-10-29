@@ -8,16 +8,35 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="32x32" />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/game-responsive.css" />
-    <script src="/socket.io/socket.io.js"></script>
+    <link rel="stylesheet" href="/game-layout.css" />
+    <link rel="stylesheet" href="/about.css" />
+    <link rel="stylesheet" href="/ux-surfaces.css" />
+    <link rel="stylesheet" href="/ui-review-pages.css" />
+    <link rel="stylesheet" href="/ui-review-economy.css" />
+    <link rel="stylesheet" href="/ui-review-market.css" />
+    <link rel="stylesheet" href="/ui-review-deeds.css" />
+    <link rel="stylesheet" href="/ui-review-presentation.css" />
+    <link rel="stylesheet" href="/ui-review-game.css" />
+    <link rel="stylesheet" href="/ui-review-system.css" />
+    <link rel="stylesheet" href="/ui-review-admin.css" />
+    <link rel="stylesheet" href="/ui-review-recovery.css" />
+    <script src="/socket.io/socket.io.min.js"></script>
     <title>Poorup · After-Hours Game Parlor</title>
   </head>
   <body>
+    <svg class="ui-icon-definitions" width="0" height="0" aria-hidden="true" focusable="false"><defs><symbol id="ui-close" viewBox="0 0 16 16"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></symbol></defs></svg>
+    <noscript><div class="noscript-note"><h1>Poorup: free online Monopoly-style board game</h1><p>Poorup is a free property-trading board game for 2–4 players that runs in your browser. It needs JavaScript to play. <a href="/about">About Poorup</a> · <a href="/rules">Rules</a></p></div></noscript>
     <div class="scanlines"></div>
     <div class="sr-live" id="system-announcer" data-document-announcer role="status" aria-live="polite" aria-atomic="true"></div>
     <div class="sr-live" id="error-announcer" role="alert" aria-live="assertive" aria-atomic="true"></div>
+    <div class="sr-live" id="status-announcer" role="status" aria-live="polite" aria-atomic="true"></div>
     <div class="toast-stack" id="toast-stack" role="region" aria-label="Notifications" aria-live="polite"></div>
-    <div class="bot-provider-banner" id="bot-provider-banner" role="alert" aria-live="assertive" aria-atomic="true" aria-hidden="true" hidden></div>
-    <div class="theme-page-world" id="theme-page-world" aria-hidden="true"></div>
+    <div class="bot-provider-banner" id="bot-provider-banner" aria-hidden="true" hidden></div>
+    <div class="operator-chip is-hidden" id="operator-chip" role="group" aria-label="Operator mode" aria-hidden="true">
+      <span class="t-label f11 operator-chip-label">OPERATOR MODE</span>
+      <button class="btn-dark operator-chip-signout" type="button" data-operator-signout aria-label="Sign out of operator mode"><span class="t-label f11">SIGN OUT</span></button>
+    </div>
+    <div class="theme-page-world" id="theme-page-world" data-theme-layer="page" aria-hidden="true"></div>
 
     <!-- Theme music is a silent runtime service, not a visible player. -->
     <div class="music-runtime" data-music-runtime aria-hidden="true">
@@ -25,68 +44,51 @@
       <audio data-music-audio="b" preload="metadata"></audio>
     </div>
 
-    <!-- ============================ HOME VIEW ============================ -->
+    <!-- HOME VIEW -->
     <div class="view" id="view-home">
       <a class="skip-link" id="skip-link" href="#home-main">Skip to main content</a>
-      <header class="hdr">
-        <div class="hdr-brand">
-          <span data-sprite="logo" data-size="4"></span>
-          <div class="hdr-brand-text">
-            <div class="hdr-wordmark">Poorup</div>
-            <div class="t-micro ink-3 hdr-sub">after-hours parlor</div>
-          </div>
+      <header class="hdr page-header" data-page-header="home">
+    <div class="page-header-brand"><div class="hdr-brand"><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">after-hours parlor</div></div></div></div>
+    <nav class="home-nav" id="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab is-active" id="home-play-tab" type="button" data-home-tab="play" aria-current="page"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" id="home-rooms-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" id="home-profile-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab" id="home-rankings-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" id="home-social-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab" id="home-rules-tab" type="button" data-top-surface="rules"><span class="t-label f11">RULES</span></button></nav>
+    <div class="hdr-right">
+      <button class="you-chip you-chip-btn" type="button" id="open-profile-btn" data-global-profile-trigger title="Edit profile"><span class="you-chip-av" id="home-you-avatar" data-global-you-avatar></span><span class="you-chip-text"><span class="t-micro g400">you are</span><span class="t-label f12 g300" id="home-you-name" data-global-you-name>guest</span></span></button>
+      <div class="home-menu-wrap">
+        <button class="btn-dark audio-toggle home-menu-btn" type="button" id="home-menu-btn" data-settings-toggle title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="home-menu"><span class="home-menu-icon" aria-hidden="true"></span></button>
+        <div class="home-menu is-hidden" id="home-menu" data-settings-menu role="group" aria-label="Settings">
+          <div class="t-micro g400 home-menu-title">SETTINGS</div>
+          <button class="btn-dark hdr-rules home-menu-item" type="button" id="home-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
+          <p class="t-micro ink-3 home-menu-note">Single-key shortcuts: B browse, C create, J join, P profile.</p>
+          <a class="btn-dark home-menu-item about-menu-entry" href="/about" data-about-link><span class="t-label f12">ABOUT POORUP</span></a>
         </div>
+      </div>
+      <button class="btn-dark audio-toggle" type="button" id="sound-toggle-btn" title="Sound effects" aria-label="Sound effects" aria-pressed="false"><img id="sound-toggle-icon" src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="music-toggle-btn" title="Parlor music" aria-label="Parlor music" aria-pressed="false"><img id="music-toggle-icon" src="/assets/music-off.svg" alt="" width="24" height="24"></button><span class="sr-live" id="music-status" role="status" aria-live="polite"></span>
+    </div>
+  </header>
 
-        <div class="hdr-meta t-micro ink-3" aria-hidden="true">
-          <span class="g5">poorup</span><span>live table service</span>
+<section class="maintenance-banner maintenance-home panel noise is-hidden" id="maintenance-home" role="region" aria-labelledby="maintenance-home-title" aria-hidden="true" data-maintenance-kind="window">
+  <div class="maintenance-card">
+    <div class="maintenance-info">
+      <div class="maintenance-brand"><img src="/favicon.svg" width="48" height="48" alt=""><span>Poorup</span></div>
+      <h2 class="t-section g100" id="maintenance-home-title" tabindex="-1" data-maintenance-title>Maintenance window</h2>
+      <p class="t-body ink-2 maintenance-message" data-maintenance-copy role="status"></p>
+      <p class="t-body ink-2 maintenance-note" data-maintenance-note></p>
+      <p class="t-micro ink-3 maintenance-facts"><span data-maintenance-release></span><span data-maintenance-rounds></span></p>
+      <button class="btn-dark maintenance-retry" type="button" data-maintenance-retry><span class="t-label f11">RETRY STATUS</span></button>
+    </div>
+    <details class="maintenance-access is-hidden" data-operator-disclosure aria-hidden="true">
+      <summary data-operator-toggle>OPERATOR SIGN-IN</summary>
+      <form class="maintenance-signin is-hidden" data-operator-form method="post" novalidate aria-label="Operator sign-in">
+        <label class="t-micro g400" for="operator-password">OPERATOR PASSWORD</label>
+        <div class="maintenance-signin-row">
+          <input class="input-dark" id="operator-password" data-operator-password type="password" autocomplete="current-password" maxlength="200" spellcheck="false" autocapitalize="off" autocorrect="off" aria-describedby="operator-signin-status">
+          <button class="btn-dark" type="button" data-operator-reveal aria-pressed="false" aria-controls="operator-password"><span class="t-label f11">SHOW</span></button>
         </div>
-
-        <nav class="home-nav" id="home-nav" data-global-nav aria-label="Parlor navigation">
-          <button class="home-nav-tab is-active" id="home-play-tab" type="button" data-home-tab="play" aria-current="page">
-            <span class="t-label f11">PLAY</span>
-          </button>
-          <button class="home-nav-tab" id="home-rooms-tab" type="button" data-home-tab="rooms">
-            <span class="t-label f11">ROOMS</span>
-          </button>
-          <button class="home-nav-tab" id="home-profile-tab" type="button" data-home-tab="profile">
-            <span class="t-label f11">PROFILE</span>
-          </button>
-          <button class="home-nav-tab" id="home-rankings-tab" type="button" data-top-surface="rankings">
-            <span class="t-label f11">RANKINGS</span>
-          </button>
-          <button class="home-nav-tab" id="home-social-tab" type="button" data-top-surface="social">
-            <span class="t-label f11">SOCIAL</span>
-          </button>
-          <button class="home-nav-tab" id="home-rules-tab" type="button" data-top-surface="rules">
-            <span class="t-label f11">RULES</span>
-          </button>
-        </nav>
-
-        <div class="hdr-right">
-          <button class="you-chip you-chip-btn" type="button" id="open-profile-btn" data-global-profile-trigger title="Edit profile [P]">
-            <span class="you-chip-av" id="home-you-avatar" data-global-you-avatar></span>
-            <span class="you-chip-text">
-              <span class="t-micro g400">you are</span>
-              <span class="t-label f12 g300" id="home-you-name" data-global-you-name>guest_4412</span>
-            </span>
-          </button>
-          <button class="btn-dark audio-toggle" type="button" id="sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false">
-            <img id="sound-toggle-icon" src="/assets/sound-off.svg" alt="" width="24" height="24">
-          </button>
-          <button class="btn-dark audio-toggle" type="button" id="music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false">
-            <img id="music-toggle-icon" src="/assets/music-off.svg" alt="" width="24" height="24">
-          </button>
-          <span class="sr-live" id="music-status" role="status" aria-live="polite"></span>
-        </div>
-      </header>
-
-      <section class="maintenance-banner maintenance-home panel noise is-hidden" id="maintenance-home" role="status" aria-live="polite" aria-hidden="true">
-        <div class="maintenance-kicker t-micro g400">PARLOR STATUS</div>
-        <h2 class="t-section g100">Maintenance window</h2>
-        <p class="t-body ink-2" data-maintenance-copy></p>
-        <p class="t-micro ink-3" data-maintenance-rounds></p>
-        <button class="btn-dark" type="button" data-maintenance-retry><span class="t-label f11">Retry status</span></button>
-      </section>
+        <button class="btn-dark maintenance-signin-submit" type="submit" data-operator-submit><span class="t-label f11">SIGN IN</span></button>
+        <p class="t-body maintenance-signin-status" id="operator-signin-status" data-operator-status role="status" aria-live="polite"></p>
+      </form>
+    </details>
+  </div>
+</section>
 
       <main class="home-main" id="home-main" tabindex="-1">
         <!-- title screen -->
@@ -113,20 +115,20 @@
             </div>
           </div>
 
-          <div class="home-sky-atmosphere" role="group" aria-label="Parlor Patrol">
+          <div class="home-sky-atmosphere" role="group" aria-label="Home skyline">
             <time class="home-local-time" id="home-local-time" datetime="" aria-label="Local time">--:--</time>
-            <output class="home-patrol-score" id="home-patrol-score" aria-label="Parlor Patrol score" aria-live="polite">000</output>
-            <button class="home-patrol-hint" id="home-night-shift-start" type="button" aria-label="Start Night Shift (Shift+P)">SHIFT+P · NIGHT SHIFT</button>
-            <span class="sr-live" id="home-patrol-status" role="status" aria-live="polite" aria-atomic="true">STANDBY · FLY-BYS OCCASIONAL</span>
-            <button class="home-helicopter" id="home-helicopter" type="button" aria-label="Tag the police helicopter" aria-hidden="true" tabindex="-1">
+            <output class="home-patrol-score" id="home-patrol-score" data-parlor-patrol hidden aria-label="Parlor Patrol score" aria-live="polite">000</output>
+            <button class="home-patrol-hint" id="home-night-shift-start" data-parlor-patrol hidden type="button" aria-label="Start Night Shift (Shift+P)">SHIFT+P · NIGHT SHIFT</button>
+            <span class="sr-live" id="home-patrol-status" data-parlor-patrol hidden role="status" aria-live="polite" aria-atomic="true">STANDBY · FLY-BYS OCCASIONAL</span>
+            <button class="home-helicopter" id="home-helicopter" data-parlor-patrol hidden type="button" aria-label="Tag the police helicopter" aria-hidden="true" tabindex="-1">
               <img class="home-helicopter-art" id="home-helicopter-art" src="/assets/parlor-patrol/helicopter-16-frames.svg" alt="" width="128" height="64" />
             </button>
-            <span class="home-patrol-effect home-patrol-impact" id="home-patrol-impact" aria-hidden="true"><img src="/assets/parlor-patrol/impact-8-frames.svg" alt="" width="64" height="64" /></span>
-            <span class="home-patrol-effect home-patrol-smoke" id="home-patrol-smoke" aria-hidden="true"><img src="/assets/parlor-patrol/smoke-6-frames.svg" alt="" width="80" height="64" /></span>
+            <span class="home-patrol-effect home-patrol-impact" id="home-patrol-impact" data-parlor-patrol hidden aria-hidden="true"><img src="/assets/parlor-patrol/impact-8-frames.svg" alt="" width="64" height="64" /></span>
+            <span class="home-patrol-effect home-patrol-smoke" id="home-patrol-smoke" data-parlor-patrol hidden aria-hidden="true"><img src="/assets/parlor-patrol/smoke-6-frames.svg" alt="" width="80" height="64" /></span>
           </div>
 
-          <!-- Home-stage Night Shift mode. Reuses the Home clock and score. -->
-          <section class="night-shift is-hidden" id="night-shift" role="region" aria-labelledby="night-shift-title" aria-describedby="night-shift-description" aria-hidden="true">
+          <!-- Home-stage Night Shift mode. Reuses the Home clock and score. Switched off while PARLOR_PATROL_ENABLED is false (clientNightShift.js). -->
+          <section class="night-shift is-hidden" id="night-shift" data-parlor-patrol hidden role="region" aria-labelledby="night-shift-title" aria-describedby="night-shift-description" aria-hidden="true">
             <div class="night-shift-hud" aria-label="Night Shift status">
               <div class="night-shift-readout">
                 <output class="night-shift-wave" id="night-wave" aria-label="Current Night Shift wave">01</output>
@@ -178,31 +180,23 @@
             </div>
 
             <div class="home-entry-desk panel noise">
-              <div class="entry-desk-head"><div class="t-micro g400">PARLOR ENTRY</div><div class="t-label f14 g100">ENTER THE PARLOR</div></div>
+              <form class="home-alias-form" id="home-alias-form">
+                <label class="t-micro g400" for="home-alias">Your name</label>
+                <div class="home-alias-row">
+                  <button class="chair-av chair-av-btn" type="button" id="chair-edit-btn" aria-label="Edit your identity"><span id="chair-avatar"></span></button>
+                  <input id="home-alias" name="alias" class="field" maxlength="12" inputmode="text" autocomplete="nickname" placeholder="Pick a name" />
+                </div>
+                <p class="home-alias-error" id="home-alias-error" role="alert"></p>
+              </form>
               <div class="ts-actions">
-                <button class="cta-red ts-cta" type="button" id="open-create-btn" title="Create a room"><span data-sprite="dice" data-size="4"></span><span class="cta-text">Create Room</span></button>
-                <button class="cta-red ts-cta" type="button" id="open-join-btn" title="Join an existing room"><span data-sprite="arrow" data-size="4"></span><span class="cta-text">Join Room</span></button>
-                <button class="btn-dark ts-quick" type="button" id="quick-table-btn" title="Create a default-rules room"><span class="t-label f13">Quick table</span><span class="t-micro g800">[ C ]</span></button>
+                <button class="cta-red ts-cta ts-play" type="button" id="quick-table-btn" title="Join an open table, or start one"><span data-sprite="crown" data-size="5"></span><span class="cta-text">Play</span></button>
+                <div class="ts-secondary">
+                  <button class="btn-dark ts-cta ts-cta-sm" type="button" id="open-create-btn" title="Create a room"><span data-sprite="dice" data-size="4"></span><span class="cta-text">Create Room</span></button>
+                  <button class="btn-dark ts-cta ts-cta-sm" type="button" id="open-join-btn" title="Join an existing room"><span data-sprite="arrow" data-size="4"></span><span class="cta-text">Join Room</span></button>
+                </div>
                 <button class="btn-dark ts-join is-hidden" type="button" id="resume-btn"><span class="t-label f13">Resume round</span><span class="t-micro g800">SAVE FOUND</span></button>
               </div>
-              <div class="open-chair">
-                <div class="chair-av" id="chair-avatar"></div>
-                <div class="chair-text">
-                  <div class="t-micro g400">open chair · west seat</div>
-                  <div class="t-label f13 g100 chair-name" id="chair-name">that's you, guest_4412</div>
-                </div>
-                <button class="btn-dark chair-edit" type="button" id="chair-edit-btn">
-                  <span class="t-label f11">EDIT IDENTITY</span>
-                </button>
-              </div>
-
-              <form class="home-alias-form" id="home-alias-form">
-                <label class="t-micro g400" for="home-alias">guest alias</label>
-                <input id="home-alias" name="alias" class="field" maxlength="12" inputmode="text" autocomplete="nickname" placeholder="CREATE AN ALIAS" />
-                <p class="home-alias-error" id="home-alias-error" role="alert" aria-live="polite"></p>
-              </form>
-
-            </div>
+              <span class="chair-name" id="chair-name" hidden></span>
           </div>
         </section>
       </main>
@@ -210,13 +204,37 @@
       <div class="ticker">
         <span class="t-micro tk"><span class="g400">AFTER-HOURS PARLOR</span></span>
         <span class="t-micro tk"><span class="g800 tk-sep">·</span><span class="g400">live table service</span></span>
+        <span class="t-micro tk"><span class="g800 tk-sep">·</span><a class="tk-link" href="/about">about</a><span class="g800 tk-sep">·</span><a class="tk-link" href="/rules">rules</a></span>
         <span class="t-micro tk tk-right"><span data-sprite="crown" data-size="2"></span>press [B] to browse rooms</span>
       </div>
     </div>
 
+    <div class="view is-hidden" id="view-about">
+      <header class="hdr page-header" data-page-header="about">
+    <div class="page-header-brand"><button class="hdr-brand profile-back page-header-back" type="button" data-page-back data-about-back aria-label="Back to the previous view" title="Back to the previous view"><span class="profile-back-arrow" aria-hidden="true">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">after-hours parlor</div></div></button></div>
+    <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab" type="button" data-top-surface="rules"><span class="t-label f11">RULES</span></button></nav>
+    <div class="hdr-right">
+      <button class="you-chip you-chip-btn" type="button" data-global-profile-trigger title="Edit profile"><span class="you-chip-av" data-global-you-avatar></span><span class="you-chip-text"><span class="t-micro g400">you are</span><span class="t-label f12 g300" data-global-you-name>guest</span></span></button>
+      <div class="home-menu-wrap">
+        <button class="btn-dark audio-toggle home-menu-btn" type="button" id="about-menu-btn" data-settings-toggle title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="about-menu"><span class="home-menu-icon" aria-hidden="true"></span></button>
+        <div class="home-menu is-hidden" id="about-menu" data-settings-menu role="group" aria-label="Settings">
+          <div class="t-micro g400 home-menu-title">SETTINGS</div>
+          <div class="header-menu-connection" role="status" aria-live="polite"><span class="dot dot-green blink" data-global-online aria-hidden="true"></span> <span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div>
+          <button class="btn-dark hdr-rules home-menu-item" type="button" id="about-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
+          <p class="t-micro ink-3 home-menu-note">Single-key shortcuts: B browse, C create, J join, P profile.</p>
+          <a class="btn-dark home-menu-item about-menu-entry" href="/about" data-about-link><span class="t-label f12">ABOUT POORUP</span></a>
+        </div>
+      </div>
+      <button class="btn-dark audio-toggle" type="button" id="about-sound-toggle-btn" title="Sound effects" aria-label="Sound effects" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="about-music-toggle-btn" title="Parlor music" aria-label="Parlor music" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button>
+    </div>
+  </header>
+      <a class="skip-link" href="#about-page-content">Skip to About content</a>
+      <main class="about-page-main" id="about-page-content" aria-labelledby="about-heading" tabindex="0"><!-- about-content --></main>
+    </div>
+
     <!-- room browser & room creator modal -->
     <div class="popup is-hidden" id="rooms-modal" role="dialog" aria-modal="true" aria-labelledby="rooms-title-text" aria-describedby="rooms-description" aria-hidden="true">
-      <button class="popup-scrim" id="rooms-scrim" aria-label="Close rooms"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="rooms-scrim" aria-label="Close rooms"></button>
       <div class="popup-card rooms-card panel noise" id="rooms-card">
         <div class="rooms-body">
           <div class="rooms-head">
@@ -224,7 +242,7 @@
               <div class="t-micro g400">PARLOR DIRECTORY</div>
               <h2 class="t-section g100 rooms-title" id="rooms-title-text">Available Rooms</h2>
             </div>
-            <button class="btn-dark" id="rooms-close" type="button"><span class="t-label f11">CLOSE</span></button>
+            <button class="btn-dark surface-close" id="rooms-close" type="button" aria-label="Close room browser" title="Close room browser"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
           </div>
 
           <div class="rm-tabs" id="rm-tabs" role="tablist" aria-label="Room actions">
@@ -236,10 +254,11 @@
           <!-- BROWSE TAB PANEL -->
           <div class="rm-panel" id="rm-panel-browse" role="tabpanel" aria-labelledby="rm-tab-browse">
             <p class="t-body ink-2 rooms-copy" id="rooms-description">Pick a live table, join with an open seat, or enter a room code.</p>
+            <label class="rooms-search" for="rooms-search"><span class="sr-only">Search tables by name</span><input class="field" id="rooms-search" type="search" placeholder="Search tables by name…" autocomplete="off" maxlength="40" /></label>
             <div class="rooms-filters">
-              <button class="btn-dark rooms-filter is-active" type="button" data-filter="all"><span class="t-label f11">ALL</span></button>
-              <button class="btn-dark rooms-filter" type="button" data-filter="open"><span class="t-label f11">OPEN</span></button>
-              <button class="btn-dark rooms-filter" type="button" data-filter="live"><span class="t-label f11">LIVE</span></button>
+              <button class="btn-dark rooms-filter is-active" type="button" data-filter="all" aria-pressed="true"><span class="t-label f11">ALL</span></button>
+              <button class="btn-dark rooms-filter" type="button" data-filter="open" aria-pressed="false"><span class="t-label f11">OPEN</span></button>
+              <button class="btn-dark rooms-filter" type="button" data-filter="live" aria-pressed="false"><span class="t-label f11">LIVE</span></button>
             </div>
             <div class="rooms-list thin-scroll" id="rooms-list"></div>
           </div>
@@ -308,49 +327,27 @@
       </div>
     </div>
 
-    <!-- ============================ PROFILE VIEW ============================ -->
+    <!-- PROFILE VIEW -->
     <div class="view is-hidden" id="view-profile">
       <a class="skip-link" href="#profile-main">Skip to main content</a>
-      <header class="hdr">
-        <button class="hdr-brand profile-back" id="profile-back-btn" type="button" aria-label="Back to home">
-          <span class="profile-back-arrow">‹</span>
-          <span data-sprite="logo" data-size="4"></span>
-          <div class="hdr-brand-text">
-            <div class="hdr-wordmark">Poorup</div>
-            <div class="t-micro ink-3 hdr-sub">profile editor</div>
-          </div>
-        </button>
-        <div class="hdr-meta t-micro ink-3" aria-hidden="true">
-          <span class="g5">poorup</span><span>live table service</span>
+      <header class="hdr page-header" data-page-header="profile">
+    <div class="page-header-brand"><button class="hdr-brand profile-back page-header-back" type="button" data-page-back id="profile-back-btn" aria-label="Back to home" title="Back to home"><span class="profile-back-arrow" aria-hidden="true">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">after-hours parlor</div></div></button></div>
+    <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab is-active" type="button" data-home-tab="profile" aria-current="page"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab" type="button" data-top-surface="rules"><span class="t-label f11">RULES</span></button></nav>
+    <div class="hdr-right">
+      <button class="you-chip you-chip-btn" type="button" data-global-profile-trigger title="Edit profile"><span class="you-chip-av" data-global-you-avatar></span><span class="you-chip-text"><span class="t-micro g400">you are</span><span class="t-label f12 g300" data-global-you-name>guest</span></span></button>
+      <div class="home-menu-wrap">
+        <button class="btn-dark audio-toggle home-menu-btn" type="button" id="profile-menu-btn" data-settings-toggle title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="profile-menu"><span class="home-menu-icon" aria-hidden="true"></span></button>
+        <div class="home-menu is-hidden" id="profile-menu" data-settings-menu role="group" aria-label="Settings">
+          <div class="t-micro g400 home-menu-title">SETTINGS</div>
+          <div class="header-menu-connection" role="status" aria-live="polite"><span class="dot dot-green blink" data-global-online aria-hidden="true"></span> <span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div>
+          <button class="btn-dark hdr-rules home-menu-item" type="button" id="profile-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
+          <p class="t-micro ink-3 home-menu-note">Single-key shortcuts: B browse, C create, J join, P profile.</p>
+          <a class="btn-dark home-menu-item about-menu-entry" href="/about" data-about-link><span class="t-label f12">ABOUT POORUP</span></a>
         </div>
-        <nav class="home-nav" data-global-nav aria-label="Parlor navigation">
-          <button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button>
-          <button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button>
-          <button class="home-nav-tab is-active" type="button" data-home-tab="profile" aria-current="page"><span class="t-label f11">PROFILE</span></button>
-          <button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button>
-          <button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button>
-          <button class="home-nav-tab" type="button" data-top-surface="rules"><span class="t-label f11">RULES</span></button>
-        </nav>
-        <div class="hdr-right">
-          <div class="online" data-global-online>
-            <span class="dot dot-green blink"></span>
-            <span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span>
-          </div>
-          <button class="you-chip you-chip-btn" type="button" data-global-profile-trigger title="Edit profile">
-            <span class="you-chip-av" data-global-you-avatar></span>
-            <span class="you-chip-text">
-              <span class="t-micro g400">you are</span>
-              <span class="t-label f12 g300" data-global-you-name>guest_4412</span>
-            </span>
-          </button>
-          <button class="btn-dark audio-toggle" type="button" id="profile-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false">
-            <img src="/assets/sound-off.svg" alt="" width="24" height="24">
-          </button>
-          <button class="btn-dark audio-toggle" type="button" id="profile-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false">
-            <img src="/assets/music-off.svg" alt="" width="24" height="24">
-          </button>
-        </div>
-      </header>
+      </div>
+      <button class="btn-dark audio-toggle" type="button" id="profile-sound-toggle-btn" title="Sound effects" aria-label="Sound effects" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="profile-music-toggle-btn" title="Parlor music" aria-label="Parlor music" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button>
+    </div>
+  </header>
 
       <main class="profile-main" id="profile-main" tabindex="-1">
         <section class="profile-hero panel noise" aria-labelledby="profile-hero-name">
@@ -374,15 +371,15 @@
         </section>
 
         <nav class="profile-tabs" id="profile-tabs" role="tablist" aria-label="Profile sections" aria-orientation="horizontal">
-          <button class="profile-tab" id="profile-tab-overview" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-overview" data-profile-tab="overview"><span class="t-label f11">OVERVIEW</span></button>
+          <button class="profile-tab is-active" id="profile-tab-overview" type="button" role="tab" aria-selected="true" aria-controls="profile-panel-overview" data-profile-tab="overview"><span class="t-label f11">OVERVIEW</span></button>
           <button class="profile-tab" id="profile-tab-stats" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-stats" data-profile-tab="stats"><span class="t-label f11">STATISTICS</span></button>
-          <button class="profile-tab is-active" id="profile-tab-designs" type="button" role="tab" aria-selected="true" aria-controls="profile-panel-designs" data-profile-tab="designs"><span class="t-label f11">PLAYER DESIGNS</span></button>
+          <button class="profile-tab" id="profile-tab-designs" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-designs" data-profile-tab="designs"><span class="t-label f11">PLAYER DESIGNS</span></button>
           <button class="profile-tab" id="profile-tab-history" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-history" data-profile-tab="history"><span class="t-label f11">HISTORY</span></button>
           <button class="profile-tab" id="profile-tab-achievements" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-achievements" data-profile-tab="achievements"><span class="t-label f11">ACHIEVEMENTS</span><span class="profile-tab-count" id="profile-achievement-count">0/52</span></button>
           <button class="profile-tab" id="profile-tab-account" type="button" role="tab" aria-selected="false" aria-controls="profile-panel-account" data-profile-tab="account"><span class="t-label f11">ACCOUNT &amp; PREFERENCES</span></button>
         </nav>
 
-        <section class="profile-tab-panel is-hidden" id="profile-panel-overview" role="tabpanel" aria-labelledby="profile-tab-overview" tabindex="0">
+        <section class="profile-tab-panel" id="profile-panel-overview" role="tabpanel" aria-labelledby="profile-tab-overview" tabindex="0">
           <div class="profile-overview-grid">
             <section class="panel noise pad16 profile-overview-card">
               <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Your table identity</h2></div>
@@ -390,7 +387,7 @@
                 <div class="profile-overview-avatar" id="profile-overview-avatar" aria-hidden="true"></div>
                 <div><div class="t-label f14 g100" id="profile-overview-name">PLAYER</div><div class="t-micro ink-3" id="profile-overview-mode">GUEST MODE</div></div>
               </div>
-              <p class="t-body ink-2 profile-overview-copy" id="profile-overview-copy">This is the name, color, and pixel face other players see at the table.</p>
+              <p class="t-body ink-2 profile-overview-copy" id="profile-overview-copy">Other players see this design's name, color, and pixel face in the lobby. Your hero and header show your player name.</p>
               <button class="cta-red profile-overview-edit" id="profile-overview-edit-btn" type="button"><span class="cta-text cta-text-sm">Edit player design</span></button>
             </section>
             <section class="panel noise pad16 profile-overview-card profile-overview-note">
@@ -408,7 +405,7 @@
           <div id="profile-statistics-content"></div>
         </section>
 
-        <section class="profile-tab-panel" id="profile-panel-designs" role="tabpanel" aria-labelledby="profile-tab-designs" tabindex="0">
+        <section class="profile-tab-panel is-hidden" id="profile-panel-designs" role="tabpanel" aria-labelledby="profile-tab-designs" tabindex="0">
           <section class="panel noise pad16 profile-library-panel" id="profile-library">
             <div class="pl-head">
               <div><div class="t-micro g400">PLAYER DESIGNS</div><div class="t-label f12 g100">Saved profiles</div></div>
@@ -423,7 +420,7 @@
               <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Identity</h2></div>
               <label class="profile-field"><span class="t-label f12 g-muted profile-label">Design Name</span><input id="profile-name" name="designName" class="field" maxlength="12" inputmode="text" autocomplete="off" placeholder="MIDNIGHT SET" /></label>
               <div class="profile-field"><span class="t-label f12 g-muted profile-label">Token Color</span><div class="profile-swatches" id="profile-swatches"></div><label class="profile-custom-color"><span class="t-micro ink-3">custom</span><input type="color" id="profile-color-picker" name="tokenColor" class="color-input" aria-label="Custom token color" value="#d74438" /></label></div>
-              <div class="profile-field"><span class="t-label f12 g-muted profile-label">Live Preview</span><div class="profile-preview-row"><div class="profile-preview-av" id="profile-preview-av"></div><div class="profile-preview-info"><div class="t-label f13" id="profile-preview-name" style="color:#d74438">MARLOWE</div><div class="t-micro ink-3">$1,500 · seat preview</div></div></div></div>
+              <div class="profile-field"><span class="t-label f12 g-muted profile-label">Live Preview</span><div class="profile-preview-row"><div class="profile-preview-av" id="profile-preview-av"></div><div class="profile-preview-info"><div class="pl-name-row"><span class="pl-name-chip" id="profile-preview-chip" style="background:#d74438" aria-hidden="true"></span><span class="t-label f13" id="profile-preview-name">MARLOWE</span></div><div class="t-micro ink-3">$1,500 · seat preview</div></div></div></div>
             </section>
             <section class="panel noise pad16">
               <div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Draw Your Face</h2><span class="t-micro ink-3 face-hint">CLICK OR DRAG TO PAINT</span></div>
@@ -446,7 +443,7 @@
               <button class="achievement-filter" type="button" aria-pressed="false" data-achievement-filter="global"><span class="t-label f11">GLOBAL EVENTS</span></button>
               <button class="achievement-filter" type="button" aria-pressed="false" data-achievement-filter="social"><span class="t-label f11">SOCIAL</span></button>
               <button class="achievement-filter" type="button" aria-pressed="false" data-achievement-filter="secret"><span class="t-label f11">SECRETS</span></button>
-              <button class="achievement-filter" type="button" aria-pressed="false" data-achievement-filter="minigame"><span class="t-label f11">PATROL</span></button>
+              <button class="achievement-filter" type="button" aria-pressed="false" data-parlor-patrol hidden data-achievement-filter="minigame"><span class="t-label f11">PATROL</span></button>
               <button class="btn-dark achievement-filter-toggle" type="button" data-achievement-filter-toggle aria-controls="achievement-filter-controls" aria-expanded="false"><span class="t-label f11">FILTERS</span></button>
             </div>
             <div class="achievement-filter-controls" id="achievement-filter-controls">
@@ -480,37 +477,73 @@
     </div>
 
     <div class="view is-hidden" id="view-rankings">
-        <header class="hdr">
-          <button class="hdr-brand" type="button" data-top-back="home" aria-label="Back to home"><span class="profile-back-arrow">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">global rankings</div></div></button>
-        <div class="hdr-meta t-micro ink-3" aria-hidden="true"><span class="g5">poorup</span><span>live table service</span></div>
-        <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab is-active" type="button" data-top-surface="rankings" aria-current="page"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab" type="button" data-top-surface="rules"><span class="t-label f11">RULES</span></button></nav>
-        <div class="hdr-right"><div class="online" data-global-online><span class="dot dot-green blink"></span><span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div><button class="you-chip you-chip-btn" type="button" data-global-profile-trigger title="Edit profile"><span class="you-chip-av" data-global-you-avatar></span><span class="you-chip-text"><span class="t-micro g400">you are</span><span class="t-label f12 g300" data-global-you-name>guest_4412</span></span></button><button class="btn-dark audio-toggle" type="button" id="rankings-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="rankings-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button></div>
-      </header>
       <a class="skip-link" href="#rankings-page-content">Skip to main content</a>
+        <header class="hdr page-header" data-page-header="rankings">
+    <div class="page-header-brand"><button class="hdr-brand profile-back page-header-back" type="button" data-page-back data-top-back="home" aria-label="Back to home" title="Back to home"><span class="profile-back-arrow" aria-hidden="true">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">after-hours parlor</div></div></button></div>
+    <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab is-active" type="button" data-top-surface="rankings" aria-current="page"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab" type="button" data-top-surface="rules"><span class="t-label f11">RULES</span></button></nav>
+    <div class="hdr-right">
+      <button class="you-chip you-chip-btn" type="button" data-global-profile-trigger title="Edit profile"><span class="you-chip-av" data-global-you-avatar></span><span class="you-chip-text"><span class="t-micro g400">you are</span><span class="t-label f12 g300" data-global-you-name>guest</span></span></button>
+      <div class="home-menu-wrap">
+        <button class="btn-dark audio-toggle home-menu-btn" type="button" id="rankings-menu-btn" data-settings-toggle title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="rankings-menu"><span class="home-menu-icon" aria-hidden="true"></span></button>
+        <div class="home-menu is-hidden" id="rankings-menu" data-settings-menu role="group" aria-label="Settings">
+          <div class="t-micro g400 home-menu-title">SETTINGS</div>
+          <div class="header-menu-connection" role="status" aria-live="polite"><span class="dot dot-green blink" data-global-online aria-hidden="true"></span> <span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div>
+          <button class="btn-dark hdr-rules home-menu-item" type="button" id="rankings-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
+          <p class="t-micro ink-3 home-menu-note">Single-key shortcuts: B browse, C create, J join, P profile.</p>
+          <a class="btn-dark home-menu-item about-menu-entry" href="/about" data-about-link><span class="t-label f12">ABOUT POORUP</span></a>
+        </div>
+      </div>
+      <button class="btn-dark audio-toggle" type="button" id="rankings-sound-toggle-btn" title="Sound effects" aria-label="Sound effects" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="rankings-music-toggle-btn" title="Parlor music" aria-label="Parlor music" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button>
+    </div>
+  </header>
       <h1 class="sr-only" id="rankings-page-heading">Global Rankings</h1>
       <main class="social-page-main" id="rankings-page-content" aria-labelledby="rankings-page-heading" tabindex="-1"></main>
     </div>
 
     <div class="view is-hidden" id="view-social">
-        <header class="hdr">
-          <button class="hdr-brand" type="button" data-top-back="home" aria-label="Back to home"><span class="profile-back-arrow">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">parlor social</div></div></button>
-        <div class="hdr-meta t-micro ink-3" aria-hidden="true"><span class="g5">poorup</span><span>live table service</span></div>
-        <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab is-active" type="button" data-top-surface="social" aria-current="page"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab" type="button" data-top-surface="rules"><span class="t-label f11">RULES</span></button></nav>
-        <div class="hdr-right"><div class="online" data-global-online><span class="dot dot-green blink"></span><span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div><button class="you-chip you-chip-btn" type="button" data-global-profile-trigger title="Edit profile"><span class="you-chip-av" data-global-you-avatar></span><span class="you-chip-text"><span class="t-micro g400">you are</span><span class="t-label f12 g300" data-global-you-name>guest_4412</span></span></button><button class="btn-dark audio-toggle" type="button" id="social-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="social-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button></div>
-      </header>
       <a class="skip-link" href="#social-page-content">Skip to main content</a>
+        <header class="hdr page-header" data-page-header="social">
+    <div class="page-header-brand"><button class="hdr-brand profile-back page-header-back" type="button" data-page-back data-top-back="home" aria-label="Back to home" title="Back to home"><span class="profile-back-arrow" aria-hidden="true">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">after-hours parlor</div></div></button></div>
+    <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab is-active" type="button" data-top-surface="social" aria-current="page"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab" type="button" data-top-surface="rules"><span class="t-label f11">RULES</span></button></nav>
+    <div class="hdr-right">
+      <button class="you-chip you-chip-btn" type="button" data-global-profile-trigger title="Edit profile"><span class="you-chip-av" data-global-you-avatar></span><span class="you-chip-text"><span class="t-micro g400">you are</span><span class="t-label f12 g300" data-global-you-name>guest</span></span></button>
+      <div class="home-menu-wrap">
+        <button class="btn-dark audio-toggle home-menu-btn" type="button" id="social-menu-btn" data-settings-toggle title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="social-menu"><span class="home-menu-icon" aria-hidden="true"></span></button>
+        <div class="home-menu is-hidden" id="social-menu" data-settings-menu role="group" aria-label="Settings">
+          <div class="t-micro g400 home-menu-title">SETTINGS</div>
+          <div class="header-menu-connection" role="status" aria-live="polite"><span class="dot dot-green blink" data-global-online aria-hidden="true"></span> <span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div>
+          <button class="btn-dark hdr-rules home-menu-item" type="button" id="social-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
+          <p class="t-micro ink-3 home-menu-note">Single-key shortcuts: B browse, C create, J join, P profile.</p>
+          <a class="btn-dark home-menu-item about-menu-entry" href="/about" data-about-link><span class="t-label f12">ABOUT POORUP</span></a>
+        </div>
+      </div>
+      <button class="btn-dark audio-toggle" type="button" id="social-sound-toggle-btn" title="Sound effects" aria-label="Sound effects" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="social-music-toggle-btn" title="Parlor music" aria-label="Parlor music" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button>
+    </div>
+  </header>
       <h1 class="sr-only" id="social-page-heading">Parlor Social</h1>
       <main class="social-page-main" id="social-page-content" aria-labelledby="social-page-heading" tabindex="-1"></main>
     </div>
 
     <div class="view is-hidden" id="view-rules">
-      <header class="hdr">
-        <button class="hdr-brand" type="button" data-top-back="home" aria-label="Back to home"><span class="profile-back-arrow">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">parlor rules</div></div></button>
-        <div class="hdr-meta t-micro ink-3" aria-hidden="true"><span class="g5">poorup</span><span>live table service</span></div>
-        <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab is-active" type="button" data-top-surface="rules" aria-current="page"><span class="t-label f11">RULES</span></button></nav>
-        <div class="hdr-right"><div class="online" data-global-online><span class="dot dot-green blink"></span><span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div><button class="you-chip you-chip-btn" type="button" data-global-profile-trigger title="Edit profile"><span class="you-chip-av" data-global-you-avatar></span><span class="you-chip-text"><span class="t-micro g400">you are</span><span class="t-label f12 g300" data-global-you-name>guest_4412</span></span></button><button class="btn-dark audio-toggle" type="button" id="rules-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="rules-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button></div>
-      </header>
       <a class="skip-link" href="#rules-page-content">Skip to main content</a>
+      <header class="hdr page-header" data-page-header="rules">
+    <div class="page-header-brand"><button class="hdr-brand profile-back page-header-back" type="button" data-page-back data-top-back="home" aria-label="Back to home" title="Back to home"><span class="profile-back-arrow" aria-hidden="true">‹</span><span data-sprite="logo" data-size="4"></span><div class="hdr-brand-text"><div class="hdr-wordmark">Poorup</div><div class="t-micro ink-3 hdr-sub">after-hours parlor</div></div></button></div>
+    <nav class="home-nav" data-global-nav aria-label="Parlor navigation"><button class="home-nav-tab" type="button" data-home-tab="play"><span class="t-label f11">PLAY</span></button><button class="home-nav-tab" type="button" data-home-tab="rooms"><span class="t-label f11">ROOMS</span></button><button class="home-nav-tab" type="button" data-home-tab="profile"><span class="t-label f11">PROFILE</span></button><button class="home-nav-tab" type="button" data-top-surface="rankings"><span class="t-label f11">RANKINGS</span></button><button class="home-nav-tab" type="button" data-top-surface="social"><span class="t-label f11">SOCIAL</span></button><button class="home-nav-tab is-active" type="button" data-top-surface="rules" aria-current="page"><span class="t-label f11">RULES</span></button></nav>
+    <div class="hdr-right">
+      <button class="you-chip you-chip-btn" type="button" data-global-profile-trigger title="Edit profile"><span class="you-chip-av" data-global-you-avatar></span><span class="you-chip-text"><span class="t-micro g400">you are</span><span class="t-label f12 g300" data-global-you-name>guest</span></span></button>
+      <div class="home-menu-wrap">
+        <button class="btn-dark audio-toggle home-menu-btn" type="button" id="rules-menu-btn" data-settings-toggle title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="rules-menu"><span class="home-menu-icon" aria-hidden="true"></span></button>
+        <div class="home-menu is-hidden" id="rules-menu" data-settings-menu role="group" aria-label="Settings">
+          <div class="t-micro g400 home-menu-title">SETTINGS</div>
+          <div class="header-menu-connection" role="status" aria-live="polite"><span class="dot dot-green blink" data-global-online aria-hidden="true"></span> <span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div>
+          <button class="btn-dark hdr-rules home-menu-item" type="button" id="rules-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
+          <p class="t-micro ink-3 home-menu-note">Single-key shortcuts: B browse, C create, J join, P profile.</p>
+          <a class="btn-dark home-menu-item about-menu-entry" href="/about" data-about-link><span class="t-label f12">ABOUT POORUP</span></a>
+        </div>
+      </div>
+      <button class="btn-dark audio-toggle" type="button" id="rules-sound-toggle-btn" title="Sound effects" aria-label="Sound effects" aria-pressed="false"><img src="/assets/sound-off.svg" alt="" width="24" height="24"></button><button class="btn-dark audio-toggle" type="button" id="rules-music-toggle-btn" title="Parlor music" aria-label="Parlor music" aria-pressed="false"><img src="/assets/music-off.svg" alt="" width="24" height="24"></button>
+    </div>
+  </header>
       <main class="rules-page-main" id="rules-page-content" tabindex="-1"></main>
     </div>
 
@@ -520,153 +553,206 @@
         <div class="hdr-meta t-micro ink-3" aria-hidden="true"><span class="g5">poorup</span><span>internal analytics</span></div>
         <div class="hdr-right"><span class="t-label f11 g400 analytics-admin-badge">ADMIN ONLY</span></div>
       </header>
-      <a class="skip-link" href="#admin-analytics-main">Skip to analytics content</a>
-      <main class="admin-analytics-main" id="admin-analytics-main" tabindex="-1" aria-labelledby="admin-analytics-title">
-        <section class="panel noise admin-analytics-hero" data-analytics-command-strip>
-          <div class="admin-analytics-heading"><span class="t-micro g400">PARLOR OPERATIONS</span><h1 class="t-section g100" id="admin-analytics-title">Analytics control room</h1><p class="t-body ink-2">Capacity, release health, and table activity. Aggregate evidence only; no private game content is recorded here.</p></div>
-          <div class="admin-analytics-hero-actions"><span class="t-micro ink-3" data-analytics-last-verified>LAST VERIFIED · WAITING</span><button class="btn-dark" type="button" id="admin-analytics-retry" data-analytics-refresh><span class="t-label f11">Refresh</span></button></div>
-        </section>
-        <div class="admin-console-tabs" data-admin-console-tabs role="tablist" aria-label="Operator surfaces">
-          <button class="admin-console-tab is-active" id="admin-console-tab-analytics" type="button" role="tab" data-admin-console-tab="analytics" aria-selected="true" aria-controls="admin-analytics-workspace" tabindex="0">Analytics</button>
-          <button class="admin-console-tab" id="admin-console-tab-provider" type="button" role="tab" data-admin-console-tab="provider" aria-selected="false" aria-controls="admin-provider-workspace" tabindex="-1">Bot provider</button>
+      <a class="skip-link" href="#admin-analytics-main">Skip to console content</a>
+      <main class="admin-console" id="admin-analytics-main" tabindex="-1" aria-label="Operator console" data-scroll-cue data-scroll-focus data-overflow="false">
+        <div class="admin-console-tabs" role="tablist" aria-label="Operator surfaces" data-admin-sections>
+          <button class="admin-console-tab is-active" id="admin-section-tab-analytics" type="button" role="tab" data-admin-section="analytics" aria-selected="true" aria-controls="admin-section-analytics" tabindex="0">Analytics</button>
+          <button class="admin-console-tab" id="admin-section-tab-rooms" type="button" role="tab" data-admin-section="rooms" aria-selected="false" aria-controls="admin-section-rooms" tabindex="-1">Rooms</button>
+          <button class="admin-console-tab" id="admin-section-tab-bots" type="button" role="tab" data-admin-section="bots" aria-selected="false" aria-controls="admin-section-bots" tabindex="-1">Bots &amp; AI</button>
+          <button class="admin-console-tab" id="admin-section-tab-release" type="button" role="tab" data-admin-section="release" aria-selected="false" aria-controls="admin-section-release" tabindex="-1">Release</button>
         </div>
-        <section class="panel noise admin-analytics-workspace" id="admin-analytics-workspace" aria-label="Analytics reports">
-          <div class="analytics-tabs" role="tablist" aria-label="Analytics views">
-            <button class="analytics-tab is-active" id="analytics-tab-overview" type="button" role="tab" data-analytics-question="Is the parlor healthy right now?" data-analytics-tab="overview" aria-selected="true" aria-controls="analytics-panel-overview" tabindex="0">Overview</button>
-            <button class="analytics-tab" id="analytics-tab-match-health" type="button" role="tab" data-analytics-question="Are matches starting, progressing, reconnecting, and settling reliably?" data-analytics-tab="match-health" aria-selected="false" aria-controls="analytics-panel-match-health" tabindex="-1">Match health</button>
-            <button class="analytics-tab" id="analytics-tab-rulesets" type="button" role="tab" data-analytics-question="Which board and ruleset combinations behave differently?" data-analytics-tab="rulesets" aria-selected="false" aria-controls="analytics-panel-rulesets" tabindex="-1">Rulesets + boards</button>
-            <button class="analytics-tab" id="analytics-tab-economy" type="button" role="tab" data-analytics-question="Which economic systems are used, and where do liquidity risks appear?" data-analytics-tab="economy" aria-selected="false" aria-controls="analytics-panel-economy" tabindex="-1">Economy</button>
-            <button class="analytics-tab" id="analytics-tab-events" type="button" role="tab" data-analytics-question="Are global events discoverable, rare enough, and resolving cleanly?" data-analytics-tab="events" aria-selected="false" aria-controls="analytics-panel-events" tabindex="-1">Events + rarity</button>
-            <button class="analytics-tab" id="analytics-tab-bots" type="button" role="tab" data-analytics-question="Are bot decisions stable, explainable, and acceptably fast?" data-analytics-tab="bots" aria-selected="false" aria-controls="analytics-panel-bots" tabindex="-1">Bots</button>
-            <button class="analytics-tab" id="analytics-tab-quality" type="button" role="tab" data-analytics-question="Can this snapshot be trusted and understood?" data-analytics-tab="quality" aria-selected="false" aria-controls="analytics-panel-quality" tabindex="-1">Data quality</button>
-          </div>
-          <form class="analytics-filters" aria-label="Analytics filters">
-            <div class="analytics-filter-strip" data-analytics-filter-strip>
-              <label class="analytics-filter analytics-filter-window" for="analytics-filter-range"><span class="t-micro g400">WINDOW</span><span class="analytics-select-shell"><select class="input-dark" id="analytics-filter-range" data-analytics-filter="range" name="range" autocomplete="off"><option value="hour">Last hour</option><option value="day">Last day</option><option value="week">Last week</option><option value="season">Season</option></select></span></label>
-              <span class="analytics-filter-baseline"><span class="t-micro g400">BASELINE</span><span class="t-label f11">AUTO · VERIFIED</span></span>
-              <div class="analytics-active-filters" data-analytics-active-filters aria-live="polite"><span class="t-micro ink-3">ALL DIMENSIONS</span></div>
-              <button class="btn-dark analytics-more-filters" type="button" data-analytics-more-filters aria-haspopup="dialog" aria-expanded="false" aria-controls="analytics-filter-dialog"><span class="t-label f11">MORE FILTERS</span></button>
-              <button class="btn-dark analytics-filter-reset" type="button" data-analytics-reset><span class="t-label f11">RESET</span></button>
-            </div>
-            <div class="analytics-filter-dialog is-hidden" id="analytics-filter-dialog" data-analytics-filter-dialog role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="analytics-filter-dialog-title">
-              <div class="analytics-filter-dialog-head"><div><span class="t-micro g400">REPORT SCOPE</span><h2 class="t-section g100" id="analytics-filter-dialog-title">More filters</h2></div><button class="btn-dark" type="button" data-analytics-filter-cancel><span class="t-label f11">CANCEL</span></button></div>
-              <div class="analytics-filter-dialog-grid">
-                <label class="analytics-filter" for="analytics-filter-boardVariant"><span class="t-micro g400">BOARD</span><span class="analytics-select-shell"><select class="input-dark" id="analytics-filter-boardVariant" data-analytics-filter="boardVariant" name="boardVariant" autocomplete="off"><option value="all">All boards</option><option value="standard-40">Standard-40</option><option value="metro-52">Metro-52</option></select></span></label>
-                <label class="analytics-filter" for="analytics-filter-rulesetPreset"><span class="t-micro g400">RULESET</span><span class="analytics-select-shell"><select class="input-dark" id="analytics-filter-rulesetPreset" data-analytics-filter="rulesetPreset" name="rulesetPreset" autocomplete="off"><option value="all">All rulesets</option><option value="classic">Classic</option><option value="after-hours">After Hours</option><option value="custom">Custom</option></select></span></label>
-                <label class="analytics-filter" for="analytics-filter-marketComplexity"><span class="t-micro g400">MARKET</span><span class="analytics-select-shell"><select class="input-dark" id="analytics-filter-marketComplexity" data-analytics-filter="marketComplexity" name="marketComplexity" autocomplete="off"><option value="all">All market modes</option><option value="basic">Basic</option><option value="margin">Margin</option><option value="shorting">Shorting</option><option value="derivatives">Derivatives</option></select></span></label>
-                <label class="analytics-filter" for="analytics-filter-botMode"><span class="t-micro g400">BOT MODE</span><span class="analytics-select-shell"><select class="input-dark" id="analytics-filter-botMode" data-analytics-filter="botMode" name="botMode" autocomplete="off"><option value="all">All participants</option><option value="ai">AI</option><option value="no-ai">No-AI</option><option value="human">Human</option></select></span></label>
-                <label class="analytics-filter" for="analytics-filter-provider"><span class="t-micro g400">PROVIDER</span><span class="analytics-select-shell"><select class="input-dark" id="analytics-filter-provider" data-analytics-filter="provider" name="provider" autocomplete="off"><option value="all">All providers</option><option value="ai">AI</option><option value="deepseek">DeepSeek</option><option value="deterministic">Deterministic</option><option value="fallback">Fallback</option><option value="openai">OpenAI</option><option value="unknown">Unknown</option></select></span></label>
-                <label class="analytics-filter" for="analytics-filter-eventId"><span class="t-micro g400">EVENT ID</span><input class="input-dark" id="analytics-filter-eventId" data-analytics-filter="eventId" name="eventId" inputmode="text" autocomplete="off" maxlength="80" placeholder="ALL EVENTS"></label>
-                <label class="analytics-filter" for="analytics-filter-seasonId"><span class="t-micro g400">SEASON</span><input class="input-dark" id="analytics-filter-seasonId" data-analytics-filter="seasonId" name="seasonId" inputmode="text" autocomplete="off" maxlength="80" placeholder="ALL SEASONS"></label>
-                <label class="analytics-filter" for="analytics-filter-rulesetRevision"><span class="t-micro g400">RULE REV</span><input class="input-dark" id="analytics-filter-rulesetRevision" data-analytics-filter="rulesetRevision" name="rulesetRevision" type="number" min="0" max="1000000" step="1" inputmode="numeric" autocomplete="off" placeholder="ALL"></label>
-                <label class="analytics-filter" for="analytics-filter-balanceRevision"><span class="t-micro g400">BALANCE REV</span><input class="input-dark" id="analytics-filter-balanceRevision" data-analytics-filter="balanceRevision" name="balanceRevision" type="number" min="0" max="1000000" step="1" inputmode="numeric" autocomplete="off" placeholder="ALL"></label>
+        <section class="panel noise admin-workspace">
+          <header class="admin-toolbar">
+            <h1 class="t-label f12 g100" id="admin-analytics-title">ANALYTICS</h1>
+            <p class="t-micro admin-chip muted" id="admin-analytics-status" data-analytics-state="loading" role="status" aria-live="polite">LOADING ANALYTICS…</p>
+            <div class="admin-toolbar-actions">
+              <div class="admin-segmented" role="group" aria-label="Time window" data-analytics-window>
+                <button class="admin-segment" type="button" data-analytics-range="hour" aria-pressed="true" aria-label="Last hour"><span class="t-label f11">1H</span></button>
+                <button class="admin-segment" type="button" data-analytics-range="day" aria-pressed="false" aria-label="Last 24 hours"><span class="t-label f11">24H</span></button>
+                <button class="admin-segment" type="button" data-analytics-range="week" aria-pressed="false" aria-label="Last 7 days"><span class="t-label f11">7D</span></button>
+                <button class="admin-segment" type="button" data-analytics-range="month" aria-pressed="false" aria-label="Last 30 days"><span class="t-label f11">30D</span></button>
               </div>
-              <div class="analytics-filter-actions"><button class="btn-dark" type="button" data-analytics-apply data-analytics-filter-apply><span class="t-label f11">APPLY FILTERS</span></button></div>
+              <button class="btn-dark" type="button" id="admin-analytics-retry" data-analytics-refresh><span class="t-label f11">REFRESH</span></button>
             </div>
-          </form>
-          <section class="admin-analytics-grid" id="admin-analytics-grid" aria-label="Key performance indicators" aria-live="polite"></section>
-          <div class="analytics-report-book" data-analytics-report-book>
-            <div class="analytics-report-page" data-analytics-report-page>
-          <div class="analytics-panel-descriptions">
-            <section id="analytics-panel-overview" data-analytics-panel="overview" data-analytics-question="Is the parlor healthy right now, and what changed compared with the selected baseline?" role="tabpanel" aria-labelledby="analytics-tab-overview"><div class="analytics-panel-heading"><div><h2 class="t-label f12 g100" id="analytics-heading-overview">Overview</h2><p class="analytics-panel-question">Is the parlor healthy right now, and what changed compared with the selected baseline?</p><p class="t-micro ink-3">Read active human seats, starts, completion, latency, and errors against the selected window.</p></div><span class="t-micro ink-3 analytics-panel-state">READ-ONLY</span></div><div class="analytics-panel-layout"><div class="analytics-panel-ledger"><div class="analytics-chart-slot" data-analytics-chart-slot="overview-primary"><div class="analytics-chart" data-analytics-chart data-analytics-panel-chart="overview" data-chart-title="Verified activity" data-chart-unit="observations" data-chart-mode="line" aria-labelledby="analytics-chart-title"><figcaption class="t-micro g400" id="analytics-chart-title">VERIFIED ACTIVITY</figcaption></div></div><div class="analytics-support-grid"><section class="analytics-support-panel" data-analytics-support="overview-rulesets"><h3 class="t-micro g400">RULESET + BOARD MIX</h3><p class="t-micro ink-3">A comparison appears when the snapshot includes breakdown rows.</p></section><section class="analytics-support-panel" data-analytics-support="overview-demand"><h3 class="t-micro g400">DEMAND BY HOUR</h3><p class="t-micro ink-3">A heatmap appears when verified hourly observations exist.</p></section></div></div><aside class="analytics-panel-context" aria-label="Overview context"><div class="analytics-alerts" id="admin-analytics-alerts" data-analytics-alerts role="status" aria-live="polite" aria-atomic="true"><span class="t-micro ink-3">NO ACTIONABLE ALERTS</span></div></aside></div></section>
-            <section class="is-hidden" id="analytics-panel-match-health" data-analytics-panel="match-health" data-analytics-question="Are matches starting, progressing, reconnecting, and settling reliably?" role="tabpanel" aria-labelledby="analytics-tab-match-health" aria-hidden="true"><div class="analytics-panel-heading"><div><h2 class="t-label f12 g100" id="analytics-heading-match-health">Match health</h2><p class="analytics-panel-question">Are matches starting, progressing, reconnecting, and settling reliably?</p><p class="t-micro ink-3">Check starts, completions, stalls, reconnects, AFK, and duration denominators.</p></div><span class="t-micro ink-3 analytics-panel-state">READ-ONLY</span></div><div class="analytics-panel-layout"><div class="analytics-panel-ledger"><div class="analytics-chart-slot" data-analytics-chart-slot="match-health-primary"><div class="analytics-chart" data-analytics-chart data-analytics-panel-chart="match-health" data-chart-title="Match reliability" data-chart-unit="matches" data-chart-mode="bar" aria-labelledby="analytics-chart-title-match-health"><figcaption class="t-micro g400" id="analytics-chart-title-match-health">MATCH RELIABILITY</figcaption></div></div></div><aside class="analytics-panel-context"><p class="t-micro ink-3">Bot-only matches remain visible for operations and are excluded from competitive human measures.</p></aside></div></section>
-            <section class="is-hidden" id="analytics-panel-rulesets" data-analytics-panel="rulesets" data-analytics-question="Which board and ruleset combinations behave differently?" role="tabpanel" aria-labelledby="analytics-tab-rulesets" aria-hidden="true"><div class="analytics-panel-heading"><div><h2 class="t-label f12 g100" id="analytics-heading-rulesets">Rulesets + boards</h2><p class="analytics-panel-question">Which board and ruleset combinations behave differently?</p><p class="t-micro ink-3">Compare adoption, completion, duration, outcomes, and revision markers descriptively.</p></div><span class="t-micro ink-3 analytics-panel-state">READ-ONLY</span></div><div class="analytics-panel-layout"><div class="analytics-panel-ledger"><div class="analytics-chart-slot" data-analytics-chart-slot="rulesets-primary"><div class="analytics-chart" data-analytics-chart data-analytics-panel-chart="rulesets" data-chart-title="Ruleset and board adoption" data-chart-unit="matches" data-chart-mode="bar" aria-labelledby="analytics-chart-title-rulesets"><figcaption class="t-micro g400" id="analytics-chart-title-rulesets">RULESET AND BOARD ADOPTION</figcaption></div></div></div><aside class="analytics-panel-context"><p class="analytics-association">ASSOCIATION, NOT CAUSATION. Sample sizes appear beside each comparison.</p></aside></div></section>
-            <section class="is-hidden" id="analytics-panel-economy" data-analytics-panel="economy" data-analytics-question="Which economic systems are used, and where do liquidity risks appear?" role="tabpanel" aria-labelledby="analytics-tab-economy" aria-hidden="true"><div class="analytics-panel-heading"><div><h2 class="t-label f12 g100" id="analytics-heading-economy">Economy</h2><p class="analytics-panel-question">Which economic systems are used, and where do liquidity risks appear?</p><p class="t-micro ink-3">Aggregate feature adoption, money supply, volatility, liquidation, and prevention signals.</p></div><span class="t-micro ink-3 analytics-panel-state">READ-ONLY</span></div><div class="analytics-panel-layout"><div class="analytics-panel-ledger"><div class="analytics-chart-slot" data-analytics-chart-slot="economy-primary"><div class="analytics-chart" data-analytics-chart data-analytics-panel-chart="economy" data-chart-title="Economic feature adoption" data-chart-unit="adoption" data-chart-mode="bar" aria-labelledby="analytics-chart-title-economy"><figcaption class="t-micro g400" id="analytics-chart-title-economy">ECONOMIC FEATURE ADOPTION</figcaption></div></div></div><aside class="analytics-panel-context"><p class="t-micro ink-3">Private deal terms and player-level balances are never rendered here.</p></aside></div></section>
-            <section class="is-hidden" id="analytics-panel-events" data-analytics-panel="events" data-analytics-question="Are global events discoverable, rare enough, and resolving cleanly?" role="tabpanel" aria-labelledby="analytics-tab-events" aria-hidden="true"><div class="analytics-panel-heading"><div><h2 class="t-label f12 g100" id="analytics-heading-events">Events + rarity</h2><p class="analytics-panel-question">Are global events discoverable, rare enough, and resolving cleanly?</p><p class="t-micro ink-3">Follow eligibility, turnout, recovery, combinations, rarity, and reward claims.</p></div><span class="t-micro ink-3 analytics-panel-state">READ-ONLY</span></div><div class="analytics-panel-layout"><div class="analytics-panel-ledger"><div class="analytics-chart-slot" data-analytics-chart-slot="events-primary"><div class="analytics-chart" data-analytics-chart data-analytics-panel-chart="events" data-chart-title="Event eligibility" data-chart-unit="observations" data-chart-mode="bar" aria-labelledby="analytics-chart-title-events"><figcaption class="t-micro g400" id="analytics-chart-title-events">EVENT ELIGIBILITY</figcaption></div></div></div><aside class="analytics-panel-context"><p class="t-micro ink-3">Small cohorts show INSUFFICIENT COHORT · MIN COHORT 5.</p></aside></div></section>
-            <section class="is-hidden" id="analytics-panel-bots" data-analytics-panel="bots" data-analytics-question="Are bot decisions stable, explainable, and acceptably fast?" role="tabpanel" aria-labelledby="analytics-tab-bots" aria-hidden="true"><div class="analytics-panel-heading"><div><h2 class="t-label f12 g100" id="analytics-heading-bots">Bots</h2><p class="analytics-panel-question">Are bot decisions stable, explainable, and acceptably fast?</p><p class="t-micro ink-3">Compare provider latency, action distributions, placements, and fallback reasons.</p></div><span class="t-micro ink-3 analytics-panel-state">READ-ONLY</span></div><div class="analytics-panel-layout"><div class="analytics-panel-ledger"><div class="analytics-chart-slot" data-analytics-chart-slot="bots-primary"><div class="analytics-chart" data-analytics-chart data-analytics-panel-chart="bots" data-chart-title="Bot matches by provider" data-chart-unit="matches" data-chart-mode="bar" aria-labelledby="analytics-chart-title-bots"><figcaption class="t-micro g400" id="analytics-chart-title-bots">BOT MATCHES BY PROVIDER</figcaption></div></div></div><aside class="analytics-panel-context"><p class="t-micro ink-3">Win and placement comparisons are descriptive; bot-only matches are labeled separately.</p></aside></div></section>
-            <section class="is-hidden" id="analytics-panel-quality" data-analytics-panel="quality" data-analytics-question="Can this snapshot be trusted and understood?" role="tabpanel" aria-labelledby="analytics-tab-quality" aria-hidden="true"><div class="analytics-panel-heading"><div><h2 class="t-label f12 g100" id="analytics-heading-quality">Data quality</h2><p class="analytics-panel-question">Can this snapshot be trusted and understood?</p><p class="t-micro ink-3">Verify freshness, lag, queue depth, coverage, suppression, persistence, and retention labels.</p></div><span class="t-micro ink-3 analytics-panel-state">READ-ONLY</span></div><div class="analytics-panel-layout"><div class="analytics-panel-ledger"><div class="analytics-chart-slot" data-analytics-chart-slot="quality-primary"><div class="analytics-chart" data-analytics-chart data-analytics-panel-chart="quality" data-chart-title="Snapshot quality signals" data-chart-unit="observations" data-chart-mode="bar" aria-labelledby="analytics-chart-title-quality"><figcaption class="t-micro g400" id="analytics-chart-title-quality">SNAPSHOT QUALITY SIGNALS</figcaption></div></div></div><aside class="analytics-panel-context"><p class="t-micro ink-3">A missing API field is reported as missing evidence, never as a fabricated zero.</p></aside></div></section>
-          </div>
-            </div>
-            <footer class="analytics-page-footer">
-              <button class="btn-dark analytics-page-turn" type="button" data-analytics-page-prev><span class="t-label f11">PREVIOUS</span></button>
-              <span class="t-micro ink-3" data-analytics-page-position aria-live="polite">1 / 7</span>
-              <button class="btn-dark analytics-page-turn" type="button" data-analytics-page-next><span class="t-label f11">NEXT</span></button>
-            </footer>
-          </div>
-          <aside class="analytics-contextual-slots" aria-label="Optional analytics context">
-            <section class="analytics-context-slot" data-analytics-context="live-ops" hidden><h2 class="t-label f12 g100">Live ops</h2><p class="t-micro ink-3">Latency, traffic, errors, saturation, queues, and persistence failures.</p></section>
-            <section class="analytics-context-slot" data-analytics-context="funnel" hidden><h2 class="t-label f12 g100">Funnel</h2><p class="t-micro ink-3">Aggregate progression from page view to completed match.</p></section>
-            <section class="analytics-context-slot" data-analytics-context="retention" hidden><h2 class="t-label f12 g100">Retention</h2><p class="t-micro ink-3">Cohort return rates appear only when the contract supplies them.</p></section>
-            <section class="analytics-context-slot" data-analytics-context="releases" hidden><h2 class="t-label f12 g100">Releases</h2><p class="t-micro ink-3">Revision markers and before/after context appear only when supplied.</p></section>
-          </aside>
-        </section>
-        <section class="panel noise admin-provider-workspace is-hidden" id="admin-provider-workspace" data-admin-provider-workspace role="tabpanel" aria-hidden="true" aria-labelledby="admin-console-tab-provider" tabindex="-1">
-          <header class="admin-provider-heading">
-            <div><span class="t-micro g400">MODEL EXCHANGE</span><h2 class="t-section g100">Bot provider</h2><p class="t-body ink-2">Configure one server-side provider at a time. Credentials are write-only and never enter the game client.</p></div>
-            <span class="admin-provider-state t-label f11" data-admin-provider-state>UNCONFIGURED</span>
           </header>
-          <div class="admin-provider-layout">
-            <aside class="admin-provider-active panel" aria-label="Active provider">
-              <div class="admin-provider-section-label t-micro g400">ACTIVE PROVIDER</div>
-              <h3 class="t-label f12 g100" data-admin-provider-active-label>NO PROFILE ACTIVE</h3>
-              <dl class="admin-provider-facts">
-                <div><dt class="t-micro ink-3">MODEL</dt><dd class="t-label f11" data-admin-provider-active-model>—</dd></div>
-                <div><dt class="t-micro ink-3">FORMAT</dt><dd class="t-label f11" data-admin-provider-active-format>AUTO · UNTESTED</dd></div>
-                <div><dt class="t-micro ink-3">ENDPOINT</dt><dd class="t-label f11" data-admin-provider-active-url>—</dd></div>
-                <div><dt class="t-micro ink-3">KEY</dt><dd class="t-label f11" data-admin-provider-active-key>NOT CONFIGURED</dd></div>
-              </dl>
-              <p class="t-micro ink-3 admin-provider-active-note" data-admin-provider-active-note>AI failures always return to the deterministic house brain.</p>
-            </aside>
-            <section class="admin-provider-editor" aria-labelledby="admin-provider-editor-title">
-              <div class="admin-provider-section-label t-micro g400" id="admin-provider-editor-title">PROVIDER PROFILE</div>
-              <form data-admin-provider-form novalidate>
-                <div class="admin-provider-form-grid">
-                  <label class="admin-provider-field"><span class="t-micro g400">PROFILE NAME</span><input class="input-dark" name="label" data-admin-provider-field="label" maxlength="80" required autocomplete="off" placeholder="OpenAI main"></label>
-                  <label class="admin-provider-field"><span class="t-micro g400">MODEL</span><input class="input-dark" name="model" data-admin-provider-field="model" maxlength="120" required autocomplete="off" placeholder="gpt-4o-mini"></label>
-                  <label class="admin-provider-field admin-provider-field-wide"><span class="t-micro g400">BASE URL</span><input class="input-dark" name="baseUrl" data-admin-provider-field="baseUrl" type="url" maxlength="400" required autocomplete="url" placeholder="https://api.openai.com/v1"></label>
-                  <label class="admin-provider-field"><span class="t-micro g400">REQUEST FORMAT</span><select class="input-dark" name="protocol" data-admin-provider-field="protocol"><option value="auto">AUTO · DETECT</option><option value="chat">CHAT COMPLETIONS</option><option value="responses">RESPONSES</option></select></label>
-                  <label class="admin-provider-field"><span class="t-micro g400">API KEY</span><input class="input-dark" name="apiKey" data-admin-provider-field="apiKey" type="password" maxlength="2000" autocomplete="new-password" placeholder="Paste a new key to replace it"></label>
-                  <label class="admin-provider-field"><span class="t-micro g400">TIMEOUT · MS</span><input class="input-dark" name="timeoutMs" data-admin-provider-field="timeoutMs" type="number" min="1000" max="60000" step="100" value="4000" inputmode="numeric"></label>
-                  <label class="admin-provider-field"><span class="t-micro g400">AI DECISIONS · BOT / GAME</span><input class="input-dark" name="maxDecisionsPerGame" data-admin-provider-field="maxDecisionsPerGame" type="number" min="1" max="10000" step="1" value="240" inputmode="numeric"></label>
-                </div>
-                <p class="t-micro ink-3 admin-provider-key-note">The key is stored server-side only. Leave it blank when editing to keep the existing key. Test before activation.</p>
-                <div class="admin-provider-form-actions"><button class="btn-dark" type="submit" data-admin-provider-save><span class="t-label f11">SAVE PROFILE</span></button><button class="btn-dark" type="button" data-admin-provider-new><span class="t-label f11">NEW PROFILE</span></button></div>
-              </form>
-              <p class="t-body analytics-status muted" data-admin-provider-test-status role="status" aria-live="polite">Select a profile or create one to test the connection.</p>
+
+          <div class="admin-surface" id="admin-section-analytics" data-admin-section-panel="analytics" role="tabpanel" aria-labelledby="admin-section-tab-analytics" tabindex="-1" data-scroll-cue data-scroll-focus data-overflow="false">
+            <div class="admin-section admin-health-section" data-section="health" aria-label="Server health" role="group">
+              <div class="admin-section-state is-hidden" data-section-state></div>
+              <div class="admin-section-body" data-section-body data-clear></div>
+            </div>
+            <div class="admin-section" data-section="kpis" aria-label="Key figures" role="group">
+              <div class="admin-section-state is-hidden" data-section-state></div>
+              <div class="admin-section-body" data-section-body><ul class="admin-kpi-grid" id="admin-analytics-grid" aria-label="Key figures" data-clear></ul></div>
+            </div>
+            <div class="admin-views" role="tablist" aria-label="Analytics views">
+              <button class="analytics-tab is-active" id="analytics-tab-status" type="button" role="tab" data-analytics-tab="status" aria-selected="true" aria-controls="analytics-panel-status" tabindex="0">Overview</button>
+              <button class="analytics-tab" id="analytics-tab-matches" type="button" role="tab" data-analytics-tab="matches" aria-selected="false" aria-controls="analytics-panel-matches" tabindex="-1">Match health</button>
+              <button class="analytics-tab" id="analytics-tab-economy" type="button" role="tab" data-analytics-tab="economy" aria-selected="false" aria-controls="analytics-panel-economy" tabindex="-1">Economy</button>
+            </div>
+            <section class="admin-panel" id="analytics-panel-status" data-analytics-panel="status" role="tabpanel" aria-labelledby="analytics-tab-status">
+              <div class="admin-section admin-chart-section" data-section="report-status" aria-label="Verified activity" role="group">
+                <div class="admin-section-state is-hidden" data-section-state></div>
+                <div class="admin-section-body" data-section-body><div class="analytics-chart" data-analytics-chart data-chart-title="Verified activity" data-chart-unit="observations" data-chart-mode="line" data-clear></div></div>
+              </div>
+            </section>
+            <section class="admin-panel is-hidden" id="analytics-panel-matches" data-analytics-panel="matches" role="tabpanel" aria-labelledby="analytics-tab-matches" hidden>
+              <div class="admin-section admin-chart-section" data-section="report-matches" aria-label="Match reliability" role="group">
+                <div class="admin-section-state is-hidden" data-section-state></div>
+                <div class="admin-section-body" data-section-body><div class="analytics-chart" data-analytics-chart data-chart-title="Match reliability" data-chart-unit="matches" data-chart-mode="bar" data-clear></div><p class="t-micro analytics-association is-hidden" data-analytics-association></p></div>
+              </div>
+            </section>
+            <section class="admin-panel is-hidden" id="analytics-panel-economy" data-analytics-panel="economy" role="tabpanel" aria-labelledby="analytics-tab-economy" hidden>
+              <div class="admin-section admin-chart-section" data-section="report-economy" aria-label="Economic feature adoption" role="group">
+                <div class="admin-section-state is-hidden" data-section-state></div>
+                <div class="admin-section-body" data-section-body><div class="analytics-chart" data-analytics-chart data-chart-title="Economic feature adoption" data-chart-unit="adoption" data-chart-mode="bar" data-clear></div><p class="t-micro analytics-association is-hidden" data-analytics-association></p></div>
+              </div>
             </section>
           </div>
-          <section class="admin-provider-profiles" aria-labelledby="admin-provider-profiles-title">
-            <div class="admin-provider-section-head"><div><span class="t-micro g400">SAVED PROFILES</span><h3 class="t-label f12 g100" id="admin-provider-profiles-title">Provider roster</h3></div><span class="t-micro ink-3">REDACTED VIEW</span></div>
-            <div class="admin-provider-list" data-admin-provider-list aria-live="polite"></div>
-          </section>
+
+          <div class="admin-surface is-hidden" id="admin-section-rooms" data-admin-section-panel="rooms" role="tabpanel" aria-labelledby="admin-section-tab-rooms" tabindex="-1" data-scroll-cue data-scroll-focus data-overflow="false" hidden>
+            <div class="admin-section" data-section="rooms" aria-label="Live rooms" role="group">
+              <div class="admin-section-state is-hidden" data-section-state></div>
+              <div class="admin-section-body admin-rooms-body" data-section-body>
+                <div class="admin-rooms-head"><div data-rooms-totals data-clear></div><p class="t-micro ink-3" data-rooms-note></p></div>
+                <div class="admin-scroll" tabindex="0" role="region" aria-label="Live rooms, scrollable" data-scroll-cue data-overflow="false" data-rooms-scroll><div data-rooms-table data-clear></div></div>
+                <p class="admin-empty is-hidden" data-rooms-empty>NO ROOMS ARE OPEN RIGHT NOW</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="admin-surface is-hidden" id="admin-section-bots" data-admin-section-panel="bots" role="tabpanel" aria-labelledby="admin-section-tab-bots" tabindex="-1" data-scroll-cue data-scroll-focus data-overflow="false" hidden>
+            <div class="admin-section" data-section="usage" aria-label="Bot usage" role="group">
+              <div class="admin-section-state is-hidden" data-section-state></div>
+              <div class="admin-section-body" data-section-body><div data-bots-line data-clear></div></div>
+            </div>
+            <div class="admin-section admin-roster" data-section="roster" data-admin-provider-roster aria-label="Bot provider" role="group">
+              <div class="admin-section-state is-hidden" data-section-state></div>
+              <div class="admin-section-body admin-provider-body" data-section-body>
+                <div class="admin-provider-layout">
+                  <aside class="admin-provider-active panel" aria-label="Active provider">
+                    <div class="admin-provider-head"><div class="t-micro g400">ACTIVE PROVIDER</div><span class="admin-provider-state t-label f11" data-admin-provider-state>UNCONFIGURED</span></div>
+                <p class="t-micro ink-3 admin-provider-action-reason" id="admin-provider-save-reason" data-admin-provider-save-reason hidden>Save unavailable: environment profiles are read-only. Create a new profile to change the setup.</p>
+                    <h2 class="t-label f12 g100" data-admin-provider-active-label>NO PROFILE ACTIVE</h2>
+                    <dl class="admin-provider-facts">
+                      <div><dt class="t-micro ink-3">MODEL</dt><dd class="t-label f11" data-admin-provider-active-model>-</dd></div>
+                      <div><dt class="t-micro ink-3">FORMAT</dt><dd class="t-label f11" data-admin-provider-active-format>AUTO · UNTESTED</dd></div>
+                      <div><dt class="t-micro ink-3">ENDPOINT</dt><dd class="t-label f11" data-admin-provider-active-url>-</dd></div>
+                      <div><dt class="t-micro ink-3">KEY</dt><dd class="t-label f11" data-admin-provider-active-key>NOT CONFIGURED</dd></div>
+                    </dl>
+                    <p class="t-micro ink-3 admin-provider-active-note" data-admin-provider-active-note>AI failures always return to the deterministic house brain.</p>
+                  </aside>
+                  <section class="admin-provider-editor" aria-labelledby="admin-provider-editor-title">
+                    <div class="t-micro g400" id="admin-provider-editor-title">PROVIDER PROFILE</div>
+                    <form data-admin-provider-form novalidate>
+                      <div class="admin-provider-form-grid">
+                        <label class="admin-provider-field"><span class="t-micro g400">PROFILE NAME</span><input class="input-dark" name="label" data-admin-provider-field="label" maxlength="80" required autocomplete="off" placeholder="OpenAI main"></label>
+                        <label class="admin-provider-field"><span class="t-micro g400">MODEL</span><input class="input-dark" name="model" data-admin-provider-field="model" maxlength="120" required autocomplete="off" placeholder="gpt-4o-mini"></label>
+                        <label class="admin-provider-field admin-provider-field-wide"><span class="t-micro g400">BASE URL</span><input class="input-dark" name="baseUrl" data-admin-provider-field="baseUrl" type="url" maxlength="400" required autocomplete="url" placeholder="https://api.openai.com/v1"></label>
+                        <label class="admin-provider-field"><span class="t-micro g400">REQUEST FORMAT</span><select class="input-dark" name="protocol" data-admin-provider-field="protocol"><option value="auto">AUTO · DETECT</option><option value="chat">CHAT COMPLETIONS</option><option value="responses">RESPONSES</option></select></label>
+                        <label class="admin-provider-field"><span class="t-micro g400">API KEY</span><input class="input-dark" name="apiKey" data-admin-provider-field="apiKey" type="password" maxlength="2000" autocomplete="new-password" placeholder="Paste a new key to replace it"></label>
+                        <label class="admin-provider-field"><span class="t-micro g400">TIMEOUT · MS</span><input class="input-dark" name="timeoutMs" data-admin-provider-field="timeoutMs" type="number" min="1000" max="60000" step="100" value="4000" inputmode="numeric"></label>
+                        <label class="admin-provider-field"><span class="t-micro g400">AI DECISIONS · BOT / GAME</span><input class="input-dark" name="maxDecisionsPerGame" data-admin-provider-field="maxDecisionsPerGame" type="number" min="1" max="10000" step="1" value="240" inputmode="numeric"></label>
+                      </div>
+                      <p class="t-micro ink-3 admin-provider-key-note">The key is stored server-side only. Leave it blank when editing to keep the existing key. Test before activation.</p>
+                      <div class="admin-provider-form-actions"><button class="btn-dark" type="submit" data-admin-provider-save><span class="t-label f11">SAVE PROFILE</span></button><button class="btn-dark" type="button" data-admin-provider-new><span class="t-label f11">NEW PROFILE</span></button></div>
+                    </form>
+                    <p class="t-body analytics-status muted" data-admin-provider-test-status role="status" aria-live="polite">Select a profile or create one to test the connection.</p>
+                  </section>
+                </div>
+                <div class="admin-provider-profiles">
+                  <h2 class="t-label f12 g100" id="admin-provider-profiles-title">Provider roster</h2>
+                  <div class="admin-scroll admin-roster-list" tabindex="0" role="region" aria-label="Saved provider profiles, scrollable" data-scroll-cue data-overflow="false"><div class="admin-provider-list" data-admin-provider-list></div></div>
+                </div>
+              </div>
+            </div>
+            <div class="admin-section" data-section="log-bots" aria-label="Provider change log" role="group">
+              <div class="admin-section-state is-hidden" data-section-state></div>
+              <div class="admin-section-body admin-log-body" data-section-body>
+                <h2 class="t-label f12 g100">Change log</h2>
+                <div class="admin-scroll admin-log-list" tabindex="0" role="region" aria-label="Provider change log, scrollable" data-scroll-cue data-overflow="false"><div data-clear></div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="admin-surface is-hidden" id="admin-section-release" data-admin-section-panel="release" role="tabpanel" aria-labelledby="admin-section-tab-release" tabindex="-1" data-scroll-cue data-scroll-focus data-overflow="false" hidden>
+            <div class="admin-section admin-release-card" data-section="control" aria-label="Release control" role="group">
+              <div class="admin-section-state is-hidden" data-section-state></div>
+              <div class="admin-section-body admin-release-body" data-section-body>
+                <div class="admin-release-summary" data-release-summary tabindex="-1" data-clear></div>
+                <div class="admin-release-form" data-release-form>
+                  <div class="admin-release-fields">
+                    <label class="admin-provider-field"><span class="t-micro g400">RELEASE ID · OPTIONAL</span><input class="input-dark" data-release-id maxlength="80" autocomplete="off" spellcheck="false" placeholder="2026.10.20-a" aria-describedby="admin-release-fields-hint"></label>
+                    <label class="admin-provider-field"><span class="t-micro g400">DRAIN FOR · MINUTES FROM NOW</span><input class="input-dark" data-release-minutes type="number" min="1" max="20160" step="1" inputmode="numeric" placeholder="30" aria-describedby="admin-release-fields-hint"></label>
+                    <label class="admin-provider-field"><span class="t-micro g400">OR DRAIN UNTIL · YOUR TIME</span><input class="input-dark" data-release-at type="datetime-local" aria-describedby="admin-release-fields-hint"></label>
+                    <label class="admin-provider-field admin-provider-field-wide"><span class="t-micro g400">PLAYER MESSAGE · OPTIONAL</span><input class="input-dark" data-release-message maxlength="200" autocomplete="off" placeholder="Shown to players while the server is closed"></label>
+                  </div>
+                  <p class="t-micro ink-3 admin-release-hint" id="admin-release-fields-hint">The deadline applies to DRAIN only, up to 14 days ahead; set minutes or a time, not both. Maintenance starts by itself when it passes.</p>
+                  <div class="admin-release-actions">
+                    <button class="btn-dark" type="button" data-release-action="draining"><span class="t-label f11">DRAIN</span></button>
+                    <button class="btn-dark" type="button" data-release-action="maintenance"><span class="t-label f11">MAINTENANCE</span></button>
+                    <button class="btn-dark" type="button" data-release-action="normal"><span class="t-label f11">RESUME</span></button>
+                  </div>
+                  <div class="admin-lockout" role="group" aria-labelledby="admin-lockout-title">
+                    <div class="admin-lockout-head">
+                      <h3 class="t-label f12 g100" id="admin-lockout-title">PUBLIC MAINTENANCE PANEL</h3>
+                      <span class="admin-lockout-badge t-label f12" data-lockout-badge data-lockout-state="off">OFF</span>
+                    </div>
+                    <p class="t-body ink-2 admin-lockout-copy">Closes the site to visitors and blocks new rooms and rounds. Seated players keep playing. Uses the release ID and message above.</p>
+                    <p class="t-micro ink-3 admin-lockout-note" data-lockout-note></p>
+                    <div class="admin-release-actions"><button class="btn-dark" type="button" data-lockout-action="on" aria-pressed="false" disabled><span class="t-label f11" data-lockout-label>SHOW MAINTENANCE PANEL</span></button></div>
+                  </div>
+                  <p class="t-body analytics-status muted" data-release-status role="status" aria-live="polite">Every change asks for confirmation and is read back from the server.</p>
+                </div>
+              </div>
+            </div>
+            <div class="admin-section" data-section="log-release" aria-label="Release change log" role="group">
+              <div class="admin-section-state is-hidden" data-section-state></div>
+              <div class="admin-section-body admin-log-body" data-section-body>
+                <h2 class="t-label f12 g100">Change log</h2>
+                <div class="admin-scroll admin-log-list" tabindex="0" role="region" aria-label="Release change log, scrollable" data-scroll-cue data-overflow="false"><div data-clear></div></div>
+              </div>
+            </div>
+          </div>
         </section>
-        <p class="t-body analytics-status muted" id="admin-analytics-status" data-analytics-state="loading" role="status" aria-live="polite">Loading analytics…</p>
       </main>
     </div>
 
     <div class="popup is-hidden" id="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title" aria-describedby="account-modal-description" aria-hidden="true">
-      <button class="popup-scrim" id="account-scrim" aria-label="Close account dialog"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="account-scrim" aria-label="Close account dialog"></button>
       <div class="popup-card account-card panel noise" id="account-card"></div>
     </div>
 
     <div class="popup is-hidden" id="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-description" aria-hidden="true">
-      <button class="popup-scrim" id="confirm-scrim" aria-label="Cancel confirmation"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="confirm-scrim" aria-label="Cancel confirmation"></button>
       <div class="popup-card panel noise confirm-card" id="confirm-card"></div>
     </div>
 
     <!-- achievement detail dialog -->
     <div class="popup is-hidden" id="achievement-modal" role="dialog" aria-modal="true" aria-labelledby="achievement-detail-title" aria-describedby="achievement-detail-description" aria-hidden="true">
-      <button class="popup-scrim" id="achievement-scrim" aria-label="Close achievement details"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="achievement-scrim" aria-label="Close achievement details"></button>
       <div class="popup-card panel noise achievement-detail-modal" id="achievement-detail-card"></div>
     </div>
 
-    <div class="popup is-hidden" id="rankings-modal" role="dialog" aria-modal="true" aria-labelledby="rankings-modal-title" aria-describedby="rankings-modal-description" aria-hidden="true">
-      <button class="popup-scrim" id="rankings-scrim" aria-label="Close rankings"></button>
+    <div class="popup is-hidden" id="rankings-modal" role="dialog" aria-modal="true" aria-label="Global rankings" aria-labelledby="rankings-modal-title" aria-describedby="rankings-modal-description" aria-hidden="true">
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="rankings-scrim" aria-label="Close rankings"></button>
       <div class="popup-card panel noise social-surface-card" id="rankings-card"></div>
     </div>
 
-    <div class="popup is-hidden" id="social-modal" role="dialog" aria-modal="true" aria-labelledby="social-modal-title" aria-describedby="social-modal-description" aria-hidden="true">
-      <button class="popup-scrim" id="social-scrim" aria-label="Close social panel"></button>
+    <div class="popup is-hidden" id="social-modal" role="dialog" aria-modal="true" aria-label="Social" aria-labelledby="social-modal-title" aria-describedby="social-modal-description" aria-hidden="true">
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="social-scrim" aria-label="Close social panel"></button>
       <div class="popup-card panel noise social-surface-card" id="social-card"></div>
     </div>
 
     <div class="popup is-hidden" id="player-modal" role="dialog" aria-modal="true" aria-labelledby="player-modal-title" aria-describedby="player-modal-description" aria-hidden="true">
-      <button class="popup-scrim" id="player-scrim" aria-label="Close player profile"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="player-scrim" aria-label="Close player profile"></button>
       <div class="popup-card panel noise social-surface-card" id="player-card"></div>
     </div>
 
-    <!-- ============================ GAME VIEW ============================ -->
+    <!-- GAME VIEW -->
     <div class="view is-hidden" id="view-game">
+      <a class="skip-link" id="skip-to-action" href="#roll-btn">Skip to game action</a>
+      <a class="skip-link" href="#game-main">Skip to main content</a>
       <header class="topnav">
         <button class="topnav-brand" id="brand-home" aria-label="Back to home">
           <span data-sprite="logo" data-size="4"></span>
@@ -690,8 +776,6 @@
           </div>
         </div>
 
-        <div id="inactivity-timer-host" class="inactivity-timer-host" hidden></div>
-        <div id="inactivity-announcements" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 
         <div class="tn-right">
           <div class="tn-turn">
@@ -700,16 +784,19 @@
           <button class="btn-dark hdr-rules" type="button" id="log-toggle-btn" title="Event log [L]" aria-controls="log-drawer" aria-expanded="false">
             <span class="t-label f12">LOG</span>
           </button>
+            <button class="btn-dark hdr-rules hdr-retire" type="button" id="game-retire-btn" title="Retire from the table" disabled><span class="t-label f12">RETIRE</span></button>
           <button class="btn-dark hdr-rules" type="button" id="panels-btn" title="Panel layout" aria-controls="panel-menu" aria-expanded="false" aria-haspopup="dialog">
-            <span class="t-label f12">PANELS</span>
+            <span class="t-label f12">MENU</span>
           </button>
-          <button class="btn-dark hdr-rules hdr-retire" type="button" id="game-retire-btn" title="Retire from the table" disabled><span class="t-label f12">RETIRE</span></button>
-          <button class="btn-dark hdr-rules" type="button" id="game-social-btn" data-top-surface="social"><span class="t-label f12">SOCIAL</span></button>
-          <button class="btn-dark audio-toggle" type="button" id="game-sound-toggle-btn" title="Toggle sound effects" aria-label="Turn sound effects on" aria-pressed="false"><img id="game-sound-toggle-icon" src="/assets/sound-off.svg" alt="" width="24" height="24"></button>
-          <button class="btn-dark audio-toggle" type="button" id="game-music-toggle-btn" title="Toggle parlor music" aria-label="Turn parlor music on" aria-pressed="false"><img id="game-music-toggle-icon" src="/assets/music-off.svg" alt="" width="24" height="24"></button>
+          <button class="btn-dark audio-toggle" type="button" id="game-sound-toggle-btn" title="Toggle sound effects" aria-label="Sound effects" aria-pressed="false"><img id="game-sound-toggle-icon" src="/assets/sound-off.svg" alt="" width="24" height="24"></button>
+          <button class="btn-dark audio-toggle" type="button" id="game-music-toggle-btn" title="Toggle parlor music" aria-label="Parlor music" aria-pressed="false"><img id="game-music-toggle-icon" src="/assets/music-off.svg" alt="" width="24" height="24"></button>
         </div>
         <div class="panel-menu is-hidden" id="panel-menu" role="dialog" aria-modal="false" aria-labelledby="panel-menu-title" aria-hidden="true">
-          <div class="panel-menu-head"><div><span class="t-micro g400">TABLE VIEW</span><h2 class="t-section g100" id="panel-menu-title">Panel Layout</h2></div><button class="btn-dark" id="panel-menu-close" type="button"><span class="t-label f11">CLOSE</span></button></div>
+          <div class="panel-menu-head"><div><span class="t-micro g400">TABLE VIEW</span><h2 class="t-section g100" id="panel-menu-title">Panel Layout</h2></div><button class="btn-dark surface-close" id="panel-menu-close" type="button" aria-label="Close panel layout" title="Close panel layout"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button></div>
+          <div class="panel-menu-actions">
+            <button class="btn-dark hdr-rules" type="button" id="game-social-btn" data-top-surface="social"><span class="t-label f12">SOCIAL</span></button>
+            <button class="btn-dark hdr-rules" type="button" id="game-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
+          </div>
           <div class="panel-menu-options">
             <label class="panel-option"><span><strong class="t-label f11">PLAYERS</strong><small class="t-micro ink-3">Seat list and turn order</small></span><input type="checkbox" data-panel-toggle="players" checked></label>
             <label class="panel-option"><span><strong class="t-label f11">CHAT</strong><small class="t-micro ink-3">Parlor messages</small></span><input type="checkbox" data-panel-toggle="chat" checked></label>
@@ -717,6 +804,7 @@
             <label class="panel-option"><span><strong class="t-label f11">HUD DENSITY</strong><small class="t-micro ink-3">Turn information stays visible</small></span><select class="field" id="panel-hud-density"><option value="full">FULL</option><option value="compact">COMPACT</option></select></label>
           </div>
           <p class="t-micro ink-3 panel-menu-note">Required payments, auctions, bankruptcy, global headlines, and the roll action cannot be hidden.</p>
+          <a class="btn-dark about-table-entry" href="/about" data-about-link>About Poorup</a>
         </div>
       </header>
 
@@ -727,7 +815,6 @@
       </div>
       <div id="room-votekick-host" class="room-vote-host" hidden></div>
 
-      <a class="skip-link" href="#game-main">Skip to main content</a>
       <main class="game-main" id="game-main" tabindex="-1">
         <!-- LEFT RAIL -->
         <div class="rail-left">
@@ -739,24 +826,26 @@
               <span data-sprite="diamond" data-size="3"></span>
             </div>
             <div class="player-list" id="player-list"></div>
-            <div id="inactive-player-sidebar"></div>
           </section>
 
           <section class="panel noise pad12 chat-panel">
-            <div class="section-title">
+            <button class="chat-head" id="chat-toggle" type="button" aria-expanded="false" aria-controls="chat-dock">
               <span data-sprite="diamond" data-size="3"></span>
-              <h2 class="t-section g300">Parlor Chat</h2>
+              <span class="t-section g300 chat-title">Parlor Chat</span>
+              <span class="chat-unread" id="chat-unread" hidden>0</span>
               <span class="hair"></span>
-              <span data-sprite="diamond" data-size="3"></span>
+              <span class="chat-caret" aria-hidden="true"></span>
+            </button>
+            <div class="chat-dock" id="chat-dock">
+              <div class="chat-body thin-scroll" id="chat-body" role="log" aria-label="Parlor chat messages" aria-live="polite" aria-relevant="additions" tabindex="0"></div>
+              <button type="button" id="chat-new-message" class="chat-new-message is-hidden">NEW MESSAGE ↓</button>
+              <form class="chat-form" id="chat-form">
+                <label class="sr-only" for="chat-input">Chat message</label><input class="field chat-input" id="chat-input" name="message" inputmode="text" autocomplete="off" placeholder="Join the room to chat…" maxlength="120" disabled />
+                <button type="submit" class="btn-dark chat-send" id="chat-send" aria-label="Send message" disabled>
+                  <span data-sprite="send" data-size="3"></span>
+                </button>
+              </form>
             </div>
-            <div class="chat-body thin-scroll" id="chat-body" role="log" aria-live="polite" aria-relevant="additions text"></div>
-            <button type="button" id="chat-new-message" class="chat-new-message is-hidden">NEW MESSAGE ↓</button>
-            <form class="chat-form" id="chat-form">
-              <label class="sr-only" for="chat-input">Chat message</label><input class="field chat-input" id="chat-input" name="message" inputmode="text" autocomplete="off" placeholder="Join the room to chat…" maxlength="120" disabled />
-              <button type="submit" class="btn-dark chat-send" id="chat-send" aria-label="Send message" disabled>
-                <span data-sprite="send" data-size="3"></span>
-              </button>
-            </form>
           </section>
         </div>
 
@@ -782,6 +871,60 @@
                         <span class="cf-orn">✚</span>
                       </div>
                       <p class="t-label cf-sub"><span class="g300">✦</span> After-Hours Game Parlor <span class="g300">✦</span></p>
+                    </div>
+                  <div id="inactivity-announcements" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+                  <div class="hud" id="hud">
+                    <div class="hud-cell noise hud-turn-cell" role="group" aria-labelledby="hud-turn-label">
+                      <div class="hud-top-row"><span class="sr-only" id="hud-turn-label">Current turn</span></div>
+                      <div class="hud-body">
+                        <div>
+                          <span class="hud-name" id="hud-name">Stand By</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="hud-cell noise hud-chip-cell">
+                      <span class="t-label f11 g400">Cash On Hand</span>
+                      <button class="hud-body hud-split hud-cash-action" id="hud-cash-action" type="button" aria-haspopup="dialog" aria-controls="wallet-modal" aria-label="Open wallet and items">
+                        <span class="t-money green" id="hud-cash">$0</span>
+                        <span data-sprite="note" data-size="4"></span>
+                      </button>
+                    </div>
+
+                    <div class="hud-cell noise hud-dice-cell">
+                      <span class="t-label f11 g400">Dice</span>
+                      <div class="hud-body hud-dice" id="hud-dice"></div>
+                    </div>
+
+                    <div class="hud-cell noise hud-chip-cell">
+                      <span class="t-label f11 g400">Vacation Pool</span>
+                      <div class="hud-body hud-pool">
+                        <span data-sprite="palm" data-size="5"></span>
+                        <div>
+                          <div class="t-money pool-val green" id="hud-pool" role="group" aria-label="Vacation Pool">$0</div>
+                          <div class="pool-swatches">
+                            <span style="background:#d74438"></span><span style="background:#286ea1"></span>
+                            <span style="background:#d9a62f"></span><span style="background:#35a653"></span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="hud-primary-actions" id="hud-primary-actions">
+                      <div class="hud-choice-row" id="hud-choice-row" hidden></div>
+                      <div class="hud-jail-actions">
+                        <button class="btn-dark hud-jail-action is-hidden" id="pay-jail-fine" type="button"><span class="t-label f11">PAY $50 TO LEAVE JAIL</span></button>
+                        <button class="btn-dark hud-jail-action is-hidden" id="use-jail-free" type="button"><span class="t-label f11">USE GET OUT OF PRISON CARD</span></button>
+                        <button class="btn-dark hud-jail-action hud-fly-action is-hidden" id="open-flight-desk" type="button" aria-haspopup="dialog" aria-controls="flight-modal"><span class="t-label f11">FLY FROM HERE</span></button>
+                      </div>
+                      <button class="cta-red hud-roll noise" id="roll-btn" disabled>
+                        <span data-sprite="dice" data-size="4"></span>
+                        <span class="cta-text" id="roll-label">Join First</span>
+                      </button>
+                    </div>
+                  </div>
+                    <div class="board-feed" id="board-feed" aria-hidden="true" hidden>
+                      <div class="board-feed-lines" id="board-feed-lines"></div>
                     </div>
                     <section class="global-event-banner is-hidden" id="global-event-banner" role="region" aria-labelledby="global-event-title">
                       <div class="global-event-header">
@@ -814,7 +957,7 @@
                         <span class="global-event-compact-title" id="global-event-compact-title"></span>
                         <span class="global-event-compact-rounds" id="global-event-compact-rounds"></span>
                         <div class="global-event-compact-effects" id="global-event-compact-effects"></div>
-                        <button class="global-event-compact-vote is-hidden" id="global-event-compact-vote" type="button" aria-controls="global-event-body-wrap" aria-expanded="false" aria-label="Show global event details and voting controls"></button>
+                        <button class="global-event-compact-vote is-hidden" id="global-event-compact-vote" type="button" aria-controls="global-event-body-wrap" aria-expanded="false"></button>
                       </div>
                     </section>
                     <div class="deck deck-chest"><span data-sprite="chest" data-size="5"></span></div>
@@ -834,7 +977,7 @@
                     <span data-sprite="diamond" data-size="3"></span>
                     <h2 class="t-section g300" id="setup-title">Choose Your Player Appearance</h2>
                     <span class="t-micro ink-3 su-tag">SETUP</span>
-                    <button class="btn-dark setup-close" id="setup-close" type="button" aria-label="Leave appearance setup"><span class="t-label f11">BACK</span></button>
+                    <button class="btn-dark setup-close" id="setup-close" type="button" aria-label="BACK: leave appearance setup"><span class="t-label f11">BACK</span></button>
                   </div>
                   <p class="t-body ink-2 su-copy" id="setup-description">Your active design is ready for this table. Change it only if you want a different look.</p>
 
@@ -865,57 +1008,9 @@
 
 
 
-          <div class="hud" id="hud">
-            <div class="hud-cell noise hud-turn-cell" role="group" aria-labelledby="hud-turn-label">
-              <div class="hud-top-row"><span class="sr-only" id="hud-turn-label">Current turn</span></div>
-              <div class="hud-body">
-                <div>
-                  <span class="hud-name" id="hud-name">Stand By</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="hud-cell noise">
-              <span class="t-label f11 g400">Cash On Hand</span>
-              <button class="hud-body hud-split hud-cash-action" id="hud-cash-action" type="button" aria-haspopup="dialog" aria-controls="wallet-modal" aria-label="Open wallet and items">
-                <span class="t-money green" id="hud-cash">$0</span>
-                <span data-sprite="note" data-size="4"></span>
-              </button>
-            </div>
-
-            <div class="hud-cell noise">
-              <span class="t-label f11 g400">Dice</span>
-              <div class="hud-body hud-dice" id="hud-dice"></div>
-            </div>
-
-            <div class="hud-cell noise">
-              <span class="t-label f11 g400">Vacation Pool</span>
-              <div class="hud-body hud-pool">
-                <span data-sprite="palm" data-size="5"></span>
-                <div>
-                  <div class="t-money pool-val green" id="hud-pool">$0</div>
-                  <div class="pool-swatches">
-                    <span style="background:#d74438"></span><span style="background:#286ea1"></span>
-                    <span style="background:#d9a62f"></span><span style="background:#35a653"></span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="hud-primary-actions" id="hud-primary-actions">
-              <div class="hud-jail-actions">
-                <button class="btn-dark hud-jail-action is-hidden" id="pay-jail-fine" type="button"><span class="t-label f11">PAY $50 TO LEAVE JAIL</span></button>
-                <button class="btn-dark hud-jail-action is-hidden" id="use-jail-free" type="button"><span class="t-label f11">USE GET OUT OF PRISON CARD</span></button>
-              </div>
-              <button class="cta-red hud-roll noise" id="roll-btn" disabled>
-                <span data-sprite="dice" data-size="4"></span>
-                <span class="cta-text" id="roll-label">Join First</span>
-              </button>
-            </div>
-          </div>
         </div>
 
-        <!-- RIGHT RAIL — game mode (holdings) -->
+        <!-- RIGHT RAIL: game mode (holdings) -->
         <section class="panel noise right-rail" id="right-rail-game">
           <div class="rr-head">
             <span data-sprite="diamond" data-size="3"></span>
@@ -934,21 +1029,13 @@
                 <span data-sprite="diamond" data-size="3"></span>
                 <h2 class="t-section g300" id="log-drawer-title">Event Log</h2>
               </div>
-              <button class="btn-dark" id="drawer-close" type="button"><span class="t-label f11">CLOSE</span></button>
-            </div>
-            <div class="drawer-filters" id="drawer-filters">
-              <button class="btn-dark drawer-filter is-active" data-logfilter="all" type="button"><span class="t-label f11">ALL</span></button>
-              <button class="btn-dark drawer-filter" data-logfilter="cash" type="button"><span class="t-label f11">CASH</span></button>
-              <button class="btn-dark drawer-filter" data-logfilter="trade" type="button"><span class="t-label f11">TRADES</span></button>
-              <button class="btn-dark drawer-filter" data-logfilter="auction" type="button"><span class="t-label f11">AUCTIONS</span></button>
-              <button class="btn-dark drawer-filter" data-logfilter="property" type="button"><span class="t-label f11">PROPERTY</span></button>
-            </div>
-            <div class="log-drawer-body thin-scroll" id="drawer-body"></div>
+              <button class="btn-dark surface-close" id="drawer-close" type="button" aria-label="Close event log" title="Close event log"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
+            </div>            <div class="log-drawer-body thin-scroll" id="drawer-body"></div>
             <div class="log-drawer-foot"><span class="t-micro ink-3" id="drawer-count">0 ENTRIES</span></div>
           </aside>
         </section>
 
-        <!-- RIGHT RAIL — lobby mode (settings) -->
+        <!-- RIGHT RAIL: lobby mode (settings) -->
         <section class="panel noise right-rail is-hidden" id="right-rail-lobby">
           <div class="rr-head">
             <span data-sprite="diamond" data-size="3"></span>
@@ -959,7 +1046,7 @@
           </div>
           <div class="rr-foot">
             <button class="cta-red lobby-start-btn" id="lobby-start-btn">
-              <span class="cta-text" style="font-size:24px">Start Round</span>
+              <span class="cta-text">Start Round</span>
             </button>
           </div>
         </section>
@@ -968,19 +1055,19 @@
 
     <!-- tile popup -->
     <div class="popup is-hidden" id="popup" role="dialog" aria-modal="true" aria-labelledby="popup-card-title" aria-hidden="true">
-      <button class="popup-scrim" id="popup-scrim" aria-label="Close tile popup"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="popup-scrim" aria-label="Close tile popup"></button>
       <div class="popup-card panel noise" id="popup-card"></div>
     </div>
 
     <!-- trade popup -->
     <div class="popup is-hidden" id="trade-modal" role="dialog" aria-modal="true" aria-labelledby="trade-card-title" aria-hidden="true">
-      <button class="popup-scrim" id="trade-scrim" aria-label="Close trade"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="trade-scrim" aria-label="Close trade"></button>
       <div class="popup-card trade-card panel noise" id="trade-card"></div>
     </div>
 
     <!-- forced buy / auction choice -->
     <div class="popup is-hidden" id="choice-modal" role="dialog" aria-modal="true" aria-labelledby="choice-card-title" aria-hidden="true">
-      <button class="popup-scrim" id="choice-scrim" aria-label="Close"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="choice-scrim" aria-label="Close"></button>
       <div class="popup-card choice-card panel noise" id="choice-card"></div>
     </div>
 
@@ -992,55 +1079,61 @@
 
     <!-- trade offer inbox -->
     <div class="popup is-hidden" id="offer-modal" role="dialog" aria-modal="true" aria-labelledby="offer-card-title" aria-hidden="true">
-      <button class="popup-scrim" id="offer-scrim" aria-label="Close offer"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="offer-scrim" aria-label="Close offer"></button>
       <div class="popup-card offer-card panel noise" id="offer-card"></div>
     </div>
 
     <!-- deed detail / house manager -->
     <div class="popup is-hidden" id="deed-modal" role="dialog" aria-modal="true" aria-labelledby="deed-card-title" aria-hidden="true">
-      <button class="popup-scrim" id="deed-scrim" aria-label="Close deed"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="deed-scrim" aria-label="Close deed"></button>
       <div class="popup-card deed-detail-card panel noise" id="deed-card-detail"></div>
     </div>
 
     <!-- financing surface: player and bank contract actions share the server ledger -->
     <div class="popup is-hidden" id="financing-modal" role="dialog" aria-modal="true" aria-labelledby="financing-card-title" aria-describedby="financing-card-description" aria-hidden="true">
-      <button class="popup-scrim" id="financing-scrim" aria-label="Close financing preview"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="financing-scrim" aria-label="Close financing preview"></button>
       <div class="popup-card financing-card panel noise" id="financing-card"></div>
     </div>
 
     <!-- emergency bank credit confirmation stays separate from player financing -->
     <div class="popup is-hidden" id="bank-loan-modal" role="dialog" aria-modal="true" aria-labelledby="bank-loan-title" aria-describedby="bank-loan-description" aria-hidden="true">
-      <button class="popup-scrim" id="bank-loan-scrim" data-bank-loan-close aria-label="Close bank credit confirmation"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="bank-loan-scrim" data-bank-loan-close aria-label="Close bank credit confirmation"></button>
       <div class="popup-card bank-loan-card panel noise" id="bank-loan-card"></div>
     </div>
 
     <!-- wallet and earned item workbench -->
     <div class="popup is-hidden" id="wallet-modal" role="dialog" aria-modal="true" aria-labelledby="wallet-modal-title" aria-describedby="wallet-modal-description" aria-hidden="true">
-      <button class="popup-scrim" id="wallet-scrim" aria-label="Close wallet and items"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="wallet-scrim" aria-label="Close wallet and items"></button>
       <div class="popup-card wallet-card panel noise" id="wallet-card"></div>
+    </div>
+
+    <!-- airport flight desk -->
+    <div class="popup is-hidden" id="flight-modal" role="dialog" aria-modal="true" aria-labelledby="flight-card-title" aria-hidden="true">
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="flight-scrim" aria-label="Close flight desk"></button>
+      <div class="popup-card flight-card panel noise" id="flight-card"></div>
     </div>
 
     <!-- focused advanced market workbench -->
     <div class="popup is-hidden" id="market-modal" role="dialog" aria-modal="true" aria-labelledby="market-modal-title" aria-describedby="market-modal-description" aria-hidden="true">
-      <button class="popup-scrim" id="market-scrim" aria-label="Close market desk"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="market-scrim" aria-label="Close market desk"></button>
       <div class="popup-card market-desk-card panel noise" id="market-card"></div>
     </div>
 
     <!-- focused casino wager and settled-result workbench -->
     <div class="popup is-hidden" id="casino-modal" role="dialog" aria-modal="true" aria-labelledby="casino-modal-title" aria-describedby="casino-modal-description" aria-hidden="true">
-      <button class="popup-scrim" id="casino-scrim" aria-label="Close casino desk"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="casino-scrim" aria-label="Close casino desk"></button>
       <div class="popup-card casino-desk-card panel noise" id="casino-card"></div>
     </div>
 
     <!-- shared read-only pending deal details -->
     <div class="popup is-hidden" id="deal-detail-modal" role="dialog" aria-modal="true" aria-labelledby="deal-detail-title" aria-hidden="true">
-      <button class="popup-scrim" id="deal-detail-scrim" aria-label="Close deal details"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="deal-detail-scrim" aria-label="Close deal details"></button>
       <div class="popup-card deal-detail-card panel noise" id="deal-detail-card"></div>
     </div>
 
     <!-- sponsored purchase escrow -->
     <div class="popup is-hidden" id="sponsorship-modal" role="dialog" aria-modal="true" aria-labelledby="sponsorship-card-title" aria-hidden="true">
-      <button class="popup-scrim" id="sponsorship-scrim" aria-label="Close sponsorship"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="sponsorship-scrim" aria-label="Close sponsorship"></button>
       <div class="popup-card sponsorship-card panel noise" id="sponsorship-card"></div>
     </div>
 
@@ -1052,7 +1145,7 @@
 
     <!-- chance / chest card reveal -->
     <div class="popup is-hidden" id="card-modal" role="dialog" aria-modal="true" aria-labelledby="card-reveal-title" aria-hidden="true">
-      <button class="popup-scrim" id="card-scrim" aria-label="Close card"></button>
+      <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="card-scrim" aria-label="Close card"></button>
       <div class="popup-card card-reveal panel noise" id="card-reveal"></div>
     </div>
 
@@ -1062,11 +1155,11 @@
       <div class="card-gallery-shell panel noise">
         <div class="card-gallery-head">
           <div>
-            <span class="t-micro g400">DESIGN PREVIEW</span>
+            <span class="t-micro g400">EVENT CARDS</span>
             <h2 class="t-section" id="card-gallery-title">Event Cards</h2>
             <p class="t-body ink-3">Every Surprise and Treasure card, shown in the new reveal style.</p>
           </div>
-          <button class="btn-dark" id="card-gallery-close" type="button"><span class="t-label f11">CLOSE</span></button>
+          <button class="btn-dark surface-close" id="card-gallery-close" type="button" aria-label="Close event card gallery" title="Close event card gallery"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
         </div>
         <div class="card-gallery-grid" id="card-gallery-grid"></div>
       </div>

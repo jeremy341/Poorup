@@ -1,44 +1,21 @@
-/* ============================================================
-   LOG DRAWER: the slide-out game log with its text filters.
-   Owns the drawer filter selection and rendering; the entry
-   module keeps the click bindings that feed it.
-   ============================================================ */
-import { $, esc } from "./clientDom.js";
+// LOG DRAWER: the complete chronological event log.
+import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { focusSurface, syncSurfaceA11y } from "./clientSurfaces.js";
 import { applyPanelVisibility } from "./clientPanelMenu.js";
+import { logLineHTML } from "./clientBoardFeed.js";
 
-let drawerFilter = "all";
 let renderedLogSignature = "";
 let drawerEscapeBound = false;
 
-function matchesLogFilter(line, filter) {
-  if (filter === "all") return true;
-  if (filter === "cash") return /\$|BOUGHT|RENT|PAID|COLLECT|TAX|CASH/i.test(line);
-  if (filter === "trade") return /TRADE|OFFER|TRADED|DECLIN|ACCEPT/i.test(line);
-  if (filter === "auction") return /AUCTION|BID|WON|UNSOLD/i.test(line);
-  if (filter === "property") return /BOUGHT|MORTGAG|BUILT|HOUSE|HOTEL|DEED|WENT BANKRUPT/i.test(line);
-  return true;
-}
-
-function drawerLines() {
-  return state.log.filter((l) => matchesLogFilter(l, drawerFilter));
-}
-
 function drawerLineHTML(line, index, total) {
   const num = String(total - index).padStart(2, "0");
-  return `<p class="t-body log-line"><span class="log-n">${num} </span>${esc(line)}</p>`;
-}
-
-function markActiveFilterButtons() {
-  document.querySelectorAll(".drawer-filter").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.dataset.logfilter === drawerFilter);
-  });
+  return `<p class="t-body log-line"><span class="log-n">${num} </span>${logLineHTML(line)}</p>`;
 }
 
 export function renderLogDrawer() {
-  const filtered = drawerLines();
-  const empty = `<p class="t-body ink-3">NO ${drawerFilter.toUpperCase()} ENTRIES.</p>`;
+  const filtered = state.log;
+  const empty = '<p class="t-body ink-3">NO ENTRIES YET.</p>';
   const body = filtered.length
     ? filtered.map((l, i) => drawerLineHTML(l, i, filtered.length)).join("")
     : empty;
@@ -69,7 +46,6 @@ export function renderLogDrawer() {
   }
   if (statusEl) statusEl.textContent = logChanged && !wasAtBottom ? "NEW ENTRIES AVAILABLE" : "";
   renderedLogSignature = nextSignature;
-  markActiveFilterButtons();
 }
 
 export function isLogDrawerOpen() {
@@ -132,10 +108,4 @@ function bindDrawerEscape() {
     if (!$("#log-drawer")?.contains(document.activeElement)) return;
     closeLogDrawer();
   });
-}
-
-export function applyLogDrawerFilter(button) {
-  drawerFilter = button.dataset.logfilter || "all";
-  if (!isLogDrawerOpen()) return;
-  renderLogDrawer();
 }

@@ -4,7 +4,7 @@ import { simulateBotMatch } from './botTournamentSimulation.js';
 import { buildTournamentSummary } from './botTournamentSummary.js';
 import { runTournamentCli } from './botTournamentCli.js';
 
-export { assertHealthyCash, createSimulationRoom, simulateBotMatch, withSeededSimulationGlobals } from './botTournamentSimulation.js';
+export { assertHealthyCash, createSimulationRoom, defaultStepLimit, simulateBotMatch, withSeededSimulationGlobals } from './botTournamentSimulation.js';
 export { buildMatchResult } from './botTournamentResults.js';
 export { stateFingerprint } from './botTournamentState.js';
 export { createBotPolicy, createDefaultPolicySet, createRandomLegalAdvisor } from './botTournamentPolicies.js';
@@ -69,7 +69,7 @@ async function simulateTournamentScenarios(scenarios, options) {
   return matches;
 }
 
-export async function runBotTournament({ seeds, policySets, seatRotations = [0], boardVariants = ['standard-40'], settings = {}, stepLimit = 20_000, callCapTracker = null, captureShadowTrace = false }) {
+export async function runBotTournament({ seeds, policySets, seatRotations = [0], boardVariants = ['standard-40'], settings = {}, stepLimit, callCapTracker = null, captureShadowTrace = false }) {
   const configuredPolicies = policySets || [];
   const policyIds = [...new Set(configuredPolicies.flatMap(set => set.map(policy => policy.policyId)))];
   const scenarios = tournamentScenarios(seeds || [], configuredPolicies, seatRotations, boardVariants);

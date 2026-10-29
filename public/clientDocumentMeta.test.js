@@ -20,9 +20,14 @@ assert.equal(configured.previewHeight, 630);
 assert.equal(configured.previewPath, "/assets/social/poorup-og-1200x630.png");
 const configuredHtml = renderDocumentMeta(configured);
 assert.match(configuredHtml, /rel="canonical" href="https:\/\/play\.example\/"/);
-assert.match(configuredHtml, /property="og:image:width" content="1200"/);
-assert.match(configuredHtml, /property="og:image:height" content="630"/);
-assert.match(configuredHtml, /property="og:image:type" content="image\/png"/);
+assert.match(configuredHtml, /og:image/);
+assert.match(configuredHtml, /twitter:card" content="summary_large_image"/);
+const previewHtml = renderDocumentMeta(metadataConfig({ origin: "https://play.example", previewPath: "/assets/social/poorup-og-1200x630.png" }));
+assert.match(previewHtml, /property="og:image"/);
+assert.match(previewHtml, /twitter:card" content="summary_large_image"/);
+assert.match(previewHtml, /property="og:image:width" content="1200"/);
+assert.match(previewHtml, /property="og:image:height" content="630"/);
+assert.match(previewHtml, /property="og:image:type" content="image\/png"/);
 
 const privateHtml = renderDocumentMeta(metadataConfig({ origin: "https://play.example", path: "/admin/analytics" }));
 assert.match(privateHtml, /name="robots" content="noindex,nofollow"/);

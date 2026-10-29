@@ -1,9 +1,6 @@
-// Characterization suite for AccountStore.recordGameResults: pins placement
-// order, matchRecord clipping/clamping, and the exact per-account stat deltas
-// for a fixture that exercises every source (clamps, string numbers, NaN,
-// missing accounts, casino/market/contract summaries). Goldens were captured
-// from the pre-refactor implementation; the reducer-table extraction must
-// keep them byte-identical.
+// Characterization suite for AccountStore.recordGameResults: pins placement order, matchRecord clipping and clamping, and exact
+// per-account stat deltas for a fixture covering every source (clamps, string numbers, NaN, missing accounts, casino, market and contract summaries).
+// Goldens come from the pre-refactor implementation; the reducer table must keep them byte-identical.
 import assert from 'assert';
 import fs from 'fs';
 import os from 'os';
@@ -59,19 +56,19 @@ const GOLDEN_ALICE = {
   gamesPlayed: 1, wins: 1, bankruptcies: 0, auctionWins: 2, rentCollected: 610,
   eventSurvival: 3, casinoNet: -50, marketProfit: 90.5, playerLoansGiven: 1,
   playerLoansRepaid: 0, playerLoanDefaults: 1, equityDeals: 1, bankLoansTaken: 1,
-  bankLoanRepayments: 1, bankLoanDefaults: 0, patrolBest: 0, patrolAceRuns: 0
+  bankLoanRepayments: 1, bankLoanDefaults: 0, patrolBest: 0, patrolAceRuns: 0, patrolVerifiedBest: 0, patrolVerifiedAceRuns: 0
 };
 const GOLDEN_BOB = {
   gamesPlayed: 1, wins: 0, bankruptcies: 1, auctionWins: 0, rentCollected: 0,
   eventSurvival: 0, casinoNet: 0, marketProfit: 0, playerLoansGiven: 1,
   playerLoansRepaid: 1, playerLoanDefaults: 0, equityDeals: 0, bankLoansTaken: 0,
-  bankLoanRepayments: 0, bankLoanDefaults: 1, patrolBest: 0, patrolAceRuns: 0
+  bankLoanRepayments: 0, bankLoanDefaults: 1, patrolBest: 0, patrolAceRuns: 0, patrolVerifiedBest: 0, patrolVerifiedAceRuns: 0
 };
 const GOLDEN_CAROL = {
   gamesPlayed: 1, wins: 0, bankruptcies: 0, auctionWins: 0, rentCollected: 0,
   eventSurvival: 0, casinoNet: 0, marketProfit: 0, playerLoansGiven: 0,
   playerLoansRepaid: 0, playerLoanDefaults: 0, equityDeals: 1, bankLoansTaken: 2,
-  bankLoanRepayments: 0, bankLoanDefaults: 0, patrolBest: 0, patrolAceRuns: 0
+  bankLoanRepayments: 0, bankLoanDefaults: 0, patrolBest: 0, patrolAceRuns: 0, patrolVerifiedBest: 0, patrolVerifiedAceRuns: 0
 };
 const GOLDEN_PARTICIPANTS = ['1:1500:3:false', '4:0:0:true', '2:500:1:false', '3:10:0:false'];
 const GOLDEN_RECORD = { durationSeconds: 0, roundCount: 12, roomVisibility: 'private', globalEvents: 20, eventCombinations: 10, auctionsCompleted: 2, tradesCompleted: 3, completedAt: '2026-01-01T00:00:00.000Z', matchId: 'match-fixed' };
@@ -94,6 +91,23 @@ check('placement ladder: solvent by cash, bankrupt last', () => {
   assert.deepStrictEqual(
     record.participants.map(p => `${p.finalPlacement}:${p.endingCash}:${p.propertyCount}:${p.bankrupt}`),
     GOLDEN_PARTICIPANTS
+  );
+});
+
+check('placement ranks the crowned winner first among contested seats', () => {
+  // A round-limit win can be decided on net worth while another seat still
+  // holds more cash. The game-crowned seat owns 1st; ghosts and bankruptcies
+  // keep their existing tier order.
+  const crowned = store.recordGameResults([
+    { id: 'w', nickname: 'WINNER', cash: 100, bankrupt: false, properties: [] },
+    { id: 'r', nickname: 'RICHER', cash: 900, bankrupt: false, properties: [] },
+    { id: 'c', nickname: 'THIRD', cash: 50, bankrupt: false, properties: [] },
+    { id: 'b', nickname: 'BANKRUPT', cash: 4000, bankrupt: true, properties: [] },
+    { id: 'g', nickname: 'GHOST', cash: 5000, disconnected: true, properties: [] }
+  ], 'w', { gameId: 'match-crowned-winner' });
+  assert.deepStrictEqual(
+    crowned.participants.map(p => `${p.displayNameAtMatch}:${p.finalPlacement}`),
+    ['WINNER:1', 'RICHER:2', 'THIRD:3', 'BANKRUPT:4', 'GHOST:5']
   );
 });
 
@@ -134,8 +148,16 @@ check('re-recording the same match is idempotent for account history and stats',
 });
 
 check('null players do not crash placement', () => {
-  store.recordGameResults([null, ...fixturePlayers()], 'p1', { ...fixtureMeta(), gameId: 'match-null' });
-  assert.ok(true);
+  const withNull = store.recordGameResults([null, ...fixturePlayers()], 'p1', { ...fixtureMeta(), gameId: 'match-null' });
+  // recordGameResults drops falsy seats before ranking: the null entry leaves
+  // no participant behind and does not shift anyone's placement or stats.
+  assert.equal(withNull.matchId, 'match-null');
+  assert.equal(withNull.participants.length, GOLDEN_PARTICIPANTS.length);
+  assert.deepStrictEqual(
+    withNull.participants.map(p => `${p.finalPlacement}:${p.endingCash}:${p.propertyCount}:${p.bankrupt}`),
+    GOLDEN_PARTICIPANTS
+  );
+  assert.ok(byName('alice').matchHistory.some(entry => entry.matchId === 'match-null'));
 });
 
 check('old match replays stay idempotent after the visible history window rolls over', () => {
@@ -146,6 +168,22 @@ check('old match replays stay idempotent after the visible history window rolls 
   assert.equal(byName('alice').matchHistory.some(entry => entry.matchId === 'match-fixed'), false);
   store.recordGameResults(fixturePlayers(), 'p1', fixtureMeta());
   assert.equal(byName('alice').stats.gamesPlayed, before);
+});
+
+// The settlement ledger is bounded, so a long-lived account does not
+// grow its record (and every accounts.json rewrite) without limit, while a
+// replay of a recent match is still refused.
+check('recorded match ids are capped and the newest replay is still refused', () => {
+  const alice = byName('alice');
+  const before = alice.stats.gamesPlayed;
+  for (let index = 0; index < 600; index += 1) {
+    store.recordGameResults([{ id: 'p1', accountId: alice.id, cash: 100, bankrupt: false, properties: [] }], 'p1', { gameId: `ledger-${index}` });
+  }
+  assert.equal(alice.stats.gamesPlayed - before, 600);
+  assert.ok(alice.recordedMatchIds.length <= 500, `ledger is bounded (${alice.recordedMatchIds.length})`);
+  assert.ok(alice.recordedMatchIds.includes('ledger-599'), 'the newest match stays in the ledger');
+  store.recordGameResults([{ id: 'p1', accountId: alice.id, cash: 100, bankrupt: false, properties: [] }], 'p1', { gameId: 'ledger-599' });
+  assert.equal(alice.stats.gamesPlayed - before, 600, 'a replay of a recent match does not count twice');
 });
 
 const failed = results.filter(r => !r).length;

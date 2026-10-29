@@ -1,6 +1,8 @@
 // Presentation-only roulette reel. The server has already settled the pocket;
-// this module receives only that result and an opaque seed, so animation can
+// it receives only that result and an opaque seed, so animation can
 // never become a second source of randomness or cash mutation.
+import { formatMoney } from "./clientMoney.js";
+
 const RED_POCKETS = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
 const REEL_LENGTH = 45;
 const activeReels = new WeakMap();
@@ -32,7 +34,7 @@ function resultText(result) {
   const color = String(result?.resultColor || pocketColor(safeNumber(result?.pocket))).toUpperCase();
   const pocket = safeNumber(result?.pocket);
   const net = safeNumber(result?.net);
-  return "SETTLED · " + color + " " + pocket + " · " + (net >= 0 ? "+" : "") + "$" + net.toLocaleString();
+  return "SETTLED · " + color + " " + pocket + " · " + (net >= 0 ? "+" : "") + formatMoney(net);
 }
 
 function pocketCardHTML(pocket, target) {

@@ -1,193 +1,166 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import process from 'node:process';
 
-const { createPoorupChartOptions, resolvePoorupChartTokens } = await import('./clientAnalyticsChartTheme.js');
-const { loadAnalyticsChartEngine, mountAnalyticsChart, disposeAnalyticsChart, resetAnalyticsChartEngineForTests } = await import('./clientAnalyticsChartAdapter.js');
-const { renderAnalyticsChart } = await import('./clientAnalyticsCharts.js');
-
-const tokens = resolvePoorupChartTokens();
-const lineOptions = createPoorupChartOptions([{ label: '12:00', value: 42 }], { mode: 'line', title: 'Activity', unit: 'players', tokens });
-assert.equal(lineOptions.animation, false);
-assert.equal(lineOptions.series[0].areaStyle.opacity, 0.14);
-assert.equal(lineOptions.series[0].itemStyle.color, 'var(--analytics-primary)');
-assert.equal(lineOptions.aria.show, true);
-assert.equal(lineOptions.grid.containLabel, true);
-assert.equal(lineOptions.yAxis.type, 'value');
-assert.equal(lineOptions.yAxis.position, 'left');
-assert.equal(lineOptions.yAxis.name, 'PLAYERS');
-assert.equal(lineOptions.grid.left, 52);
-assert.equal(lineOptions.xAxis.axisLabel.hideOverlap, true);
-
-const mixedOptions = createPoorupChartOptions([
-  { label: 'STARTS', value: 12, unit: 'matches' },
-  { label: 'RECONNECT RATE', value: 0.08, unit: 'percent' }
-], { mode: 'bar', title: 'Reliability', unit: 'matches', tokens });
-assert.equal(mixedOptions.xAxis.length, 2);
-assert.equal(mixedOptions.yAxis.length, 2);
-assert.equal(mixedOptions.series.length, 2);
-assert.equal(mixedOptions.xAxis[0].name, 'MATCHES');
-assert.equal(mixedOptions.xAxis[1].name, 'PERCENT');
-assert.equal(mixedOptions.yAxis[0].name, '');
-assert.equal(mixedOptions.yAxis[0].axisLabel.width, 116);
-assert.equal(mixedOptions.yAxis[0].axisLabel.overflow, 'truncate');
-assert.equal(mixedOptions.grid[0].left, 132);
-for (const mode of ['stacked-bar', 'histogram', 'box', 'scatter']) {
-  const options = createPoorupChartOptions([{ label: 'MATCH', value: 2, values: { human: 2, bot: 1 } }], { mode, unit: 'matches', tokens });
-  assert.equal(options.grid.left, 52, `${mode} keeps the compact numeric Y-axis gutter`);
-}
-const signedBarOptions = createPoorupChartOptions([{ label: 'LOSS', value: -5 }, { label: 'GAIN', value: 10 }], { mode: 'bar', unit: 'dollars', tokens });
-assert.notEqual(signedBarOptions.xAxis[0].min, 0);
-const signedLineOptions = createPoorupChartOptions([{ label: 'BEFORE', value: -3 }, { label: 'AFTER', value: 6 }], { mode: 'line', unit: 'dollars', tokens });
-assert.notEqual(signedLineOptions.yAxis.min, 0);
-
-const standardBoardOptions = createPoorupChartOptions(Array.from({ length: 40 }, (_, index) => ({ label: String(index), value: index })), { mode: 'board', variant: 'standard-40', tokens });
-assert.deepEqual(standardBoardOptions.series[0].data[0].value, [0, 0, 0]);
-assert.deepEqual(standardBoardOptions.series[0].data[10].value, [10, 0, 10]);
-assert.deepEqual(standardBoardOptions.series[0].data[20].value, [10, 10, 20]);
-assert.deepEqual(standardBoardOptions.series[0].data[30].value, [0, 10, 30]);
-assert.equal(standardBoardOptions.series[0].itemStyle.color, undefined);
-assert.deepEqual(standardBoardOptions.visualMap.inRange.color, [tokens.surfaceDeep, tokens.warning]);
-assert.equal(standardBoardOptions.legend.show, false);
-const metroBoardOptions = createPoorupChartOptions(Array.from({ length: 52 }, (_, index) => ({ label: String(index), value: index })), { mode: 'board', variant: 'metro-52', tokens });
-assert.deepEqual(metroBoardOptions.series[0].data[13].value, [13, 0, 13]);
-assert.deepEqual(metroBoardOptions.series[0].data[26].value, [13, 13, 26]);
-assert.deepEqual(metroBoardOptions.series[0].data[39].value, [0, 13, 39]);
-assert.deepEqual(metroBoardOptions.series[0].data[51].value, [0, 1, 51]);
-const signedHeatmapOptions = createPoorupChartOptions([
-  { label: 'LOSS', value: -5 },
-  { label: 'FLAT', value: 0 },
-  { label: 'GAIN', value: 10 },
-  { label: 'MISSING', value: null, values: { primary: 1 } }
-], { mode: 'heatmap', tokens });
-assert.equal(signedHeatmapOptions.visualMap.min, -10);
-assert.equal(signedHeatmapOptions.visualMap.max, 10);
-assert.deepEqual(signedHeatmapOptions.visualMap.inRange.color, [tokens.negative, tokens.surfaceDeep, tokens.positive]);
-assert.deepEqual(signedHeatmapOptions.series[0].data.map(point => point[2]), [-5, 0, 10]);
-const signedBoardOptions = createPoorupChartOptions(Array.from({ length: 40 }, (_, index) => ({ label: String(index), value: index === 0 ? -10 : index === 10 ? 20 : 0 })), { mode: 'board', variant: 'standard-40', tokens });
-assert.equal(signedBoardOptions.visualMap.min, -20);
-assert.equal(signedBoardOptions.visualMap.max, 20);
-assert.deepEqual(signedBoardOptions.visualMap.inRange.color, [tokens.negative, tokens.surfaceDeep, tokens.positive]);
-
-const modes = {
-  line: 'line', bar: 'bar', 'stacked-bar': 'bar', heatmap: 'heatmap', cohort: 'heatmap',
-  histogram: 'bar', box: 'boxplot', scatter: 'scatter', funnel: 'funnel'
-};
-for (const [mode, type] of Object.entries(modes)) {
-  const options = createPoorupChartOptions([{ label: 'A', value: 2, values: { human: 1, ai: 1 } }], { mode, title: mode, unit: 'value', tokens });
-  assert.equal(options.series[0].type, type, `${mode} should map to ${type}`);
+function check(name, assertion) {
+  try {
+    assertion();
+    console.log(`PASS ${name}`);
+  } catch (error) {
+    console.error(`FAIL ${name}: ${error.message}`);
+    process.exitCode = 1;
+  }
 }
 
-const previousEcharts = globalThis.echarts;
-const previousResizeObserver = globalThis.ResizeObserver;
-const calls = [];
-let resizeObserverCallback;
-let resizeObserverTarget;
-let resizeObserverDisconnected = false;
-globalThis.ResizeObserver = class {
-  constructor(callback) { resizeObserverCallback = callback; }
-  observe(target) { resizeObserverTarget = target; }
-  disconnect() { resizeObserverDisconnected = true; }
-};
-globalThis.echarts = {
-  init(container, _theme, initOptions) {
-    calls.push({ container, initOptions });
-    return {
-      setOption(options) { calls.push({ options }); },
-      resize() { calls.push({ resize: true }); },
-      dispose() { calls.push({ dispose: true }); }
-    };
-  }
-};
-const container = { dataset: {} };
-const chart = mountAnalyticsChart(container, [{ label: '12:00', value: 42 }], { mode: 'line', title: 'Activity', unit: 'players', tokens });
-assert.equal(chart.status, 'ready');
-assert.equal(chart.engine, 'echarts-svg');
-assert.equal(container.dataset.chartEngine, 'echarts-svg');
-assert.equal(calls[0].initOptions.renderer, 'svg');
-assert.equal(resizeObserverTarget, container);
-resizeObserverCallback([{ target: container, contentRect: { width: 480, height: 240 } }]);
-assert.equal(calls.filter(call => call.resize).length, 2);
-disposeAnalyticsChart(container);
-assert.equal(container.dataset.chartEngine, undefined);
-assert.equal(resizeObserverDisconnected, true);
-globalThis.echarts = previousEcharts;
-globalThis.ResizeObserver = previousResizeObserver;
+function fakeElement() {
+  const attributes = new Map();
+  let markup = '';
+  return {
+    clientWidth: 480, clientHeight: 240, dataset: {}, tabIndex: -1,
+    get innerHTML() { return markup; },
+    set innerHTML(value) { markup = value; },
+    setAttribute(name, value) { attributes.set(name, String(value)); },
+    getAttribute(name) { return attributes.has(name) ? attributes.get(name) : null; },
+    removeAttribute(name) { attributes.delete(name); },
+    addEventListener() {}, removeEventListener() {},
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+  };
+}
 
-const source = fs.readFileSync(new URL('./clientAnalyticsCharts.js', import.meta.url), 'utf8');
-assert.doesNotMatch(source, /function\s+geometry\s*\(/);
+// The analytics container: innerHTML holds the figure; querySelectorAll hands back one fake engine per
+// `.analytics-chart-engine` the markup declared, so the real mountChart paints into them.
+function fakeAnalyticsContainer() {
+  const engines = [];
+  let markup = '';
+  const container = {
+    engines,
+    get innerHTML() { return markup; },
+    set innerHTML(value) {
+      markup = value;
+      engines.length = 0;
+      for (let count = (value.match(/class="analytics-chart-engine"/g) || []).length; count > 0; count -= 1) engines.push(fakeElement());
+    },
+    get firstElementChild() { return {}; },
+    getAttribute() { return null; },
+    setAttribute() {},
+    querySelectorAll(selector) { return selector === '.analytics-chart-engine' ? engines : []; },
+    querySelector(selector) {
+      if (selector.includes('toggle')) return { addEventListener() {}, setAttribute() {}, textContent: '' };
+      return { classList: { toggle() {}, contains() { return true; } } };
+    },
+  };
+  return container;
+}
 
-let renderedMarkup = '';
 globalThis.document = {};
-const renderContainer = {
-  set innerHTML(value) { renderedMarkup = value; },
-  get firstElementChild() { return {}; },
-  getAttribute() { return null; },
-  setAttribute() {},
-  querySelector(selector) {
-    if (selector.includes('toggle')) return { addEventListener() {}, setAttribute() {}, textContent: '' };
-    return { classList: { toggle() {}, contains() { return true; } } };
-  }
-};
-renderAnalyticsChart(renderContainer, [{ label: 'A', value: 1 }], { mode: 'line', title: 'Activity', unit: 'players' });
-assert.match(renderedMarkup, /class="analytics-chart-engine"/);
-assert.match(renderedMarkup, /data-chart-engine="echarts-svg"/);
-assert.match(renderedMarkup, /class="analytics-chart-table/);
-assert.match(renderedMarkup, /aria-describedby=/);
+const { renderAnalyticsChart, renderBoardMetricMap, disposeAnalyticsChart } = await import('./clientAnalyticsCharts.js');
+
+check('lineChartsPaintSynchronouslyIntoTheEngineSlotWithATableBesideThem', () => {
+  const container = fakeAnalyticsContainer();
+  renderAnalyticsChart(container, [{ label: '12:00', value: 42 }, { label: '13:00', value: 58 }], { mode: 'line', title: 'Activity', unit: 'players' });
+  assert.equal(container.engines.length, 1);
+  assert.match(container.engines[0].innerHTML, /<svg class="pc-svg pc-kind-line"/);
+  assert.equal(container.engines[0].dataset.chartEngine, 'svg');
+  assert.match(container.innerHTML, /class="analytics-chart-table/);
+  assert.match(container.innerHTML, /class="analytics-chart-split"/, 'the plot and its table sit side by side');
+  assert.doesNotMatch(container.innerHTML, /analytics-chart-table-toggle|SHOW DATA TABLE|HIDE DATA TABLE/, 'the table is always visible: there is no toggle');
+  assert.doesNotMatch(container.innerHTML, /CHART ENGINE|LOADING|uplot|echarts/i, 'there is no engine to load, so no loading or failure state');
+});
+
+check('chartPointsDescribeTheSummaryTheEngineSlotRefersTo', () => {
+  const container = fakeAnalyticsContainer();
+  renderAnalyticsChart(container, [{ label: 'A', value: 1 }], { mode: 'line', title: 'Activity', unit: 'players' });
+  const summaryId = container.innerHTML.match(/id="(analytics-chart-table-\d+-summary)"/)[1];
+  assert.equal(container.engines[0].getAttribute('aria-describedby'), summaryId);
+  assert.equal(container.engines[0].getAttribute('role'), 'group');
+  assert.match(container.engines[0].getAttribute('aria-label'), /^Activity\./);
+});
+
+check('barChartsLabelEveryCategoryAndValueAndSkipMissingPoints', () => {
+  const container = fakeAnalyticsContainer();
+  renderAnalyticsChart(container, [{ label: 'Starts', value: 12, unit: 'matches' }, { label: 'Stalls', value: 3, unit: 'matches' }, { label: 'Lost', value: null, unit: 'matches' }], { mode: 'bar', title: 'Reliability', unit: 'matches' });
+  const svg = container.engines[0].innerHTML;
+  assert.equal((svg.match(/class="pc-bar /g) || []).length, 2, 'a missing value draws no bar');
+  assert.match(svg, />Starts</);
+  assert.match(svg, />Stalls</);
+  assert.match(svg, /class="pc-values"/, 'bars carry their numbers, not only the table');
+});
+
+check('valuesInDifferentUnitsGetTheirOwnChartInsteadOfSharingOneAxis', () => {
+  const container = fakeAnalyticsContainer();
+  renderAnalyticsChart(container, [
+    { label: 'Starts', value: 16, unit: 'matches' },
+    { label: 'Completions', value: 12, unit: 'matches' },
+    { label: 'Reconnect rate', value: 0.08, unit: 'percent' },
+  ], { mode: 'bar', title: 'Match reliability', unit: 'matches' });
+  assert.equal(container.engines.length, 2, 'one chart per unit');
+  assert.match(container.innerHTML, /UNIT matches/);
+  assert.match(container.innerHTML, /UNIT percent/);
+  assert.match(container.engines[1].innerHTML, />8%</, 'the rate chart is scaled to 0 to 100 percent, not drawn at 0.08 beside 16');
+  assert.match(container.innerHTML, /MULTIPLE UNITS/);
+  const single = fakeAnalyticsContainer();
+  renderAnalyticsChart(single, [{ label: 'A', value: 1 }, { label: 'B', value: 2 }], { mode: 'bar', title: 'One unit', unit: 'matches' });
+  assert.doesNotMatch(single.innerHTML, /analytics-chart-group/, 'a single unit needs no group caption');
+});
+
+check('multiSeriesValuesBecomeSeparateLinesWithALegend', () => {
+  const container = fakeAnalyticsContainer();
+  renderAnalyticsChart(container, [
+    { label: 'R1', values: { human: 4, bot: 2 } },
+    { label: 'R2', values: { human: 6, bot: 3 } },
+  ], { mode: 'line', title: 'Seats', unit: 'players' });
+  const svg = container.engines[0].innerHTML;
+  assert.equal((svg.match(/class="pc-line"/g) || []).length, 2);
+  assert.match(svg, /class="pc-legend"/);
+});
+
+check('unsupportedModesStayAVerifiedTableWithNoEngineSlot', () => {
+  const container = fakeAnalyticsContainer();
+  renderAnalyticsChart(container, [{ label: 'A', value: 1 }], { mode: 'heatmap', title: 'Heat', unit: 'matches' });
+  assert.equal(container.engines.length, 0);
+  assert.match(container.innerHTML, /class="analytics-chart-data"/, 'the table is visible, not collapsed');
+  assert.doesNotMatch(container.innerHTML, /aria-expanded/);
+});
+
+check('mixedUnitsKeepAUnitColumnInTheTable', () => {
+  const container = fakeAnalyticsContainer();
+  renderAnalyticsChart(container, [{ label: 'A', value: 1, unit: 'matches' }, { label: 'B', value: 0.5, unit: 'percent' }], { mode: 'bar', title: 'Mixed', unit: 'matches' });
+  assert.match(container.innerHTML, /<th scope="col">Unit<\/th>/);
+  assert.match(container.innerHTML, /<td>50%<\/td><td>percent<\/td>/);
+});
+
+check('theTableKeepsUnitsMetadataAndPercentageFormatting', () => {
+  const container = fakeAnalyticsContainer();
+  renderAnalyticsChart(container, [{ label: 'RECONNECT RATE', value: 0.08, unit: 'percent', sampleSize: 12, numerator: 1, denominator: 12 }], { mode: 'bar', title: 'Reliability', unit: 'matches' });
+  for (const column of ['Sample', 'Numerator', 'Denominator']) assert.match(container.innerHTML, new RegExp(`<th scope="col">${column}</th>`));
+  assert.match(container.innerHTML, /<th scope="col">Value \(percent\)<\/th>/, 'one unit is named once, in the Value header');
+  assert.doesNotMatch(container.innerHTML, /<th scope="col">Unit<\/th>/);
+  assert.match(container.innerHTML, /<td>8%<\/td><td>12<\/td><td>1<\/td><td>12<\/td>/);
+  assert.match(container.innerHTML, /POINTS 1/);
+});
+
+check('disposeEmptiesEveryEngineSlot', () => {
+  const container = fakeAnalyticsContainer();
+  renderAnalyticsChart(container, [{ label: 'A', value: 1 }, { label: 'B', value: 2 }], { mode: 'line', title: 'Activity', unit: 'players' });
+  assert.match(container.engines[0].innerHTML, /pc-svg/);
+  disposeAnalyticsChart(container);
+  assert.equal(container.engines[0].innerHTML, '');
+  assert.doesNotThrow(() => disposeAnalyticsChart(null));
+});
+
+check('boardMetricMapStaysATableAndSaysItShowsAssociationOnly', () => {
+  const container = fakeAnalyticsContainer();
+  const result = renderBoardMetricMap(container, { variant: 'standard-40', tiles: [{ index: 0, value: 5 }] }, {});
+  assert.equal(result.tiles.length, 40);
+  assert.match(container.innerHTML, /ASSOCIATION, NOT CAUSATION/);
+  assert.equal(container.engines.length, 0);
+});
+
+check('noChartEngineLibraryIsReferencedAnywhereInTheFacade', () => {
+  const source = fs.readFileSync(new URL('./clientAnalyticsCharts.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /\b(?:uPlot|uplot|echarts)\b|createElement\(.script/);
+  assert.doesNotMatch(source, /function\s+geometry\s*\(/);
+});
+
 delete globalThis.document;
-
-const previousDocumentForEngineRetry = globalThis.document;
-const previousEngineForRetry = globalThis.echarts;
-const failedScripts = [];
-globalThis.document = {
-  querySelector(selector) {
-    return selector === 'script[data-analytics-engine]' ? failedScripts.find(script => !script.removed) || null : null;
-  },
-  createElement(tagName) {
-    const listeners = new Map();
-    return {
-      tagName,
-      dataset: {},
-      addEventListener(type, handler) { listeners.set(type, [...(listeners.get(type) || []), handler]); },
-      fail() { (listeners.get('error') || []).forEach(handler => handler()); },
-      remove() { this.removed = true; },
-    };
-  },
-  head: { appendChild(script) { failedScripts.push(script); } },
-};
-globalThis.echarts = undefined;
-resetAnalyticsChartEngineForTests();
-const firstEngineLoad = loadAnalyticsChartEngine();
-failedScripts[0].fail();
-await assert.rejects(firstEngineLoad, /failed to load/);
-assert.equal(failedScripts[0].removed, true, 'failed engine script must be removed before retry');
-const retryEngineLoad = loadAnalyticsChartEngine();
-assert.equal(failedScripts.length, 2, 'retry must append a fresh script rather than attach to the stale failed node');
-failedScripts[1].fail();
-await assert.rejects(retryEngineLoad, /failed to load/);
-globalThis.document = previousDocumentForEngineRetry;
-globalThis.echarts = previousEngineForRetry;
-resetAnalyticsChartEngineForTests();
-
-let metadataMarkup = '';
-globalThis.document = {};
-const metadataContainer = {
-  set innerHTML(value) { metadataMarkup = value; },
-  get firstElementChild() { return {}; },
-  getAttribute() { return null; },
-  setAttribute() {},
-  querySelector(selector) {
-    if (selector.includes('toggle')) return { addEventListener() {}, setAttribute() {}, textContent: '' };
-    return { classList: { toggle() {}, contains() { return true; } } };
-  }
-};
-renderAnalyticsChart(metadataContainer, [{ label: 'RECONNECT RATE', value: 0.08, unit: 'percent', sampleSize: 12, numerator: 1, denominator: 12 }], { mode: 'bar', title: 'Reliability', unit: 'matches' });
-assert.match(metadataMarkup, /<th scope="col">Unit<\/th>/);
-assert.match(metadataMarkup, /<th scope="col">Sample<\/th>/);
-assert.match(metadataMarkup, /<th scope="col">Numerator<\/th>/);
-assert.match(metadataMarkup, /<th scope="col">Denominator<\/th>/);
-assert.match(metadataMarkup, /<td>percent<\/td><td>12<\/td><td>1<\/td><td>12<\/td>/);
-assert.match(metadataMarkup, /POINTS 1/);
-assert.equal(metadataMarkup.includes('SAMPLE 1'), false);
-delete globalThis.document;
-
-console.log('analytics chart adapter: ECharts SVG mappings, tokens, fallback boundary, and disposal pass');

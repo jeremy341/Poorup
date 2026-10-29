@@ -1,0 +1,186 @@
+/* Persistent exchange workspace. Quote history stays beside every order mode. */
+#market-modal .market-desk-card {
+  width: min(1640px, calc(100vw - 48px));
+  max-width: 1640px;
+  max-height: calc(100dvh - 32px);
+}
+#market-modal .market-desk-body { padding: 20px; overflow-y: auto; }
+#market-modal .market-desk-head { margin: -20px -20px 0; padding: 16px 20px; }
+#market-modal .market-desk-head h2 { margin: 0; font-size: 18px; }
+#market-modal .market-desk-head p { margin-top: 7px; }
+#market-modal .market-desk-summary { min-height: 40px; padding-inline: 0; }
+#market-modal .market-workspace-toolbar { display: none; }
+#market-modal .market-desk-card[data-market-view] .market-desk-layout {
+  grid-template-columns: minmax(0, 1fr) 350px;
+  align-items: stretch;
+  height: min(700px, calc(100dvh - 238px));
+  min-height: 360px;
+  gap: 24px;
+  margin-top: 16px;
+}
+#market-modal .market-desk-center {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(190px, 1fr);
+  height: 100%;
+  min-height: 0;
+  gap: 16px 22px;
+}
+#market-modal .market-sector-list {
+  grid-column: 1;
+  grid-row: 1 / 4;
+  gap: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 12px;
+  scrollbar-width: thin;
+}
+#market-modal .market-sector-button { min-height: 48px; padding: 9px 8px; gap: 8px; line-height: 1.5; }
+#market-modal .market-sector-button.is-selected { box-shadow: none; background: var(--surface-panel-raised); }
+#market-modal .market-sector-price { flex-shrink: 0; color: var(--gold-100); font-family: var(--font-numeric); font-variant-numeric: tabular-nums; }
+#market-modal .market-selected-quote {
+  grid-column: 2;
+  grid-row: 1;
+  padding: 2px 0 14px;
+  min-height: 90px;
+  border: 0;
+  border-bottom: 1px solid var(--line-subtle);
+  background: transparent;
+}
+#market-modal .market-selected-quote h3 { margin: 0 0 10px; font-size: 14px; line-height: 1.5; }
+#market-modal .market-current-price-value { font-size: 32px; }
+#market-modal .market-current-price { min-width: 150px; }
+#market-modal .market-position-strip {
+  grid-column: 2;
+  grid-row: 2;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0 0 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line-subtle);
+}
+#market-modal .market-position-strip > div { display: grid; gap: 7px; padding: 0; border: 0; background: transparent; }
+#market-modal .market-position-strip strong { font-size: 12px; }
+#market-modal .market-desk-card[data-market-view] .market-desk-center > .market-position-strip { display: grid; }
+/* Undo the trade-view rules that hide the graph. */
+#market-modal .market-desk-card[data-market-view] .market-desk-center > .market-history {
+  display: flex;
+  flex-direction: column;
+  grid-column: 2;
+  grid-row: 3;
+  min-height: 0;
+  gap: 8px;
+}
+#market-modal .market-history-head { flex-shrink: 0; gap: 12px; align-items: center; }
+#market-modal .market-history-head h3 { line-height: 1.6; }
+#market-modal .market-history-range { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 142px; }
+#market-modal .market-history-range .field { min-height: 42px; }
+#market-modal .market-history-range-note { display: block; flex-shrink: 0; }
+#market-modal .market-quote-chart {
+  flex: 1 1 0;
+  height: auto;
+  min-height: 150px;
+  border: 1px solid var(--line-subtle);
+  background: var(--surface-panel-deep);
+}
+#market-modal .market-desk-card[data-market-view] .market-trade-ticket {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 16px;
+  border: 0;
+  border-left: 1px solid var(--line-subtle);
+  background: var(--surface-panel-deep);
+}
+#market-modal .market-trade-ticket > * { flex-shrink: 0; }
+#market-modal .market-ticket-head { padding-bottom: 12px; }
+#market-modal .market-ticket-head > span { padding: 0; border: 0; font-size: 11px; }
+#market-modal .market-ticket-instrument { font-size: 11px; line-height: 1.6; }
+#market-modal .market-order-fields { grid-template-columns: minmax(0, 1.2fr) minmax(80px, .8fr); }
+#market-modal .market-order-side > div { padding: 0; gap: 0; }
+#market-modal .market-order-side-button { min-height: 46px; box-shadow: none; }
+#market-modal .market-order-side-button.is-active { box-shadow: none; }
+#market-modal .market-order-fields .field { min-height: 46px; font-size: 16px; }
+#market-modal .market-order-breakdown { min-height: 0; padding: 0; border: 0; background: transparent; gap: 12px; font-size: 11px; }
+#market-modal .market-order-breakdown [data-market-total] { padding-top: 14px; font-size: 14px; }
+#market-modal .market-order-submit {
+  position: static;
+  flex-shrink: 0;
+  min-height: 52px;
+  margin-top: auto;
+  box-shadow: none;
+}
+#market-modal .market-order-submit[data-market-side="sell"] { background: var(--red-action); border-color: var(--red-bright); }
+#market-modal .market-advanced-settings { padding: 0; }
+#market-modal .market-advanced-settings > summary { min-height: 44px; padding: 4px 0; line-height: 1.6; cursor: pointer; }
+#market-modal .market-desk-actions { margin-top: 14px; gap: 8px; }
+#market-modal .market-desk-actions button { min-height: 44px; }
+#market-modal .market-desk-option-fields .field,
+#market-modal .market-desk-tools .field { min-height: 44px; font-size: 16px; }
+#market-modal .economy-note { margin: 0; line-height: 1.6; }
+#market-modal .market-desk-card[data-market-view] .market-personal-ledger-disclosure { display: block; margin-top: 14px; }
+#market-modal :is(.market-desk-body, .market-trade-ticket, .market-sector-list) { scrollbar-color: var(--line-active) var(--surface-panel-deep); }
+#market-modal :is(.market-advanced-settings > summary, .market-quote-chart):focus-visible { outline: 2px solid var(--theme-focus); outline-offset: 2px; }
+
+/* Landscape tablets keep the chart on the left and the order on the right.
+   The native index selector replaces the long desktop rail. */
+@media (min-width: 850px) and (max-width: 1399px) {
+  #market-modal .market-desk-card { width: calc(100vw - 32px); max-width: none; height: calc(100dvh - 32px); }
+  #market-modal .market-desk-body {
+    display: grid;
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    flex: 1 1 auto;
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
+    padding: 14px;
+    overflow: hidden;
+  }
+  #market-modal .market-desk-head { margin: -14px -14px 0; padding: 12px 14px; }
+  #market-modal .market-desk-head p { display: none; }
+  #market-modal .market-desk-head h2 { font-size: 16px; }
+  #market-modal .market-workspace-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-top: 10px; }
+  #market-modal .market-workspace-index { display: grid; gap: 5px; min-width: 0; flex: 1; }
+  #market-modal .market-workspace-index select { width: 100%; min-height: 44px; }
+  #market-modal .market-view-tabs { display: flex; align-self: auto; margin: 0; padding: 0; border: 0; }
+  #market-modal .market-view-tabs button { min-height: 44px; }
+  #market-modal .market-desk-card[data-market-view] .market-desk-layout { grid-template-columns: minmax(0, 1fr) 300px; height: auto; min-height: 0; gap: 16px; margin-top: 12px; }
+  #market-modal .market-desk-center { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); gap: 12px; }
+  #market-modal .market-desk-card[data-market-view] .market-sector-list { display: none; }
+  #market-modal .market-desk-card[data-market-view] .market-desk-center > :is(.market-selected-quote, .market-position-strip, .market-history) { grid-column: 1; }
+  #market-modal .market-selected-quote { min-height: 75px; gap: 10px; padding-bottom: 10px; }
+  #market-modal .market-selected-quote h3 { font-size: 12px; margin-bottom: 6px; }
+  #market-modal .market-current-price { min-width: 130px; }
+  #market-modal .market-current-price-value { font-size: 26px; }
+  #market-modal .market-position-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; padding-bottom: 10px; }
+  #market-modal .market-position-strip > div { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+  #market-modal .market-position-strip strong { font-size: 11px; white-space: nowrap; }
+  #market-modal .market-desk-card[data-market-view] .market-trade-ticket { gap: 12px; padding: 12px; }
+  #market-modal .market-history-head h3 { font-size: 11px; }
+  #market-modal .market-history-range { min-width: 120px; }
+  #market-modal .market-quote-chart { min-height: 120px; }
+  #market-modal .market-personal-ledger-disclosure { margin-top: 8px; }
+}
+
+/* Keep the existing small-screen fallback; phones are not covered here. */
+@media (max-width: 849px) {
+  #market-modal .market-desk-card[data-market-view] .market-desk-layout { grid-template-columns: minmax(0, 1fr); height: auto; }
+  #market-modal .market-desk-center { height: auto; }
+  #market-modal .market-desk-card[data-market-view] .market-trade-ticket { height: auto; max-height: none; }
+}
+
+/* Casino: preserve the composition and result; give the spin action room. */
+#casino-modal .casino-choice { min-height: 60px; }
+#casino-modal .casino-choice,
+#casino-modal .casino-choice:has(input:checked) { border: 1px solid var(--line-subtle); box-shadow: none; outline: none; }
+#casino-modal .casino-choice:has(input:checked) { background: var(--surface-panel-raised); }
+#casino-modal .casino-choice:has(input:checked) > .t-label { text-decoration: underline; text-underline-offset: 4px; }
+#casino-modal .casino-choice:has(input:focus-visible) { outline: 2px solid var(--theme-focus); outline-offset: 2px; }
+#casino-modal .casino-form > button[type="submit"] { min-height: 54px; height: auto; padding-block: 14px; }
+#casino-modal .economy-result[hidden] { display: none; }
+#casino-modal .casino-modal-body > .economy-note { margin-top: 12px; }

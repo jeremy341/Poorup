@@ -1,0 +1,215 @@
+/* Focused page, social-feed, and lobby refinements. */
+
+@media (min-width: 1200px) {
+  #view-rankings .social-page-main,
+  #view-social .social-page-main {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* The home header already uses this large-desktop scale (styles.css, min-width 2200px and min-height 1000px).
+   Match its exact condition so navigation stays stable across pages at every large size, including 4K. */
+@media (min-width: 2200px) and (min-height: 1000px) {
+  :is(#view-profile, #view-rankings, #view-social, #view-rules, #view-about) > .page-header { zoom: 1.25; }
+}
+
+@media (min-width: 641px) and (max-width: 1399px) and (pointer: coarse) {
+  .home-signal-line { width: min(100%, 440px); max-width: 440px; }
+}
+
+/* Keep the ledger to a ten-row reading window while retaining internal scroll. */
+#view-rankings .rankings-stage .ranking-list {
+  flex: 1 1 760px;
+  max-height: 760px;
+  min-height: 0;
+  padding-bottom: 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+#view-rankings .ranking-row {
+  flex: 0 0 auto;
+  height: 76px;
+  min-height: 76px;
+  max-height: 76px;
+}
+
+#view-rankings .ranking-pagination {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line-dark);
+  background: var(--surface-panel-deep);
+}
+
+:is(#view-rankings, #rankings-modal) .ranking-pagination > button {
+  min-width: 104px;
+  min-height: 44px;
+}
+
+#view-rankings .ranking-pagination > span { text-align: center; }
+#view-rankings .ranking-pagination > button:disabled { opacity: .45; cursor: not-allowed; }
+
+/* A native category picker shares the existing ledger state and arrow controls. */
+:is(#view-rankings, #rankings-modal) .ranking-metric-navigation {
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+:is(#view-rankings, #rankings-modal) .ranking-metric-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+:is(#view-rankings, #rankings-modal) .ranking-metric-picker select {
+  width: min(260px, 100%);
+  min-width: 0;
+  min-height: 40px;
+}
+
+/* Keep the full Social composition inside the modal at short landscape sizes. */
+#social-modal .social-page-shell.is-modal { overflow: hidden; gap: 10px; }
+#social-modal .social-hero { grid-template-columns: auto minmax(0, 1fr) auto; }
+#social-modal .social-guest-shell,
+#social-modal .social-guest-content { flex: 1; min-height: 0; gap: 10px; }
+#social-modal .social-network-grid { display: grid; grid-template-columns: minmax(210px, .7fr) minmax(0, 1.65fr) minmax(270px, .9fr); flex: 1; min-height: 0; gap: 10px; }
+#social-modal .social-network-rail,
+#social-modal .social-context { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+#social-modal .social-rail-nav { overflow-y: auto; overscroll-behavior: contain; }
+#social-modal .social-context-roster { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+#social-modal .social-context { grid-column: auto; max-height: none; }
+#social-modal .social-context-foot { flex: none; }
+#social-modal .social-feed { min-width: 0; min-height: 0; }
+#social-modal .social-surface-body { align-content: start; grid-auto-rows: max-content; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+#social-modal .social-search-results:not(:empty) { max-height: 112px; overflow-y: auto; overscroll-behavior: contain; }
+#social-modal .social-request-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+@media (min-width: 641px) and (max-width: 1100px) {
+  #social-modal .social-network-grid { grid-template-columns: minmax(150px, .65fr) minmax(0, 1.6fr) minmax(220px, .9fr); }
+  #social-modal .social-request-row { grid-template-columns: minmax(0, 1fr); align-items: start; }
+}
+#social-modal .social-request-actions { flex-wrap: wrap; gap: 8px; }
+#social-modal .social-request-actions > button { min-height: 44px; min-width: 72px; }
+@media (min-width: 641px) and (max-height: 820px) {
+  #social-modal .social-hero { padding: 10px 14px; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; }
+  #social-modal .social-hero-mark { display: grid; width: 42px; height: 42px; }
+  #social-modal .social-hero-copy p { display: block; margin-top: 5px; }
+  #social-modal .social-hero-stats { grid-column: auto; grid-template-columns: repeat(3, minmax(64px, 1fr)); }
+  #social-modal .social-hero-stats > div { min-height: 48px; }
+  #social-modal .social-search-band { padding: 8px 12px; }
+  #social-modal .social-feed-head, #social-modal .social-context-head, #social-modal .social-rail-head { padding: 10px; }
+  #social-modal .social-context-foot { padding: 10px; }
+}
+
+@media (max-width: 640px) {
+  :is(#view-rankings, #rankings-modal) .ranking-metric-navigation { flex-wrap: wrap; }
+  :is(#view-rankings, #rankings-modal) .ranking-metric-picker { width: 100%; }
+}
+
+/* Social feeds keep a bounded, readable list inside the active-feed panel. */
+#view-social .social-network-grid {
+  min-width: 0;
+}
+
+#view-social .social-surface-body {
+  align-content: start;
+  grid-auto-rows: max-content;
+  width: 100%;
+  max-width: 1200px;
+  max-height: 760px;
+  min-width: 0;
+  padding-bottom: 22px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+#view-social .social-player-row,
+#view-social .social-request-row,
+#view-social .social-invite-row,
+#view-social .social-notification-row {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+#view-social .social-player-row,
+#view-social .social-notification-row { min-height: 64px; }
+
+#view-social .social-request-row,
+#view-social .social-invite-row {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+}
+
+#view-social .social-request-row > .social-player-row {
+  min-width: 0;
+}
+
+#view-social .social-invite-row > div:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#view-social .social-invite-row > div:first-child > * {
+  overflow-wrap: anywhere;
+}
+
+#view-social .social-request-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+#view-social .social-request-actions > button {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 92px;
+  min-height: 40px;
+  max-height: 44px;
+  align-self: center;
+}
+
+#view-social .social-request-actions > span {
+  margin-right: 4px;
+}
+
+#view-social .social-notification-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+#view-social .social-notification-row > button {
+  min-width: 72px;
+  min-height: 40px;
+}
+
+@media (max-height: 760px) and (min-width: 641px) {
+  #view-rankings .rankings-stage .ranking-list,
+  #view-social .social-surface-body {
+    max-height: 62vh;
+  }
+}
+
+@media (max-width: 640px) {
+  #view-social .social-request-actions > button {
+    min-width: 0;
+    flex: 1 1 110px;
+  }
+}
+
+/* Rankings, Social and Rules: micro labels sit at the 11px floor, not the 9px base. */
+#view-rankings .t-micro, #view-social .t-micro, #view-rules .t-micro { font-size: 11px; }
+
+/* The 11px micro floor would make the social search label taller, so its line box is pinned to keep the 18px label row aligned with the 18px submit margin. */
+.social-search-label > .t-micro:first-child { line-height: 13px; }

@@ -6,7 +6,7 @@ globalThis.document = { querySelector: () => null, querySelectorAll: () => [] };
 globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 globalThis.sessionStorage = { getItem: () => null, setItem: () => {} };
 
-const { applyServerState, isStartedTransition, serverPlayerView, syncActionLockFromSnapshot, syncRoom } = await import("./clientStateSync.js");
+const { applyServerState, isStartedTransition, markContractOfferAnnounced, serverPlayerView, snoozeAuctionSurface, syncActionLockFromSnapshot, syncRoom } = await import("./clientStateSync.js");
 const { state } = await import("./clientState.js");
 
 assert.equal(isStartedTransition({ started: true, roundNumber: 1 }, { gameStarted: false, phase: "lobby" }), true);
@@ -28,6 +28,10 @@ const difficultyOnlyBotView = serverPlayerView({ id: "bot-2", isBot: true, botBr
 assert.equal(difficultyOnlyBotView.botBrain, "no-ai");
 assert.equal(difficultyOnlyBotView.botDifficulty, "expert");
 assert.equal("personality" in difficultyOnlyBotView, false);
+assert.equal(serverPlayerView({ id: "final-seat", finalNetWorth: 2450 }).finalNetWorth, 2450,
+  "the final result score survives the server-to-client player projection");
+assert.equal(serverPlayerView({ id: "live-seat", finalNetWorth: null }).finalNetWorth, null,
+  "in-progress snapshots do not invent a final score");
 
 syncRoom({ voteKick: {
   voteId: "vote-1",
@@ -53,7 +57,11 @@ assert.deepEqual(state.voteKick, {
   noCount: 0,
   requiredYes: 2,
   status: "open",
+  summary: "",
 });
+syncRoom({ voteKick: { voteId: "vote-2", targetPlayerId: "seat-target", status: "closed", summary: "Juno left; vote closed." } });
+assert.equal(state.voteKick?.status, "closed", "a closed vote is kept, not dropped as unknown");
+assert.equal(state.voteKick.summary, "Juno left; vote closed.");
 syncRoom({ voteKick: null });
 assert.equal(state.voteKick, null);
 
@@ -224,9 +232,117 @@ assert.deepEqual(diceRollTotals, [12, 9], "a new sequence announces once and a r
 assert.equal(state.debtRescueDismissed, false, "settlement clears the previous debt dismissal");
 assert.equal(retireLabel.textContent, "RETIRE");
 
+// The client auction view is truthful about being live, so the close
+// confirmation and the beforeunload guard (which read `.active`) work.
+const liveAuction = (startedAt, endsAt) => ({
+  ...auctionSnapshot,
+  game: { ...auctionSnapshot.game, auction: { ...auctionSnapshot.game.auction, startedAt, endsAt } },
+});
+applyServerState(liveAuction(1000, Date.now() + 5000), host);
+assert.equal(state.auction.active, true, "a snapshot auction is marked active on the client view");
+assert.equal(typeof state.auction.id, "string", "the client auction view carries a stable id");
+applyServerState({ ...auctionSnapshot, game: { ...auctionSnapshot.game, auction: { ...auctionSnapshot.game.auction, active: false } } }, host);
+assert.equal(state.auction.active, false, "a finished auction is not reported as live");
+
+// The dismissal snooze is keyed to the auction id, not a timer.
+applyServerState(liveAuction(1000, Date.now() + 5000), host);
+snoozeAuctionSurface();
+const opensAtSnooze = auctionSurfaceOpens;
+const realNow = Date.now;
+Date.now = () => realNow() + 20_000; // bidding keeps going well past the 8 s window
+applyServerState(liveAuction(1000, Date.now() + 5000), host);
+assert.equal(auctionSurfaceOpens, opensAtSnooze, "a dismissed auction is not reopened (no focus steal) while it is still the same auction");
+applyServerState(liveAuction(2000, Date.now() + 5000), host);
+assert.equal(auctionSurfaceOpens, opensAtSnooze + 1, "a new auction on the same tile breaks through the snooze");
+Date.now = realNow;
+
+// An offer created by a bot sends no socket event, so the snapshot must
+// raise one polite notice (and only one) for a contract waiting on the local seat.
+{
+  const contractNotices = [];
+  const noticeHost = { ...host, noticeContractOffer: (offer, name) => contractNotices.push({ id: offer.id, name }) };
+  const contractGame = pending => ({
+    ...landingSnapshot.game,
+    pendingPurchaseOffer: null,
+    turnOrder: ["server-player", "bot-9"],
+    players: [
+      { id: "server-player", clientId: "local-client", nickname: "LOCAL", color: "#cfa75f", position: 12 },
+      { id: "bot-9", nickname: "BOTTY", isBot: true, color: "#8aa", position: 3 },
+    ],
+    playerContracts: { pending, active: [] },
+  });
+  const offer = { id: "contract-1", fromPlayerId: "bot-9", toPlayerId: "server-player", counterDepth: 0, kind: "loan" };
+  const contractSnapshot = pending => ({ room: { ...landingSnapshot.room, roomCode: "CTR1" }, game: contractGame(pending) });
+  applyServerState(contractSnapshot(null), noticeHost);
+  applyServerState(contractSnapshot(offer), noticeHost);
+  applyServerState(contractSnapshot(offer), noticeHost);
+  assert.deepEqual(contractNotices, [{ id: "contract-1", name: "BOTTY" }], "one notice per incoming offer");
+  applyServerState(contractSnapshot({ ...offer, counterDepth: 1 }), noticeHost);
+  assert.equal(contractNotices.length, 1, "an offer we sent back is not an incoming notice");
+  applyServerState(contractSnapshot({ ...offer, counterDepth: 2 }), noticeHost);
+  assert.equal(contractNotices.length, 2, "a counter that returns to us is announced again");
+  markContractOfferAnnounced({ ...offer, id: "contract-2", counterDepth: 0 });
+  applyServerState(contractSnapshot({ ...offer, id: "contract-2" }), noticeHost);
+  assert.equal(contractNotices.length, 2, "an offer already announced by the socket event stays quiet");
+}
+
 console.log("client state sync and landing-prompt tests: passed");
 const syncSource = readFileSync(new URL("./clientStateSync.js", import.meta.url), "utf8");
 assert.doesNotMatch(syncSource, /state\.turnDeadline\s*=/);
 assert.doesNotMatch(syncSource, /maybeStartCountdown|startTurnCountdown/);
 
+const projectedTrade = { enabled: true, reason: null };
+applyServerState({
+  room: { ...landingSnapshot.room, roomCode: "SALE1" },
+  game: {
+    ...landingSnapshot.game,
+    players: [{ ...landingSnapshot.game.players[0], position: 0 }],
+    tiles: [{ index: 1, name: "BOARDWALK", type: "property", ownerId: "server-player", price: 60, houseCount: 0, mortgaged: false, propertyActions: { tradeDeed: projectedTrade } }],
+  },
+}, host);
+assert.deepEqual(state.serverTiles[0].propertyActions.tradeDeed, projectedTrade, "viewer-scoped trade eligibility survives the client snapshot sync unchanged");
+const { tradeDeedActionHTML } = await import("./clientDeedDetailUi.js");
+assert.match(tradeDeedActionHTML({ mine: true, action: state.serverTiles[0].propertyActions.tradeDeed }), />SELL DEED</,
+  "deed manager renders a trade action from the synchronized authoritative projection");
+
 console.log("client state sync, rematch transition, and landing-prompt tests: passed");
+
+// Cached or older server data cannot reintroduce the retired supply settings.
+const legacySupplySnapshot = {
+  room: {
+    ...landingSnapshot.room,
+    settings: { houseLimit: 1, hotelLimit: 0, startingCash: 2500 },
+    ruleset: {
+      boardVariant: 'standard-40',
+      effectiveSettings: { houseLimit: 2, hotelLimit: 1, startingCash: 2500 },
+      overrides: [{ key: 'houseLimit', value: 2 }, { key: 'hotelLimit', value: 1 }, { key: 'startingCash', value: 2500 }],
+    },
+  },
+  game: landingSnapshot.game,
+};
+state.settings.houseLimit = 1;
+state.settings.hotelLimit = 0;
+applyServerState(legacySupplySnapshot, host);
+assert.equal(Object.hasOwn(state.settings, 'houseLimit'), false);
+assert.equal(Object.hasOwn(state.settings, 'hotelLimit'), false);
+assert.equal(state.settings.startingCash, 2500);
+assert.deepEqual(state.settings.rulesetOverrides, [{ key: 'startingCash', value: 2500 }]);
+assert.equal(Object.hasOwn(state.ruleset.effectiveSettings, 'houseLimit'), false);
+assert.deepEqual(state.ruleset.overrides, [{ key: 'startingCash', value: 2500 }]);
+assert.equal(legacySupplySnapshot.room.ruleset.overrides.length, 3, 'normalization does not mutate the incoming record');
+legacySupplySnapshot.room.ruleset.overrides = { houseLimit: 0, hotelLimit: 'unlimited', evenBuild: false };
+legacySupplySnapshot.room.ruleset.effectiveSettings.evenBuild = false;
+applyServerState(legacySupplySnapshot, host);
+assert.deepEqual(state.ruleset.overrides, [{ key: 'evenBuild', value: false }]);
+assert.deepEqual(state.settings.rulesetOverrides, [{ key: 'evenBuild', value: false }]);
+assert.equal(state.settings.evenBuild, false);
+assert.equal(Object.hasOwn(legacySupplySnapshot.room.ruleset.overrides, 'houseLimit'), true);
+
+applyServerState({
+  room: { ...landingSnapshot.room, settings: { rulesProfile: "advanced", playerFinance: true, casino: true }, ruleset: { effectiveSettings: { rulesProfile: "standard", playerFinance: false, casino: false } } },
+  game: landingSnapshot.game,
+}, host);
+assert.equal(state.settings.rulesProfile, "standard", "server effective profile overrides the configured profile");
+assert.equal(state.settings.playerFinance, false, "server effective finance flag wins over an optimistic/configured flag");
+assert.equal(state.settings.casino, false);
+console.log("PASS effective rules profile and module settings own the client snapshot");

@@ -1,42 +1,35 @@
-// Seats, tables, and the table registry. gameLogic.js imports the classes
-// from here and re-exports RoomManager/Room so every existing consumer
-// (server.js and the room suites) keeps importing from './gameLogic.js'.
-// GameState is imported circularly and only ever used at call time inside
-// the Room constructor, which is safe for ES module live bindings.
+// Seats, tables and the table registry. gameLogic.js imports the classes from here and re-exports RoomManager and Room, so existing
+// consumers keep importing from './gameLogic.js'. GameState is imported circularly and only used at call time inside the Room constructor,
+// which is safe for ES module live bindings.
 import crypto from 'crypto';
 import { randomInt } from './random.js';
 import { START_TILE_INDEX } from './gameData.js';
 import { tilesForVariant } from './boardRegistry.js';
 import {
   DEFAULT_ROOM_SETTINGS,
+  isRetiredRoomSettingKey,
+  isPlainOverrideValue,
   LEGACY_SCALED_SETTINGS,
   ROOM_FLAG_TRUE_VALUES,
   ROOM_SETTING_NORMALIZERS,
-  SETTING_REJECTED
+  SETTING_REJECTED,
+  stripRetiredRoomSettings
 } from './roomSettings.js';
 import { AVATAR_GRID_ERROR, isValidAvatarGrid, resolveFreeAppearanceColor } from './appearanceApi.js';
+import { cleanPlayerName, LOBBY_BOT_NAMES, nicknameRejection } from './nicknamePolicy.js';
 import { GameState } from './gameLogic.js';
+import { outstandingDebtFor, settleQueuedDebtsOf } from './bankruptcyLogic.js';
 import {
   boardVariantMeta,
+  KNOWN_OVERRIDE_KEYS,
+  normalizeOverrides,
   OPTIONAL_SYSTEM_KEYS,
   resolveRuleset,
-  safeBoardVariant,
-  safePreset
+  safeBoardVariant
 } from './rulesetRegistry.js';
 
-const RULESET_META_KEYS = ['rulesetPreset', 'rulesetBase', 'rulesetOverrides', 'boardVariant', 'marketComplexity'];
-const LOBBY_BOT_NAMES = [
-  'Dice Goblin',
-  'Mossy Roll',
-  'Penny Arcade',
-  'Lady Luck',
-  'Coin Flip',
-  'Bailiff Bob',
-  'Rent Reaper',
-  'Tax Goblin',
-  'Vault Dweller',
-  'Chance Sprite'
-];
+// Mirrors the 120 s reconnect grace in socketRuntime.js.
+const LOBBY_ABSENT_SEAT_MS = 120_000;
 const SEAT_INACTIVE_ERROR = 'That room seat is no longer active.';
 
 function createRoomCode() {
@@ -49,7 +42,7 @@ function createRoomCode() {
 }
 
 function safeNickname(nickname) {
-  const safe = typeof nickname === 'string' ? nickname.trim().slice(0, 24) : '';
+  const safe = cleanPlayerName(nickname, 24);
   return safe || 'Player';
 }
 
@@ -63,6 +56,29 @@ function safeSeatColor(color) {
   return color;
 }
 
+function identityConflictInRoom(room, identity) {
+  for (const player of room.game.players) {
+    const conflict = identityConflictForPlayer(player, identity);
+    if (conflict) return conflict;
+  }
+  return null;
+}
+
+// A client match on a live seat already bound to this socket is the same tab, not a conflict; the account check is then skipped.
+function identityConflictForPlayer(player, { clientId, accountId, socketId }) {
+  if (clientId && player.clientId === clientId) {
+    if (!player.disconnected && socketId && player.socketId === socketId) return null;
+    return player.disconnected
+      ? 'That seat is still held by another room. Restore it or wait for it to expire.'
+      : 'That seat is already in use.';
+  }
+  if (accountId && player.accountId === accountId && !player.bankrupt
+    && (player.disconnected || player.socketId !== socketId)) {
+    return 'This account is already seated in another room.';
+  }
+  return null;
+}
+
 function seatAccountAllowsReconnect(player, accountId) {
   if (!player.accountId) return true;
   return player.accountId === accountId;
@@ -70,21 +86,23 @@ function seatAccountAllowsReconnect(player, accountId) {
 
 function roomSettingChangeRejectionReason(room, key) {
   if (room.game.started) return 'Game settings can only be changed before the game starts.';
+  if (isRetiredRoomSettingKey(key)) return 'Unknown room setting.';
   if (!Object.prototype.hasOwnProperty.call(room.settings, key)) return 'Unknown room setting.';
   if (LEGACY_SCALED_SETTINGS.includes(key)) return 'This setting is controlled by the server.';
   return null;
 }
 
 function normalizedRoomSetting(room, key, value) {
+  // The creation override door accepts only finite primitive rule values.
+  // Reject opaque/missing writes here too instead of turning them into false.
+  if (KNOWN_OVERRIDE_KEYS.has(key) && !isPlainOverrideValue(value)) return SETTING_REJECTED;
   const normalizer = ROOM_SETTING_NORMALIZERS[key];
   return normalizer ? normalizer(value, room) : room.defaultRoomSettingValue(key, value);
 }
 
-// Capacity-driven settings are refused when they would strand an occupied seat.
-// A boardVariant write counts: its board meta owns maxPlayers, and the clamp in
-// applyBoardVariantSetting used to apply that smaller limit silently, leaving a
-// 4-seat board running a 5-seat turn order. Resolve the incoming board's own
-// limit so the downgrade is refused through the same door as maxPlayers.
+// Capacity-driven settings are refused when they would strand an occupied seat. A boardVariant write counts: its board meta owns
+// maxPlayers, and applyBoardVariantSetting would silently apply that smaller limit, leaving a 4-seat board on a 5-seat turn order.
+// Resolve the incoming board's own limit so the downgrade is refused through the same door as maxPlayers.
 function settingCapacityLimit(room, key, value) {
   if (key === 'maxPlayers') return value;
   if (key === 'boardVariant') return boardVariantMeta(safeBoardVariant(value)).maxPlayers;
@@ -94,8 +112,27 @@ function settingCapacityLimit(room, key, value) {
 function capacityAllowsSetting(room, key, value) {
   const limit = settingCapacityLimit(room, key, value);
   if (limit == null) return true;
-  const retainedSeats = room.game.players.filter(player => !player.isBot && !player.bankrupt).length;
+  const retainedSeats = retainedNonBotSeats(room);
   return limit >= retainedSeats;
+}
+
+// Every retained non-bot seat holds capacity, including an eliminated one: resetForNewGame revives bankrupt seats for the rematch,
+// so a table counting only solvent humans grows past maxPlayers when a seat is eliminated and a bot fills the slot already taken.
+function retainedNonBotSeats(room) {
+  return room.game.players.filter(player => !player.isBot).length;
+}
+
+// The seat a returning client holds is the one it dropped most recently. The ordering key is the actual first drop of the current
+// absence: a lobby seat's grace restarts forever, so its deadline cannot tell a fresh drop from a ghost.
+function seatDropTime(player) {
+  const droppedAt = Number(player?.disconnectedAt) || 0;
+  if (droppedAt > 0) return droppedAt;
+  return Number(player?.disconnectDeadline) || 0;
+}
+
+function droppedMoreRecently(candidate, current) {
+  if (!current) return true;
+  return seatDropTime(candidate) > seatDropTime(current);
 }
 
 function syncBotCapacity(room, key, value) {
@@ -114,6 +151,7 @@ function resetPlayerMarketState(player) {
   player.marginPositions = {};
   player.shortPositions = {};
   player.shortDefaultDebt = 0;
+  player.shortOpeningFees = {};
   player.optionPositions = [];
   player.reservedCash = 0;
   player.marketTrades = 0;
@@ -122,16 +160,14 @@ function resetPlayerMarketState(player) {
   player.crisisMarketProfit = false;
 }
 
-// marketComplexity is a preset-owned value, so the write that sets it must
-// record it as an override even on the legacy -> ruleset transition write. The
-// rulesetExplicit gate used to swallow that first write, and the refresh that
-// followed overwrote it with the preset default.
-function settingCapturesOverride(room, key) {
-  return key === 'marketComplexity' || room.rulesetExplicit;
+// Flags written by the host are explicit overrides. Profile and board metadata
+// live alongside the override list and cannot be smuggled through it.
+function settingCapturesOverride(key) {
+  return !['rulesProfile', 'rulesetOverrides', 'boardVariant', 'rulesetRevision'].includes(key);
 }
 
 function captureSettingOverride(room, key, value) {
-  if (!settingCapturesOverride(room, key)) return;
+  if (!settingCapturesOverride(key)) return;
   const overrides = new Map((room.settings.rulesetOverrides || []).map(entry => [entry.key, entry.value]));
   overrides.set(key, value);
   room.settings.rulesetOverrides = [...overrides.entries()].map(([overrideKey, overrideValue]) => ({ key: overrideKey, value: overrideValue }));
@@ -142,37 +178,6 @@ function syncRulesetState(room) {
   Object.assign(room.game.settings, room.settings);
   room.game.boardVariant = room.ruleset.boardVariant;
   room.game.ruleset = room.ruleset;
-}
-
-function applyRulesetSetting(room, key, value) {
-  if (RULESET_META_KEYS.includes(key)) {
-    if (!room.rulesetExplicit) {
-      // A legacy room's preset-owned settings live only in raw settings; the
-      // ruleset flow is about to overwrite them with preset defaults. Carry
-      // every key a preset owns forward as an explicit override, with its raw
-      // value, so the first meta-key write (the transition into the ruleset
-      // model) cannot silently strip what the room was created with. The raw
-      // value goes through normalizeOverrides rather than a Boolean() cast,
-      // because not every preset key is a flag.
-      const overrides = new Map((room.settings.rulesetOverrides || []).map(entry => [entry.key, entry.value]));
-      OPTIONAL_SYSTEM_KEYS.forEach(optionalKey => {
-        if (room.settings[optionalKey] !== undefined) overrides.set(optionalKey, room.settings[optionalKey]);
-      });
-      room.settings.rulesetOverrides = [...overrides.entries()].map(([overrideKey, overrideValue]) => ({ key: overrideKey, value: overrideValue }));
-    }
-    room.rulesetExplicit = true;
-    if (key === 'rulesetBase') room.rulesetBaseExplicit = true;
-    if (key === 'rulesetPreset' && value !== 'custom') {
-      // A named preset owns its base. Clear any Custom-era explicit base so
-      // switching presets cannot retain the old optional-system defaults.
-      room.rulesetBaseExplicit = false;
-      room.settings.rulesetBase = value === 'after-hours' ? 'after-hours' : 'classic';
-      room.settings.rulesetOverrides = [];
-    }
-    syncRulesetState(room);
-    return;
-  }
-  if (room.rulesetExplicit) syncRulesetState(room);
 }
 
 function applyBoardVariantSetting(room) {
@@ -188,18 +193,22 @@ function applyBoardVariantSetting(room) {
   }
 }
 
-const RULESET_INPUT_KEYS = ['rulesetPreset', 'rulesetBase', 'rulesetOverrides', 'boardVariant', 'marketComplexity'];
+const RULESET_INPUT_KEYS = ['rulesetOverrides', 'boardVariant', 'marketComplexity', 'rulesProfile', 'playerFinance'];
 
 function roomSettingsSeed(rulesetInput) {
   const seed = { ...DEFAULT_ROOM_SETTINGS };
   RULESET_INPUT_KEYS.forEach(key => {
     if (rulesetInput[key] !== undefined) seed[key] = rulesetInput[key];
   });
+  if (seed.rulesProfile === 'advanced' && rulesetInput.playerFinance === undefined) seed.playerFinance = true;
   return seed;
 }
 
-function hasExplicitRulesetInput(rulesetInput) {
-  return RULESET_INPUT_KEYS.some(key => rulesetInput[key] !== undefined);
+// Overrides arrive as a list of { key, value } or as a plain { key: value } map.
+function overrideEntries(overrides) {
+  if (Array.isArray(overrides)) return overrides.map(entry => ({ ...entry }));
+  if (overrides && typeof overrides === 'object') return Object.entries(overrides).map(([key, value]) => ({ key, value }));
+  return [];
 }
 
 function capacityDrivenSetting(key) {
@@ -230,6 +239,8 @@ class Player {
     this.inJail = false;
     this.jailTurns = 0;
     this.jailFreeCards = 0;
+    this.jailFreeOrigins = [];
+    this.items = [];
     this.bankLoan = null;
     this.casinoNet = 0;
     this.casinoLedger = [];
@@ -294,32 +305,58 @@ class Player {
   }
 }
 
+// The host seat belongs to a connected, solvent human: bots never host, and a bankrupt host keeps the seat only while no solvent human
+// is connected. Every seat change that can leave the room hostless calls this, so a lobby or rematch never waits on a seat that cannot start it.
+export function ensureRoomHost(room, excludedPlayerId = null) {
+  const players = room.game.players;
+  const connectedHuman = player => player.id !== excludedPlayerId && !player.isBot && !player.disconnected;
+  const solvent = player => connectedHuman(player) && !player.bankrupt && !player.inDebt;
+  const current = players.find(player => player.id === room.hostId);
+  if (!current || !solvent(current)) {
+    const keptSpectator = current && connectedHuman(current) && current.bankrupt ? current : null;
+    const replacement = players.find(solvent)
+      || keptSpectator
+      || players.find(player => connectedHuman(player) && player.bankrupt);
+    room.hostId = replacement?.id || null;
+  }
+  players.forEach(player => { player.isHost = player.id === room.hostId; });
+  return room.hostId;
+}
+
 class Room {
   constructor(hostPlayer, {
     roomName = 'AFTER HOURS',
     visibility = 'public',
     roomCode = '',
-    rulesetPreset,
-    rulesetBase,
     rulesetOverrides,
     boardVariant,
-    marketComplexity
+    marketComplexity,
+    rulesProfile,
+    playerFinance
   } = {}) {
-    const rulesetInput = { rulesetPreset, rulesetBase, rulesetOverrides, boardVariant, marketComplexity };
+    const rulesetInput = { rulesetOverrides, boardVariant, marketComplexity, rulesProfile, playerFinance };
     this.roomCode = roomCode || createRoomCode();
     this.publicId = 'room_' + crypto.randomUUID();
     this.roomName = roomName;
     this.visibility = visibility;
     this.statsRecorded = false;
+    // True between the end of a match and the start of the next one.
+    this.matchFinished = false;
     this.hostId = hostPlayer.id;
     this.kickedClientIds = new Set();
     this.kickedAccountIds = new Set();
+    // Bot clientIds embed this per-room secret so a guessed room code does not
+    // name a bot seat a client could claim.
+    this.botSeatSecret = crypto.randomBytes(9).toString('hex');
     this.settings = roomSettingsSeed(rulesetInput);
-    this.settings.rulesetOverrides = Array.isArray(this.settings.rulesetOverrides)
-      ? this.settings.rulesetOverrides.map(entry => ({ ...entry }))
-      : [];
-    this.rulesetExplicit = hasExplicitRulesetInput(rulesetInput);
-    this.rulesetBaseExplicit = rulesetBase !== undefined;
+    this.settings.rulesetOverrides = overrideEntries(this.settings.rulesetOverrides);
+    // Remember a finance choice supplied at creation so a later profile
+    // change cannot replace it with that profile's starting default.
+    if (isPlainOverrideValue(playerFinance)
+      && !Object.hasOwn(normalizeOverrides(this.settings.rulesetOverrides), 'playerFinance')) {
+      this.settings.rulesetOverrides.push({ key: 'playerFinance', value: playerFinance });
+    }
+    this.rulesetExplicit = true;
     if (marketComplexity !== undefined && !this.settings.rulesetOverrides.some(entry => entry.key === 'marketComplexity')) {
       this.settings.rulesetOverrides.push({ key: 'marketComplexity', value: marketComplexity });
     }
@@ -328,43 +365,52 @@ class Room {
     this.game.ruleset = this.ruleset;
     this.game.legacyRuleset = !this.rulesetExplicit;
     this.game.boardVariant = this.ruleset.boardVariant;
+    this.game.onSeatEliminated = () => ensureRoomHost(this);
+    // The room owns the vote-kick, so it learns that the match is over here. A finished match is not mutable: the vote-kick start and the
+    // seat removal it decides belong to a running match (a lobby that never played keeps them).
+    this.game.onGameEnded = () => {
+      this.matchFinished = true;
+      this.clearVoteKick();
+    };
     this.game.addPlayer(hostPlayer);
   }
 
   refreshRuleset() {
+    // A trusted pre-removal snapshot may still carry these legacy raw fields.
+    // Remove them before canonical ruleset resolution and before syncing the
+    // restored room state to its GameState.
+    this.rulesetExplicit = true;
+    this.settings = stripRetiredRoomSettings(this.settings);
+    if (this.game?.settings) this.game.settings = stripRetiredRoomSettings(this.game.settings);
+    if (!Object.hasOwn(this.settings, 'rulesProfile')) {
+      // refreshRuleset is also the trusted snapshot restoration seam. Missing
+      // mode metadata with an explicit optional override retains its intent.
+      const optional = new Set([...OPTIONAL_SYSTEM_KEYS, 'playerFinance']);
+      const legacyOptional = overrideEntries(this.settings.rulesetOverrides).some(entry => optional.has(entry.key));
+      this.settings.rulesProfile = legacyOptional ? 'advanced' : 'standard';
+      if (legacyOptional && !Object.hasOwn(this.settings, 'playerFinance')) this.settings.playerFinance = true;
+    }
     const boardVariant = safeBoardVariant(this.settings.boardVariant);
-    const preset = safePreset(this.settings.rulesetPreset);
-    const derivedBase = this.rulesetBaseExplicit
-      ? this.settings.rulesetBase
-      : (preset === 'after-hours' ? 'after-hours' : 'classic');
     const ruleset = resolveRuleset({
-      rulesetPreset: preset,
-      rulesetBase: derivedBase,
       rulesetOverrides: this.settings.rulesetOverrides,
       boardVariant,
       settings: this.settings,
       rulesetRevision: this.settings.rulesetRevision
     });
+    Object.assign(this.settings, ruleset.effectiveSettings);
     this.applyResolvedRulesetSettings(ruleset);
-    // Rooms created by older tests/clients keep their legacy raw settings;
-    // explicit ruleset rooms apply the preset defaults to live legality.
-    if (this.rulesetExplicit) {
-      Object.assign(this.settings, ruleset.effectiveSettings);
-      ['bankLoans', 'casino', 'market', 'globalEvents'].forEach(key => {
-        this.settings[key] = Boolean(ruleset.effectiveSettings[key]);
-      });
-      this.settings.maxPlayers = Math.max(2, Math.min(boardVariantMeta(boardVariant).maxPlayers, Number(this.settings.maxPlayers) || 4));
-      this.settings.bots = Math.min(Math.max(0, Number(this.settings.bots) || 0), this.settings.maxPlayers - 1);
-      this.applyResolvedRulesetSettings(ruleset);
+    if (this.game) {
+      this.game.settings = { ...this.settings };
+      this.game.ruleset = ruleset;
+      this.game.legacyRuleset = false;
     }
     this.ruleset = ruleset;
     this.rulesetDigest = ruleset.digest;
+    if (this.game) this.game.rulesetDigest = ruleset.digest;
     return ruleset;
   }
 
   applyResolvedRulesetSettings(ruleset) {
-    this.settings.rulesetPreset = ruleset.rulesetPreset;
-    this.settings.rulesetBase = ruleset.rulesetBase;
     this.settings.boardVariant = ruleset.boardVariant;
     this.settings.rulesetRevision = ruleset.rulesetRevision;
     this.settings.marketComplexity = ruleset.effectiveSettings.marketComplexity;
@@ -376,6 +422,8 @@ class Room {
       return { success: false, error: 'You cannot rejoin this room after a vote-kick.' };
     }
     const existing = this.game.getPlayerByClient(playerInfo.clientId);
+    // A clientId never reclaims a bot seat: bots have no owner to restore them.
+    if (existing?.isBot) return { success: false, error: 'That seat is already in use.' };
     if (existing) return this.reconnectPlayer(existing, playerInfo);
     return this.seatNewPlayer(playerInfo);
   }
@@ -392,10 +440,8 @@ class Room {
   }
 
   reconnectPlayer(existing, playerInfo) {
-    // A clientId is a bearer key for guest seats, but it must never let a
-    // different signed-in account take over an account-owned seat (or attach
-    // its account to a guest seat). Fast reloads without a token remain
-    // supported because the clientId itself is the session credential.
+    // A clientId is a bearer key for guest seats, but it must never let a different signed-in account take over an account-owned seat
+    // (or attach its account to a guest seat). Fast reloads without a token remain supported, since the clientId is the session credential.
     if (playerInfo.accountId && existing.accountId !== playerInfo.accountId) {
       return { success: false, error: 'That seat is already linked to another account.' };
     }
@@ -408,10 +454,14 @@ class Room {
     existing.socketId = playerInfo.socketId;
     existing.disconnected = false;
     existing.disconnectDeadline = 0;
+    // A connected seat carries no drop time: the reclaim comparator reads it
+    // as the first drop of the current absence (socketRuntime clears it too).
+    existing.disconnectedAt = 0;
     existing.presence = { state: 'active', inactiveSince: null, inactiveUntil: null };
     this.refreshReconnectNickname(existing, playerInfo.nickname);
     this.refreshReconnectAppearance(existing, playerInfo.color, playerInfo.avatarGrid);
     this.refreshReconnectAccount(existing, playerInfo.accountId);
+    ensureRoomHost(this);
     return { success: true, player: existing };
   }
 
@@ -425,15 +475,15 @@ class Room {
   refreshReconnectNickname(player, nickname) {
     if (this.game.started) return;
     if (typeof nickname !== 'string') return;
-    const safeNickname = nickname.trim().slice(0, 24);
-    if (safeNickname) player.nickname = safeNickname;
+    const safeNickname = cleanPlayerName(nickname, 24);
+    // A reconnect keeps the seat's current name when the requested one is now
+    // reserved or held by another seat at this table.
+    if (safeNickname && !nicknameRejection(this.game.players, safeNickname, player)) player.nickname = safeNickname;
   }
 
-  // The reconnect hole was two split updates: an omitted/invalid color
-  // skipped identity resolution, then any grid array applied blindly. The
-  // effective color (incoming when hex, else current) always resolves
-  // against the effective grid (incoming when provided, else current)
-  // before either field is written, matching setPlayerAppearance.
+  // The reconnect hole was two split updates: an omitted or invalid color skipped identity resolution, then any grid applied blindly.
+  // The effective color (incoming when hex, else current) always resolves against the effective grid (incoming when provided, else
+  // current) before either field is written, matching setPlayerAppearance.
   refreshReconnectAppearance(player, color, avatarGrid) {
     const effectiveColor = this.effectiveReconnectColor(player, color);
     const effectiveGrid = this.effectiveReconnectGrid(player, avatarGrid);
@@ -488,25 +538,54 @@ class Room {
     if (playerInfo.accountId && this.game.players.some(player => player.accountId === playerInfo.accountId)) {
       return { success: false, error: 'This account is already seated in this room.' };
     }
-    while (!this.game.canJoin()) {
+    const nicknameError = nicknameRejection(this.game.players, safeNickname(playerInfo.nickname));
+    if (nicknameError) return { success: false, error: nicknameError };
+    if (!this.lobbyHasFreeSeat()) this.reclaimAbsentLobbySeats();
+    while (!this.lobbyHasFreeSeat()) {
       const lastBot = this.game.players.filter(player => player.isBot).at(-1);
       if (!lastBot) break;
       this.game.removePlayerByClient(lastBot.clientId);
     }
-    if (!this.game.canJoin()) {
+    if (!this.lobbyHasFreeSeat()) {
       return { success: false, error: 'Room is full.' };
     }
     const player = new Player(playerInfo);
     player.color = resolveFreeAppearanceColor(this.game.players, player.color, player, player.avatarGrid);
     this.game.addPlayer(player);
+    ensureRoomHost(this);
     this.ensureBots();
     return { success: true, player };
+  }
+
+  // A lobby seat's grace restarts forever (the empty-room GC is its only expiry), so a human who dropped and never came back would hold
+  // capacity for good. Release seats whose first drop is older than one grace window, but only when a newcomer needs the room;
+  // socketRuntime stamps disconnectedAt.
+  reclaimAbsentLobbySeats(now = Date.now()) {
+    const absent = this.game.players.filter(player => !player.isBot && player.disconnected
+      && Number(player.disconnectedAt) > 0 && now - Number(player.disconnectedAt) > LOBBY_ABSENT_SEAT_MS);
+    absent.forEach(player => this.releaseExpiredSeatOrRemove(player));
+    if (absent.length) ensureRoomHost(this);
+    return absent.length;
+  }
+
+  // Before a match every retained seat holds capacity: resetForNewGame revives
+  // eliminated seats for the rematch, so game.canJoin (which skips bankrupt
+  // seats) let a post-game lobby admit a seat the rematch could not hold.
+  lobbyHasFreeSeat() {
+    if (!this.game.canJoin()) return false;
+    return this.game.players.length < Number(this.game.settings.maxPlayers);
   }
 
   // Public browse, disconnect GC, and stale-code reclaim share this single
   // liveness check: bots and ghost seats must not count as humans.
   hasConnectedHumans() {
     return this.game.players.some(player => !player.isBot && !player.disconnected);
+  }
+
+  // A private code stays held while any human seat exists, including one that
+  // is only in its disconnect grace window.
+  hasHumanSeats() {
+    return this.game.players.some(player => !player.isBot);
   }
 
   getPlayerBySocket(socketId) {
@@ -526,34 +605,32 @@ class Room {
       return this.roomSettingResult(key, false, 'Room capacity cannot be lower than the number of active players.');
     }
     const previousValue = this.settings[key];
-    const previousBase = this.settings.rulesetBase;
     const previousOverrides = this.settings.rulesetOverrides;
+    if (key === 'rulesProfile' && nextValue === 'advanced' && this.settings.rulesProfile !== 'advanced'
+      && !this.settings.rulesetOverrides.some(entry => entry.key === 'playerFinance')) this.settings.playerFinance = true;
     this.settings[key] = nextValue;
     this.game.settings[key] = nextValue;
     captureSettingOverride(this, key, nextValue);
-    applyRulesetSetting(this, key, nextValue);
+    syncRulesetState(this);
     if (key === 'boardVariant') applyBoardVariantSetting(this);
     syncBotCapacity(this, key, nextValue);
     this.applyRoomSettingSideEffect(key, nextValue);
     const changed = !Object.is(previousValue, this.settings[key])
-      || previousBase !== this.settings.rulesetBase
       || previousOverrides !== this.settings.rulesetOverrides;
     return this.roomSettingResult(key, changed, null);
   }
 
   roomSettingResult(key, changed, reason) {
     const ruleset = this.ruleset || this.refreshRuleset();
-    const effectiveSettings = this.rulesetExplicit
-      ? { ...ruleset.effectiveSettings }
-      : { ...this.settings };
+    const effectiveSettings = stripRetiredRoomSettings(ruleset.effectiveSettings);
     return {
       changed: Boolean(changed),
       rejected: Boolean(reason),
       reason: reason || null,
       key,
-      value: Object.prototype.hasOwnProperty.call(this.settings, key) ? this.settings[key] : undefined,
-      preset: ruleset.rulesetPreset,
-      base: ruleset.rulesetBase,
+      value: !isRetiredRoomSettingKey(key) && Object.prototype.hasOwnProperty.call(this.settings, key)
+        ? this.settings[key]
+        : undefined,
       effectiveSettings
     };
   }
@@ -596,15 +673,31 @@ class Room {
     this.game.rulesetDigest = this.ruleset.digest;
     this.game.boardVariant = this.ruleset.boardVariant;
     const result = this.game.startGame();
-    if (result?.success) this.statsRecorded = false;
+    if (result?.success) {
+      this.statsRecorded = false;
+      // A new match: the finished one is mutable again.
+      this.matchFinished = false;
+      this.clearVoteKick();
+    }
     return result;
+  }
+
+  // A vote-kick belongs to the match it was opened in. Both the end of a match and the start of the next clear it, so a stale ballot
+  // cannot decide a rematch. The replay cache and cooldowns belong to that match too: a reused request id must not be answered with
+  // the finished match's vote, and a cooldown must not bleed into the next match.
+  clearVoteKick() {
+    this.voteKick = null;
+    this.voteKickSnapshot = null;
+    this.voteKickReplays?.clear?.();
+    this.voteKickCooldowns?.clear?.();
+    this.voteKickTargetCooldowns?.clear?.();
   }
 
   pruneExpiredSeats(now = Date.now()) {
     const expired = this.game.players.filter(player => player.disconnected
       && (Number(player.disconnectDeadline) === 0 || Number(player.disconnectDeadline) <= now));
     expired.forEach(player => this.releaseExpiredSeatOrRemove(player));
-    if (expired.some(player => player.id === this.hostId)) this.replaceHostWithReplacement();
+    ensureRoomHost(this);
     return expired.length;
   }
 
@@ -616,22 +709,12 @@ class Room {
     this.game.removePlayerByClient(player.clientId);
   }
 
-  replaceHostWithReplacement() {
-    const replacement = this.game.players.find(candidate => !candidate.isBot
-      && !candidate.disconnected
-      && !candidate.bankrupt
-      && !candidate.inDebt);
-    this.hostId = replacement?.id || null;
-    this.game.players.forEach(candidate => { candidate.isHost = candidate.id === this.hostId; });
-  }
-
   ensureBots() {
-    // Desired bot count is derived from retained non-bot seats. Counting
-    // existing bots in the available-seat subtraction makes a stable
-    // three-human/one-bot table oscillate by deleting its configured bot on
-    // every reconciliation pass.
-    const retainedNonBotSeats = this.game.players.filter(player => !player.isBot && !player.bankrupt).length;
-    const availableSeats = Math.max(0, Number(this.settings.maxPlayers) - retainedNonBotSeats);
+    // Desired bot count is derived from retained non-bot seats. Counting existing bots in the available-seat subtraction would make a
+    // stable three-human, one-bot table oscillate, deleting its bot on every reconciliation pass. An eliminated seat still counts:
+    // the rematch revives it, so its slot is not free either.
+    const retainedSeats = retainedNonBotSeats(this);
+    const availableSeats = Math.max(0, Number(this.settings.maxPlayers) - retainedSeats);
     const required = Math.max(0, Math.min(availableSeats, Number(this.settings.bots) || 0));
     const existingBots = this.game.players.filter(player => player.isBot);
     if (existingBots.length > required) {
@@ -643,14 +726,14 @@ class Room {
     const colors = ['#286ea1', '#35a653', '#d9a62f'];
     for (let index = botCount; index < required; index += 1) {
       const bot = new Player({
-        clientId: `bot-${this.roomCode}-${index + 1}`,
+        clientId: `bot-${this.roomCode}-${this.botSeatSecret}-${index + 1}`,
         nickname: LOBBY_BOT_NAMES[index % LOBBY_BOT_NAMES.length],
         color: colors[index % colors.length],
         isBot: true
       });
       // Bots resolve through the same color-plus-face identity as humans
       // (bot grids are null generic faces), so a bot never duplicates a
-      // human icon the way the raw 3-color cycle used to.
+      // human icon the way a raw 3-color cycle would.
       bot.color = resolveFreeAppearanceColor(this.game.players, bot.color, bot, bot.avatarGrid);
       this.game.addPlayer(bot);
     }
@@ -661,9 +744,9 @@ class Room {
   }
 
   getRoomSummary(viewerPlayerId = null) {
-    // Legacy clients may still send these fields; the server owns scaling now,
+    // Legacy clients may still send these fields; the server owns scaling,
     // so they never leave the server side of the wire.
-    const publicSettings = { ...this.settings };
+    const publicSettings = stripRetiredRoomSettings(this.settings);
     delete publicSettings.globalEventDuration;
     delete publicSettings.globalEventMax;
     return {
@@ -676,13 +759,12 @@ class Room {
       hostId: this.hostId,
       settings: publicSettings,
       ruleset: {
-        preset: this.ruleset.rulesetPreset,
-        base: this.ruleset.rulesetBase,
-        overrides: this.ruleset.rulesetOverrides.map(entry => ({ ...entry })),
+        overrides: (stripRetiredRoomSettings({ rulesetOverrides: this.ruleset.rulesetOverrides }).rulesetOverrides || [])
+          .map(entry => ({ ...entry })),
         boardVariant: this.ruleset.boardVariant,
         revision: this.ruleset.rulesetRevision,
         digest: this.game.rulesetDigest || this.ruleset.digest,
-        effectiveSettings: this.rulesetExplicit ? { ...this.ruleset.effectiveSettings } : { ...this.settings },
+        effectiveSettings: stripRetiredRoomSettings(this.ruleset.effectiveSettings),
         legacyCompatibility: !this.rulesetExplicit
       },
       board: {
@@ -751,12 +833,14 @@ class Room {
       roomId: this.publicId,
       code: this.visibility === 'private' ? this.roomCode : null,
       name: this.roomName,
-      seats: active.length,
+      // A lobby seat in disconnect grace (or an eliminated seat kept for the
+      // rematch) still holds capacity, so the listing counts it: advertising it
+      // as open sent joiners to a room that refuses them.
+      seats: started ? active.length : this.game.players.length,
       cap: this.settings.maxPlayers,
       bank: `$${Number(this.settings.startingCash).toLocaleString()}`,
       state: started ? 'live' : 'open',
       visibility: this.visibility,
-      rulesetPreset: this.ruleset.rulesetPreset,
       boardVariant: this.ruleset.boardVariant,
       addOns: this.enabledAddOns(),
       note: started ? 'round live' : 'waiting for players'
@@ -764,10 +848,10 @@ class Room {
   }
 
   enabledAddOns() {
-    const settings = this.rulesetExplicit ? (this.ruleset?.effectiveSettings || this.settings) : this.settings;
-    return ['bankLoans', 'casino', 'market', 'globalEvents']
+    const settings = this.ruleset?.effectiveSettings || this.settings;
+    return ['playerFinance', 'bankLoans', 'casino', 'market', 'globalEvents', 'flights', 'bankAccountUpgrades']
       .filter(key => Boolean(settings[key]))
-      .map(key => key === 'globalEvents' ? 'events' : key.replace('bankLoans', 'bank loans'));
+      .map(key => ({ playerFinance: 'player finance', globalEvents: 'events', bankLoans: 'bank loans', bankAccountUpgrades: 'bank accounts' })[key] || key);
   }
 }
 
@@ -776,6 +860,9 @@ class Room {
 // the socket to a player first, stays a hand-written method above.
 const GAME_PASSTHROUGHS = [
   'rollDice',
+  'flyToAirport',
+  'upgradeBankAccount',
+  'setAirportFees',
   'purchaseProperty',
   'declineProperty',
   'placeAuctionBid',
@@ -793,6 +880,8 @@ const GAME_PASSTHROUGHS = [
   'endTurn',
   'payJailFine',
   'useJailFree',
+  'useItem',
+  'sellItem',
   'takeBankLoan',
   'repayBankLoan',
   'placeCasinoBet',
@@ -837,9 +926,9 @@ class RoomManager {
       roomName: hostInfo.roomName,
       visibility: hostInfo.visibility,
       roomCode,
-      rulesetPreset: hostInfo.rulesetPreset,
-      rulesetBase: hostInfo.rulesetBase,
       rulesetOverrides: hostInfo.rulesetOverrides,
+      rulesProfile: hostInfo.rulesProfile,
+      playerFinance: hostInfo.playerFinance,
       boardVariant: hostInfo.boardVariant,
       marketComplexity: hostInfo.marketComplexity
     });
@@ -876,7 +965,7 @@ class RoomManager {
   restoreConnection(clientId, socketId, accountId = null, onAccountSeatReclaimed = null) {
     const safeId = safeClientId(clientId);
     if (!safeId) return null;
-    const room = this.findLiveRoomFor(safeId) || this.findRoomFor(safeId);
+    const room = this.findRestoreRoomFor(safeId, socketId);
     if (!room) return this.restoreAccountSeat(accountId, safeId, socketId, onAccountSeatReclaimed);
     return this.restoreRoomSeat(room, safeId, socketId, accountId);
   }
@@ -902,42 +991,41 @@ class RoomManager {
 
   restoreDisconnectedSeat(player, room, socketId, accountId) {
     if (!seatAccountAllowsReconnect(player, accountId)) return null;
+    if (this.identitySeatElsewhere(room, { accountId, socketId })) return null;
     player.socketId = socketId;
     player.disconnected = false;
     player.disconnectDeadline = 0;
+    player.disconnectedAt = 0;
     player.presence = { state: 'active', inactiveSince: null, inactiveUntil: null };
     this.socketRoom.set(socketId, room);
+    ensureRoomHost(room);
     return room;
   }
 
-  // Tab-restart recovery: a reopened tab has a fresh clientId (sessionStorage
-  // dies with the tab), so clientId matching cannot find the seat. The
-  // account session survives in localStorage, so a disconnected seat owned
-  // by the same account is reclaimed under the new clientId. Connected seats
-  // never match: a live tab keeps its seat and the newcomer is rejected,
-  // preserving one-seat-per-tab.
+  // Tab-restart recovery: a reopened tab has a fresh clientId (sessionStorage dies with the tab), so clientId matching cannot find the seat.
+  // The account session survives in localStorage, so a disconnected seat owned by the same account is reclaimed under the new clientId.
+  // Connected seats never match: a live tab keeps its seat and the newcomer is rejected, preserving one seat per tab.
   restoreAccountSeat(accountId, clientId, socketId, onAccountSeatReclaimed = null) {
     if (!accountId) return null;
     if (!clientId) return null;
     if (this.socketRoom.has(socketId)) return null;
-    if (this.accountSeatIsBlocked(clientId, accountId)) return null;
     if (this.accountHasConnectedSeat(accountId)) return null;
     const seat = this.findDisconnectedAccountSeat(accountId);
     if (!seat) return null;
     const { room, player } = seat;
+    // A kick only blocks the room that issued it, not seats at other tables.
+    if (room.isSeatBlocked(clientId, accountId)) return null;
     const previousClientId = player.clientId;
-    if (typeof onAccountSeatReclaimed === 'function') onAccountSeatReclaimed(previousClientId);
+    if (typeof onAccountSeatReclaimed === 'function') onAccountSeatReclaimed(previousClientId, room);
     player.clientId = clientId;
     player.socketId = socketId;
     player.disconnected = false;
     player.disconnectDeadline = 0;
+    player.disconnectedAt = 0;
     player.presence = { state: 'active', inactiveSince: null, inactiveUntil: null };
     this.socketRoom.set(socketId, room);
+    ensureRoomHost(room);
     return room;
-  }
-
-  accountSeatIsBlocked(clientId, accountId) {
-    return [...this.rooms.values()].some(room => room.isSeatBlocked(clientId, accountId));
   }
 
   accountHasConnectedSeat(accountId) {
@@ -946,11 +1034,17 @@ class RoomManager {
   }
 
   findDisconnectedAccountSeat(accountId) {
+    let best = null;
     for (const room of this.rooms.values()) {
       const player = room.game.players.find(candidate => candidate.accountId === accountId);
-      if (player?.disconnected) return { room, player };
+      if (!player?.disconnected) continue;
+      // The registry order is not the user's history: the account reclaim
+      // must not take the oldest disconnected seat, but the one it dropped
+      // last (the same seat the socket restore path picks).
+      if (!droppedMoreRecently(player, best?.player)) continue;
+      best = { room, player };
     }
-    return null;
+    return best;
   }
 
   findLiveRoomFor(clientId) {
@@ -959,6 +1053,26 @@ class RoomManager {
       if (!player) return false;
       return !player.disconnected;
     });
+  }
+
+  // A clientId can hold seats in two rooms (a started seat in grace plus the lobby it moved to). Restore the room this socket already maps
+  // to, then a live seat, then the seat dropped last. The ordering key is the actual first drop: a lobby seat's grace restarts forever,
+  // so its deadline cannot tell a fresh drop from a ghost.
+  findRestoreRoomFor(clientId, socketId) {
+    const mapped = this.socketRoom.get(socketId);
+    if (mapped && mapped.game.getPlayerByClient(clientId)) return mapped;
+    const live = this.findLiveRoomFor(clientId);
+    if (live) return live;
+    let best = null;
+    let bestPlayer = null;
+    for (const roomItem of this.rooms.values()) {
+      const player = roomItem.game.getPlayerByClient(clientId);
+      if (!player) continue;
+      if (!droppedMoreRecently(player, bestPlayer)) continue;
+      best = roomItem;
+      bestPlayer = player;
+    }
+    return best;
   }
 
   findRoomFor(clientId) {
@@ -977,21 +1091,45 @@ class RoomManager {
     return [...this.rooms.values()].find(roomItem => roomItem.game.getPlayerByClient(clientId)) || null;
   }
 
+  // One seat per identity across the registry: a clientId keys its grace timer and leave/restore lookups, and an account plays one table at a time,
+  // so a second seat under either identity is refused. A live seat held by the joining socket itself may move rooms; the caller detaches it.
+  identitySeatElsewhere(room, { clientId = '', accountId = null, socketId = null } = {}) {
+    for (const other of this.rooms.values()) {
+      if (other === room) continue;
+      const conflict = identityConflictInRoom(other, { clientId, accountId, socketId });
+      if (conflict) return conflict;
+    }
+    return null;
+  }
+
+  // Every live seat bound to a socket, whichever room the socket is mapped to.
+  liveSeatsOnSocket(socketId) {
+    const seats = [];
+    for (const room of this.rooms.values()) {
+      room.game.players.forEach(player => {
+        if (socketId && player.socketId === socketId && !player.disconnected) seats.push({ room, player });
+      });
+    }
+    return seats;
+  }
+
   listPublicRooms() {
     return [...this.rooms.values()]
       .filter(room => room.visibility === 'public' && room.hasConnectedHumans())
       .map(room => room.getDirectorySummary());
   }
 
-  leaveRoomByClient(clientId, socketId) {
-    const room = this.getRoomByClient(clientId);
+  leaveRoomByClient(clientId, socketId, room = this.getRoomByClient(clientId)) {
     if (!room) return null;
     const player = room.game.getPlayerByClient(clientId);
     if (!player) return null;
-    if (socketId) {
+    const released = this.releaseSeat(room.game, player);
+    if (released?.success === false) return released;
+    // Unmap only a socket that is mapped to the room being released. A socket
+    // seated in another room keeps its mapping and its live seat there.
+    if (socketId && this.socketRoom.get(socketId) === room) {
       this.socketRoom.delete(socketId);
     }
-    this.releaseSeat(room.game, player);
     if (room.game.players.length === 0) {
       if (this.roomDestroyer) this.roomDestroyer(room);
       else this.rooms.delete(room.roomCode);
@@ -999,20 +1137,23 @@ class RoomManager {
     return room;
   }
 
-  removeRoomSeat({ clientId, socketId, reason = 'leave', preventRejoin = false } = {}) {
-    const seat = this.roomSeatTarget(clientId, socketId);
+  removeRoomSeat({ clientId, socketId, reason = 'leave', preventRejoin = false, room: targetRoom = null } = {}) {
+    const seat = this.roomSeatTarget(clientId, socketId, targetRoom);
     if (seat.error) return { success: false, error: seat.error };
     const { room, player } = seat;
-    if (preventRejoin) this.blockSeatRejoin(room, player);
     const wasHost = room.hostId === player.id;
-    const releasedRoom = this.leaveRoomByClient(player.clientId, socketId || player.socketId);
+    const releasedRoom = this.leaveRoomByClient(player.clientId, socketId || player.socketId, room);
     if (!releasedRoom) return { success: false, error: SEAT_INACTIVE_ERROR };
-    if (wasHost) releasedRoom.replaceHostWithReplacement();
+    if (releasedRoom.success === false) return releasedRoom;
+    if (preventRejoin) this.blockSeatRejoin(room, player);
+    if (wasHost) ensureRoomHost(releasedRoom);
     return { success: true, room: releasedRoom, player, reason };
   }
 
-  roomSeatTarget(clientId, socketId) {
-    const room = this.getRoomByClient(clientId);
+  // An expiring seat names its own room, so a clientId that also holds a seat
+  // in another room cannot resolve to the other room's seat.
+  roomSeatTarget(clientId, socketId, targetRoom = null) {
+    const room = targetRoom || this.getRoomByClient(clientId);
     const player = room?.game.getPlayerByClient(clientId);
     if (!room || !player) return { error: SEAT_INACTIVE_ERROR };
     if (socketId && !this.seatMatchesSocket(player, socketId)) return { error: SEAT_INACTIVE_ERROR };
@@ -1024,6 +1165,9 @@ class RoomManager {
     return player.socketId === socketId;
   }
 
+  // Blocks the removed seat's clientId and accountId only. A guest who returns
+  // with a fresh clientId is not blocked: the room keeps no client address to
+  // match on.
   blockSeatRejoin(room, player) {
     room.kickedClientIds.add(player.clientId);
     if (player.accountId) room.kickedAccountIds.add(player.accountId);
@@ -1034,36 +1178,40 @@ class RoomManager {
   releaseSeat(game, player) {
     const playerId = player.id;
     const wasCurrentTurn = this.wasCurrentTurnSeat(game, playerId);
-    if (game.started) this.releaseStartedSeatAssets(game, player);
+    if (game.started) {
+      const prepared = this.releaseStartedSeatAssets(game, player);
+      if (prepared?.success === false) return prepared;
+    }
     game.removePlayerByClient(player.clientId);
     if (game.started) this.clearStartedGameSeat(game, player, wasCurrentTurn);
+    return { success: true };
   }
 
   releaseStartedSeatAssets(game, player) {
+    const prepared = game.prepareCollateralForExit?.(player);
+    if (prepared?.success === false) return prepared;
     // A voluntary leave is final. Remove every reference that could otherwise
     // leave orphaned deeds/market holdings or live contracts pointing at a
-    // player no longer present in the table.
+    // player not present in the table.
     const creditor = this.pendingSeatCreditor(game, player);
     this.clearPendingSeatObligations(game, player);
     this.settleSeatExit(game, player, creditor);
+    return { success: true };
   }
 
+  // The creditor the leaving seat's estate settles to: its head claim, or the
+  // first queued claim it owes (see bankruptcyLogic.outstandingDebtFor).
   pendingSeatCreditor(game, player) {
-    const pending = game.pendingPayment;
-    if (pending?.playerId !== player.id) return null;
-    if (!pending.creditorId) return null;
-    return game.getPlayerById(pending.creditorId);
+    return outstandingDebtFor(game, player).creditor;
   }
 
-  // A voluntary leave runs the same settlement ladder as a declared bankruptcy.
-  // The bank-loan line is part of that ladder, not an optional extra: once the
-  // seat is bankrupt advanceBankLoan skips it forever, so an unsettled loan
-  // would stay active/remaining after the player left, keeping the principal
-  // and premium they could no longer pay. Optional-call syntax because the
-  // method arrives with the bankruptcy mixin on GameState.prototype.
+  // A voluntary leave runs the same settlement ladder as a declared bankruptcy. The bank-loan line is part of that ladder: once the seat is
+  // bankrupt, advanceBankLoan skips it forever, so an unsettled loan would stay active after the player left, keeping principal and premium.
+  // Optional-call syntax because the method arrives with the bankruptcy mixin on GameState.prototype.
   settleSeatExit(game, player, creditor) {
     game.markPlayerBankrupt?.(player);
     game.liquidateMarketPositions?.(player);
+    game.liquidateItems?.(player);
     game.settleBankLoanOnBankruptcy?.(player);
     game.sweepCashToCreditor?.(player, creditor);
     game.settleContractsOnBankruptcy?.(player);
@@ -1088,8 +1236,15 @@ class RoomManager {
     this.clearPendingSeatObligations(game, player);
     const survivors = game.connectedNonBankruptPlayers();
     if (survivors.length <= 1) {
-      game.currentPlayerId = survivors[0]?.id || null;
-      game.endGame();
+      // Only a clock pointing at the departed seat (or nowhere) moves; a live seat that still holds it keeps it. The table waits on a seat
+      // in reconnect grace, as nextTurn does, instead of ending without it. The inheriting seat starts a fresh turn: keeping the leaver's
+      // roll state told it "already rolled" and wedged the table (concludeBankruptRound resets the same way).
+      if (!game.getPlayerById(game.currentPlayerId)) {
+        game.resetTurnState();
+        game.hasRolled = false;
+        game.currentPlayerId = survivors[0]?.id || game.waitingSeat()?.id || null;
+      }
+      game.finishIfNoConnectedPlayers(survivors);
       return;
     }
     if (!wasCurrentTurn) return;
@@ -1129,6 +1284,8 @@ class RoomManager {
   beginSeatExitTurn(game, successor) {
     if (successor) {
       if (successor.wrapped) game.advanceRound();
+      // The round limit can end the table inside advanceRound.
+      if (!game.started) return;
       game.resetTurnState();
       game.beginSeatTurn(successor.player);
       return;
@@ -1154,13 +1311,16 @@ class RoomManager {
   }
 
   clearSeatPendingPayment(game, player) {
+    // The seat's own queued claims settle against its estate before the head
+    // is cancelled below: cancelling the head would promote one of them.
+    settleQueuedDebtsOf(game, player, outstandingDebtFor(game, player).creditor);
     game.removeQueuedPaymentsForPlayer?.(player.id);
     if (this.seatIsPaymentDebtor(game, player.id)) {
       this.cancelSeatPayment(game, player);
       return;
     }
     if (this.seatIsPaymentCreditor(game, player.id)) {
-      this.cancelSeatPayment(game, player);
+      this.cancelSeatPayment(game, player, true);
     }
   }
 
@@ -1174,15 +1334,18 @@ class RoomManager {
     return pending.creditorId === playerId;
   }
 
-  // A pending debt cannot settle without its creditor: creditRentTo credits
-  // the creditor seat and trySettlePendingPayment still debits the payer
-  // even when getPlayerById(creditorId) is missing (creditRentTo
-  // early-returns on a missing creditor). Forgiving the debt on
-  // creditor-quit is the minimal coherent rule; bank debts (creditorId
-  // null) never match a quitting seat and are left alone.
-  cancelSeatPayment(game, player) {
+  // A pending debt cannot settle without its creditor: trySettlePendingPayment still debits the payer if the creditor is gone.
+  // Forgiving the debt on creditor-quit is the minimal coherent rule; bank debts (null creditor) never match a quitter. If the debtor is the roller
+  // whose landing created the debt, a forgiven debt must still resolve the roll (as collectPendingPayment does) or the turn wedges.
+  cancelSeatPayment(game, player, forgiven = false) {
+    const pending = game.pendingPayment;
+    const turnOptions = game.pendingPaymentTurnOptions || {};
+    const debtor = pending ? game.getPlayerById(pending.playerId) : null;
+    const resolvesRoll = forgiven && Boolean(debtor) && !debtor.bankrupt
+      && game.hasRolled && debtor.id === game.currentPlayerId;
     game.clearPendingPayment();
     game.feedMessage(`${player.nickname} left the table. A pending payment was cancelled.`);
+    if (resolvesRoll) game.resolveTurnAfterAction(turnOptions);
   }
 
   clearSeatTrade(game, playerId) {

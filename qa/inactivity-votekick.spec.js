@@ -56,7 +56,7 @@ test('presence monitor reports the hidden transition and a clean activity reset'
   expect(JSON.stringify(messages)).not.toContain('SecretKey');
 });
 
-test('countdown ring shows the earliest named deadline and all sidebar clocks', async ({ page }, testInfo) => {
+test('inactive players show a countdown chip on their sidebar row', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {
     document.querySelector('#view-home')?.classList.add('is-hidden');
@@ -64,36 +64,27 @@ test('countdown ring shows the earliest named deadline and all sidebar clocks', 
     document.querySelector('#setup-wrap')?.classList.add('is-hidden');
   });
   const rendered = await page.evaluate(async () => {
-    const { createInactivityUi } = await import('/clientInactivityUi.js');
-    const timerHost = document.querySelector('#inactivity-timer-host');
-    const sidebarHost = document.querySelector('#inactive-player-sidebar');
+    const { createInactivityUi, inactiveBadgeHTML } = await import('/clientInactivityUi.js');
+    const list = document.querySelector('#player-list');
     const now = Date.now();
-    const ui = createInactivityUi({ timerHost, sidebarHost, now: () => now, reducedMotion: () => true });
-    window.__inactivityUi = ui;
-    ui.update([
+    const players = [
       { id: 'earliest', name: 'MARLOW', presence: { state: 'inactive', inactiveSince: now, inactiveUntil: now + 180_000 } },
       { id: 'later', name: 'JUNO', presence: { state: 'inactive', inactiveSince: now, inactiveUntil: now + 240_000 } },
       { id: 'bot', name: 'CPU', isBot: true, presence: { state: 'inactive', inactiveSince: now, inactiveUntil: now + 30_000 } },
-    ], now);
-    const result = {
-      timerName: timerHost.querySelector('.inactivity-timer-name')?.textContent,
-      timerText: timerHost.querySelector('[data-inactivity-time]')?.textContent,
-      sidebar: sidebarHost.textContent,
-      svg: timerHost.querySelector('svg')?.outerHTML,
-      timerRect: timerHost.getBoundingClientRect().toJSON(),
-    };
-    return result;
+    ];
+    list.innerHTML = players.map(p => '<div class="player-row"><span>' + p.name + '</span>' + inactiveBadgeHTML(p, now) + '</div>').join('');
+    const ui = createInactivityUi({ listHost: list, now: () => now });
+    window.__inactivityUi = ui;
+    ui.update(players, now);
+    return [...list.querySelectorAll('.pr-timer')].map(badge => ({
+      player: badge.dataset.timerPlayer,
+      text: badge.textContent,
+      width: badge.getBoundingClientRect().width,
+    }));
   });
-  expect(rendered.timerName).toBe('MARLOW');
-  expect(rendered.timerText).toBe('3:00');
-  expect(rendered.sidebar).toContain('MARLOW');
-  expect(rendered.sidebar).toContain('JUNO');
-  expect(rendered.sidebar).not.toContain('CPU');
-  expect(rendered.svg).toContain('shape-rendering="crispEdges"');
-  expect(rendered.timerRect.width).toBeGreaterThan(0);
-  if (testInfo.project.name === 'desktop-1920x1080') {
-    await page.screenshot({ path: testInfo.outputPath('inactivity-timer-1920.png'), fullPage: false });
-  }
+  expect(rendered.map(badge => badge.player)).toEqual(['earliest', 'later']);
+  expect(rendered.map(badge => badge.text)).toEqual(['3:00', '4:00']);
+  expect(rendered[0].width).toBeGreaterThan(0);
   await page.evaluate(() => window.__inactivityUi.destroy());
 });
 
@@ -120,7 +111,7 @@ test('vote panel discloses settlement and emits the approved room event payloads
     ];
     window.__voteUi.requestStart('seat-two', window.__votePlayers);
   });
-  await expect(page.locator('#room-votekick-host')).toContainText('seat and obligations');
+  await expect(page.locator('#room-votekick-host')).toContainText('assets and debts are settled');
   await page.locator('#room-votekick-host [data-votekick-action="start"]').evaluate(button => button.click());
   await expect.poll(() => page.evaluate(() => window.__voteEvents[0])).toEqual({
     event: 'room-votekick-start',
@@ -141,7 +132,7 @@ test('vote panel discloses settlement and emits the approved room event payloads
   await page.evaluate(() => window.__voteUi.destroy());
 });
 
-test('lobby keeps the Standard 40 copy, unlimited bank controls, and no turn-limit row', async ({ page }) => {
+test('lobby keeps Standard 40 and has no building-supply or turn-limit controls', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(async () => {
     const [{ state }, { renderLobbyRail }] = await Promise.all([
@@ -149,15 +140,15 @@ test('lobby keeps the Standard 40 copy, unlimited bank controls, and no turn-lim
       import('/clientLobbyUi.js'),
     ]);
     state.phase = 'lobby';
-    state.settings = { ...state.settings, boardVariant: 'standard-40', houseLimit: 40, hotelLimit: 16, maxPlayers: 4 };
+    state.settings = { ...state.settings, boardVariant: 'standard-40', maxPlayers: 4 };
     renderLobbyRail();
   });
   await expect(page.locator('#rc-ruleset-preset')).toHaveCount(0);
-  await expect(page.locator('#lobby-settings-body')).toContainText('STANDARD 40');
+  await expect(page.locator('#lobby-settings-body [data-setting="boardVariant"]')).toHaveValue('standard-40');
   await expect(page.locator('#lobby-settings-body')).not.toContainText('Bankruptcy');
   await expect(page.locator('#lobby-settings-body')).not.toContainText('Turn Timer');
-  await expect(page.locator('#lobby-settings-body [data-setting="houseLimit"] option[value="unlimited"]')).toHaveCount(1);
-  await expect(page.locator('#lobby-settings-body [data-setting="hotelLimit"] option[value="unlimited"]')).toHaveCount(1);
+  await expect(page.locator('#lobby-settings-body [data-setting="houseLimit"], #lobby-settings-body [data-setting="hotelLimit"]')).toHaveCount(0);
+  await expect(page.locator('#lobby-settings-body')).not.toContainText(/House Limit|Hotel Limit/);
 });
 
 test('game surface keeps document overflow inside its own rails and drawers', async ({ page }) => {

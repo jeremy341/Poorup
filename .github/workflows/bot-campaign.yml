@@ -11,12 +11,18 @@ concurrency:
 
 jobs:
   full-bot-campaign:
-    name: 1,000 fixed-seed no-stall games
+    # Development is the branch where bot changes land first; main is the
+    # released tree. Both get the same fixed-seed campaign (G12-14).
+    name: 1,000 fixed-seed no-stall games on ${{ matrix.ref }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: [main, development]
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ matrix.ref }}
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -25,4 +31,24 @@ jobs:
       - name: Run full deterministic safety campaign
         env:
           POORUP_BOT_SIMULATION_COUNT: 1000
-        run: npm run test:bot-campaign
+        run: |
+          set -o pipefail
+          npm run test:bot-campaign 2>&1 | tee campaign.log
+      - name: Summarise the campaign
+        if: always()
+        run: |
+          {
+            echo "### Bot campaign on ${{ matrix.ref }}"
+            echo ""
+            echo '```'
+            tail -n 60 campaign.log 2>/dev/null || echo "no campaign output was produced"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish the campaign log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: bot-campaign-${{ matrix.ref }}
+          path: campaign.log
+          if-no-files-found: warn
+          retention-days: 14

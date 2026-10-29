@@ -1,8 +1,7 @@
-/* ============================================================
-   GLOBAL EVENT BANNER: headline status, effect chips, and the
-   voting rail. Dual-state compact/expand HUD inside center-field.
-   ============================================================ */
+// GLOBAL EVENT BANNER: headline status, effect chips, and the
+// voting rail. Dual-state compact/expand HUD inside center-field.
 import { $, esc } from "./clientDom.js";
+import { formatMoney } from "./clientMoney.js";
 import { state } from "./clientState.js";
 import { spriteHTML } from "./clientSprites.js";
 
@@ -121,7 +120,7 @@ function percentEffectText(value) {
 function effectShownValue(key, value) {
   if (typeof value === "boolean") return booleanEffectText(value);
   if (!FIXED_EFFECT_KEYS.includes(key)) return percentEffectText(value);
-  if (CURRENCY_EFFECT_KEYS.includes(key)) return "$" + Number(value).toLocaleString();
+  if (CURRENCY_EFFECT_KEYS.includes(key)) return formatMoney(value);
   return String(value);
 }
 
@@ -342,6 +341,7 @@ export function renderGlobalEvent() {
     clearEventRibbon();
     return;
   }
+  banner.dataset.phase = String(event.phase || "");
   if (observation.announce) showEventRibbon(event, observation.key);
   banner.classList.toggle("is-hidden", Boolean(delayedBannerKey && delayedBannerKey === observation.key));
   bindGlobalEventControls();
@@ -352,4 +352,5 @@ export function renderGlobalEvent() {
   $("#global-event-rounds").textContent = globalEventRoundsText(event);
   renderGlobalEventChoices(event);
   updateCompactState(banner);
+  banner.tabIndex = event.phase === "warning" && banner.scrollHeight > banner.clientHeight ? 0 : -1;
 }

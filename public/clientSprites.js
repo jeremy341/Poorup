@@ -1,6 +1,4 @@
-/* ============================================================
-   PIXEL SPRITE ENGINE (shared by client renderers)
-   ============================================================ */
+// PIXEL SPRITE ENGINE (shared by client renderers)
 function sprite(rows, palette, size = 3) {
   const w = Math.max(...rows.map((r) => r.length));
   const h = rows.length;
@@ -87,9 +85,9 @@ function spriteMarkupFor(el) {
   const fn = SPRITES[name];
   if (!fn) return null;
   if (name === "avatar") {
-    return fn(spriteElementSize(el), el.dataset.color || "#cfa75f", Number(el.dataset.seed || 0));
+    return fn(spriteElementSize(el), spriteColor(el.dataset.color || "#cfa75f"), Number(el.dataset.seed || 0));
   }
-  if (COLOR_SPRITES.has(name)) return fn(spriteElementSize(el), el.dataset.color || "#cfa75f");
+  if (COLOR_SPRITES.has(name)) return fn(spriteElementSize(el), spriteColor(el.dataset.color || "#cfa75f"));
   return fn(spriteElementSize(el));
 }
 
@@ -105,11 +103,18 @@ function hydrateSprites(root = document) {
   root.querySelectorAll("[data-sprite]").forEach(hydrateSprite);
 }
 
+// A colour reaches an SVG attribute, so only a plain six-digit hex passes.
+// Anything else leaves its cells unpainted rather than writing raw text.
+const SPRITE_COLOR_RE = /^#[0-9a-f]{6}$/i;
+function spriteColor(value) {
+  return typeof value === "string" && SPRITE_COLOR_RE.test(value) ? value : null;
+}
+
 function spriteHTML(name, size, color, seed) {
   const fn = SPRITES[name];
   if (!fn) return "";
-  if (name === "avatar") return fn(size, color, seed || 0);
-  if (COLOR_SPRITES.has(name)) return fn(size, color);
+  if (name === "avatar") return fn(size, spriteColor(color), seed || 0);
+  if (COLOR_SPRITES.has(name)) return fn(size, spriteColor(color));
   return fn(size);
 }
 
@@ -124,7 +129,9 @@ function spriteFromGrid(grid, size = 4) {
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const c = grid[y][x];
-      if (c) cells += `<rect x="${x}" y="${y}" width="1" height="1" fill="${c}"/>`;
+      // Legacy numeric cells keep their old output; hex strings pass the allow-list.
+      const fill = typeof c === "number" ? c : spriteColor(c);
+      if (fill) cells += `<rect x="${x}" y="${y}" width="1" height="1" fill="${fill}"/>`;
     }
   }
   return `<svg width="${w * size}" height="${h * size}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges" aria-hidden="true">${cells}</svg>`;

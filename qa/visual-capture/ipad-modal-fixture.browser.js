@@ -18,6 +18,7 @@ const moduleUrls = {
   social: '/clientSocialSurfaces.js',
   log: '/clientLogDrawer.js',
   identity: '/clientAccountIdentity.js',
+  items: '/itemCatalog.js',
 };
 
 async function loadCaptureModules() {
@@ -31,21 +32,36 @@ function seedCaptureState(modules) {
   const other = state.players.find(player => player.serverId !== local.serverId);
   const owned = [1, 5, 12, 28];
   state.phase = 'playing';
+  state.settings.rulesProfile = 'advanced';
+  state.settings.playerFinance = true;
+  state.settings.bankLoans = true;
   state.boardVariant = 'standard-40';
   state.settings.auction = false;
   state.settings.trading = true;
   state.settings.market = true;
   state.settings.casino = true;
   state.settings.bankAccountUpgrades = true;
+  state.settings.itemRewards = true;
+  state.roundNumber = 7;
   state.pendingDebt = null;
   state.pendingBuyTile = 5;
   state.owners = { 1: local.id, 5: local.id, 12: local.id, 28: local.id, 3: other.id, 15: other.id, 25: other.id };
   state.houses = { 1: 2 };
   local.cash = 1450;
   local.bankAccountTier = 2;
-  local.bankAccount = { enabled: true, tier: 2, cashbackCap: 35, nextTier: { name: 'BLACK', cost: 500 } };
+  local.bankAccount = {
+    enabled: true, tier: 2, name: 'PARLOR PREMIUM', rebatePct: 10, cashbackEarned: 35,
+    nextTier: { tier: 3, name: 'PARLOR BLACK', cost: 500, rebatePct: 20, available: true, reason: null },
+    ledger: [{ label: 'MARKET FEE CASHBACK', amount: 12, round: 3 }, { label: 'UPGRADE · PARLOR PREMIUM', amount: -200, round: 2 }],
+  };
   local.bankAccountUpgrade = null;
-  local.items = [{ itemId: 'double-rent-pass', name: 'Double Rent Pass', quantity: 1, description: 'Double rent on one landing.' }];
+  local.items = Object.values(modules.items.ITEM_CATALOG).map((item, index) => ({
+    ...item, id: `visual-item-${index}`, itemId: `visual-item-${index}`, catalogId: item.id,
+    quantity: 1, sellValue: item.bankSellValue, canSell: true,
+    canUse: false, canTrade: false, canExchange: false,
+    ...(item.id === 'parlor-bond' ? { maturesRound: 9, useReason: 'Matures in round 9.' } : {}),
+    ...(item.id === 'prison-key' ? { useReason: 'Use on your turn in prison, before rolling.' } : {}),
+  }));
   state.economy.market = {
     enabled: true, complexity: 'derivatives', round: 7, feeRate: 0.02,
     quotes: { brazil: 92, ghana: 107, thailand: 83, netherlands: 116, switzerland: 124, canada: 98, japan: 111, korea: 103, southafrica: 88, world: 100, bonds: 101 },

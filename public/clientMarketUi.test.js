@@ -6,10 +6,10 @@ const marketUi = fs.readFileSync(new URL('./clientMarketUi.js', import.meta.url)
 const railRender = fs.readFileSync(new URL('./clientRailRender.js', import.meta.url), 'utf8');
 const railEvents = fs.readFileSync(new URL('./clientRailEvents.js', import.meta.url), 'utf8');
 const stateSync = fs.readFileSync(new URL('./clientStateSync.js', import.meta.url), 'utf8');
-const adapter = fs.readFileSync(new URL('./clientAnalyticsChartAdapter.js', import.meta.url), 'utf8');
+const chartMount = fs.readFileSync(new URL('./clientChartMount.js', import.meta.url), 'utf8');
 globalThis.window = { matchMedia: () => ({ matches: false }) };
 const marketUiApi = await import('./clientMarketUi.js');
-const { selectedMarketPoints, marketPreview, personalMarketMarkers, marketQuoteSummary } = marketUiApi;
+const { selectedMarketPoints, marketPreview, personalMarketMarkers, marketQuoteSummary, marketChartMarkers } = marketUiApi;
 const { MARKET_INSTRUMENTS } = await import('../server/marketLogic.js');
 delete globalThis.window;
 
@@ -39,13 +39,35 @@ test('marketSectorLabelsReplaceGeographyAndMatchServerInstrumentNames', () => {
 test('selectedIndexUsesSharedQuotesAndHistory', () => {
   assert.ok(/quoteHistory/.test(marketUi));
   assert.ok(/selectedIndex/.test(marketUi));
-  assert.ok(/createPoorupChartOptions|renderAnalyticsChart/.test(marketUi));
+  assert.ok(/mountChart/.test(marketUi));
   assert.ok(/quotes\?\./.test(marketUi));
   const shared = { quotes: { brazil: 120 }, quoteHistory: [{ round: 0, quotes: { brazil: 100 } }, { round: 1, quotes: { brazil: 120 }, eventId: 'market-shock' }] };
   assert.deepEqual(selectedMarketPoints(shared, 'brazil'), [
     { round: 0, value: 100, eventId: null },
     { round: 1, value: 120, eventId: 'market-shock' },
   ]);
+});
+
+test('missingHistoryQuotesAreGapsRatherThanFabricatedZeroPrices', () => {
+  assert.deepEqual(selectedMarketPoints({ quoteHistory: [
+    { round: 0, quotes: { brazil: 100 } },
+    { round: 1, quotes: { brazil: null } },
+    { round: 2, quotes: { brazil: '' } },
+    { round: 2.5, quotes: { brazil: '   ' } },
+    { round: 3, quotes: { brazil: 0 } },
+  ] }, 'brazil'), [
+    { round: 0, value: 100, eventId: null },
+    { round: 3, value: 0, eventId: null },
+  ]);
+});
+
+test('marketWorkspaceKeepsHistoryAndOrderVisibleTogether', () => {
+  const stylesheet = new URL('./ui-review-market.css', import.meta.url);
+  assert.ok(fs.existsSync(stylesheet), 'persistent market workspace stylesheet exists');
+  const css = fs.readFileSync(stylesheet, 'utf8');
+  assert.match(css, /data-market-view[^}]+\.market-history\s*\{[^}]*display:\s*flex/s);
+  assert.match(css, /data-market-view[^}]+\.market-trade-ticket\s*\{[^}]*display:\s*flex/s);
+  assert.match(css, /\.market-trade-ticket[^}]+overflow-y:\s*auto/s);
 });
 
 test('tabletChartRangeUsesOnlyTheMostRecentRequestedRounds', () => {
@@ -164,11 +186,28 @@ test('derivativesControlsAreUnavailableWithoutServerPolicy', () => {
 });
 
 test('chartHandlesEmptyStateResizeAndClose', () => {
-  assert.ok(/hydrateAnalyticsChart|mountAnalyticsChart/.test(marketUi));
-  assert.ok(/disposeAnalyticsChart/.test(marketUi));
+  assert.ok(/mountChart/.test(marketUi));
+  assert.ok(/disposeChart/.test(marketUi));
   assert.ok(/if \(!container \|\| !points\.length\)/.test(marketUi));
-  assert.ok(/observeChartSize/.test(adapter));
-  assert.ok(/export function disposeAnalyticsChart/.test(adapter));
+  assert.ok(/ResizeObserver/.test(chartMount));
+  assert.ok(/export function disposeChart/.test(chartMount));
+  assert.ok(!/echarts|clientAnalyticsChart(?:Adapter|Theme)/.test(marketUi), 'the market desk no longer depends on ECharts');
+});
+
+test('quoteChartMarkersUseDistinctKindsAndSkipTradesOutsideTheVisibleRange', () => {
+  const points = [{ round: 5, value: 80, eventId: null }, { round: 6, value: 86, eventId: 'tourism-boom' }, { round: 7, value: 92, eventId: null }];
+  const marketState = { personalTrades: [
+    { instrumentId: 'brazil', side: 'buy', roundNumber: 5 },
+    { instrumentId: 'brazil', side: 'sell', roundNumber: 7 },
+    { instrumentId: 'brazil', side: 'buy', roundNumber: 2 },
+    { instrumentId: 'ghana', side: 'buy', roundNumber: 6 },
+  ] };
+  assert.deepEqual(marketChartMarkers(points, marketState, 'brazil'), [
+    { index: 1, kind: 'event', label: 'EVENT · tourism-boom' },
+    { index: 0, kind: 'buy', label: 'YOUR BUY' },
+    { index: 2, kind: 'sell', label: 'YOUR SELL' },
+  ]);
+  assert.deepEqual(marketChartMarkers([], { personalTrades: [] }, 'brazil'), []);
 });
 
 test('marketDeskHasOneEntryAndViewerScopedRefresh', () => {
@@ -176,6 +215,12 @@ test('marketDeskHasOneEntryAndViewerScopedRefresh', () => {
   assert.ok(!/data-market-order/.test(railRender));
   assert.ok(/openMarketDesk/.test(railEvents));
   assert.ok(/const market = incoming\.market/.test(stateSync));
+});
+
+
+test('empty and whitespace current quotes are unavailable', () => {
+  for (const quote of ['', '   ', null, undefined]) assert.equal(marketQuoteSummary({ quotes: { brazil: quote } }, 'brazil').quote, null);
+  assert.equal(marketQuoteSummary({ quotes: { brazil: 0 } }, 'brazil').quote, 0);
 });
 
 if (process.exitCode) process.exit(process.exitCode);

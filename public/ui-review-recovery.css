@@ -1,0 +1,16 @@
+/* Use the existing board bars glyph within the reference icon's square. */
+.dd-icon .pop-prison-mark, .pop-icon .pop-prison-mark, .choice-icon .pop-prison-mark { display: block; flex: 0 0 auto; width: 44px; height: 28px; max-width: 100%; color: var(--red-bright); }
+
+/* Short route lists size the desk; only the list scrolls when space runs out. */
+#flight-modal .flight-card { max-height: calc(100dvh - 40px); }
+#flight-modal .flight-body { min-height: 0; max-height: calc(100dvh - 42px); overflow: hidden; }
+#flight-modal .flight-list { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scroll-padding: 4px; padding: 4px; margin: -4px; }
+#flight-modal .flight-row { min-height: 62px; }
+#flight-modal .flight-go { flex: 0 0 auto; min-height: 56px; }
+
+@media (forced-colors: active) {
+
+
+  .dd-icon .pop-prison-mark, .pop-icon .pop-prison-mark, .choice-icon .pop-prison-mark { color: CanvasText; }
+}
+

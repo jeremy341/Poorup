@@ -1,11 +1,6 @@
-/* ============================================================
-   AUDIO CONTROLS: the global effects/music toggles that appear in
-   every surface (main, game, profile, rankings, social, rules).
-   The per-view buttons proxy to the canonical #sound-toggle-btn and
-   #music-toggle-btn so a single handler owns the state flip; the
-   game-bound playSound chime and syncHomeMusic cross-fade are
-   injected. aria labels and icon paths match the old main.js text.
-   ============================================================ */
+// AUDIO CONTROLS: the global effects and music toggles on every surface (main, game, profile,
+// rankings, social, rules). Per-view buttons proxy to #sound-toggle-btn and #music-toggle-btn, so one
+// handler owns the state flip. playSound and syncHomeMusic are injected. Aria labels and icon paths match main.js.
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { saveSoundPreference, saveMusicPreference } from "./clientSanitize.js";
@@ -18,18 +13,22 @@ function noop() {}
 const SOUND_BUTTONS = [
   "#sound-toggle-btn", "#game-sound-toggle-btn", "#profile-sound-toggle-btn",
   "#rankings-sound-toggle-btn", "#social-sound-toggle-btn", "#rules-sound-toggle-btn",
+  "#about-sound-toggle-btn",
 ];
 const MUSIC_BUTTONS = [
   "#music-toggle-btn", "#game-music-toggle-btn", "#profile-music-toggle-btn",
   "#rankings-music-toggle-btn", "#social-music-toggle-btn", "#rules-music-toggle-btn",
+  "#about-music-toggle-btn",
 ];
 const SOUND_PROXY_BUTTONS = SOUND_BUTTONS.slice(1);
 const MUSIC_PROXY_BUTTONS = MUSIC_BUTTONS.slice(1);
 
+// The accessible name is stable ("Sound effects", "Parlor music"); only aria-pressed
+// carries the state, so a screen reader never hears the name flip together with the pressed state.
 function paintAudioButton(button, pressed, meta) {
   if (!button) return;
   button.setAttribute("aria-pressed", String(pressed));
-  button.setAttribute("aria-label", pressed ? meta.labelOn : meta.labelOff);
+  button.setAttribute("aria-label", meta.name);
   const icon = button.querySelector("img");
   if (icon) icon.src = meta.src;
 }
@@ -37,8 +36,8 @@ function paintAudioButton(button, pressed, meta) {
 export function syncAudioButtons() {
   const soundSrc = state.sound ? "/assets/sound-on.svg" : "/assets/sound-off.svg";
   const musicSrc = state.music ? "/assets/music-on.svg" : "/assets/music-off.svg";
-  const soundMeta = { labelOn: "Turn sound effects off", labelOff: "Turn sound effects on", src: soundSrc };
-  const musicMeta = { labelOn: "Turn parlor music off", labelOff: "Turn parlor music on", src: musicSrc };
+  const soundMeta = { name: "Sound effects", src: soundSrc };
+  const musicMeta = { name: "Parlor music", src: musicSrc };
   SOUND_BUTTONS.map((sel) => $(sel)).forEach((button) => paintAudioButton(button, state.sound, soundMeta));
   MUSIC_BUTTONS.map((sel) => $(sel)).forEach((button) => paintAudioButton(button, state.music, musicMeta));
 }

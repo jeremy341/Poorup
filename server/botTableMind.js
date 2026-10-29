@@ -1,10 +1,6 @@
-// Opponent minds: beliefs, desires, intentions, emotions, and the
-// relationship ledger for one bot seat (deterministic, testable).
-// Theory-of-mind depth is capped at 2 (I model you; I model you modeling
-// me for vetoes) per the literature: decisive without search.
-// Coalition signal uses ONLY existing state (contracts, votes, live
-// offers) so no persistence migration is needed. All helpers degrade on
-// thin stubs. Money math is integer whole-dollars.
+// Opponent minds: beliefs, desires, intentions, emotions and the relationship ledger for one bot seat (deterministic, testable).
+// Theory-of-mind depth is capped at 2 (I model you modeling me, for vetoes), per the literature: decisive without search.
+// The coalition signal uses only existing state (contracts, votes, live offers), so no persistence migration is needed. Money math is whole dollars.
 
 export { summarizePublicActionProfile } from './publicActionHistory.js';
 
@@ -70,7 +66,7 @@ export function desireClass(game, opponent) {
 
 // Emotion readout, derived from facts only (chat is never trusted):
 // desperate (debt + broke), tilting (serial rescues + casino bleed),
-// cooperative (funded me / dealt fairly — from my ledger).
+// cooperative (funded me / dealt fairly, from my ledger).
 export function emotionReadout(game, bot, opponent) {
   if (!opponent) return 'unknown';
   const cash = Math.max(0, Math.floor(number(opponent.cash)));
@@ -138,6 +134,31 @@ export function tickLedger(bot, roundNumber) {
       if (ledger[id] <= 0) delete ledger[id];
     }
   }
+  const cooldowns = bot.tradeCooldowns;
+  if (cooldowns && typeof cooldowns === 'object') {
+    for (const key of Object.keys(cooldowns)) {
+      if (number(cooldowns[key]) <= number(roundNumber)) delete cooldowns[key];
+    }
+  }
+}
+
+// Per-offer cool-off after a decline. The grudge ledger blocks a whole partner and decays after a turn, so an identical offer
+// would come straight back. This key (partner plus the exact deeds on each side, cash ignored) keeps that one offer off the
+// table for several rounds while other deals with the same partner stay open.
+export function tradePairKey(partnerId, giveIndexes, requestIndexes) {
+  const side = list => [...new Set((Array.isArray(list) ? list : []).map(Number).filter(Number.isInteger))]
+    .sort((a, b) => a - b).join(',');
+  return String(partnerId) + '|' + side(giveIndexes) + '|' + side(requestIndexes);
+}
+
+export function coolOffTradePair(bot, key, untilRound) {
+  if (!bot || !key) return;
+  bot.tradeCooldowns = bot.tradeCooldowns || {};
+  bot.tradeCooldowns[key] = Math.max(number(bot.tradeCooldowns[key]), Math.floor(number(untilRound)));
+}
+
+export function tradePairCoolingOff(bot, key, roundNumber) {
+  return number(bot?.tradeCooldowns?.[key]) > number(roundNumber);
 }
 
 export function addGrudge(bot, opponentId, amount = 1) {

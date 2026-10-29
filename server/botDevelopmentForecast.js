@@ -1,27 +1,22 @@
-// Multi-turn development planning for bots (deterministic, testable).
-// The future planner evaluates single candidates; this module answers the
-// longer questions a smart player asks: which set do I develop first, how
-// fast does it pay back, what is the biggest hit coming my way, and what
-// stage is the table in. Pure functions over the provider-safe snapshot
-// shape (board tiles with ownerSeat/rent/houseCount/mortgaged) plus an
-// optional opponents list. Everything degrades to safe defaults on thin
-// snapshots so legacy callers keep working.
-import { PROPERTY_RENT_MULTIPLIERS } from './gameData.js';
-// Flat traffic tiers come from the one canonical table in botTradeValuation so
-// build priority and trade pricing always agree on which groups matter.
-import { trafficPercent } from './botTradeValuation.js';
+// Multi-turn development planning for bots (deterministic, testable). The future planner evaluates single candidates; this answers longer questions:
+// which set to develop first, how fast it pays back, the biggest hit coming, and the table's stage. Pure functions over the provider-safe snapshot;
+// thin snapshots degrade to safe defaults. Flat traffic tiers come from botTradeValuation, so build priority and trade pricing agree.
+import { trafficPercent, groupDevelopmentGain, rentAtLevel as sharedRentAtLevel } from './botTradeValuation.js';
+// The engine's own rent math: the event modifiers and the rent cap change
+// what a seat actually pays, so a forecast that ignores them over-states the
+// hit the reserve has to cover.
+import { calculateRentFromFacts, rentFactsFromSnapshot } from './botRentForecast.js';
 
 function number(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-// Expected rent at a house level (level 0..5, 5 = hotel).
+// Expected rent at a house level (level 0..5, 5 = hotel). The ladder itself
+// is the shared one in botTradeValuation, so the forecast and the trade
+// pricing read the same numbers.
 export function rentAtLevel(tile, level) {
-  const base = Math.max(0, Math.floor(number(tile?.rent)));
-  const clamped = Math.max(0, Math.min(5, Math.floor(number(level))));
-  if (clamped === 0) return base;
-  return Math.floor(base * (PROPERTY_RENT_MULTIPLIERS[clamped] || 1));
+  return sharedRentAtLevel(tile, level);
 }
 
 // Extra rent per full opponent circuit if this tile gains one house,
@@ -59,8 +54,11 @@ export function groupBuildPlan(board, group, houseCostOf) {
   let cost = 0;
   let gain = 0;
   let housesToThree = 0;
+  // Even building adds one house per deed per round, so the slowest deed sets
+  // how many rounds the whole plan takes.
+  let buildRounds = 0;
   for (const tile of tiles) {
-    if (tile?.mortgaged) return null;
+    if (tile?.mortgaged || tile?.constructionBlocked) return null;
     const level = Math.max(0, Math.min(5, Math.floor(number(tile?.houseCount))));
     const need = Math.max(0, 3 - level);
     if (!need) continue;
@@ -68,13 +66,14 @@ export function groupBuildPlan(board, group, houseCostOf) {
     if (!unit) return null;
     cost += unit * need;
     housesToThree += need;
+    buildRounds = Math.max(buildRounds, need);
     for (let step = 0; step < need; step += 1) {
       const delta = Math.max(0, rentAtLevel(tile, level + step + 1) - rentAtLevel(tile, level + step));
       gain += Math.floor(delta * trafficPercent(group) / 100);
     }
   }
   if (!housesToThree || gain <= 0) return null;
-  return { group, cost, gainPerCircuit: gain, paybackRounds: Math.max(1, Math.ceil(cost / gain)) };
+  return { group, cost, gainPerCircuit: gain, paybackRounds: Math.max(1, Math.ceil(cost / gain)), buildRounds };
 }
 
 // Best development target across owned complete groups: lowest payback,
@@ -93,26 +92,14 @@ export function bestBuildTarget(board, houseCostOf) {
   return best;
 }
 
-// Traffic-weighted rent gain from current levels up to 3 houses for a
-// fully owned group. Null when incomplete, mortgaged, or already at 3+.
-// Needs no cost data, so it runs on the provider-safe snapshot board.
+// Traffic-weighted rent gain from current levels up to 3 houses for a fully owned group. Null when incomplete,
+// mortgaged or already at 3+. Needs no cost data, so it runs on the provider-safe board. The gain is the shared one
+// in botTradeValuation, so build priority and trade pricing agree on what a finished set is worth.
 export function groupGainToThree(board, group) {
   const tiles = ownGroupTiles(board, group, 'self');
   const total = groupSize(board, group);
   if (!total || tiles.length < total) return null;
-  let gain = 0;
-  let need = 0;
-  for (const tile of tiles) {
-    if (tile?.mortgaged) return null;
-    const level = Math.max(0, Math.min(5, Math.floor(number(tile?.houseCount))));
-    for (let step = level; step < 3; step += 1) {
-      const delta = Math.max(0, rentAtLevel(tile, step + 1) - rentAtLevel(tile, step));
-      gain += Math.floor(delta * trafficPercent(group) / 100);
-      need += 1;
-    }
-  }
-  if (!need || gain <= 0) return null;
-  return { group, gainPerCircuit: gain, housesNeeded: need };
+  return groupDevelopmentGain(tiles, group);
 }
 
 // Group with the largest gain-to-3: the "concentrate development HERE"
@@ -127,15 +114,28 @@ export function bestGainGroup(board) {
   }
   return best;
 }
+// The rent an opponent's tile would really charge. With a snapshot, the engine's own math applies (event modifiers,
+// the rent cap, set and utility ladders). Without one, the static house ladder is all that is known.
+function hitRent(board, tile, snapshot) {
+  const type = tile?.type;
+  if (snapshot && (type === 'property' || type === 'railroad' || type === 'utility')) {
+    // A utility is the one tile whose rent grows with the dice, so the
+    // worst case is the highest total.
+    const diceTotal = type === 'utility' ? 12 : 7;
+    return calculateRentFromFacts(rentFactsFromSnapshot({ ...snapshot, board }, tile, diceTotal));
+  }
+  return rentAtLevel(tile, tile?.houseCount);
+}
+
 // Biggest single rent hit an opponent can deal next circuit: max over
 // opponent-owned, unmortgaged, developed tiles of traffic-weighted rent.
 // Drives the dynamic liquidity target (cover the max live hit).
-export function forecastMaxHit(board) {
+export function forecastMaxHit(board, snapshot = null) {
   let max = 0;
   for (const tile of board || []) {
     const seat = tile?.ownerSeat || 'bank';
     if (!seat.startsWith('opponent') || tile?.mortgaged) continue;
-    const rent = rentAtLevel(tile, tile?.houseCount);
+    const rent = hitRent(board, tile, snapshot);
     const weighted = Math.floor(rent * trafficPercent(tile?.group) / 100);
     if (weighted > max) max = weighted;
   }
@@ -168,11 +168,10 @@ export function developmentStage(board) {
   return 'early';
 }
 
-// Dynamic liquidity target: cover the forecasted max hit plus one house
-// cost of headroom, bounded to sane whole dollars. Replaces static 120/180
-// in planning math (candidate shapes and reserves stay untouched).
-export function dynamicReserve(board, houseCost = 100) {
-  const target = forecastMaxHit(board) + Math.max(0, Math.floor(number(houseCost)));
+// Dynamic liquidity target: cover the forecast max hit plus one house of headroom, bounded to sane whole dollars.
+// Replaces the static 120/180 in planning math. The snapshot, when present, prices the hit the way the engine charges it.
+export function dynamicReserve(board, houseCost = 100, snapshot = null) {
+  const target = forecastMaxHit(board, snapshot) + Math.max(0, Math.floor(number(houseCost)));
   return Math.max(120, Math.min(1000, target));
 }
 

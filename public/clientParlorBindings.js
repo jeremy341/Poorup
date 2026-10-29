@@ -1,10 +1,8 @@
-/* ============================================================
-   PARLOR SURFACE BINDINGS: the click/submit dispatch handlers for
-   the rankings, social and player-card surfaces (both the in-game
-   modal and the full-page variants) plus the profile player-list.
-   Selector order inside each dispatch chain matches the old
-   if-chain exactly. emitServer and leaveRoomForHome are injected.
-   ============================================================ */
+// PARLOR SURFACE BINDINGS: the click/submit dispatch handlers for
+// the rankings, social and player-card surfaces (both the in-game
+// modal and the full-page variants) plus the profile player-list.
+// Selector order inside each dispatch chain must match the main.js
+// if-chain exactly. emitServer and leaveRoomForHome are injected.
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { closeSurface } from "./clientSurfaces.js";
@@ -20,6 +18,8 @@ import {
   requestLeaderboardSnapshot,
   requestSocialData,
   RANKING_ORDER,
+  beginFriendRequestAction,
+  finishFriendRequestAction,
 } from "./clientSocialSurfaces.js";
 
 let host = { emitServer: noop, leaveRoomForHome: noop };
@@ -96,6 +96,15 @@ function focusRankingStep(surface, direction) {
   });
 }
 
+function focusRankingPage(surface, direction) {
+  requestAnimationFrame(() => {
+    const fallback = direction === "1" ? "-1" : "1";
+    const button = document.querySelector(`${surface} [data-ranking-page="${direction}"]:not(:disabled)`)
+      || document.querySelector(`${surface} [data-ranking-page="${fallback}"]:not(:disabled)`);
+    button?.focus({ preventScroll: true });
+  });
+}
+
 function onRankingStep(step, inGameModal, surface) {
   const current = Math.max(0, RANKING_ORDER.indexOf(state.leaderboard.metric));
   const next = (current + step + RANKING_ORDER.length) % RANKING_ORDER.length;
@@ -133,6 +142,13 @@ function handleRankingClick(event) {
     onRankingStep(Number(step.dataset.rankingStep) || 1, inGameModal, surface);
     return;
   }
+  const page = event.target.closest("[data-ranking-page]");
+  if (page && !page.disabled) {
+    state.leaderboard.page = Math.max(0, state.leaderboard.page + (Number(page.dataset.rankingPage) || 0));
+    renderRankingsSurface(surface);
+    focusRankingPage(surface, String(Number(page.dataset.rankingPage) > 0 ? 1 : -1));
+    return;
+  }
   if (event.target.closest("[data-ranking-retry]")) {
     requestLeaderboardSnapshot(surface);
     return;
@@ -145,6 +161,7 @@ function handleRankingClick(event) {
 }
 
 function handleRankingKeydown(event) {
+  if (event.target.matches?.("[data-ranking-metric]")) return;
   if (!event.target.closest("[data-ranking-stage]")) return;
   let step = 0;
   if (event.key === "ArrowLeft") step = -1;
@@ -170,6 +187,17 @@ function handleRankingKeydown(event) {
 
 function rankingSearchSurface(event) {
   return event.currentTarget?.id === "rankings-page-content" ? "#rankings-page-content" : "#rankings-card";
+}
+
+function handleRankingChange(event) {
+  if (!event.target.matches("[data-ranking-metric]")) return;
+  const metric = event.target.value;
+  if (!RANKING_ORDER.includes(metric) || metric === state.leaderboard.metric) return;
+  state.leaderboard.metric = metric;
+  state.leaderboard.page = 0;
+  const surface = rankingSearchSurface(event);
+  requestLeaderboardSnapshot(surface);
+  focusRankingControl(surface, "[data-ranking-metric]");
 }
 
 function handleRankingSubmit(event) {
@@ -223,17 +251,57 @@ function onSocialPlayer(player) {
 }
 
 function onSocialRequest(request) {
-  if (!beginPendingAction(request)) return;
   const accept = request.dataset.socialRequest === "accept";
-  const surface = surfaceForNode(request);
-  host.emitServer("respond-friend-request", { friendshipId: request.dataset.friendshipId, accept }, (response) => {
-    if (response?.success === false) {
-      pendingActionError(request, response, "Friend request could not be updated.");
+  submitFriendRequestAction(request, "respond-friend-request", { accept }, accept ? "Friend request accepted." : "Friend request declined.");
+}
+
+function renderFriendRequestSurfaces() {
+  renderSocialSurface("#social-card");
+  if ($("#social-page-content")) renderSocialSurface("#social-page-content");
+}
+
+function submitFriendRequestAction(button, event, extra, message) {
+  if (button.disabled) return;
+  const friendshipId = button.dataset.friendshipId;
+  const token = beginFriendRequestAction(friendshipId);
+  if (!token) return;
+  const surface = surfaceForNode(button);
+  const row = button.closest?.(".social-request-row");
+  const restoreAction = Boolean(row?.contains?.(document.activeElement));
+  const action = button.dataset.socialRequest;
+  const cancel = button.hasAttribute?.("data-social-request-cancel");
+  renderFriendRequestSurfaces();
+  const focusAnchor = restoreAction ? document.activeElement : null;
+  const renderResult = success => {
+    const restore = focusAnchor && document.activeElement === focusAnchor;
+    renderFriendRequestSurfaces();
+    if (!restore) return;
+    const card = $(surface);
+    const actions = [...(card?.querySelectorAll?.("[data-friendship-id]") || [])];
+    const target = success ? actions.find(node => !node.disabled) : actions.find(node => node.dataset.friendshipId === friendshipId && (cancel ? node.hasAttribute("data-social-request-cancel") : node.dataset.socialRequest === action) && !node.disabled);
+    (target || card?.querySelector(".social-feed"))?.focus({ preventScroll: true });
+  };
+  const timer = setTimeout(() => {
+    if (!finishFriendRequestAction(friendshipId, token)) return;
+    renderResult(false);
+    announceSocialNotification({ body: "That friend request action timed out. Try again." });
+  }, SOCIAL_ACTION_TIMEOUT_MS);
+  host.emitServer(event, { friendshipId, ...extra }, response => {
+    clearTimeout(timer);
+    if (!finishFriendRequestAction(friendshipId, token)) return;
+    if (!response?.success) {
+      renderResult(false);
+      announceSocialNotification({ body: response?.error || "Friend request could not be updated. Try again." });
       return;
     }
-    finishPendingAction(request);
-    announceSocialNotification({ title: "FRIEND REQUEST", body: accept ? "Friend request accepted." : "Friend request declined." });
-    requestSocialData(surface);
+    // Remove the completed record before refreshing: stale rows on either
+    // surface must never become actionable again during the fetch.
+    for (const key of ["requests", "outgoing"]) {
+      if (state.social?.[key]) state.social[key] = state.social[key].filter(row => String(row.id) !== String(friendshipId));
+    }
+    renderResult(true);
+    announceSocialNotification({ title: "FRIEND REQUEST", body: message });
+    requestSocialData(surface, { preserveFocus: true });
   });
 }
 
@@ -281,17 +349,7 @@ function onSocialClearRecent(event) {
 }
 
 function onSocialRequestCancel(cancelRequest) {
-  if (!beginPendingAction(cancelRequest)) return;
-  const surface = surfaceForNode(cancelRequest);
-  host.emitServer("cancel-friend-request", { friendshipId: cancelRequest.dataset.friendshipId }, (response) => {
-    if (response?.success === false) {
-      pendingActionError(cancelRequest, response, "Friend request could not be canceled.");
-      return;
-    }
-    finishPendingAction(cancelRequest);
-    announceSocialNotification({ title: "FRIEND REQUEST", body: "Friend request canceled." });
-    requestSocialData(surface);
-  });
+  submitFriendRequestAction(cancelRequest, "cancel-friend-request", {}, "Friend request canceled.");
 }
 
 function closeSocialFromEvent(event) {
@@ -429,7 +487,7 @@ function onPlayerBlock(targetId, trigger) {
       return;
     }
     finishPendingAction(trigger);
-    announceSocialNotification({ title: "PLAYER BLOCKED", body: "This player is hidden from your social surfaces." });
+    announceSocialNotification({ title: "PLAYER BLOCKED", body: "Hidden from your social surfaces. Room chat pauses for you and them while you share a room." });
     closeSurface("#player-modal");
   });
 }
@@ -441,7 +499,7 @@ function onPlayerReport(targetId, trigger) {
       return;
     }
     finishPendingAction(trigger);
-    announceSocialNotification({ title: "PLAYER REPORT", body: "Report submitted to the parlor moderators." });
+    announceSocialNotification({ title: "PLAYER REPORT", body: "Report recorded for review." });
     closeSurface("#player-modal");
   });
 }
@@ -489,6 +547,8 @@ function bindRankingsListeners() {
   $("#rankings-page-content")?.addEventListener("click", handleRankingClick);
   $("#rankings-card")?.addEventListener("keydown", handleRankingKeydown);
   $("#rankings-page-content")?.addEventListener("keydown", handleRankingKeydown);
+  $("#rankings-card")?.addEventListener("change", handleRankingChange);
+  $("#rankings-page-content")?.addEventListener("change", handleRankingChange);
   $("#rankings-card")?.addEventListener("submit", handleRankingSubmit);
   $("#rankings-page-content")?.addEventListener("submit", handleRankingSubmit);
 }

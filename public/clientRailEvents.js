@@ -1,11 +1,7 @@
-/* ============================================================
-   RAIL EVENTS: the click/submit dispatch tables for #rr-body
-   (holdings, deals, activity, market, bank loans, financing,
-   trades, casino). Handlers run in the exact order of the old
-   if-chain; disabled controls fall through like they did before.
-   Game-bound functions are injected by the entry module. Repayment controls
-   pass an optional amount while preserving the server's full-pay default.
-   ============================================================ */
+// RAIL EVENTS: click and submit dispatch tables for #rr-body (holdings, deals, activity, market,
+// bank loans, financing, trades, casino). Handlers run in if-chain order; disabled controls fall through.
+// Game-bound functions come from the entry module. Repayment controls pass an optional amount,
+// and the server's full-pay default still applies.
 import { state } from "./clientState.js";
 import { TILES } from "./clientBoardData.js";
 import { emitWithTimeout } from "./clientRequestController.js";

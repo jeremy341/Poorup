@@ -1,17 +1,7 @@
 import express from 'express';
-import { isAdminAccount, setAnalyticsNoStoreHeaders } from './analyticsApi.js';
+import { setAnalyticsNoStoreHeaders } from './analyticsApi.js';
 import { ProviderConfigError } from './aiProviderConfig.js';
-
-const WRITE_WINDOW_MS = 60_000;
-const WRITE_LIMIT = 12;
-
-function sameOrigin(req, configuredOrigin = '') {
-  const origin = String(req.get?.('origin') || '').trim();
-  if (!origin) return true;
-  if (configuredOrigin && origin === configuredOrigin) return true;
-  const protocol = String(req.get?.('x-forwarded-proto') || req.protocol || 'http').split(',')[0].trim();
-  return origin === `${protocol}://${req.get?.('host')}`;
-}
+import { createAdminGuard, jsonBodyErrorHandler } from './adminOpsGuard.js';
 
 function errorPayload(error) {
   if (error instanceof ProviderConfigError) return { success: false, code: error.code, error: error.message };
@@ -24,35 +14,49 @@ export function registerAiProviderRoutes(app, {
   accountResolver = null,
   adminIds = [],
   publicOrigin = '',
+  auditLog = null,
 } = {}) {
   const router = express.Router();
-  const writes = new Map();
+  const { requireAdmin, writeGuard } = createAdminGuard({
+    accountStore,
+    accountResolver,
+    adminIds,
+    publicOrigin,
+    writeLimitMessage: 'Too many provider changes. Try again shortly.',
+  });
 
-  function requireAdmin(req, res, next) {
-    const token = String(req.get?.('x-poorup-session-token') || '');
-    const account = accountResolver?.(req) || accountStore?.sessionAccount?.(token);
-    if (!account?.id) return res.status(401).json({ success: false, error: 'Account session required.' });
-    if (!isAdminAccount(account?.id, adminIds)) return res.status(403).json({ success: false, error: 'Forbidden.' });
-    if (!sameOrigin(req, publicOrigin)) return res.status(403).json({ success: false, error: 'Origin is not allowed.' });
-    req.adminAccountId = account.id;
-    next();
+  // The change log gets the profile label only (never the key or URL), and a
+  // log failure must never turn a successful change into an error response.
+  function labelFor(id) {
+    try { return manager.list().find(profile => profile.id === id)?.label || 'unknown'; } catch { return 'unknown'; }
   }
 
-  function writeGuard(req, res, next) {
-    const now = Date.now();
-    const current = writes.get(req.adminAccountId);
-    const bucket = current && now - current.startedAt < WRITE_WINDOW_MS ? current : { startedAt: now, count: 0 };
-    bucket.count += 1;
-    writes.set(req.adminAccountId, bucket);
-    if (bucket.count > WRITE_LIMIT) {
-      res.setHeader('Retry-After', String(Math.ceil((bucket.startedAt + WRITE_WINDOW_MS - now) / 1000)));
-      return res.status(429).json({ success: false, error: 'Too many provider changes. Try again shortly.' });
+  function audit(req, action, target, outcome) {
+    // The change stands either way; an entry that was not saved is reported
+    // ({ audited: false }) so the operator knows the trail has a hole in it.
+    try {
+      const entry = auditLog?.record({ area: 'provider', action, target, accountId: req.adminAccountId, outcome });
+      if (auditLog && (!entry || entry.persisted === false)) {
+        console.error('Provider audit entry could not be saved:', action, target);
+        return { audited: false };
+      }
+    } catch (error) {
+      console.error('Provider audit failed:', error?.message || 'unknown error');
+      return { audited: false };
     }
-    return next();
+    return {};
   }
 
-  router.use(express.json({ limit: '12kb' }));
+  function requestedLabel(req) {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    return typeof body.label === 'string' ? body.label : (typeof body.name === 'string' ? body.name : '');
+  }
+
+  // Same order as /admin/ops: no-store on every answer, sign-in checked before
+  // the body is parsed, so an anonymous caller gets a 401 and no parsing.
+  router.use((_req, res, next) => { setAnalyticsNoStoreHeaders(res); next(); });
   router.use(requireAdmin);
+  router.use(express.json({ limit: '12kb' }));
 
   router.get('/status', (_req, res) => {
     setAnalyticsNoStoreHeaders(res);
@@ -61,25 +65,37 @@ export function registerAiProviderRoutes(app, {
 
   router.get('/providers', (_req, res) => {
     setAnalyticsNoStoreHeaders(res);
-    return res.json({ success: true, active: manager.active(), providers: manager.list(), storage: manager.status().storage });
+    const status = manager.status();
+    return res.json({ success: true, active: manager.active(), providers: manager.list(), provider: status.provider, storage: status.storage });
   });
 
   router.post('/providers', writeGuard, (req, res) => {
     try {
       const profile = manager.upsert(req.body || {});
+      const note = audit(req, 'create', profile.label, 'ok');
       setAnalyticsNoStoreHeaders(res);
-      return res.status(201).json({ success: true, profile });
+      return res.status(201).json({ success: true, profile, ...note });
     } catch (error) {
+      audit(req, 'create', requestedLabel(req), 'failed');
+      if (error instanceof ProviderConfigError && error.code === 'PROFILE_EXISTS') return res.status(409).json(errorPayload(error));
       return res.status(error instanceof ProviderConfigError ? 400 : 500).json(errorPayload(error));
     }
   });
 
-  router.patch('/providers/:id', writeGuard, (req, res) => {
+  router.patch('/providers/:id', writeGuard, async (req, res) => {
     try {
-      const profile = manager.upsert({ ...(req.body || {}), id: req.params.id });
+      // Editing the live connection of the active provider runs the connection test first; a failing edit is
+      // not stored or applied, so the previous working config stays active.
+      const outcome = await manager.update({ ...(req.body || {}), id: req.params.id });
       setAnalyticsNoStoreHeaders(res);
-      return res.json({ success: true, profile });
+      if (outcome.rejected) {
+        const note = audit(req, 'update', labelFor(req.params.id), 'failed');
+        return res.status(422).json({ success: false, code: 'PROVIDER_TEST_FAILED', error: 'The edited provider failed its connection test. The previous configuration stays active.', test: outcome.test, active: outcome.active, ...note });
+      }
+      const note = audit(req, 'update', outcome.profile.label, 'ok');
+      return res.json({ success: true, profile: outcome.profile, ...(outcome.test ? { test: outcome.test } : {}), ...note });
     } catch (error) {
+      audit(req, 'update', labelFor(req.params.id), 'failed');
       return res.status(error instanceof ProviderConfigError ? 400 : 500).json(errorPayload(error));
     }
   });
@@ -87,32 +103,44 @@ export function registerAiProviderRoutes(app, {
   router.post('/providers/:id/test', writeGuard, async (req, res) => {
     try {
       const result = await manager.test(req.params.id);
+      const note = audit(req, 'test', labelFor(req.params.id), result.ok ? 'ok' : 'failed');
       setAnalyticsNoStoreHeaders(res);
-      return res.status(result.ok ? 200 : 502).json({ success: result.ok, test: result, profile: manager.list().find(profile => profile.id === req.params.id) || null });
+      // The probe finished after the profile was edited, so nothing was stored.
+      if (result.stale) return res.status(409).json({ success: false, code: 'PROFILE_CHANGED', error: 'The profile changed while the test ran; run the test again.', test: result, ...note });
+      return res.status(result.ok ? 200 : 502).json({ success: result.ok, test: result, profile: manager.list().find(profile => profile.id === req.params.id) || null, ...note });
     } catch (error) {
+      audit(req, 'test', labelFor(req.params.id), 'failed');
       return res.status(error instanceof ProviderConfigError ? 400 : 500).json(errorPayload(error));
     }
   });
 
   router.post('/providers/:id/activate', writeGuard, (req, res) => {
+    const label = labelFor(req.params.id);
     try {
       const profile = manager.activate(req.params.id);
+      const note = audit(req, 'activate', label, 'ok');
       setAnalyticsNoStoreHeaders(res);
-      return res.json({ success: true, active: profile, status: manager.status() });
+      return res.json({ success: true, active: profile, status: manager.status(), ...note });
     } catch (error) {
+      audit(req, 'activate', label, 'failed');
       return res.status(error instanceof ProviderConfigError ? 409 : 500).json(errorPayload(error));
     }
   });
 
   router.delete('/providers/:id', writeGuard, (req, res) => {
+    const label = labelFor(req.params.id);
     try {
       manager.remove(req.params.id);
+      const note = audit(req, 'delete', label, 'ok');
       setAnalyticsNoStoreHeaders(res);
-      return res.json({ success: true });
+      return res.json({ success: true, ...note });
     } catch (error) {
+      audit(req, 'delete', label, 'failed');
       return res.status(error instanceof ProviderConfigError ? 409 : 500).json(errorPayload(error));
     }
   });
+
+  router.use(jsonBodyErrorHandler);
 
   app.use('/admin/ai', router);
   return router;
