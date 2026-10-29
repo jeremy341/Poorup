@@ -282,6 +282,7 @@
     "server/adminAuditCorruption.test.js": 396,
     "server/storeQuarantinePersistence.test.js": 97,
     "server/balanceMedianEmpty.test.js": 59,
-    "server/aiProviderActiveEdit.test.js": 378
+    "server/aiProviderActiveEdit.test.js": 378,
+    "server/recap-fields.test.js": 60
   }
 }

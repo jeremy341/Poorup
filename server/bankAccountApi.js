@@ -120,6 +120,7 @@ export const bankAccountApi = {
     if (rebate <= 0) return 0;
     player.cash += rebate;
     account.cashbackEarned += rebate;
+    player.matchRebate = (Number(player.matchRebate) || 0) + rebate;
     this.bankAccountEntry(player, `${label} CASHBACK`, rebate);
     return rebate;
   }
