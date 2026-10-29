@@ -1,53 +1,11 @@
 /* global window, document */
 import assert from 'node:assert/strict';
-import path from 'node:path';
-import { mkdir } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
-import { RoomManager } from '../server/gameLogic.js';
 import { ROUND_LIMIT } from '../server/gameData.js';
-import { captureScreenshot } from './visual-capture/screenshot.mjs';
+import { createRoom, finishedSnapshot, captureState, openDeedDetail, installFinishedRoom, expectNoPageScroll, captureDeedSurface, expectTradeFitsCard, installClient } from './support/deed-harness.mjs';
 
 const brownTiles = [1, 3];
 
-function createRoom(prefix, players = 2, settings = {}) {
-  const manager = new RoomManager();
-  const room = manager.createRoom({ socketId: `${prefix}-host`, clientId: `${prefix}-host-client`, nickname: 'HOST' });
-  for (let index = 1; index < players; index += 1) {
-    room.addOrReconnectPlayer({ socketId: `${prefix}-guest-${index}`, clientId: `${prefix}-guest-client-${index}`, nickname: `GUEST ${index}` });
-  }
-  for (const [key, value] of Object.entries(settings)) assert.equal(room.setRoomSetting(key, value).rejected, false);
-  assert.equal(room.startGame().success, true);
-  return room;
-}
-
-function finishedSnapshot(room, viewer) {
-  return JSON.parse(JSON.stringify({
-    room: room.getRoomSummary(viewer.id),
-    game: room.game.getGameSummary(viewer.id),
-  }));
-}
-
-async function captureState(page, testInfo, surfaceId, label) {
-  if (!process.env.POORUP_VISUAL_CAPTURE_DIR) return;
-  await captureScreenshot(page, testInfo, { group: 'game', surfaceId, label });
-  if (await page.locator('#gameover-modal').isVisible()) {
-    const target = path.join(path.resolve(process.env.POORUP_VISUAL_CAPTURE_DIR), testInfo.project.name, 'game', `${surfaceId}.detail.png`);
-    await mkdir(path.dirname(target), { recursive: true });
-    await page.locator('#gameover-card').screenshot({ path: target, animations: 'disabled' });
-  }
-}
-
-async function captureDeedDetail(page, testInfo, fileName) {
-  const root = process.env.POORUP_VISUAL_CAPTURE_DIR;
-  if (!root) return;
-  const detailPath = path.join(path.resolve(root), testInfo.project.name, 'game', fileName);
-  await mkdir(path.dirname(detailPath), { recursive: true });
-  await page.locator('#deed-card-detail').screenshot({ path: detailPath, animations: 'disabled' });
-}
-
-async function openDeedDetail(page, index) {
-  await page.evaluate(i => window.__deedTruthHarness.deeds.openDeedDetail(i), index);
-}
 
 async function sellOneHouse(page, testInfo, game, index, expectedLevel) {
   await page.locator('#dd-sell').click();
@@ -62,88 +20,8 @@ async function sellOneHouse(page, testInfo, game, index, expectedLevel) {
 }
 
 // A finished room, seen by the given viewer, with the client installed on it.
-async function installFinishedRoom(page, room, viewer, propertyBridge = null) {
-  await installClient(page, finishedSnapshot(room, viewer), propertyBridge);
-}
-
-async function expectNoPageScroll(page) {
-  expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(1);
-}
-
 // Captures the deed manager and its detail card under one set of names.
-async function captureDeedSurface(page, testInfo, surfaceId, label, fileName) {
-  await captureState(page, testInfo, surfaceId, label);
-  await captureDeedDetail(page, testInfo, fileName);
-}
-
 // Gives the owner each listed deed at its purchase price.
-function grantDeeds(game, owner, indexes) {
-  for (const index of indexes) {
-    const tile = game.getTile(index);
-    tile.ownerId = owner.id; tile.purchasePricePaid = tile.price; owner.properties.push(index);
-  }
-}
-
-async function expectTradeFitsCard(page) {
-  const geometry = await page.locator('#trade-card').evaluate(card => {
-    const box = card.getBoundingClientRect();
-    const body = card.querySelector('.trade-body').getBoundingClientRect();
-    return { width: card.clientWidth, scrollWidth: card.scrollWidth,
-      bodyLeft: body.left - box.left, bodyRight: body.right - box.right };
-  });
-  expect(geometry.scrollWidth, 'trade content must fit inside its card horizontally').toBeLessThanOrEqual(geometry.width + 1);
-  expect(geometry.bodyLeft, 'trade body left edge stays inside the card').toBeGreaterThanOrEqual(0);
-  expect(geometry.bodyRight, 'trade body right edge stays inside the card').toBeLessThanOrEqual(0);
-}
-
-async function installClient(page, snapshot, propertyBridge = null) {
-  await page.goto('/');
-  await page.evaluate(async ({ initialSnapshot, usePropertyBridge }) => {
-    const [{ state }, sync, modals, deeds, board, popup, hud, rail, topNav, sprites, dom, trades] = await Promise.all([
-      import('/clientState.js'), import('/clientStateSync.js'), import('/clientGameModalsUi.js'),
-      import('/clientDeedDetailUi.js'), import('/clientBoardRender.js'), import('/clientPopupUi.js'),
-      import('/clientHudRender.js'), import('/clientRailRender.js'), import('/clientTopNavRender.js'),
-      import('/clientSprites.js'), import('/clientDom.js'), import('/clientTradeUi.js'),
-    ]);
-    Object.assign(state, { clientId: initialSnapshot.game.players.find(player => player.clientId)?.clientId || '', phase: 'home' });
-    document.querySelector('#view-home').classList.add('is-hidden');
-    document.querySelector('#view-game').classList.remove('is-hidden');
-    board.buildBoard(popup.onTileClick);
-    const renderAll = () => {
-      board.renderBoardState(); hud.renderHud(); rail.renderRightRail(); topNav.renderTopNav();
-      document.querySelector('#player-list').innerHTML = state.players.map((player, index) =>
-        `<button class="player-row player-row-action" type="button" data-player-id="${dom.esc(player.serverId || player.id)}"><div class="pr-av">${sprites.avatarHTML(player, 4, index)}</div><div class="pr-mid"><div class="pr-nameline"><span class="pr-name">${dom.esc(player.name)}</span></div><div class="pr-cash">$${Number(player.cash).toLocaleString()}</div></div></button>`,
-      ).join('');
-      deeds.renderDeedDetail();
-    };
-    modals.configureGameModals({ renderAll, startGame() {} });
-    const actionHooks = {
-      async emitServer(event, payload, ack) {
-        if (!usePropertyBridge) return;
-        const result = await window.__deedTruthAction(event, payload);
-        sync.applyServerState(result.snapshot, syncHost);
-        ack?.(result.response);
-      },
-      renderAll,
-      createRequestId: () => `truth-trade-${Date.now()}`,
-    };
-    deeds.configureDeedDetail(actionHooks);
-    trades.configureTradeUi(actionHooks);
-    const syncHost = {
-      setConnectionStatus() {}, gameViewVisible: () => true, showView() {}, renderAll,
-      showGameOver: modals.showGameOver,
-      placePiecesSoon() {}, startPieceWalk: () => Promise.resolve(),
-      retireButton: () => null, bankruptcyHidden: () => true,
-      hideBankruptcyModal() {}, openBankruptcyModal() {},
-      closeAuctionSurface() {}, openAuctionSurface() {},
-      startTurnCountdown() {}, syncOfferSurface() {},
-      announceDiceRoll() {}, setBoardVariant() {}, rebuildBoard() {},
-    };
-    window.__deedTruthHarness = { state, sync, deeds, trades, renderAll, syncHost };
-    sync.applyServerState(initialSnapshot, syncHost);
-  }, { initialSnapshot: snapshot, usePropertyBridge: Boolean(propertyBridge) });
-}
-
 test('real round-limit state reaches game-over UI with authoritative winner and net-worth score', async ({ page }, testInfo) => {
   const room = createRoom('truth-round');
   const game = room.game;
@@ -352,62 +230,4 @@ test('the engine ends an ordinary game after both other players leave and the UI
   await expect(page.locator('#gameover-card .go-summary-row').filter({ hasText: 'OUT' })).toHaveCount(2);
   await expect(page.locator('#gameover-card')).not.toContainText('$6,000');
   await captureState(page, testInfo, 'round-over', 'Last-standing results explain elimination without an irrelevant cash comparison');
-});
-
-test('every owned deed manager shows its complete rent schedule without expanding details', async ({ page }, testInfo) => {
-  const room = createRoom('rent-ladder');
-  const game = room.game;
-  const owner = game.players[0];
-  grantDeeds(game, owner, [1, 3, 5, 12, 28]);
-  await installFinishedRoom(page, room, owner);
-  for (const [index, name, rows] of [[1, 'property', 6], [5, 'airport', 4], [12, 'electric', 2], [28, 'water', 2]]) {
-    await openDeedDetail(page, index);
-    const ladder = page.locator('#deed-card-detail .dd-ladder');
-    await expect(ladder).toBeVisible();
-    await expect(ladder.locator('.dd-row')).toHaveCount(rows);
-    expect(await ladder.evaluate(element => element.closest('details') === null)).toBe(true);
-    await expect(page.locator('.dd-extra-details')).toHaveCount(0);
-    await expect(page.locator('#deed-card-detail')).not.toContainText(/HOUSE COST|YOUR CASH|BUILDINGS|Returns half the building cost/);
-    await expect(page.locator('.dd-stock-details, .supply-strip')).toHaveCount(0);
-    await expect(page.locator('#deed-card-detail')).not.toContainText('Bank stock');
-    if (name === 'property') await expect(ladder).toContainText('HOTEL');
-    await captureDeedSurface(page, testInfo, `deed-rent-${name}`, `Visible ${name} rent schedule`, `deed-rent-${name}.detail.png`);
-    await page.locator('#dd-trade-deed').focus();
-    await expect(page.locator('#dd-trade-deed')).toBeInViewport();
-    await page.locator('#dd-close').click();
-    await expectNoPageScroll(page);
-  }
-});
-
-test('building stays available beyond the old shared supply totals even with legacy zero limits', async ({ page }, testInfo) => {
-  const room = createRoom('uncapped-ui', 2, { evenBuild: false });
-  const game = room.game;
-  const owner = game.players[0];
-  for (const tile of game.tiles.filter(entry => entry.type === 'property')) {
-    tile.ownerId = owner.id; tile.purchasePricePaid = tile.price; tile.houseCount = 4;
-    owner.properties.push(tile.index);
-  }
-  const target = game.getTile(1);
-  target.houseCount = 0;
-  game.settings.houseLimit = 0;
-  game.settings.hotelLimit = 0;
-  owner.cash = 50000;
-  expect(game.tiles.reduce((sum, tile) => sum + (tile.houseCount || 0), 0)).toBeGreaterThan(32);
-  await page.exposeFunction('__deedTruthAction', (event, payload) => {
-    expect(event).toBe('manage-property');
-    return { response: game.manageProperty('uncapped-ui-host', payload), snapshot: finishedSnapshot(room, owner) };
-  });
-  await installFinishedRoom(page, room, owner, true);
-  await openDeedDetail(page, 1);
-  await expect(page.locator('#dd-buy')).toBeEnabled();
-  await expect(page.locator('.dd-stock-details')).toHaveCount(0);
-  const cost = game.getPropertyHouseCost(target);
-  const cashBefore = owner.cash;
-  await page.locator('#dd-buy').click();
-  await expect.poll(() => target.houseCount).toBe(1);
-  expect(owner.cash).toBe(cashBefore - cost);
-  const settings = await page.evaluate(() => window.__deedTruthHarness.state.settings);
-  expect(Object.hasOwn(settings, 'houseLimit')).toBe(false);
-  expect(Object.hasOwn(settings, 'hotelLimit')).toBe(false);
-  await captureDeedSurface(page, testInfo, 'unlimited-building', 'Building with no shared inventory cap', 'unlimited-building.detail.png');
 });
