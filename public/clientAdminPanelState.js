@@ -33,6 +33,14 @@ function stateMarkup(kind) {
   return `${glyph}<span class="t-label f12 admin-state-text"></span>${hint}${retry}`;
 }
 
+// Drop the data but keep the structure, so the section can be filled again after a new sign-in.
+function clearSectionBody(body) {
+  if (!body) return;
+  if (body.hasAttribute('data-clear')) body.textContent = '';
+  body.querySelectorAll('[data-clear]').forEach(element => { element.textContent = ''; });
+  body.classList.add('is-hidden');
+}
+
 export function setSectionState(section, kind, { message = '', onRetry = null } = {}) {
   if (!section) return;
   const state = slot(section, 'state');
@@ -49,12 +57,7 @@ export function setSectionState(section, kind, { message = '', onRetry = null } 
   }
   if (kind === 'unauthorized') {
     section.setAttribute('data-has-data', 'false');
-    if (body) {
-      // Drop the data but keep the structure, so the section can be filled again after a new sign-in.
-      if (body.hasAttribute('data-clear')) body.textContent = '';
-      body.querySelectorAll('[data-clear]').forEach(element => { element.textContent = ''; });
-      body.classList.add('is-hidden');
-    }
+    clearSectionBody(body);
   } else if (kind === 'loading' && hasData) {
     // Refresh in place: keep the content, let the freshness chip say it is refreshing.
     return;

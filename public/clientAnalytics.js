@@ -198,27 +198,48 @@ function snapshotStatus(snapshot) {
   return { message: `SYNCED · ${clock}`, tone: 'green', title };
 }
 
-export function renderAnalyticsSnapshot(value, tab) {
-  const snapshot = normalizeAnalyticsSnapshot(value);
-  const active = Object.hasOwn(ANALYTICS_PANEL_DESCRIPTORS, tab) ? tab : sectionViewFor(snapshot.filters.tab);
-  // The six tiles sit above the views, so any view's response can refresh them; a response without
-  // tiles leaves the last ones in place rather than blanking the row.
+function showKpiTiles(grid, markup) {
+  if (grid) grid.innerHTML = markup;
+  query('[data-section="kpis"]')?.classList.remove('is-hidden');
+  setSectionState(query('[data-section="kpis"]'), 'ready');
+}
+
+function showNoFigures(grid) {
+  // No figures: say it once, under the views, not in a second bar above them.
+  if (grid) grid.innerHTML = '';
+  const kpis = query('[data-section="kpis"]');
+  setSectionState(kpis, 'empty', { message: 'NO VERIFIED OBSERVATIONS FOR THIS WINDOW' });
+  kpis?.classList.add('is-hidden');
+}
+
+// The six tiles sit above the views, so any view's response can refresh them; a response without
+// tiles leaves the last ones in place rather than blanking the row.
+function renderKpiTiles(snapshot, active) {
   const grid = query('#admin-analytics-grid');
   const markup = statusGridMarkup(snapshot);
-  if (markup) { if (grid) grid.innerHTML = markup; query('[data-section="kpis"]')?.classList.remove('is-hidden'); setSectionState(query('[data-section="kpis"]'), 'ready'); }
-  else if (active === 'status' || !grid?.innerHTML) {
-    // No figures: say it once, under the views, not in a second bar above them.
-    if (grid) grid.innerHTML = '';
-    const kpis = query('[data-section="kpis"]');
-    setSectionState(kpis, 'empty', { message: 'NO VERIFIED OBSERVATIONS FOR THIS WINDOW' });
-    kpis?.classList.add('is-hidden');
-  }
-  const section = query(`[data-section="report-${active}"]`);
+  if (markup) showKpiTiles(grid, markup);
+  else if (active === 'status' || !grid?.innerHTML) showNoFigures(grid);
+}
+
+function renderPanelChart(snapshot, active, section) {
   const noMatches = windowHasNoMatches(snapshot);
   if (renderTabChart(snapshot, active, { empty: noMatches })) setSectionState(section, 'ready');
   else setSectionState(section, 'empty', { message: noMatches ? NO_MATCHES_TEXT[active] : 'NO VERIFIED OBSERVATIONS FOR THIS PANEL' });
+}
+
+function renderPanelAssociation(snapshot, active) {
   const note = query(`[data-analytics-panel="${active}"] [data-analytics-association]`);
-  if (note) { note.textContent = associationText(snapshot.association); note.classList.toggle('is-hidden', !snapshot.association); }
+  if (!note) return;
+  note.textContent = associationText(snapshot.association);
+  note.classList.toggle('is-hidden', !snapshot.association);
+}
+
+export function renderAnalyticsSnapshot(value, tab) {
+  const snapshot = normalizeAnalyticsSnapshot(value);
+  const active = Object.hasOwn(ANALYTICS_PANEL_DESCRIPTORS, tab) ? tab : sectionViewFor(snapshot.filters.tab);
+  renderKpiTiles(snapshot, active);
+  renderPanelChart(snapshot, active, query(`[data-section="report-${active}"]`));
+  renderPanelAssociation(snapshot, active);
   const status = snapshotStatus(snapshot);
   renderStatus(status.message, status.tone, status.title);
   refreshScrollCues(typeof document === 'undefined' ? null : document);

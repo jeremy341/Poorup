@@ -59,6 +59,28 @@ export function barDomain(values, unit) {
  * baseline into view. Otherwise `pad` adds room around the data. `floor` and `ceil`
  * (see naturalLimits) cap that padding, and `domain: [low, high]` fixes the axis.
  */
+// A flat range gets room on both sides; a zero-anchored one grows upward only.
+function flatRangeBounds(value, zero) {
+  if (zero) return [value, value + 1];
+  const bump = Math.abs(value) * 0.1 || 1;
+  return [value - bump, value + bump];
+}
+
+function scaleBounds(min, max, zero, pad) {
+  let low = min;
+  let high = max;
+  if (zero) {
+    low = Math.min(low, 0);
+    high = Math.max(high, 0);
+  }
+  if (low === high) return flatRangeBounds(low, zero);
+  if (!zero && pad) {
+    const span = high - low;
+    return [low - span * pad, high + span * pad];
+  }
+  return [low, high];
+}
+
 export function niceScale(values, { zero = false, targetTicks = 5, pad = 0, floor = null, ceil = null, domain = null } = {}) {
   const numbers = presentNumbers(values);
   let min = numbers.length ? Math.min(...numbers) : 0;
@@ -66,22 +88,7 @@ export function niceScale(values, { zero = false, targetTicks = 5, pad = 0, floo
   if (domain) {
     [min, max] = domain;
   } else {
-    if (zero) {
-      min = Math.min(min, 0);
-      max = Math.max(max, 0);
-    }
-    if (min === max) {
-      if (zero) max = min + 1;
-      else {
-        const bump = Math.abs(min) * 0.1 || 1;
-        min -= bump;
-        max += bump;
-      }
-    } else if (!zero && pad) {
-      const span = max - min;
-      min -= span * pad;
-      max += span * pad;
-    }
+    [min, max] = scaleBounds(min, max, zero, pad);
     if (floor !== null) min = Math.max(min, floor);
     if (ceil !== null) max = Math.min(max, ceil);
   }

@@ -301,38 +301,53 @@ function acceptCookieAccount(account, token, accountId, generation) {
   return true;
 }
 
+function sessionAccountFor(result, accountId) {
+  const account = result?.response?.ok && result.payload?.success ? result.payload.account : null;
+  return account?.id === accountId ? account : null;
+}
+
+function otherSessionAccount(result, accountId) {
+  const account = result?.response?.ok && result.payload?.success ? result.payload.account : null;
+  return Boolean(account?.id && account.id !== accountId);
+}
+
+async function retryWithCookieAfterUnauthorized(token, accountId, generation) {
+  // The token may already have been consumed by a request whose response was
+  // lost. The cookie is the authoritative credential after an exchange.
+  let cookieResult;
+  try { cookieResult = await sessionRequest(); } catch { return false; }
+  if (!isCurrentAccountExchange(token, accountId, generation)) return null;
+  const account = sessionAccountFor(cookieResult, accountId);
+  return account ? acceptCookieAccount(account, token, accountId, generation) : false;
+}
+
+async function replaceCookieForOtherAccount(token, accountId, generation, previousAccountId, previousLogoutToken) {
+  // A still-valid cookie wins over the legacy header on /account/session.
+  // Clear that cookie before retrying the new account's unconsumed bearer.
+  saveAccountSession({ sessionToken: token, logoutToken: token, account: state.account.account });
+  const oldProof = previousAccountId && previousAccountId !== accountId ? previousLogoutToken : "";
+  if (!await postAccountLogout(oldProof) || !isCurrentAccountExchange(token, accountId, generation)) return false;
+  saveCookieSessionCredential(token);
+  let result;
+  try { result = await sessionRequest(token); } catch { return false; }
+  if (!isCurrentAccountExchange(token, accountId, generation)) return null;
+  const account = sessionAccountFor(result, accountId);
+  return account ? acceptCookieAccount(account, token, accountId, generation) : false;
+}
+
 async function exchangeCookieSession(token, accountId, generation, previousAccountId = null, previousLogoutToken = "") {
   if (!isCurrentAccountExchange(token, accountId, generation) || typeof fetch !== "function") return null;
   saveCookieSessionCredential(token);
   let result;
   try { result = await sessionRequest(token); } catch { return false; }
   if (!isCurrentAccountExchange(token, accountId, generation)) return null;
-  if (result?.response?.ok && result.payload?.success && result.payload.account?.id === accountId) {
-    return acceptCookieAccount(result.payload.account, token, accountId, generation);
-  }
-  if (result?.response?.ok && result.payload?.success && result.payload.account?.id && result.payload.account.id !== accountId) {
-    // A still-valid cookie wins over the legacy header on /account/session.
-    // Clear that cookie before retrying the new account's unconsumed bearer.
-    saveAccountSession({ sessionToken: token, logoutToken: token, account: state.account.account });
-    const oldProof = previousAccountId && previousAccountId !== accountId ? previousLogoutToken : "";
-    if (!await postAccountLogout(oldProof) || !isCurrentAccountExchange(token, accountId, generation)) return false;
-    saveCookieSessionCredential(token);
-    try { result = await sessionRequest(token); } catch { return false; }
-    if (!isCurrentAccountExchange(token, accountId, generation)) return null;
-    if (result?.response?.ok && result.payload?.success && result.payload.account?.id === accountId) {
-      return acceptCookieAccount(result.payload.account, token, accountId, generation);
-    }
-    return false;
+  const account = sessionAccountFor(result, accountId);
+  if (account) return acceptCookieAccount(account, token, accountId, generation);
+  if (otherSessionAccount(result, accountId)) {
+    return replaceCookieForOtherAccount(token, accountId, generation, previousAccountId, previousLogoutToken);
   }
   if (result?.response?.status === 401 && isCurrentAccountExchange(token, accountId, generation)) {
-    // The token may already have been consumed by a request whose response was
-    // lost. The cookie is the authoritative credential after an exchange.
-    let cookieResult;
-    try { cookieResult = await sessionRequest(); } catch { return false; }
-    if (!isCurrentAccountExchange(token, accountId, generation)) return null;
-    if (cookieResult?.response?.ok && cookieResult.payload?.success && cookieResult.payload.account?.id === accountId) {
-      return acceptCookieAccount(cookieResult.payload.account, token, accountId, generation);
-    }
+    return retryWithCookieAfterUnauthorized(token, accountId, generation);
   }
   return false;
 }

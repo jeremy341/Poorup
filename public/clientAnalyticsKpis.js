@@ -6,12 +6,24 @@ import { OVERVIEW_KPIS } from './clientAnalyticsCatalog.js';
 
 export function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); }
 
+function finiteNumberFromString(value) {
+  if (value.trim() === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function firstFiniteField(value) {
+  for (const key of ['value', 'rate', 'count']) {
+    const parsed = finiteNumber(value[key]);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
 export function finiteNumber(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value === 'string') { if (value.trim() === '') return null; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
-  if (value && typeof value === 'object') {
-    for (const key of ['value', 'rate', 'count']) { const parsed = finiteNumber(value[key]); if (parsed !== null) return parsed; }
-  }
+  if (typeof value === 'string') return finiteNumberFromString(value);
+  if (value && typeof value === 'object') return firstFiniteField(value);
   return null;
 }
 
