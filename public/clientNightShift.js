@@ -242,14 +242,19 @@ function spawnableTargetLayer() {
   return $("#night-targets");
 }
 
+// Server targets carry their own kind, lane and duration; local spawns roll them.
+function resolveSpawnSpec(serverTarget) {
+  const kind = serverTarget?.kind || pickTargetKind(nightShiftState.wave, nightShiftState.targetSeq, Math.random());
+  const lane = serverTarget?.lane ?? [18, 25, 32, 39, 46, 53, 60][Math.floor(Math.random() * 7)];
+  const duration = serverTarget?.duration || pickTargetDuration(kind, nightShiftState.wave);
+  return { kind, lane, duration };
+}
+
 export function spawnNightShiftTarget(serverTarget = null, serverTime = 0) {
   const layer = spawnableTargetLayer();
   if (!layer) return;
   const direction = targetDirection(serverTarget);
-  const spawnNumber = nightShiftState.targetSeq;
-  const kind = serverTarget?.kind || pickTargetKind(nightShiftState.wave, spawnNumber, Math.random());
-  const lane = serverTarget?.lane ?? [18, 25, 32, 39, 46, 53, 60][Math.floor(Math.random() * 7)];
-  const duration = serverTarget?.duration || pickTargetDuration(kind, nightShiftState.wave);
+  const { kind, lane, duration } = resolveSpawnSpec(serverTarget);
   const target = document.createElement("button");
   target.type = "button";
   const isDrop = kind === "beacon" || kind === "airplane";
@@ -574,18 +579,30 @@ function resumeTargetTimers() {
   });
 }
 
+function resumeServerRunVisibility() {
+  if (!nightShiftState.serverRunToken) document.body.classList.remove("night-shift-paused");
+  else sendPatrolVisibility("resume-patrol-run");
+}
+
+// Result countdown is parked while hidden; re-arm for its remaining time.
+function rearmResultCountdown() {
+  if (nightRun.nightShiftResultEndsAt) scheduleNightShiftResult();
+}
+
 function handleNightShiftVisible() {
   nightRun.nightShiftVisibilityGeneration += 1;
   if (nightShiftState.active && nightRun.nightShiftServerRun) {
-    if (!nightShiftState.serverRunToken) document.body.classList.remove("night-shift-paused");
-    else sendPatrolVisibility("resume-patrol-run");
+    resumeServerRunVisibility();
     return;
   }
   if (!nightShiftState.active) {
-    // Result countdown is parked while hidden; re-arm for its remaining time.
-    if (nightRun.nightShiftResultEndsAt) scheduleNightShiftResult();
+    rearmResultCountdown();
     return;
   }
+  resumeLocalRun();
+}
+
+function resumeLocalRun() {
   if (!nightRun.nightShiftPausedAt) return;
   const paused = Date.now() - nightRun.nightShiftPausedAt;
   nightRun.nightShiftPausedAt = 0;

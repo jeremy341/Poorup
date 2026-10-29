@@ -87,15 +87,24 @@ function settlementRequestIsStale(settlement, requestGeneration) {
   return nightRun.nightShiftSettlement !== settlement || settlement.requestGeneration !== requestGeneration;
 }
 
+function retrySettlementSend(settlement, retrySend) {
+  clearTimeout(settlement.timer);
+  retrySend();
+}
+
+function reconnectPrompt(response) {
+  const error = String(response.error || "Could not save this patrol.").slice(0, 63);
+  return `${error} Press Shift+P or reconnect to retry.`;
+}
+
 function handleFailedFinishAck(settlement, response, attempt, attempts, retrySend) {
-  if (response?.retryable && attempt === 1 && attempts === 1) {
-    clearTimeout(settlement.timer);
-    retrySend();
+  const retryable = Boolean(response?.retryable);
+  if (retryable && attempt === 1 && attempts === 1) {
+    retrySettlementSend(settlement, retrySend);
     return;
   }
-  if (response?.retryable && attempts > 1) {
-    const error = String(response.error || "Could not save this patrol.").slice(0, 63);
-    awaitSettlementReconnect(settlement, `${error} Press Shift+P or reconnect to retry.`);
+  if (retryable && attempts > 1) {
+    awaitSettlementReconnect(settlement, reconnectPrompt(response));
     return;
   }
   if (attempts > 1) {

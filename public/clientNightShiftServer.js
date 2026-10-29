@@ -65,10 +65,14 @@ function serverOfferFor(target, id) {
   return offer;
 }
 
+function offerIsArmed(offer) {
+  return offer.timer !== null || offer.watchdog !== null;
+}
+
 function armServerOffer(element, target, paused) {
   const id = String(target.id);
   const offer = serverOfferFor(target, id);
-  if (paused || document.hidden || offer.timer !== null || offer.watchdog !== null) return;
+  if (paused || document.hidden || offerIsArmed(offer)) return;
   if (offer.readySent) {
     sendServerTargetReady(element, id, offer);
     return;
@@ -149,6 +153,13 @@ function sendServerTargetReady(element, id, offer) {
   markReadyWindowOpen(element, id, offer, generation, visibilityGeneration);
 }
 
+// True when the gate has nothing to schedule: paused or hidden, untimed, or already expired.
+function gateHasNoWindow(target, paused, serverTime) {
+  if (paused || document.hidden) return true;
+  if (!Number.isFinite(target.actionableAt) || !Number.isFinite(target.expiresAt)) return true;
+  return target.expiresAt - serverTime <= 0;
+}
+
 function setServerTargetGate(element, target, serverTime, paused) {
   const id = String(target.id);
   const old = nightShiftServerGates.get(id);
@@ -157,10 +168,13 @@ function setServerTargetGate(element, target, serverTime, paused) {
   nightShiftServerGates.set(id, timers);
   element.dataset.actionable = "0";
   element.style.pointerEvents = "none";
-  if (paused || document.hidden || !Number.isFinite(target.actionableAt) || !Number.isFinite(target.expiresAt)) return;
+  if (gateHasNoWindow(target, paused, serverTime)) return;
+  scheduleServerGate(element, id, target, serverTime, timers);
+}
+
+function scheduleServerGate(element, id, target, serverTime, timers) {
   const untilOpen = target.actionableAt - serverTime;
   const untilClose = target.expiresAt - serverTime;
-  if (untilClose <= 0) return;
   const open = () => {
     if (!element.isConnected || element.dataset.hit || document.hidden) return;
     element.dataset.actionable = "1";
