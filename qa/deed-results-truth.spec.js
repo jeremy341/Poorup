@@ -70,6 +70,20 @@ async function expectNoPageScroll(page) {
   expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(1);
 }
 
+// Captures the deed manager and its detail card under one set of names.
+async function captureDeedSurface(page, testInfo, surfaceId, label, fileName) {
+  await captureState(page, testInfo, surfaceId, label);
+  await captureDeedDetail(page, testInfo, fileName);
+}
+
+// Gives the owner each listed deed at its purchase price.
+function grantDeeds(game, owner, indexes) {
+  for (const index of indexes) {
+    const tile = game.getTile(index);
+    tile.ownerId = owner.id; tile.purchasePricePaid = tile.price; owner.properties.push(index);
+  }
+}
+
 async function expectTradeFitsCard(page) {
   const geometry = await page.locator('#trade-card').evaluate(card => {
     const box = card.getBoundingClientRect();
@@ -218,8 +232,7 @@ test('real Brown-set sales stay even and Sell deed negotiates with a player', as
   await expect(page.locator('#dd-sell')).toBeEnabled();
   await expect(page.locator('#dd-sell')).toContainText('SELL HOUSE');
   await expect(page.locator('#dd-mortgage')).toBeDisabled();
-  await captureState(page, testInfo, 'deed-manager-property', 'Even building sales available off turn');
-  await captureDeedDetail(page, testInfo, 'deed-manager-property.detail.png');
+  await captureDeedSurface(page, testInfo, 'deed-manager-property', 'Even building sales available off turn', 'deed-manager-property.detail.png');
   for (const [index, expectedLevel] of [[1, 1], [3, 1], [1, 0], [3, 0]]) {
     if (index !== 1 || expectedLevel !== 1) await openDeedDetail(page, index);
     await sellOneHouse(page, testInfo, game, index, expectedLevel);
@@ -231,8 +244,7 @@ test('real Brown-set sales stay even and Sell deed negotiates with a player', as
   await expect(page.locator('#dd-trade-deed')).toBeEnabled();
   await expect(page.locator('#dd-mortgage')).toBeEnabled();
   await expect(page.locator('#deed-card-detail')).not.toContainText(/50%|CONFIRM BANK SALE/);
-  await captureState(page, testInfo, 'deed-sell-empty', 'Cleared deed sells through a negotiated player trade');
-  await captureDeedDetail(page, testInfo, 'deed-sell-empty.detail.png');
+  await captureDeedSurface(page, testInfo, 'deed-sell-empty', 'Cleared deed sells through a negotiated player trade', 'deed-sell-empty.detail.png');
   await page.locator('#dd-trade-deed').click();
   await expect(page.locator('#deed-modal')).toBeHidden();
   await expect(page.locator('#trade-modal')).toBeVisible();
@@ -289,8 +301,7 @@ test('mortgaged deeds can be offered and requested without clearing their mortga
   await installFinishedRoom(page, room, seller, true);
   await openDeedDetail(page, 5);
   await expect(page.locator('#dd-trade-deed')).toBeEnabled();
-  await captureState(page, testInfo, 'deed-mortgaged', 'Mortgaged airport remains eligible for player trade');
-  await captureDeedDetail(page, testInfo, 'deed-mortgaged.detail.png');
+  await captureDeedSurface(page, testInfo, 'deed-mortgaged', 'Mortgaged airport remains eligible for player trade', 'deed-mortgaged.detail.png');
   await page.locator('#dd-trade-deed').click();
   await expect(page.locator('#deed-modal')).toBeHidden();
   await expect(page.locator('#trade-modal')).toBeVisible();
@@ -347,10 +358,7 @@ test('every owned deed manager shows its complete rent schedule without expandin
   const room = createRoom('rent-ladder');
   const game = room.game;
   const owner = game.players[0];
-  for (const index of [1, 3, 5, 12, 28]) {
-    const tile = game.getTile(index);
-    tile.ownerId = owner.id; tile.purchasePricePaid = tile.price; owner.properties.push(index);
-  }
+  grantDeeds(game, owner, [1, 3, 5, 12, 28]);
   await installFinishedRoom(page, room, owner);
   for (const [index, name, rows] of [[1, 'property', 6], [5, 'airport', 4], [12, 'electric', 2], [28, 'water', 2]]) {
     await openDeedDetail(page, index);
@@ -363,8 +371,7 @@ test('every owned deed manager shows its complete rent schedule without expandin
     await expect(page.locator('.dd-stock-details, .supply-strip')).toHaveCount(0);
     await expect(page.locator('#deed-card-detail')).not.toContainText('Bank stock');
     if (name === 'property') await expect(ladder).toContainText('HOTEL');
-    await captureState(page, testInfo, `deed-rent-${name}`, `Visible ${name} rent schedule`);
-    await captureDeedDetail(page, testInfo, `deed-rent-${name}.detail.png`);
+    await captureDeedSurface(page, testInfo, `deed-rent-${name}`, `Visible ${name} rent schedule`, `deed-rent-${name}.detail.png`);
     await page.locator('#dd-trade-deed').focus();
     await expect(page.locator('#dd-trade-deed')).toBeInViewport();
     await page.locator('#dd-close').click();
@@ -402,6 +409,5 @@ test('building stays available beyond the old shared supply totals even with leg
   const settings = await page.evaluate(() => window.__deedTruthHarness.state.settings);
   expect(Object.hasOwn(settings, 'houseLimit')).toBe(false);
   expect(Object.hasOwn(settings, 'hotelLimit')).toBe(false);
-  await captureState(page, testInfo, 'unlimited-building', 'Building with no shared inventory cap');
-  await captureDeedDetail(page, testInfo, 'unlimited-building.detail.png');
+  await captureDeedSurface(page, testInfo, 'unlimited-building', 'Building with no shared inventory cap', 'unlimited-building.detail.png');
 });
