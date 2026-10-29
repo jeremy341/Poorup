@@ -185,69 +185,90 @@ test.describe('admin analytics visual contract', () => {
     await expect(line).not.toContainText('Backup');
   });
 
+  async function expectMatchesReport(panel) {
+    const chartEngine = panel.locator('.analytics-chart-engine');
+    await expect(chartEngine.first().locator('svg.pc-svg')).toHaveCount(1);
+    await expect.poll(() => chartEngine.locator('svg .pc-bar').count()).toBeGreaterThan(0);
+    await expect(chartEngine).toHaveCount(2);
+    await expect(panel.locator('.analytics-chart-group')).toHaveText(['UNIT matches', 'UNIT percent']);
+    // The accessible table keeps the real numerator and denominator.
+    const reconnect = panel.locator('.analytics-chart-table tbody tr').filter({ hasText: /reconnect rate/i });
+    await expect(reconnect.locator('td')).toHaveText(['8%', 'percent', '12', '1', '12']);
+  }
+
+  async function expectEconomyAdoption(panel) {
+    await expect(panel.locator('.economy-adoption-zone .economy-report-head strong')).toHaveText('Feature adoption');
+    await expect(panel.locator('.economy-adoption-zone .economy-report-head p')).toContainText('Share of eligible matches');
+    await expect(panel.locator('.economy-adoption-row')).toHaveCount(2);
+    await expect(panel.locator('.economy-adoption-row').nth(0)).toContainText('Player loans');
+    await expect(panel.locator('.economy-adoption-row').nth(0)).toContainText('42%');
+    await expect(panel.locator('.economy-adoption-row').nth(0)).toContainText('20 eligible matches');
+    await expect(panel.locator('.economy-adoption-row').nth(1)).toContainText('Auctions');
+    await expect(panel.locator('.economy-adoption-row').nth(1)).toContainText('28%');
+    await expect(panel.locator('.economy-adoption-row').nth(1)).toContainText('20 eligible matches');
+    await expect(panel.getByRole('progressbar')).toHaveCount(2);
+    await expect(panel.getByRole('region', { name: 'Economy report' })).toHaveAttribute('tabindex', '0');
+  }
+
+  async function expectEconomyOutcomes(panel) {
+    await expect(panel.locator('.economy-outcome-row')).toHaveCount(5);
+    await expect(panel.locator('.economy-outcome-row').nth(0)).toContainText('0.17');
+    await expect(panel.locator('.economy-outcome-row').nth(1)).toContainText('6%');
+    await expect(panel.locator('.economy-outcome-row').nth(1)).toContainText('20 margin positions');
+    await expect(panel.locator('.economy-outcome-row').nth(2)).toContainText('2%');
+    await expect(panel.locator('.economy-outcome-row').nth(3)).toContainText('0%');
+    await expect(panel.locator('.economy-outcome-row').nth(4)).toContainText('3');
+  }
+
+  // Scrolls the report to its last outcome when the viewport is too short to show it all.
+  async function expectEconomyScrollFit(page, panel, layout) {
+    if (page.viewportSize().height >= 1000) {
+      expect(layout.scrollHeight - layout.clientHeight).toBeLessThanOrEqual(2);
+      return;
+    }
+    const report = panel.getByRole('region', { name: 'Economy report' });
+    await report.focus();
+    await page.keyboard.press('End');
+    await expect.poll(() => panel.evaluate(element =>
+      element.querySelector('.economy-outcome-row:last-child').getBoundingClientRect().bottom
+        - element.querySelector('.economy-report').getBoundingClientRect().bottom,
+    )).toBeLessThanOrEqual(1);
+  }
+
+  async function expectEconomyLayout(page, panel) {
+    const layout = await panel.evaluate(element => {
+      const adoption = element.querySelector('.economy-adoption-zone').getBoundingClientRect();
+      const outcomes = element.querySelector('.economy-outcomes-zone').getBoundingClientRect();
+      const features = [...element.querySelectorAll('.economy-adoption-row')].map(row => row.getBoundingClientRect());
+      const report = element.querySelector('.economy-report');
+      const rows = [...element.querySelectorAll('.economy-outcome-row')].map(row => row.getBoundingClientRect());
+      return { adoptionBottom: adoption.bottom, outcomesTop: outcomes.top, featureY: features.map(rect => rect.y), outcomeHeights: rows.map(rect => rect.height), scrollHeight: report.scrollHeight, clientHeight: report.clientHeight };
+    });
+    expect(layout.outcomesTop).toBeGreaterThan(layout.adoptionBottom);
+    expect(Math.abs(layout.featureY[0] - layout.featureY[1])).toBeLessThan(4);
+    expect(layout.outcomeHeights.every(height => height >= 64)).toBe(true);
+    await expectEconomyScrollFit(page, panel, layout);
+    expect(await pageOverflow(page)).toEqual({ vertical: false, horizontal: false });
+  }
+
+  async function expectEconomyReport(page, panel) {
+    await expectEconomyAdoption(panel);
+    await expectEconomyOutcomes(panel);
+    const workspaceBox = await page.locator('.admin-workspace').boundingBox();
+    expect(workspaceBox.height).toBeGreaterThan(page.viewportSize().height * 0.65);
+    const reportBox = await panel.locator('.economy-report').boundingBox();
+    expect(reportBox.height).toBeGreaterThan(page.viewportSize().height * 0.5);
+    if (page.viewportSize().width > 760) await expectEconomyLayout(page, panel);
+  }
+
   test('renders matches as small multiples and Economy as a balanced adoption and market report', async ({ page }) => {
     for (const tab of ['matches', 'economy']) {
       await openFixture(page, { ...FIXTURE, overview: { kpis: [] }, series: [], breakdowns: [SPECIALIZED_MODELS[tab]] }, 200, tab);
       const panel = page.locator(`#analytics-panel-${tab}`);
       await expect(panel).toBeVisible();
       await expect(panel.locator('[data-analytics-chart]')).toHaveCount(1);
-      if (tab === 'matches') {
-        const chartEngine = panel.locator('.analytics-chart-engine');
-        await expect(chartEngine.first().locator('svg.pc-svg')).toHaveCount(1);
-        await expect.poll(() => chartEngine.locator('svg .pc-bar').count()).toBeGreaterThan(0);
-        await expect(chartEngine).toHaveCount(2);
-        await expect(panel.locator('.analytics-chart-group')).toHaveText(['UNIT matches', 'UNIT percent']);
-        // The accessible table keeps the real numerator and denominator.
-        const reconnect = panel.locator('.analytics-chart-table tbody tr').filter({ hasText: /reconnect rate/i });
-        await expect(reconnect.locator('td')).toHaveText(['8%', 'percent', '12', '1', '12']);
-      } else {
-        await expect(panel.locator('.economy-adoption-zone .economy-report-head strong')).toHaveText('Feature adoption');
-        await expect(panel.locator('.economy-adoption-zone .economy-report-head p')).toContainText('Share of eligible matches');
-        await expect(panel.locator('.economy-adoption-row')).toHaveCount(2);
-        await expect(panel.locator('.economy-adoption-row').nth(0)).toContainText('Player loans');
-        await expect(panel.locator('.economy-adoption-row').nth(0)).toContainText('42%');
-        await expect(panel.locator('.economy-adoption-row').nth(0)).toContainText('20 eligible matches');
-        await expect(panel.locator('.economy-adoption-row').nth(1)).toContainText('Auctions');
-        await expect(panel.locator('.economy-adoption-row').nth(1)).toContainText('28%');
-        await expect(panel.locator('.economy-adoption-row').nth(1)).toContainText('20 eligible matches');
-        await expect(panel.getByRole('progressbar')).toHaveCount(2);
-        await expect(panel.getByRole('region', { name: 'Economy report' })).toHaveAttribute('tabindex', '0');
-        await expect(panel.locator('.economy-outcome-row')).toHaveCount(5);
-        await expect(panel.locator('.economy-outcome-row').nth(0)).toContainText('0.17');
-        await expect(panel.locator('.economy-outcome-row').nth(1)).toContainText('6%');
-        await expect(panel.locator('.economy-outcome-row').nth(1)).toContainText('20 margin positions');
-        await expect(panel.locator('.economy-outcome-row').nth(2)).toContainText('2%');
-        await expect(panel.locator('.economy-outcome-row').nth(3)).toContainText('0%');
-        await expect(panel.locator('.economy-outcome-row').nth(4)).toContainText('3');
-        const workspaceBox = await page.locator('.admin-workspace').boundingBox();
-        expect(workspaceBox.height).toBeGreaterThan(page.viewportSize().height * 0.65);
-        const reportBox = await panel.locator('.economy-report').boundingBox();
-        expect(reportBox.height).toBeGreaterThan(page.viewportSize().height * 0.5);
-        if (page.viewportSize().width > 760) {
-          const layout = await panel.evaluate(element => {
-            const adoption = element.querySelector('.economy-adoption-zone').getBoundingClientRect();
-            const outcomes = element.querySelector('.economy-outcomes-zone').getBoundingClientRect();
-            const features = [...element.querySelectorAll('.economy-adoption-row')].map(row => row.getBoundingClientRect());
-            const report = element.querySelector('.economy-report');
-            const rows = [...element.querySelectorAll('.economy-outcome-row')].map(row => row.getBoundingClientRect());
-            return { adoptionBottom: adoption.bottom, outcomesTop: outcomes.top, featureY: features.map(rect => rect.y), outcomeHeights: rows.map(rect => rect.height), scrollHeight: report.scrollHeight, clientHeight: report.clientHeight };
-          });
-          expect(layout.outcomesTop).toBeGreaterThan(layout.adoptionBottom);
-          expect(Math.abs(layout.featureY[0] - layout.featureY[1])).toBeLessThan(4);
-          expect(layout.outcomeHeights.every(height => height >= 64)).toBe(true);
-          if (page.viewportSize().height >= 1000) expect(layout.scrollHeight - layout.clientHeight).toBeLessThanOrEqual(2);
-          else {
-            const report = panel.getByRole('region', { name: 'Economy report' });
-            await report.focus();
-            await page.keyboard.press('End');
-            await expect.poll(() => panel.evaluate(element =>
-              element.querySelector('.economy-outcome-row:last-child').getBoundingClientRect().bottom
-                - element.querySelector('.economy-report').getBoundingClientRect().bottom,
-            )).toBeLessThanOrEqual(1);
-          }
-          expect(await pageOverflow(page)).toEqual({ vertical: false, horizontal: false });
-        }
-      }
+      if (tab === 'matches') await expectMatchesReport(panel);
+      else await expectEconomyReport(page, panel);
       await expect(panel).not.toContainText('WAITING FOR');
     }
   });

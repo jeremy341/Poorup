@@ -379,6 +379,27 @@ export function createAnalyticsController({ fetcher = null, announce = defaultAn
     return { ...filters };
   }
 
+  // A balance request in flight is aborted while the tab is hidden and restarted when it shows again.
+  function pauseBalanceWhileHidden() {
+    if (request) { abortBalance(); interrupted = true; }
+  }
+
+  function resumeBalanceWhenShown() {
+    if (!interrupted) return;
+    interrupted = false;
+    if (isBalanceTab(filters.tab)) void load(filters);
+  }
+
+  function onVisibilityChange() {
+    if (document.visibilityState === 'hidden') pauseBalanceWhileHidden();
+    else resumeBalanceWhenShown();
+  }
+
+  function onWindowResize() {
+    if (resizeFrame) return;
+    resizeFrame = (globalThis.requestAnimationFrame || (callback => setTimeout(callback, 16)))(() => { resizeFrame = 0; refreshScrollCues(document); });
+  }
+
   function wireControls() {
     if (typeof document === 'undefined') return;
     const root = query('#admin-analytics-main');
@@ -394,14 +415,8 @@ export function createAnalyticsController({ fetcher = null, announce = defaultAn
     });
     document.querySelectorAll?.('[data-analytics-range]')?.forEach(button => listen(button, 'click', () => setRange(button.getAttribute('data-analytics-range'))));
     listen(query('[data-analytics-refresh]'), 'click', () => { void refresh(); });
-    listen(document, 'visibilitychange', () => {
-      if (document.visibilityState === 'hidden') { if (request) { abortBalance(); interrupted = true; } return; }
-      if (interrupted) { interrupted = false; if (isBalanceTab(filters.tab)) void load(filters); }
-    });
-    listen(globalThis.window, 'resize', () => {
-      if (resizeFrame) return;
-      resizeFrame = (globalThis.requestAnimationFrame || (callback => setTimeout(callback, 16)))(() => { resizeFrame = 0; refreshScrollCues(document); });
-    });
+    listen(document, 'visibilitychange', onVisibilityChange);
+    listen(globalThis.window, 'resize', onWindowResize);
     ops = createAdminOpsController({
       root: document,
       fetcher: customFetcher ? fetcher : undefined,

@@ -41,32 +41,28 @@ function clearSectionBody(body) {
   body.classList.add('is-hidden');
 }
 
-export function setSectionState(section, kind, { message = '', onRetry = null } = {}) {
-  if (!section) return;
-  const state = slot(section, 'state');
-  const body = slot(section, 'body');
-  const hasData = section.getAttribute('data-has-data') === 'true';
-  section.setAttribute('data-section-kind', kind);
-  section.setAttribute('aria-busy', String(kind === 'loading'));
-  if (kind === 'ready') {
-    section.setAttribute('data-has-data', 'true');
-    state?.classList.add('is-hidden');
-    if (state) state.textContent = '';
-    body?.classList.remove('is-hidden');
-    return;
-  }
+function markSectionReady(section, state, body) {
+  section.setAttribute('data-has-data', 'true');
+  state?.classList.add('is-hidden');
+  if (state) state.textContent = '';
+  body?.classList.remove('is-hidden');
+}
+
+// Returns false when the body should keep its content and the state line is left alone.
+function setBodyForKind(section, body, kind, hasData) {
   if (kind === 'unauthorized') {
     section.setAttribute('data-has-data', 'false');
     clearSectionBody(body);
-  } else if (kind === 'loading' && hasData) {
-    // Refresh in place: keep the content, let the freshness chip say it is refreshing.
-    return;
-  } else if (hasData && kind === 'error') {
-    body?.classList.remove('is-hidden');
-  } else {
-    body?.classList.add('is-hidden');
+    return true;
   }
-  if (!state) return;
+  // Refresh in place: keep the content, let the freshness chip say it is refreshing.
+  if (kind === 'loading' && hasData) return false;
+  if (hasData && kind === 'error') body?.classList.remove('is-hidden');
+  else body?.classList.add('is-hidden');
+  return true;
+}
+
+function renderSectionStateLine(state, kind, { message = '', onRetry = null } = {}) {
   state.classList.remove('is-hidden');
   state.setAttribute('data-state-kind', kind);
   state.setAttribute('tabindex', '-1');
@@ -82,6 +78,22 @@ export function setSectionState(section, kind, { message = '', onRetry = null } 
       if (typeof onRetry === 'function') onRetry();
     });
   }
+}
+
+export function setSectionState(section, kind, options = {}) {
+  if (!section) return;
+  const state = slot(section, 'state');
+  const body = slot(section, 'body');
+  const hasData = section.getAttribute('data-has-data') === 'true';
+  section.setAttribute('data-section-kind', kind);
+  section.setAttribute('aria-busy', String(kind === 'loading'));
+  if (kind === 'ready') {
+    markSectionReady(section, state, body);
+    return;
+  }
+  if (!setBodyForKind(section, body, kind, hasData)) return;
+  if (!state) return;
+  renderSectionStateLine(state, kind, options);
 }
 
 // Shows a failure from an HTTP status in the right state.
