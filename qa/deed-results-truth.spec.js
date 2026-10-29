@@ -61,6 +61,15 @@ async function sellOneHouse(page, testInfo, game, index, expectedLevel) {
   await page.locator('#dd-close').click();
 }
 
+// A finished room, seen by the given viewer, with the client installed on it.
+async function installFinishedRoom(page, room, viewer, propertyBridge = null) {
+  await installClient(page, finishedSnapshot(room, viewer), propertyBridge);
+}
+
+async function expectNoPageScroll(page) {
+  expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(1);
+}
+
 async function expectTradeFitsCard(page) {
   const geometry = await page.locator('#trade-card').evaluate(card => {
     const box = card.getBoundingClientRect();
@@ -204,7 +213,7 @@ test('real Brown-set sales stay even and Sell deed negotiates with a player', as
     return { response, snapshot: finishedSnapshot(room, owner) };
   };
   await page.exposeFunction('__deedTruthAction', bridge);
-  await installClient(page, finishedSnapshot(room, owner), true);
+  await installFinishedRoom(page, room, owner, true);
   await openDeedDetail(page, 1);
   await expect(page.locator('#dd-sell')).toBeEnabled();
   await expect(page.locator('#dd-sell')).toContainText('SELL HOUSE');
@@ -259,7 +268,7 @@ test('real Brown-set sales stay even and Sell deed negotiates with a player', as
   expect(game.manageProperty('truth-deed-host', { tileIndex: 3, action: 'sell-deed', requestId: 'stale-bank-sale' }).success).toBe(false);
   expect(game.getTile(3).ownerId).toBe(owner.id);
   expect(owner.cash).toBe(replayCash);
-  expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(1);
+  await expectNoPageScroll(page);
 });
 
 test('mortgaged deeds can be offered and requested without clearing their mortgage', async ({ page }, testInfo) => {
@@ -277,7 +286,7 @@ test('mortgaged deeds can be offered and requested without clearing their mortga
     response: event === 'propose-trade' ? game.proposeTrade('truth-mortgaged-host', payload) : game.manageProperty('truth-mortgaged-host', payload),
     snapshot: finishedSnapshot(room, seller),
   }));
-  await installClient(page, finishedSnapshot(room, seller), true);
+  await installFinishedRoom(page, room, seller, true);
   await openDeedDetail(page, 5);
   await expect(page.locator('#dd-trade-deed')).toBeEnabled();
   await captureState(page, testInfo, 'deed-mortgaged', 'Mortgaged airport remains eligible for player trade');
@@ -342,7 +351,7 @@ test('every owned deed manager shows its complete rent schedule without expandin
     const tile = game.getTile(index);
     tile.ownerId = owner.id; tile.purchasePricePaid = tile.price; owner.properties.push(index);
   }
-  await installClient(page, finishedSnapshot(room, owner));
+  await installFinishedRoom(page, room, owner);
   for (const [index, name, rows] of [[1, 'property', 6], [5, 'airport', 4], [12, 'electric', 2], [28, 'water', 2]]) {
     await openDeedDetail(page, index);
     const ladder = page.locator('#deed-card-detail .dd-ladder');
@@ -359,7 +368,7 @@ test('every owned deed manager shows its complete rent schedule without expandin
     await page.locator('#dd-trade-deed').focus();
     await expect(page.locator('#dd-trade-deed')).toBeInViewport();
     await page.locator('#dd-close').click();
-    expect(await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThanOrEqual(1);
+    await expectNoPageScroll(page);
   }
 });
 
@@ -381,7 +390,7 @@ test('building stays available beyond the old shared supply totals even with leg
     expect(event).toBe('manage-property');
     return { response: game.manageProperty('uncapped-ui-host', payload), snapshot: finishedSnapshot(room, owner) };
   });
-  await installClient(page, finishedSnapshot(room, owner), true);
+  await installFinishedRoom(page, room, owner, true);
   await openDeedDetail(page, 1);
   await expect(page.locator('#dd-buy')).toBeEnabled();
   await expect(page.locator('.dd-stock-details')).toHaveCount(0);
