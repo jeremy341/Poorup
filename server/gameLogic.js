@@ -39,6 +39,8 @@ const PLAYER_STATE_DEFAULTS = [
   ['jailFreeCards', 0],
   ['jailFreeOrigins', () => []],
   ['items', () => []],
+  ['matchRebate', 0],
+  ['bestTradeNet', 0],
   ['bankLoan', null],
   ['casinoNet', 0],
   ['casinoLedger', () => []],
@@ -280,7 +282,7 @@ class GameState {
     this.afkTurnCount = 0;
     this.telemetryLog = [];
     this.itemTransactions = new Map();
-    const decks = decksForVariant(this.boardVariant, this.settings);
+    const decks = decksForVariant(this.boardVariant);
     this.surpriseDeck = decks.surprise.map(card => ({ ...card }));
     this.treasureDeck = decks.treasure.map(card => ({ ...card }));
   }
@@ -384,7 +386,7 @@ class GameState {
     this.afkTurnCount = 0;
     this.telemetryLog = [];
     this.itemTransactions = new Map();
-    const decks = decksForVariant(this.boardVariant, this.settings);
+    const decks = decksForVariant(this.boardVariant);
     this.surpriseDeck = decks.surprise.map(card => ({ ...card }));
     this.treasureDeck = decks.treasure.map(card => ({ ...card }));
     this.players.forEach(player => {
