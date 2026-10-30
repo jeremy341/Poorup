@@ -7,6 +7,11 @@ import { AUCTION_COMMITTED_CASH_ERROR } from './auctionApi.js';
 
 const MAX_TRADE_PROPERTIES = 40;
 
+// Keeps the largest cash gain from one completed trade, for the end-of-game recap. Deeds are not valued here.
+export function recordBestTrade(player, cashNet) {
+  if (cashNet > (Number(player.bestTradeNet) || 0)) player.bestTradeNet = cashNet;
+}
+
 function tradeTransactionKey(prefix, playerId, requestId) {
   if (!requestId) return null;
   return `${playerId}:${prefix}:${normalizeRequestId(requestId)}`;
@@ -425,6 +430,8 @@ const tradeApi = {
       fromPlayer.tradesCompleted = (fromPlayer.tradesCompleted || 0) + 1;
       toPlayer.tradesCompleted = (toPlayer.tradesCompleted || 0) + 1;
       this.markCompletedTradeFlags(fromPlayer, toPlayer, giveTiles.length + requestTiles.length);
+      recordBestTrade(fromPlayer, trade.requestCash - trade.giveCash);
+      recordBestTrade(toPlayer, trade.giveCash - trade.requestCash);
       this.feedMessage(`${fromPlayer.nickname} and ${toPlayer.nickname} completed a trade.`);
       this.settleTradeLinkedPayments(fromPlayer, toPlayer);
       // The offer is cleared only after the whole settlement committed, so a
