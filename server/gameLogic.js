@@ -39,6 +39,8 @@ const PLAYER_STATE_DEFAULTS = [
   ['jailFreeCards', 0],
   ['jailFreeOrigins', () => []],
   ['items', () => []],
+  ['matchRebate', 0],
+  ['bestTradeNet', 0],
   ['bankLoan', null],
   ['casinoNet', 0],
   ['casinoLedger', () => []],
