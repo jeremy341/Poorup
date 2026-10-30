@@ -4,9 +4,9 @@
 import { normalizeRequestId } from './requestId.js';
 
 export const BANK_ACCOUNT_TIERS = Object.freeze([
-  Object.freeze({ tier: 1, name: 'STANDARD', cost: 0, rebatePct: 0 }),
-  Object.freeze({ tier: 2, name: 'PARLOR PREMIUM', cost: 200, rebatePct: 10 }),
-  Object.freeze({ tier: 3, name: 'PARLOR BLACK', cost: 500, rebatePct: 20 })
+  Object.freeze({ tier: 1, name: 'STANDARD', cost: 0, rebatePct: 0, saleFeePct: 10 }),
+  Object.freeze({ tier: 2, name: 'PARLOR PREMIUM', cost: 200, rebatePct: 10, saleFeePct: 5 }),
+  Object.freeze({ tier: 3, name: 'PARLOR BLACK', cost: 500, rebatePct: 20, saleFeePct: 0 })
 ]);
 
 const LEDGER_LIMIT = 20;
@@ -14,6 +14,16 @@ const REQUEST_MEMORY = 12;
 
 function tierInfo(tier) {
   return BANK_ACCOUNT_TIERS.find(entry => entry.tier === tier) || BANK_ACCOUNT_TIERS[0];
+}
+
+// The bank's fee on an item sold to it, by the seat's tier. With the table rule off there is no fee:
+// the seat keeps the full value. The fee is floor(value * pct / 100) and the seat receives the rest.
+export function bankSaleQuote(game, player, value) {
+  const gross = Math.max(0, Math.floor(Number(value) || 0));
+  if (!game.bankAccountsEnabled()) return { gross, feePct: 0, fee: 0, net: gross };
+  const feePct = tierInfo(game.bankAccountOf(player).tier).saleFeePct;
+  const fee = Math.floor((gross * feePct) / 100);
+  return { gross, feePct, fee, net: gross - fee };
 }
 
 function upgradeRefusal(game, player) {
