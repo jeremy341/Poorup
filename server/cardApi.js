@@ -10,6 +10,8 @@ const RESOLVE_TAIL = Symbol('resolveTurnAfterAction');
 
 // With item rewards on, each Surprise or Treasure draw has a 1 in this many chance to hand out an item instead.
 const ITEM_DRAW_ODDS = 40;
+// While the Lucky Table global event runs (with item rewards on), each card draw has a 1 in this chance of handing over an item card.
+export const LUCKY_TABLE_ITEM_DRAW_ODDS = 10;
 
 // Refills exclude Get-Out-of-Prison cards that players hold: a held card stays out of circulation until used, so a deck
 // cannot mint a duplicate. Each deck owns one such card, so only cards drawn from THIS deck count (player.jailFreeOrigins);
@@ -82,9 +84,20 @@ const cardApi = {
     const key = deckName === 'treasure' ? 'treasureDeck' : 'surpriseDeck';
     const variantDecks = decksForVariant(this.boardVariant || 'standard-40');
     const source = deckName === 'treasure' ? variantDecks.treasure : variantDecks.surprise;
+    const luckyItem = this.luckyTableItemDraw();
+    if (luckyItem) return luckyItem;
     if (this[key].length === 0) this[key] = refillExcludingHeld(source, this.players, deckName === 'treasure' ? 'treasure' : 'surprise');
     const index = randomInt(0, this[key].length - 1);
     return this[key].splice(index, 1)[0];
+  },
+
+  // Lucky Table: with item rewards on and the event active, a draw has a 1 in LUCKY_TABLE_ITEM_DRAW_ODDS chance to hand over one of the
+  // deck's item cards (a copy, so the deck pile is untouched). Outside the event no random number is drawn, so normal draws are unchanged.
+  luckyTableItemDraw() {
+    if (!this.settings?.itemRewards) return null;
+    if (!this.globalEventActive('lucky-table')) return null;
+    if (randomInt(1, LUCKY_TABLE_ITEM_DRAW_ODDS) !== 1) return null;
+    return { ...ITEM_REWARD_CARDS[randomInt(0, ITEM_REWARD_CARDS.length - 1)] };
   },
 
   applyCard(player, card, options = {}) {

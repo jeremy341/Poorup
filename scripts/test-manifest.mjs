@@ -19,7 +19,7 @@ export const TEST_GROUPS = Object.freeze({
     'server/aiProviderConfig.test.js', 'server/aiProviderRoutes.test.js', 'server/bot-brain.test.js',
     'server/botStrategicContext.test.js', 'server/botFuturePlanner.test.js', 'server/botDevelopmentForecast.test.js',
     'server/botTableBrain.test.js', 'server/botTableMind.test.js', 'server/bot-simulation.test.js',
-    'server/global-events.test.js', 'server/trades.test.js', 'server/casino-bankruptcy.test.js',
+    'server/global-events.test.js', 'server/lucky-table.test.js', 'server/trades.test.js', 'server/casino-bankruptcy.test.js',
     'server/roomSetup.test.js', 'server/nicknamePolicy.test.js', 'server/serverStorePaths.test.js', 'server/release-hardening.test.js', 'scripts/restore-backup.test.mjs',
     'scripts/loadEnvFile.test.mjs', 'scripts/ops-wiring.test.mjs',
     'server/rooms.test.js', 'server/server.test.js', 'server/rooms-seat-reclaim.test.js', 'server/serverSocketRoomLifecycle.test.js', 'server/trade-and-auction-guards.test.js',
