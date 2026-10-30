@@ -215,7 +215,7 @@ const rulesRoot = { innerHTML: '', querySelectorAll: () => [] };
 globalThis.document = { querySelector: () => rulesRoot };
 state.rulesSection = 'wallet-items';
 renderRulesSurface();
-for (const term of ['PRISON KEY', 'PARLOR BOND', 'SILVER KEEPSAKE', 'SELL $25', 'SELL $50', 'SELL $75', 'two rounds', 'debt rescue', 'reconnects restore']) assert.ok(rulesRoot.innerHTML.includes(term), term);
+for (const term of ['PRISON KEY', 'PARLOR BOND', 'SILVER KEEPSAKE', 'SELL $25', 'SELL $400', 'SELL $600', 'two rounds', 'debt rescue', 'reconnects restore']) assert.ok(rulesRoot.innerHTML.includes(term), term);
 state.rulesSection = 'rulesets-market';
 renderRulesSurface();
 assert.match(rulesRoot.innerHTML, /Both presets allow every optional economy system/);
