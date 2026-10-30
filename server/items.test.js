@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { netWorth } from './netWorth.js';
-import { decksForVariant } from './boardRegistry.js';
+import { ITEM_REWARD_CARDS, decksForVariant } from './boardRegistry.js';
 import { getBotChoiceCandidates, runPaymentChoice, CANDIDATE_RUNNERS } from './botLogic.js';
 
 function fixture(enabled = true) {
@@ -22,25 +22,25 @@ function fixture(enabled = true) {
   const second = game.grantItem(player, 'parlor-bond', 'treasure');
   assert.notEqual(first.itemId, second.itemId);
   assert.equal(first.maturesRound, 3);
-  assert.equal(netWorth(game, player), player.cash + 100);
+  assert.equal(netWorth(game, player), player.cash + 800);
   assert.deepEqual(game.summaryItems(player, other.id), []);
   assert.equal(game.summaryItems(player, player.id)[0].canUse, false);
   assert.equal(game.useItem('a', { itemId: first.itemId, requestId: 'early' }).success, false);
   game.roundNumber = 3;
-  assert.equal(netWorth(game, player), player.cash + 200);
+  assert.equal(netWorth(game, player), player.cash + 1600);
   const before = player.cash;
   const redeemed = game.useItem('a', { itemId: first.itemId, requestId: 'redeem' });
-  assert.equal(redeemed.cashReceived, 100);
-  assert.equal(player.cash, before + 100);
+  assert.equal(redeemed.cashReceived, 800);
+  assert.equal(player.cash, before + 800);
   assert.equal(game.useItem('a', { itemId: first.itemId, requestId: 'redeem' }).duplicate, true);
   assert.equal(game.sellItem('a', { itemId: second.itemId, requestId: 'redeem' }).success, false);
   assert.equal(game.useItem('a', { itemId: first.itemId, requestId: 'new' }).success, false);
   assert.equal(game.sellItem('b', { itemId: second.itemId, requestId: 'theft' }).success, false);
-  assert.equal(game.sellItem('a', { itemId: second.itemId, requestId: 'sell', amount: 9999 }).cashReceived, 50);
-  assert.equal(player.cash, before + 150);
+  assert.equal(game.sellItem('a', { itemId: second.itemId, requestId: 'sell', amount: 9999 }).cashReceived, 400);
+  assert.equal(player.cash, before + 1200);
   game.itemTransactions.clear();
   assert.equal(game.sellItem('a', { itemId: second.itemId, requestId: 'forgotten-replay' }).success, false);
-  assert.equal(player.cash, before + 150);
+  assert.equal(player.cash, before + 1200);
 }
 
 {
@@ -52,7 +52,7 @@ function fixture(enabled = true) {
   assert.equal(game.sellItem('a', { itemId: item.itemId, requestId: 'rescue' }).success, true);
   assert.equal(game.pendingPayment, null);
   assert.equal(other.cash, before + 60);
-  assert.equal(player.cash, 15);
+  assert.equal(player.cash, 540);
   assert.equal(player.items.length, 0);
 }
 
@@ -60,27 +60,26 @@ function fixture(enabled = true) {
   const { game, player } = fixture();
   game.isLowTaxElection = () => true;
   const bond = game.grantItem(player, 'parlor-bond', 'treasure');
-  assert.equal(bond.bankSellValue, 40);
-  assert.equal(bond.redeemValue, 80);
+  assert.equal(bond.bankSellValue, 320);
+  assert.equal(bond.redeemValue, 640);
   game.roundNumber = 3;
   game.isLowTaxElection = () => false;
-  assert.equal(game.useItem('a', { itemId: bond.itemId, requestId: 'discount' }).cashReceived, 80);
+  assert.equal(game.useItem('a', { itemId: bond.itemId, requestId: 'discount' }).cashReceived, 640);
 }
 
 for (const deckName of ['surprise', 'treasure']) {
   const { game, player } = fixture();
   game.isLowTaxElection = () => true;
-  const reward = decksForVariant('standard-40', { itemRewards: true })[deckName]
-    .find(card => card.catalogId === 'silver-keepsake');
-  game[`${deckName}Deck`] = [reward];
+  const reward = ITEM_REWARD_CARDS.find(card => card.catalogId === 'silver-keepsake');
+  game.drawCard = () => ({ ...reward });
   const result = game.handleChanceTile(player, {}, deckName);
   assert.equal(result.cardReveal.text, 'Receive a Silver Keepsake. Sell it to the bank.');
   assert.ok(game.feed.some(entry => entry.text.includes(result.cardReveal.text)));
   const item = game.summaryItems(player, player.id)[0];
-  assert.equal(item.bankSellValue, 60);
-  assert.match(item.description, /\$60/);
+  assert.equal(item.bankSellValue, 480);
+  assert.match(item.description, /\$480/);
   game.isLowTaxElection = () => false;
-  assert.equal(game.sellItem('a', { itemId: item.itemId, requestId: `low-tax-${deckName}` }).cashReceived, 60);
+  assert.equal(game.sellItem('a', { itemId: item.itemId, requestId: `low-tax-${deckName}` }).cashReceived, 480);
 }
 
 {
@@ -128,7 +127,7 @@ for (const deckName of ['surprise', 'treasure']) {
   game.roundNumber = bond.maturesRound;
   const normal = game.getBotCandidates(player).find(candidate => candidate.kind === 'item-use');
   assert.equal(normal.itemId, bond.itemId);
-  assert.equal(CANDIDATE_RUNNERS['item-use'](room, player, normal).cashReceived, 100);
+  assert.equal(CANDIDATE_RUNNERS['item-use'](room, player, normal).cashReceived, 800);
   const keepsake = game.grantItem(player, 'silver-keepsake', 'surprise');
   player.cash = 0;
   game.chargePlayer({ player, amount: 70, creditor: other });
@@ -141,17 +140,17 @@ for (const deckName of ['surprise', 'treasure']) {
 for (const variant of ['standard-40', 'metro-52']) {
   const classic = decksForVariant(variant);
   assert.equal(classic.surprise.some(card => card.action === 'itemReward'), false);
+  assert.equal(classic.treasure.some(card => card.action === 'itemReward'), false);
   const { game, player } = fixture();
   game.boardVariant = variant;
-  for (const deckName of ['surprise', 'treasure']) {
-    const source = decksForVariant(variant, game.settings)[deckName];
-    assert.equal(source.filter(card => card.action === 'itemReward').length, 2);
-    game[`${deckName}Deck`] = [];
-    const drawn = Array.from({ length: source.length }, () => game.drawCard(deckName));
-    assert.equal(drawn.filter(card => card.action === 'itemReward').length, 2);
-    for (const card of drawn.filter(card => card.action === 'itemReward')) game.applyCard(player, card);
-  }
-  assert.equal(player.items.length, 4);
+  game.settings = { ...game.settings, itemRewards: false };
+  assert.equal(Array.from({ length: 500 }, () => game.drawCard('treasure')).some(card => card.action === 'itemReward'), false);
+  // Item draws are rare: about 1 in 40 draws, so 5000 draws should land well inside this band.
+  game.settings = { ...game.settings, itemRewards: true };
+  const items = Array.from({ length: 5000 }, () => game.drawCard('surprise')).filter(card => card.action === 'itemReward');
+  assert.ok(items.length >= 50 && items.length <= 250, `rare item draws landed at ${items.length} of 5000`);
+  for (const card of items.slice(0, 2)) game.applyCard(player, card);
+  assert.equal(player.items.length, 2);
 }
 
 {
@@ -162,7 +161,7 @@ for (const variant of ['standard-40', 'metro-52']) {
   player.cash = 0;
   const cash = other.cash;
   assert.equal(game.handleBankruptcy(player, other).success, true);
-  assert.equal(other.cash, cash + 175);
+  assert.equal(other.cash, cash + 1400);
   assert.deepEqual(player.items, []);
   assert.equal(game.liquidateItems(player), 0);
 }
@@ -177,7 +176,7 @@ for (const variant of ['standard-40', 'metro-52']) {
   for (const payload of [null, [], { itemId: item.itemId }, { itemId: {}, requestId: 'bad' }, { itemId: item.itemId, requestId: {} }]) {
     assert.equal(game.sellItem('a', payload).success, false);
   }
-  assert.equal(game.sellItem('a', { itemId: item.itemId, requestId: 'other-debtor' }).cashReceived, 75);
+  assert.equal(game.sellItem('a', { itemId: item.itemId, requestId: 'other-debtor' }).cashReceived, 600);
   assert.equal(player.items.length, 0);
   assert.equal(other.cash, 0);
   assert.deepEqual(game.pendingPayment, debt);

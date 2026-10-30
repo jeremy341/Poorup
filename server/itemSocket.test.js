@@ -80,9 +80,9 @@ test('real sockets redeem and sell once, reject theft and malformed input, and p
   assert.equal(sold.success, true);
   assert.equal(sold.action, 'sell');
   assert.equal(sold.itemId, keepsake.itemId);
-  assert.equal(sold.cashReceived, 75);
+  assert.equal(sold.cashReceived, 600);
   assert.deepEqual(await ask(host, 'sell-item', { itemId: keepsake.itemId, requestId: 'sale' }), sold);
-  assert.equal(player.cash, startingCash + 75);
+  assert.equal(player.cash, startingCash + 600);
   const [{ game: ownerState }] = await hostUpdate;
   const [{ game: rivalState }] = await guestUpdate;
   assert.deepEqual(ownerState.players.find(seat => seat.id === player.id).items.map(item => item.itemId), [bond.itemId]);
@@ -95,9 +95,9 @@ test('real sockets redeem and sell once, reject theft and malformed input, and p
   }
   game.roundNumber = bond.maturesRound;
   const redeemed = await ask(host, 'use-item', { itemId: bond.itemId, requestId: 'redeem', redeemValue: 9999 });
-  assert.deepEqual(redeemed, { success: true, action: 'use', itemId: bond.itemId, cashReceived: 100 });
+  assert.deepEqual(redeemed, { success: true, action: 'use', itemId: bond.itemId, cashReceived: 800 });
   assert.deepEqual(await ask(host, 'use-item', { itemId: bond.itemId, requestId: 'redeem' }), redeemed);
-  assert.equal(player.cash, startingCash + 175);
+  assert.equal(player.cash, startingCash + 1400);
   assert.equal((await ask(host, 'use-item', { itemId: bond.itemId, requestId: 'consumed' })).success, false);
   assert.equal((await ask(host, 'sell-item', { itemId: otherItem.itemId, requestId: 'sale' })).success, false);
 });
@@ -111,15 +111,15 @@ test('real item sockets obey match authority and settle a debt rescue sale', asy
   assert.equal(freed.cashReceived, 0);
   assert.equal(player.inJail, false);
   const offTurn = game.grantItem(other, 'silver-keepsake', 'treasure');
-  assert.equal((await ask(guest, 'sell-item', { itemId: offTurn.itemId, requestId: 'off-turn' })).cashReceived, 75);
+  assert.equal((await ask(guest, 'sell-item', { itemId: offTurn.itemId, requestId: 'off-turn' })).cashReceived, 600);
   const rescue = game.grantItem(other, 'silver-keepsake', 'treasure');
   other.cash = 0;
   game.chargePlayer({ player: other, amount: 60, creditor: player, message: 'Item rescue test' });
   const before = player.cash;
   const rescued = await ask(guest, 'sell-item', { itemId: rescue.itemId, requestId: 'rescue' });
-  assert.equal(rescued.cashReceived, 75, JSON.stringify(rescued));
+  assert.equal(rescued.cashReceived, 600, JSON.stringify(rescued));
   assert.equal(game.pendingPayment, null);
-  assert.equal(other.cash, 15);
+  assert.equal(other.cash, 540);
   assert.equal(player.cash, before + 60);
   const unavailable = game.grantItem(player, 'silver-keepsake', 'surprise');
   game.started = false;
@@ -147,14 +147,14 @@ test('off-turn items can be sold or redeemed without disturbing another seat deb
   assert.equal(summary.find(item => item.itemId === keepsake.itemId).canSell, true);
   assert.equal(summary.find(item => item.itemId === bond.itemId).canUse, true);
   const sale = await ask(guest, 'sell-item', { itemId: keepsake.itemId, requestId: 'off-turn-sale' });
-  assert.equal(sale.cashReceived, 75);
+  assert.equal(sale.cashReceived, 600);
   assert.deepEqual(await ask(guest, 'sell-item', { itemId: keepsake.itemId, requestId: 'off-turn-sale' }), sale);
   const redeemed = await ask(guest, 'use-item', { itemId: bond.itemId, requestId: 'off-turn-redeem' });
-  assert.equal(redeemed.cashReceived, 100);
+  assert.equal(redeemed.cashReceived, 800);
   assert.deepEqual(await ask(guest, 'use-item', { itemId: bond.itemId, requestId: 'off-turn-redeem' }), redeemed);
   const soldKey = await ask(guest, 'sell-item', { itemId: key.itemId, requestId: 'off-turn-key-sale' });
   assert.equal(soldKey.cashReceived, 25);
-  assert.equal(other.cash, cash + 200);
+  assert.equal(other.cash, cash + 1425);
   assert.equal(player.cash, 0);
   assert.deepEqual(game.pendingPayment, pending);
   assert.deepEqual(game.pendingPaymentQueue, queue);
@@ -179,5 +179,5 @@ test('reconnected owner receives the same inventory instances and can act throug
   assert.equal(Object.hasOwn(rivalState.players.find(seat => seat.id === player.id), 'items'), false);
   const sold = await ask(reconnected, 'sell-item', { itemId: item.itemId, requestId: 'reconnected-sale' });
   assert.equal(sold.success, true);
-  assert.equal(sold.cashReceived, 75);
+  assert.equal(sold.cashReceived, 600);
 });

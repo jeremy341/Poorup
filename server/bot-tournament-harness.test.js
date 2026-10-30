@@ -26,7 +26,7 @@ async function itemSeedMatch() {
   const policyBySeat = Array.from({ length: 3 }, (_, seat) => createBotPolicy(`item-seed-${seat}`, {
     brain: 'no-ai', advisor: new DeterministicAdvisor()
   }));
-  return simulateBotMatch({ seed: 4043, policyBySeat, settings: {
+  return simulateBotMatch({ seed: 4051, policyBySeat, settings: {
     startingCash: 1500, itemRewards: true, auction: true, casino: false, market: false, globalEvents: false
   }, stepLimit: 2000, captureTrace: true });
 }
