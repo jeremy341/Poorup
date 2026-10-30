@@ -3,10 +3,13 @@
 // gameLogic.js assigns this object onto GameState.prototype; server/applyCard.test.js pins every card's effect and feed text.
 import { randomInt } from './random.js';
 import { START_TILE_INDEX } from './gameData.js';
-import { decksForVariant } from './boardRegistry.js';
+import { ITEM_REWARD_CARDS, decksForVariant } from './boardRegistry.js';
 import { recordPresentationCash } from './gamePresentation.js';
 
 const RESOLVE_TAIL = Symbol('resolveTurnAfterAction');
+
+// With item rewards on, each Surprise or Treasure draw has a 1 in this many chance to hand out an item instead.
+const ITEM_DRAW_ODDS = 40;
 
 // Refills exclude Get-Out-of-Prison cards that players hold: a held card stays out of circulation until used, so a deck
 // cannot mint a duplicate. Each deck owns one such card, so only cards drawn from THIS deck count (player.jailFreeOrigins);
@@ -75,8 +78,9 @@ const cardApi = {
   },
 
   drawCard(deckName = 'surprise') {
+    if (this.settings?.itemRewards && randomInt(1, ITEM_DRAW_ODDS) === 1) return { ...ITEM_REWARD_CARDS[randomInt(0, ITEM_REWARD_CARDS.length - 1)] };
     const key = deckName === 'treasure' ? 'treasureDeck' : 'surpriseDeck';
-    const variantDecks = decksForVariant(this.boardVariant || 'standard-40', this.settings);
+    const variantDecks = decksForVariant(this.boardVariant || 'standard-40');
     const source = deckName === 'treasure' ? variantDecks.treasure : variantDecks.surprise;
     if (this[key].length === 0) this[key] = refillExcludingHeld(source, this.players, deckName === 'treasure' ? 'treasure' : 'surprise');
     const index = randomInt(0, this[key].length - 1);

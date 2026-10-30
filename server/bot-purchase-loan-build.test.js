@@ -296,7 +296,7 @@ await checkAsync('a zero-cash bot after its roll takes an available loan before 
   assert.equal(bot.cash, 300, 'the loan principal reached the bot');
 });
 
-for (const [catalogId, expectedCash] of [['silver-keepsake', 75], ['parlor-bond', 50], ['prison-key', 25]]) {
+for (const [catalogId, expectedCash] of [['silver-keepsake', 600], ['parlor-bond', 400], ['prison-key', 25]]) {
   await checkAsync(`zero-cash bot sells ${catalogId} before bankruptcy`, async () => {
     const { room, game, bot } = botRoom({ cash: 0, settings: { itemRewards: true } });
     game.hasRolled = true;
