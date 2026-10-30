@@ -101,7 +101,10 @@ export const PARTICIPANT_FIELDS = [
 // actually owns the field. This preserves the legacy participant shape while
 // allowing completed trades to contribute truthful season metrics.
 const OPTIONAL_PARTICIPANT_FIELDS = [
-  { key: 'tradesCompleted', fromRecord: (v) => nonNegative(v?.tradesCompleted), fromPlayer: (p) => nonNegative(p.tradesCompleted) }
+  { key: 'tradesCompleted', fromRecord: (v) => nonNegative(v?.tradesCompleted), fromPlayer: (p) => nonNegative(p.tradesCompleted) },
+  { key: 'itemsHeld', source: 'items', fromRecord: (v) => nonNegative(v?.itemsHeld), fromPlayer: (p) => (Array.isArray(p.items) ? p.items.length : 0) },
+  { key: 'matchRebate', fromRecord: (v) => nonNegative(v?.matchRebate), fromPlayer: (p) => nonNegative(p.matchRebate) },
+  { key: 'bestTradeNet', fromRecord: (v) => nonNegative(v?.bestTradeNet), fromPlayer: (p) => nonNegative(p.bestTradeNet) }
 ];
 
 const MATCH_DETAIL_FIELDS = [
@@ -133,7 +136,7 @@ export function participantFromPlayer(player, context) {
     result[field.key] = field.fromPlayer(player, context);
   });
   OPTIONAL_PARTICIPANT_FIELDS.forEach((field) => {
-    if (Object.prototype.hasOwnProperty.call(player || {}, field.key)) result[field.key] = field.fromPlayer(player, context);
+    if (Object.prototype.hasOwnProperty.call(player || {}, field.source || field.key)) result[field.key] = field.fromPlayer(player, context);
   });
   if (context?.includeMatchDetails) {
     MATCH_DETAIL_FIELDS.forEach((field) => { result[field.key] = field.fromPlayer(player, context); });
