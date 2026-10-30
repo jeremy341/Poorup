@@ -39,9 +39,9 @@ for (const route of ['bankruptcy', 'removeSeat']) {
     assert.deepEqual(borrower.items, []);
     assert.deepEqual(borrower.jailFreeOrigins, []);
     assert.equal(borrower.jailFreeCards, 0);
-    assert.equal(other.cash, before.otherCash + 200);
+    assert.equal(other.cash, before.otherCash + 1425);
     assert.equal(game.liquidateItems(borrower), 0);
-    assert.equal(other.cash, before.otherCash + 200);
+    assert.equal(other.cash, before.otherCash + 1425);
   });
 }
 
@@ -52,9 +52,9 @@ test('item is consumed and request recorded before a debt hook can reenter its s
   let repeated;
   game.chargePlayer({ player: borrower, creditor: other, amount: 60, hooks: { onPaid() { repeated = game.sellItem('borrower', { itemId: item.itemId, requestId: 'atomic-sale' }); } } });
   const before = other.cash;
-  assert.equal(game.sellItem('borrower', { itemId: item.itemId, requestId: 'atomic-sale' }).cashReceived, 75);
+  assert.equal(game.sellItem('borrower', { itemId: item.itemId, requestId: 'atomic-sale' }).cashReceived, 600);
   assert.equal(repeated.duplicate, true);
-  assert.equal(borrower.cash, 15);
+  assert.equal(borrower.cash, 540);
   assert.equal(other.cash, before + 60);
   assert.equal(borrower.items.length, 0);
 });
@@ -69,7 +69,7 @@ test('earned items remain redeemable after a trusted restored flag change and re
   assert.equal(restored, room);
   assert.equal(game.summaryItems(borrower, borrower.id)[0].itemId, bond.itemId);
   assert.equal(game.useItem('borrower', { itemId: bond.itemId, requestId: 'stale' }).success, false);
-  assert.equal(game.useItem('new-borrower-socket', { itemId: bond.itemId, requestId: 'new' }).cashReceived, 100);
+  assert.equal(game.useItem('new-borrower-socket', { itemId: bond.itemId, requestId: 'new' }).cashReceived, 800);
 });
 
 test('normal bot phase redeems a mature bond through the real item action before rolling', async () => {
@@ -79,8 +79,8 @@ test('normal bot phase redeems a mature bond through the real item action before
   game.roundNumber = item.maturesRound;
   const before = borrower.cash;
   const result = await runBotTurn(room, borrower, null);
-  assert.equal(result.cashReceived, 100);
-  assert.equal(borrower.cash, before + 100);
+  assert.equal(result.cashReceived, 800);
+  assert.equal(borrower.cash, before + 800);
   assert.equal(game.hasRolled, false);
   assert.equal(borrower.items.length, 0);
 });
