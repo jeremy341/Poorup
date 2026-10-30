@@ -280,7 +280,7 @@ class GameState {
     this.afkTurnCount = 0;
     this.telemetryLog = [];
     this.itemTransactions = new Map();
-    const decks = decksForVariant(this.boardVariant, this.settings);
+    const decks = decksForVariant(this.boardVariant);
     this.surpriseDeck = decks.surprise.map(card => ({ ...card }));
     this.treasureDeck = decks.treasure.map(card => ({ ...card }));
   }
@@ -384,7 +384,7 @@ class GameState {
     this.afkTurnCount = 0;
     this.telemetryLog = [];
     this.itemTransactions = new Map();
-    const decks = decksForVariant(this.boardVariant, this.settings);
+    const decks = decksForVariant(this.boardVariant);
     this.surpriseDeck = decks.surprise.map(card => ({ ...card }));
     this.treasureDeck = decks.treasure.map(card => ({ ...card }));
     this.players.forEach(player => {

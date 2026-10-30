@@ -168,14 +168,16 @@ function deckForVariant(source, variant) {
   });
 }
 
-function decksForVariant(variant = 'standard-40', settings = {}) {
-  const itemCards = settings.itemRewards ? [
-    { action: 'itemReward', catalogId: 'parlor-bond', itemName: 'a Parlor Bond', text: 'Receive a Parlor Bond. Redeem after two rounds or sell to the bank.' },
-    { action: 'itemReward', catalogId: 'silver-keepsake', itemName: 'a Silver Keepsake', text: 'Receive a Silver Keepsake. Sell it to the bank.' }
-  ] : [];
+// Item cards never sit in the decks. drawCard hands one out on a rare roll when item rewards are on.
+const ITEM_REWARD_CARDS = Object.freeze([
+  Object.freeze({ action: 'itemReward', catalogId: 'parlor-bond', itemName: 'a Parlor Bond', text: 'Receive a Parlor Bond. Redeem after two rounds or sell to the bank.' }),
+  Object.freeze({ action: 'itemReward', catalogId: 'silver-keepsake', itemName: 'a Silver Keepsake', text: 'Receive a Silver Keepsake. Sell it to the bank.' })
+]);
+
+function decksForVariant(variant = 'standard-40') {
   return {
-    surprise: deckForVariant([...SURPRISE_DECK, ...itemCards], variant),
-    treasure: deckForVariant([...TREASURE_DECK, ...itemCards], variant)
+    surprise: deckForVariant([...SURPRISE_DECK], variant),
+    treasure: deckForVariant([...TREASURE_DECK], variant)
   };
 }
 
@@ -186,6 +188,7 @@ export {
   TILE_SETS,
   boardDefinition,
   decksForVariant,
+  ITEM_REWARD_CARDS,
   tileIdAt,
   tileIndexById,
   tilesForVariant
