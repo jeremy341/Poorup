@@ -9,7 +9,7 @@ import { recordPresentationCash } from './gamePresentation.js';
 const RESOLVE_TAIL = Symbol('resolveTurnAfterAction');
 
 // With item rewards on, each Surprise or Treasure draw has a 1 in this many chance to hand out an item instead.
-const ITEM_DRAW_ODDS = 40;
+export const ITEM_DRAW_ODDS = 40;
 // While the Lucky Table global event runs (with item rewards on), each card draw has a 1 in this chance of handing over an item card.
 export const LUCKY_TABLE_ITEM_DRAW_ODDS = 10;
 

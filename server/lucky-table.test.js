@@ -2,8 +2,7 @@
 // deck draw; outside the event the draw is unchanged; the event lasts exactly one round.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
-import { decksForVariant } from './boardRegistry.js';
-import { LUCKY_TABLE_ITEM_DRAW_ODDS } from './cardApi.js';
+import { ITEM_DRAW_ODDS, LUCKY_TABLE_ITEM_DRAW_ODDS } from './cardApi.js';
 
 const SAMPLES = 20000;
 
@@ -30,10 +29,9 @@ function itemDrawRate(game, deckName = 'surprise') {
   return items / SAMPLES;
 }
 
-function baselineItemRate(game, deckName = 'surprise') {
-  const variant = decksForVariant(game.boardVariant || 'standard-40', game.settings)[deckName === 'treasure' ? 'treasure' : 'surprise'];
-  const itemCount = variant.filter(card => card.action === 'itemReward').length;
-  return itemCount / variant.length;
+// Item rewards on: every draw has a 1 in ITEM_DRAW_ODDS chance of an item card, whatever the deck holds.
+function baselineItemRate() {
+  return 1 / ITEM_DRAW_ODDS;
 }
 
 function testOutsideEventKeepsNormalOdds() {
@@ -41,7 +39,7 @@ function testOutsideEventKeepsNormalOdds() {
   const game = room.game;
   game.roundNumber = 4;
   assert.equal(game.globalEventActive('lucky-table'), false);
-  const expected = baselineItemRate(game);
+  const expected = baselineItemRate();
   const observed = itemDrawRate(game);
   assert.ok(expected > 0, 'the item cards are in the deck');
   assert.ok(Math.abs(observed - expected) < 0.015, `normal item rate ${observed} should sit near the deck baseline ${expected}`);
@@ -51,7 +49,7 @@ function testInsideEventUsesHigherOdds() {
   const room = makeItemRoom();
   const game = room.game;
   game.roundNumber = 4;
-  const normal = baselineItemRate(game);
+  const normal = baselineItemRate();
   game.activateGlobalEvent(game.globalEventDefinition('lucky-table'));
   game.globalEvent.phase = 'active';
   assert.equal(game.globalEventActive('lucky-table'), true);
