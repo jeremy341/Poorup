@@ -145,6 +145,12 @@
 /* ---- seat tags in the left rail (host / cpu) ---- */
 .pr-tag { padding: 1px 5px; color: var(--gold-300); border: 1px solid color-mix(in srgb, var(--gold-300) 50%, transparent); border-radius: 2px; letter-spacing: 0.14em; font-size: 11px; line-height: 1.4; }
 .pr-tag-host { color: var(--gold-050); background: color-mix(in srgb, var(--gold-300) 22%, transparent); }
+.pr-tag-computer { color: var(--gold-050); border-color: var(--gold-300); font-size: 12px; padding: 2px 7px; letter-spacing: 0.1em; }
+.player-row-add { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; margin-top: 6px; padding: 6px 10px; background: transparent; border: 1px dashed var(--gold-300); color: var(--gold-100); text-align: left; cursor: pointer; }
+.player-row-add:hover, .player-row-add:focus-visible { background: var(--surface-hover); }
+.lobby-start-hint { display: grid; gap: 8px; margin-bottom: 10px; padding: 10px 12px; background: var(--surface-panel-raised); border: 1px solid var(--line-subtle); }
+.lobby-start-hint[hidden] { display: none; }
+.lobby-start-hint .t-body { margin: 0; }
 
 /* ---- right rail: one flat column (wallet line, trade chips, property list) ---- */
 .rail-wallet { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; margin-bottom: 10px; background: var(--surface-panel-deep, #061416); border: 1px solid var(--line-default); }

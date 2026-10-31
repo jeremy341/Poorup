@@ -478,18 +478,18 @@ function bankLoanCopy(settings) {
 }
 
 function botCopy(settings) {
-  if (!settings.bots) return "no bots";
-  return `bot ${String(settings.botBrain || "ai").toLowerCase()} · ${String(settings.botDifficulty || "table").toLowerCase()}`;
+  if (!settings.bots) return "no computer players";
+  return `computer ${String(settings.botBrain || "ai").toLowerCase()} · ${String(settings.botDifficulty || "table").toLowerCase()}`;
 }
 
 function botBrainControl(settings) {
   const exhausted = state.botProviderStatus?.state === "quota-exhausted";
   const selected = String(settings.botBrain || "ai").toLowerCase() === "no-ai" ? "no-ai" : "ai";
-  const aiLabel = exhausted ? "AI BOT · CREDITS EXHAUSTED" : "AI BOT";
+  const aiLabel = exhausted ? "AI COMPUTER · CREDITS EXHAUSTED" : "AI COMPUTER";
   const aiDisabled = exhausted ? "disabled" : "";
   const status = exhausted ? '<span class="setting-status setting-status-error" data-bot-provider-copy>AI CREDITS EXHAUSTED</span>' : "";
-  const help = exhausted ? "AI BOT is unavailable. Select NO-AI BOT to use the offline house brain." : "AI BOT uses the provider and falls back automatically when unavailable.";
-  return `<span class="setting-control-stack"><select class="setting-select${exhausted ? " is-error" : ""}" data-setting="botBrain" aria-describedby="bot-brain-help"><option value="ai" ${selected === "ai" ? "selected" : ""} ${aiDisabled}>${aiLabel}</option><option value="no-ai" ${selected === "no-ai" ? "selected" : ""}>NO-AI BOT</option></select><span id="bot-brain-help" class="sr-only">${help}</span>${status}</span>`;
+  const help = exhausted ? "AI COMPUTER is unavailable. Select NO-AI COMPUTER to use the offline house brain." : "AI COMPUTER uses the provider and falls back automatically when unavailable.";
+  return `<span class="setting-control-stack"><select class="setting-select${exhausted ? " is-error" : ""}" data-setting="botBrain" aria-describedby="bot-brain-help"><option value="ai" ${selected === "ai" ? "selected" : ""} ${aiDisabled}>${aiLabel}</option><option value="no-ai" ${selected === "no-ai" ? "selected" : ""}>NO-AI COMPUTER</option></select><span id="bot-brain-help" class="sr-only">${help}</span>${status}</span>`;
 }
 
 function renderLobbyRail() {
@@ -512,9 +512,9 @@ function lobbyTableRules(s) {
     settingRow("Starting Preset", "Choose a starting point, then customize every rule below.", sel("rulesProfile", s.rulesProfile || "standard", [["standard", "STANDARD"], ["advanced", "ADVANCED"]])),
     settingRow("Board Variant", "Standard is the classic 40-space board. Metro adds 12 spaces and supports up to six seats.", sel("boardVariant", s.boardVariant || "standard-40", [["standard-40", "STANDARD · 40"], ["metro-52", "METRO · 52 / 6 SEATS"]])),
     settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, s.boardVariant === "metro-52" ? 6 : 4)),
-    settingRowNum("Bots", "Fill empty seats with computer players.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
-    settingRow("Bot Brain", "Choose AI or the offline house brain. AI falls back automatically when credits or service are unavailable.", botBrainControl(s)),
-    settingRow("Bot Difficulty", "Change search depth and reserve tolerance, never the legal rules.", sel("botDifficulty", s.botDifficulty, [["house","HOUSE"],["table","TABLE"],["expert","EXPERT"]])),
+    settingRowNum("Computer players", "Add computer players to fill empty seats.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
+    settingRow("Computer Brain", "Choose AI or the offline house brain. AI falls back automatically when credits or service are unavailable.", botBrainControl(s)),
+    settingRow("Computer Difficulty", "Change search depth and reserve tolerance, never the legal rules.", sel("botDifficulty", s.botDifficulty, [["house","HOUSE"],["table","TABLE"],["expert","EXPERT"]])),
     settingRowNum("Starting Cash", "Bank hands this to each player at start.", sel("startingCash", s.startingCash, [["500","$500"],["1000","$1,000"],["1500","$1,500"],["2000","$2,000"],["2500","$2,500"],["3000","$3,000"]])),
     settingRow("Vacation Pool", "Taxes fill free parking. First to land claims it.", tog("vacationPool", s.vacationPool)),
     settingRow("Double GO", "Landing exactly on GO pays $400 instead of $200.", tog("doubleGo", s.doubleGo)),
@@ -575,7 +575,35 @@ function applyLobbyLockState(locked, hostLocked) {
 
 function renderLobbyRailContent(s, locked, hostLocked) {
   $("#lobby-settings-body").innerHTML = lobbySectionsMarkup(s, locked, hostLocked);
+  renderLobbyStartHint(s, locked, hostLocked);
   applyLobbyLockState(locked, hostLocked);
+}
+
+// The start block explains a blocked start and offers the fix on the same spot.
+function renderLobbyStartHint(s, locked, hostLocked) {
+  const hint = $("#lobby-start-hint");
+  if (!hint) return;
+  const needsSeat = !locked && !hostLocked && (state.players?.length || 0) < 2;
+  hint.hidden = !needsSeat;
+  if (!needsSeat) {
+    hint.innerHTML = "";
+    return;
+  }
+  const [, max] = stepperLimits("bots");
+  const full = (Number(s.bots) || 0) >= max;
+  hint.innerHTML = `<p class="t-body ink-2">At least two players are required.</p>
+    ${full
+      ? '<p class="t-micro ink-3">Raise Max Players in Table Rules to seat more computer players.</p>'
+      : '<button class="btn-dark lobby-add-computer" type="button" data-add-computer>Add computer player</button>'}`;
+}
+
+// Adds one computer seat through the same server setting the Bots stepper uses.
+export function addComputerPlayer() {
+  const [, max] = stepperLimits("bots");
+  if ((Number(state.settings.bots) || 0) >= max) return;
+  state.settings.bots = clamp((Number(state.settings.bots) || 0) + 1, 0, max);
+  host.updateServerSetting("bots", state.settings.bots);
+  renderLobbyRail();
 }
 
 function syncServerAppearance() {
@@ -945,6 +973,10 @@ function inRoomSession() {
 }
 
 function onLobbySettingsClick(e) {
+  if (e.target.closest("[data-add-computer]")) {
+    addComputerPlayer();
+    return;
+  }
   const togBtn = e.target.closest("[data-setting]");
   if (togBtn?.classList.contains("tog")) {
     onToggleSetting(togBtn);
@@ -1087,6 +1119,7 @@ export function bindLobbyUi() {
 
   // lobby settings interactions
   $("#lobby-settings-body").addEventListener("click", onLobbySettingsClick);
+  $("#lobby-start-hint")?.addEventListener("click", onLobbySettingsClick);
   $("#lobby-settings-body").addEventListener("change", applySettingField);
 }
 

@@ -222,6 +222,7 @@ import {
   renderDeedDetail,
 } from "./clientDeedDetailUi.js";
 import {
+  addComputerPlayer,
   bindLobbyUi,
   configureLobbyUi,
   enterParlor,
@@ -676,7 +677,23 @@ function retryAudioAfterGesture() {
 function renderPlayers() {
   const seated = state.players.slice(0, state.settings.maxPlayers);
   const serverNow = currentServerTime();
-  setHtml($("#player-list"), seated.map((p, i) => playerRowHTML(p, i, serverNow)).join(""));
+  const rows = seated.map((p, i) => playerRowHTML(p, i, serverNow));
+  if (lobbyAddSeatAvailable(seated.length)) rows.push(lobbyAddSeatHTML());
+  setHtml($("#player-list"), rows.join(""));
+}
+
+// Before the round starts, the host can add a computer player straight from the empty seat.
+function lobbyAddSeatAvailable(seatedCount) {
+  const me = state.players[0];
+  const isHost = Boolean(me && (me.isHost || (me.serverId && me.serverId === state.hostId)));
+  return state.phase === "lobby" && isHost && seatedCount < state.settings.maxPlayers;
+}
+
+function lobbyAddSeatHTML() {
+  return `<button class="player-row player-row-add" type="button" data-add-computer>
+    <span class="pr-av" aria-hidden="true">+</span>
+    <span class="t-label">Add computer player</span>
+  </button>`;
 }
 
 function playerRowHTML(p, i, serverNow = currentServerTime()) {
@@ -706,12 +723,12 @@ function playerRowHTML(p, i, serverNow = currentServerTime()) {
 }
 
 /* Before the game starts the left rail is the only seat list, so it carries the
-   host and CPU markers of the lobby panel. */
+   host and computer player markers of the lobby panel. */
 function lobbyTagHTML(p) {
   if (state.phase === "playing") return "";
   const isHost = Boolean(p.isHost) || Boolean(p.serverId && p.serverId === state.hostId);
   if (isHost) return `<span class="pr-tag pr-tag-host t-micro">HOST</span>`;
-  if (p.bot) return `<span class="pr-tag t-micro">CPU</span>`;
+  if (p.bot) return `<span class="pr-tag pr-tag-computer t-micro">COMPUTER</span>`;
   return "";
 }
 
@@ -734,7 +751,7 @@ function playerStatusLabel(p) {
   if (p.bankrupt) return "BANKRUPT";
   if (!p.online) return "AFK";
   if (p.id === "p1") return "YOU";
-  if (p.bot) return `CPU · ${(p.botBrain || "ai").toUpperCase()} · ${(p.botDifficulty || "table").toUpperCase()}`;
+  if (p.bot) return `COMPUTER · ${(p.botBrain || "ai").toUpperCase()} · ${(p.botDifficulty || "table").toUpperCase()}`;
   return "ONLINE";
 }
 
@@ -1266,6 +1283,9 @@ function bindGameActions() {
 
   // lobby start round
   $("#lobby-start-btn").addEventListener("click", startGame);
+  $("#player-list").addEventListener("click", (e) => {
+    if (e.target.closest("[data-add-computer]")) addComputerPlayer();
+  });
   $("#pay-jail-fine")?.addEventListener("click", () => {
     emitWithChatError("pay-jail-fine", {}, "The jail fine could not be paid.");
   });
