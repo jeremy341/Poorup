@@ -284,6 +284,10 @@
     "server/balanceMedianEmpty.test.js": 59,
     "server/aiProviderActiveEdit.test.js": 378,
     "server/recap-fields.test.js": 60,
-    "server/lucky-table.test.js": 60
+    "server/lucky-table.test.js": 60,
+    "server/bot-audit-fixes.test.js": 1278,
+    "server/money-audit-fixes.test.js": 341,
+    "server/rooms-audit-fixes.test.js": 344,
+    "server/recap-fields.test.js": 60
   }
 }
