@@ -360,7 +360,7 @@ function startCookieSessionExchange(token, accountId, generation, transitionLogo
   const promise = afterPendingAccountLogout(async () => {
     if (!isCurrentAccountExchange(token, accountId, generation)) return null;
     if (transitionLogout && !await transitionLogout) {
-      host.notice("ACCOUNT", "The previous account session could not be cleared. Reconnect and try again.");
+      host.notice("ACCOUNT", "The previous account session could not be cleared. Reconnect and try again.", "error");
       return false;
     }
     return withAccountCookieMutation(() => exchangeCookieSession(token, accountId, generation, previousAccountId, previousLogoutToken));
@@ -953,7 +953,7 @@ export function logoutAccount() {
   host.syncAudioButtons();
   host.syncHomeMusic();
   return serverLogout.then((confirmed) => {
-    if (!confirmed) host.notice("ACCOUNT", "Sign out could not be confirmed. Reconnect and try again.");
+    if (!confirmed) host.notice("ACCOUNT", "Sign out could not be confirmed. Reconnect and try again.", "error");
     else if (isAccountAuthGenerationCurrent(logoutGeneration)) host.notice("ACCOUNT", "Signed out. Guest mode is active.");
     return confirmed;
   });

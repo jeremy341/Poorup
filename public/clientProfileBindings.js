@@ -315,7 +315,7 @@ function onProfileHeroAccountClick(event) {
 
 function onPlNewClick() {
   if (state.profiles.length >= MAX_PROFILES) {
-    host.notice(`You can only save up to ${MAX_PROFILES} custom designs. Delete one to make room.`);
+    host.notice(`You can only save up to ${MAX_PROFILES} custom designs. Delete one to make room.`, "warning");
     return;
   }
   openProfileEditor("home");

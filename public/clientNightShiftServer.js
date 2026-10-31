@@ -310,7 +310,7 @@ export function handlePatrolDisconnect() {
 function abortPatrolSync(error, endMessage) {
   nightShiftState.serverRunError = error;
   nightShiftState.serverRunToken = null;
-  nightRun.host.parlorNotice("NIGHT SHIFT", error);
+  nightRun.host.parlorNotice("NIGHT SHIFT", error, "error");
   endNightShift(endMessage);
 }
 

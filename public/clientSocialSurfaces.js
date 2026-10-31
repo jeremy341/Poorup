@@ -86,7 +86,8 @@ function announceToScreenReaders(label, detail, isError) {
 function toastClass(kind, isError) {
   const mythical = kind === "mythical-achievement" ? " is-mythical" : "";
   const errorCls = isError ? " is-error" : "";
-  return `parlor-toast${mythical}${errorCls}`;
+  const warningCls = kind === "parlor-warning" ? " is-warning" : "";
+  return `parlor-toast${mythical}${errorCls}${warningCls}`;
 }
 
 function surfaceCard(target, fallback) {
@@ -175,8 +176,11 @@ function syncToastStack() {
     .forEach((toast, index) => toast.style.setProperty("--toasts-before", String(index)));
 }
 
-export function parlorNotice(title, message) {
-  announceSocialNotification({ kind: "parlor-error", title, message });
+// Severity is explicit: info is the neutral default, warning is amber, and error is always red.
+const NOTICE_KIND_BY_SEVERITY = { info: "parlor-info", warning: "parlor-warning", error: "parlor-error" };
+
+export function parlorNotice(title, message, severity = "info") {
+  announceSocialNotification({ kind: NOTICE_KIND_BY_SEVERITY[severity] || NOTICE_KIND_BY_SEVERITY.info, title, message });
 }
 
 function pageFocusCanMove() {

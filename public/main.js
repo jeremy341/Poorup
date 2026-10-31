@@ -397,7 +397,7 @@ function handleSettingResult(settingResult, context) {
   if (settingResult?.success !== false) return;
   if (!Object.is(state.settings[context.key], context.value)) return;
   restoreRejectedServerSetting(context.key, context.previousSettings, context.previousRuleset, context.previousBoardVariant);
-  parlorNotice("TABLE SETTINGS", settingResult.error || "That table setting was rejected.");
+  parlorNotice("TABLE SETTINGS", settingResult.error || "That table setting was rejected.", "error");
   renderLobbyRail();
 }
 
@@ -1259,7 +1259,7 @@ function onGlobalEventVoteClick(event) {
   globalEventVoteTimer = setTimeout(() => {
     state.globalEventVotePending = false;
     if (state.phase !== "playing") return;
-    parlorNotice("GLOBAL EVENT", "Vote timed out. The table state will refresh when the connection returns.");
+    parlorNotice("GLOBAL EVENT", "Vote timed out. The table state will refresh when the connection returns.", "warning");
     renderGlobalEvent();
   }, 8000);
   emitServer("vote-global-event", { choiceId: choice.dataset.globalChoice }, (response) => {
@@ -1509,13 +1509,13 @@ configureGameModals({ emitServer, say, recordActivity, captureActionStatusNode, 
   openTradeForDebt: () => {
     const partner = state.players.find(player => player.id !== 'p1' && !player.bankrupt && !player.spectating && player.online !== false);
     if (partner) openTradeModal(partner.id);
-    else parlorNotice('TRADE', 'No active trade partner is available.');
+    else parlorNotice('TRADE', 'No active trade partner is available.', 'warning');
   },
   openFinancingForDebt: () => openFinancingModal('loan'),
   openSponsorshipRequest: requestSponsorship, openTradeNegotiation, startGame });
 configureSponsorshipUi({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat });
 configureDeedDetail({ emitServer, say, captureActionStatusNode, announceActionStatus, renderAll });
-configureProfileBindings({ showView, emitServer, notice: message => parlorNotice("PROFILE", message) });
+configureProfileBindings({ showView, emitServer, notice: (message, severity) => parlorNotice("PROFILE", message, severity) });
 configureGameSave({ emitServer, setConnectionStatus, showView, renderAll });
 configureRoomsUi({ emitServer, say, captureActionStatusNode, announceActionStatus, renderChat, enterParlor, createRequestId });
 configureLobbyUi({

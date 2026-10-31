@@ -738,7 +738,7 @@ function retryQuickTableJoin(response) {
   clearQuickTableDirectoryTimer();
   host.showView("home");
   host.renderAll();
-  parlorNotice("QUICK TABLE", `${response.error} Looking for another open table…`);
+  parlorNotice("QUICK TABLE", `${response.error} Looking for another open table…`, "warning");
   requestQuickTableDirectory();
 }
 

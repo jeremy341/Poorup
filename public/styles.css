@@ -3028,6 +3028,7 @@ button[id$="-close"],
 .parlor-toast { position: relative; width: 100%; padding: 11px 32px 11px 13px; background: var(--surface-panel); border: 1px solid var(--line-active); box-shadow: 0 10px 28px rgb(0 0 0 / 48%); animation: parlor-toast-in 180ms steps(3, end) backwards; pointer-events: auto; cursor: pointer; }
 .parlor-toast-close { position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; min-width: 24px; min-height: 24px; padding: 0; display: grid; place-items: center; color: var(--text-muted); border: 1px solid transparent; border-radius: 2px; }
 .parlor-toast-close:hover, .parlor-toast-close:focus-visible { color: var(--gold-050); border-color: var(--line-default); background: var(--surface-panel-raised); }
+.parlor-toast.is-warning { border-color: var(--gold-300); }
 .parlor-toast.is-error { border-color: var(--line-error); background: var(--surface-error); box-shadow: 0 10px 28px rgb(0 0 0 / 55%), inset 0 0 0 1px rgb(175 42 33 / 22%); }
 .parlor-toast-glyph { flex-shrink: 0; width: 12px; height: 12px; margin-top: 2px; color: var(--red-bright); }
 .parlor-toast-glyph svg { display: block; width: 100%; height: 100%; }
