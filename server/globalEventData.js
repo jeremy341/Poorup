@@ -195,6 +195,17 @@ const GLOBAL_EVENT_DEFINITIONS = [
     weight: 1,
     eligible: game => game.roundNumber >= 5 && game.tiles.some(tile => tile.type === 'railroad' && tile.ownerId),
     effects: { airportCardsBlocked: true, airportRentMultiplier: 0.5, marketPriceMultiplier: 0.85 }
+  },
+  {
+    id: 'lucky-table',
+    title: 'LUCKY TABLE',
+    category: 'ECONOMIC',
+    summary: 'The house is feeling generous. Item cards turn up more often in the Surprise and Treasure decks.',
+    weight: 1,
+    // One round of luck: the event is active for exactly one round, then enters recovery.
+    durationRounds: 1,
+    eligible: game => Boolean(game.settings?.itemRewards),
+    effects: {}
   }
 ];
 
