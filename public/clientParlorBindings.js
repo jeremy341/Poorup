@@ -5,7 +5,7 @@
 // if-chain exactly. emitServer and leaveRoomForHome are injected.
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
-import { closeSurface } from "./clientSurfaces.js";
+import { closeSurface, openConfirmModal } from "./clientSurfaces.js";
 import { openAccountModal } from "./clientAccountIdentity.js";
 import { createVoteKickUi } from "./clientVoteKickUi.js";
 import {
@@ -518,8 +518,14 @@ function handlePlayerCardClick(event) {
   if (!playerActionEnabled(action)) return;
   const handler = PLAYER_ACTIONS[action.dataset.playerAction];
   if (action.dataset.playerAction === "remove-computer") {
-    host.removeComputerPlayer();
     closeSurface("#player-modal");
+    openConfirmModal({
+      title: "Remove computer player?",
+      message: "This takes the computer seat off the table. You can add one again from the player list.",
+      confirmLabel: "REMOVE",
+      confirmTone: "red",
+      onConfirm: () => host.removeComputerPlayer(),
+    });
     return;
   }
   if (action.dataset.playerAction === "vote-kick") {

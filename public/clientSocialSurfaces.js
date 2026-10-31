@@ -1234,7 +1234,7 @@ function playerActionPanelHTML(player, canSocial, actions, friendLabel) {
         ? "BOT SEAT · NO SOCIAL ACCOUNT LINKED"
         : "GUEST SEAT · SOCIAL ACTIONS NEED AN ACCOUNT";
     const removeAction = player.bot && state.phase === "lobby" && localPlayerIsHost()
-      ? `<button class="btn-dark" type="button" data-player-action="remove-computer">Remove computer player</button>`
+      ? `<button class="cta-red" type="button" data-player-action="remove-computer"><span class="cta-text cta-text-sm">Remove computer player</span></button>`
       : "";
     return `<p class="t-micro ink-3 player-profile-actions-note">${copy}</p>${removeAction}`;
   }
