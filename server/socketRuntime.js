@@ -3,6 +3,7 @@
 // createRuntime() per process: server.js builds the stores and io, then hands them here. Pinned by server/rooms.test.js and server/server.test.js.
 import { AUCTION_DURATION_MS } from './gameLogic.js';
 import { ensureRoomHost } from './rooms.js';
+import { botPersonaStore } from './botPersonaStore.js';
 import { normalizeAvatarGrid, normalizeClientId, normalizeChatText, buildMatchRecordOptions } from './roomSetup.js';
 import { createRoomPresenceRuntime } from './roomPresenceRuntime.js';
 import { createRoomVoteKickRuntime } from './roomVoteKickRuntime.js';
@@ -604,7 +605,16 @@ function createRuntime(deps) {
     return true;
   }
 
+  // Computer personas keep their own record. Accounts and rankings never see these games.
+  function recordBotPersonaResults(room) {
+    const winnerId = room.game.lastWinner.id;
+    room.game.players.forEach(player => {
+      if (player.isBot && player.personaId) botPersonaStore.recordGame(player.personaId, player.id === winnerId);
+    });
+  }
+
   function recordRoomStats(room) {
+    recordBotPersonaResults(room);
     const matchRecord = accountStore.recordGameResults(room.game.players, room.game.lastWinner.id, buildMatchRecordOptions(room));
     const historyReader = accountId => accountStore.getMatchHistory(accountId);
     const candidates = achievementStore.evaluateMatch(matchRecord, historyReader);

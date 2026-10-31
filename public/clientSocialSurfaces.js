@@ -1200,8 +1200,9 @@ function playerIdentityBits(player) {
 }
 
 function playerFactsBits(player) {
-  const games = player.stats?.gamesPlayed ?? "-";
-  const wins = player.stats?.wins ?? "-";
+  const stats = player.personaStats || player.stats;
+  const games = stats?.gamesPlayed ?? "-";
+  const wins = stats?.wins ?? "-";
   const achievements = player.achievementsPrivate ? "PRIVATE" : player.achievementsFriendsOnly ? "FRIENDS ONLY" : (player.achievements?.length ?? "-");
   const mutual = player.mutualFriends ?? "-";
   return { games, wins, achievements, mutual };
@@ -1231,7 +1232,7 @@ function playerActionPanelHTML(player, canSocial, actions, friendLabel) {
     const copy = player.id === "p1"
       ? "THIS IS YOUR PLAYER CARD · USE PROFILE FOR PRIVATE DETAILS"
       : player.bot
-        ? "BOT SEAT · NO SOCIAL ACCOUNT LINKED"
+        ? `COMPUTER · ${String(player.botDifficulty || "table").toUpperCase()} · NO SOCIAL ACCOUNT`
         : "GUEST SEAT · SOCIAL ACTIONS NEED AN ACCOUNT";
     const removeAction = player.bot && state.phase === "lobby" && localPlayerIsHost()
       ? `<button class="cta-red" type="button" data-player-action="remove-computer"><span class="cta-text cta-text-sm">Remove computer player</span></button>`
