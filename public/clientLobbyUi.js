@@ -661,7 +661,7 @@ function quickTableFallbackCreate() {
     visibility: "public",
     boardVariant: "standard-40"
   };
-  state.pendingRoomSettings = { vacationPool: true, trading: true, auction: false };
+  state.pendingRoomSettings = { vacationPool: false, trading: true, auction: true };
   parlorNotice("QUICK TABLE", "NO OPEN TABLES. HOSTING A NEW PUBLIC TABLE.");
   enterParlor();
 }
@@ -1077,11 +1077,11 @@ export function bindLobbyUi() {
     quickTableFlow = true;
     quickTableRetryCount = 0;
     state.quickJoin = true;
-    state.settings.vacationPool = true;
+    state.settings.vacationPool = false;
     state.settings.trading = true;
-    state.settings.auction = false;
+    state.settings.auction = true;
     // Quick Table rewrites the rules silently otherwise: say so up front.
-    parlorNotice("QUICK TABLE", "NO AUCTIONS · VACATION POOL ON · TRADING ON.");
+    parlorNotice("QUICK TABLE", "CLASSIC RULES · AUCTION ON · VACATION POOL OFF · TRADING ON.");
     requestQuickTableDirectory();
   });
 
