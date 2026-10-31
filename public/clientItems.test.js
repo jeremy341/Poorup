@@ -208,7 +208,7 @@ for (const rulesProfile of ['standard', 'advanced']) {
   state.settings.itemRewards = true;
   renderLobbyRail();
   assert.match(lobbyBody.innerHTML, /data-setting="itemRewards"[^>]*aria-pressed="true"/);
-  assert.match(lobbyBody.innerHTML, /item rewards on/);
+  assert.match(lobbyBody.innerHTML, /ADVANCED SYSTEMS · SOME ON/);
 }
 const { renderRulesSurface } = await import('./clientSocialSurfaces.js');
 const rulesRoot = { innerHTML: '', querySelectorAll: () => [] };

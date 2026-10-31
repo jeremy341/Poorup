@@ -448,40 +448,6 @@ function lobbySetupNotice(locked, hostLocked) {
   return "";
 }
 
-function lobbyRulesSnapshot(settings) {
-  const board = String(settings.boardVariant || state.boardVariant || "standard-40").toUpperCase();
-  const players = `${settings.maxPlayers} players · $${Number(settings.startingCash).toLocaleString()} start`;
-  return `<div class="settings-rule">
-      <strong style="color:var(--gold-300)">Active rules snapshot</strong><br>
-      ${board}<br>
-      ${String(settings.rulesProfile || "standard").toUpperCase()} · ${players} · ${toggleCopy(settings.vacationPool, "pool on", "no pool")} ·
-      ${toggleCopy(settings.trading, "trading on", "no trades")} ·
-      ${toggleCopy(settings.auction, "auction on", "no auction")} ·
-      ${toggleCopy(settings.playerFinance, "player finance on", "player finance off")} · ${bankLoanCopy(settings)} ·
-      ${toggleCopy(settings.globalEvents, "global events on", "global events off")} ·
-      ${toggleCopy(settings.casino, "casino on", "casino off")} ·
-      ${toggleCopy(settings.market, "market on", "market off")} ·
-      ${toggleCopy(settings.flights, "flights on", "flights off")} ·
-      ${toggleCopy(settings.bankAccountUpgrades, "bank accounts on", "bank accounts off")} ·
-      ${toggleCopy(settings.itemRewards, "item rewards on", "item rewards off")} ·
-      ${botCopy(settings)} ·
-      eliminate busted players when no legal rescue remains
-    </div>`;
-}
-
-function toggleCopy(enabled, on, off) {
-  return enabled ? on : off;
-}
-
-function bankLoanCopy(settings) {
-  return settings.bankLoans ? `${String(settings.bankLoanSeverity).toLowerCase()} bank loans` : "bank loans off";
-}
-
-function botCopy(settings) {
-  if (!settings.bots) return "no computer players";
-  return `computer ${String(settings.botBrain || "ai").toLowerCase()} · ${String(settings.botDifficulty || "table").toLowerCase()}`;
-}
-
 function botBrainControl(settings) {
   const exhausted = state.botProviderStatus?.state === "quota-exhausted";
   const selected = String(settings.botBrain || "ai").toLowerCase() === "no-ai" ? "no-ai" : "ai";
@@ -559,7 +525,6 @@ function lobbySectionsMarkup(s, locked, hostLocked) {
     lobbyTableRules(s),
     lobbyEconomy(s),
     lobbyAdvancedSystems(s),
-    lobbyRulesSnapshot(s),
   ].join("");
 }
 
