@@ -3207,6 +3207,11 @@ button[id$="-close"],
 .player-history-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px 12px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); border-left: 3px solid var(--line-subtle); }
 .player-history-row.is-win { border-left-color: var(--green-status); background: var(--surface-selected); }
 .player-history-row.is-bankrupt { border-left-color: var(--red-bright); }
+.computer-profile-body { max-height: 320px; overflow-y: auto; padding: 0 20px 12px; }
+.computer-profile-unlocks { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.computer-profile-unlock { display: grid; gap: 4px; padding: 10px 12px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.computer-profile-unlock-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; min-width: 0; }
+.computer-profile-unlock p { margin: 0; }
 .player-history-main { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
 .player-history-main > strong { flex: none; text-align: right; }
 .player-history-meta { display: flex; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }

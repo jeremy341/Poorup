@@ -17,7 +17,8 @@ const AUXILIARY_STORE_FILES = {
   cosmetics: 'cosmetics.json',
   telemetry: 'telemetry.json',
   analyticsRollup: 'analytics-rollup.json',
-  aiProviders: 'ai-providers.json'
+  aiProviders: 'ai-providers.json',
+  botPersonas: 'bot-personas.json'
 };
 
 // Every configured data or backup location is resolved to an absolute path once, here. A relative value would otherwise resolve

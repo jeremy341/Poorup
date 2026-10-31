@@ -178,3 +178,11 @@ check("inGameReturnBarIsPinnedInsideAFixedCardWithInternalScroll", () => {
   assert.match(ux, /\.table-return-btn\s*\{[^}]*min-height:\s*44px/);
   assert.match(ux, /position:\s*sticky/);
 });
+
+check("computerProfileIsReachableFromTheBotCardAndShowsOnlyItsRecord", () => {
+  assert.match(source, /data-player-action="computer-profile"/);
+  assert.match(bindings, /action\.dataset\.playerAction === "computer-profile"[\s\S]*state\.selectedPlayerView = "computer"/);
+  assert.match(source, /state\.selectedPlayerView === "computer"/);
+  assert.match(source, /NO UNLOCKS YET/);
+  assert.match(styles, /\.computer-profile-unlock\s*\{/);
+});

@@ -517,6 +517,11 @@ function handlePlayerCardClick(event) {
   const action = event.target.closest("[data-player-action]");
   if (!playerActionEnabled(action)) return;
   const handler = PLAYER_ACTIONS[action.dataset.playerAction];
+  if (action.dataset.playerAction === "computer-profile") {
+    state.selectedPlayerView = "computer";
+    renderPlayerSurface();
+    return;
+  }
   if (action.dataset.playerAction === "remove-computer") {
     closeSurface("#player-modal");
     openConfirmModal({

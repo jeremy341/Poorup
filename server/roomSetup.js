@@ -299,6 +299,8 @@ function matchRecordPlayerContracts(game) {
       toPlayerId: contract.toPlayerId,
       fromAccountId: game.getPlayerById(contract.fromPlayerId)?.accountId || null,
       toAccountId: game.getPlayerById(contract.toPlayerId)?.accountId || null,
+      fromPersonaId: game.getPlayerById(contract.fromPlayerId)?.personaId || null,
+      toPersonaId: game.getPlayerById(contract.toPlayerId)?.personaId || null,
       amount: contract.amount,
       premiumRate: contract.premiumRate,
       equityShare: contract.equityShare,
