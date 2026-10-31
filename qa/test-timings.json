@@ -287,7 +287,6 @@
     "server/lucky-table.test.js": 60,
     "server/bot-audit-fixes.test.js": 1278,
     "server/money-audit-fixes.test.js": 341,
-    "server/rooms-audit-fixes.test.js": 344,
-    "server/recap-fields.test.js": 60
+    "server/rooms-audit-fixes.test.js": 344
   }
 }
