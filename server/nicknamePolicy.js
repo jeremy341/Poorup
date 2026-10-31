@@ -1,21 +1,11 @@
+import { BOT_PERSONAS } from './botPersonas.js';
 // Player-visible text policy shared by room nicknames, account display names, chat and notification copy, so every surface strips
 // the same hidden characters and counts length the same way. Nicknames become engine feed lines ("<name> wins ..."), so they keep to
 // a plain character set, and bot seat names and system labels are reserved so a human cannot wear them.
 
 // Seat names the server gives bots (rooms.js ensureBots). Reserved for humans
 // too, so a player cannot make a chat or feed line look like a bot's.
-export const LOBBY_BOT_NAMES = Object.freeze([
-  'Dice Goblin',
-  'Mossy Roll',
-  'Penny Arcade',
-  'Lady Luck',
-  'Coin Flip',
-  'Bailiff Bob',
-  'Rent Reaper',
-  'Tax Goblin',
-  'Vault Dweller',
-  'Chance Sprite'
-]);
+export const LOBBY_BOT_NAMES = Object.freeze(BOT_PERSONAS.map(persona => persona.name));
 
 const RESERVED_LABELS = ['SYSTEM', 'ADMIN', 'SERVER'];
 const RESERVED_KEYS = new Set([...RESERVED_LABELS, ...LOBBY_BOT_NAMES].map(name => name.toLowerCase()));

@@ -222,6 +222,8 @@ import {
   renderDeedDetail,
 } from "./clientDeedDetailUi.js";
 import {
+  addComputerPlayer,
+  removeComputerPlayer,
   bindLobbyUi,
   configureLobbyUi,
   enterParlor,
@@ -396,7 +398,7 @@ function handleSettingResult(settingResult, context) {
   if (settingResult?.success !== false) return;
   if (!Object.is(state.settings[context.key], context.value)) return;
   restoreRejectedServerSetting(context.key, context.previousSettings, context.previousRuleset, context.previousBoardVariant);
-  parlorNotice("TABLE SETTINGS", settingResult.error || "That table setting was rejected.");
+  parlorNotice("TABLE SETTINGS", settingResult.error || "That table setting was rejected.", "error");
   renderLobbyRail();
 }
 
@@ -676,7 +678,27 @@ function retryAudioAfterGesture() {
 function renderPlayers() {
   const seated = state.players.slice(0, state.settings.maxPlayers);
   const serverNow = currentServerTime();
-  setHtml($("#player-list"), seated.map((p, i) => playerRowHTML(p, i, serverNow)).join(""));
+  const rows = seated.map((p, i) => playerRowHTML(p, i, serverNow));
+  if (lobbyAddSeatAvailable(seated.length)) rows.push(lobbyAddSeatHTML());
+  setHtml($("#player-list"), rows.join(""));
+}
+
+function lobbyHostIsLocal() {
+  const me = state.players[0];
+  return Boolean(me && (me.isHost || (me.serverId && me.serverId === state.hostId)));
+}
+
+// Before the round starts, the host can add a computer player straight from the empty seat.
+function lobbyAddSeatAvailable(seatedCount) {
+  return state.phase === "lobby" && lobbyHostIsLocal() && seatedCount < state.settings.maxPlayers;
+}
+
+
+function lobbyAddSeatHTML() {
+  return `<button class="player-row player-row-add" type="button" data-add-computer>
+    <span class="pr-av" aria-hidden="true">+</span>
+    <span class="t-label">Add computer player</span>
+  </button>`;
 }
 
 function playerRowHTML(p, i, serverNow = currentServerTime()) {
@@ -706,12 +728,12 @@ function playerRowHTML(p, i, serverNow = currentServerTime()) {
 }
 
 /* Before the game starts the left rail is the only seat list, so it carries the
-   host and CPU markers of the lobby panel. */
+   host and computer player markers of the lobby panel. */
 function lobbyTagHTML(p) {
   if (state.phase === "playing") return "";
   const isHost = Boolean(p.isHost) || Boolean(p.serverId && p.serverId === state.hostId);
   if (isHost) return `<span class="pr-tag pr-tag-host t-micro">HOST</span>`;
-  if (p.bot) return `<span class="pr-tag t-micro">CPU</span>`;
+  if (p.bot) return `<span class="pr-tag pr-tag-computer t-micro">COMPUTER</span>`;
   return "";
 }
 
@@ -734,7 +756,7 @@ function playerStatusLabel(p) {
   if (p.bankrupt) return "BANKRUPT";
   if (!p.online) return "AFK";
   if (p.id === "p1") return "YOU";
-  if (p.bot) return `CPU · ${(p.botBrain || "ai").toUpperCase()} · ${(p.botDifficulty || "table").toUpperCase()}`;
+  if (p.bot) return `COMPUTER · ${(p.botBrain || "ai").toUpperCase()} · ${(p.botDifficulty || "table").toUpperCase()}`;
   return "ONLINE";
 }
 
@@ -1242,7 +1264,7 @@ function onGlobalEventVoteClick(event) {
   globalEventVoteTimer = setTimeout(() => {
     state.globalEventVotePending = false;
     if (state.phase !== "playing") return;
-    parlorNotice("GLOBAL EVENT", "Vote timed out. The table state will refresh when the connection returns.");
+    parlorNotice("GLOBAL EVENT", "Vote timed out. The table state will refresh when the connection returns.", "warning");
     renderGlobalEvent();
   }, 8000);
   emitServer("vote-global-event", { choiceId: choice.dataset.globalChoice }, (response) => {
@@ -1266,6 +1288,9 @@ function bindGameActions() {
 
   // lobby start round
   $("#lobby-start-btn").addEventListener("click", startGame);
+  $("#player-list").addEventListener("click", (e) => {
+    if (e.target.closest("[data-add-computer]")) addComputerPlayer();
+  });
   $("#pay-jail-fine")?.addEventListener("click", () => {
     emitWithChatError("pay-jail-fine", {}, "The jail fine could not be paid.");
   });
@@ -1374,7 +1399,7 @@ function bindEvents() {
   bindHomeNavigation();
   bindRulesPage();
 
-  bindParlorSurfaces({ emitServer, leaveRoomForHome });
+  bindParlorSurfaces({ emitServer, leaveRoomForHome, removeComputerPlayer });
 
   // Home actions are bound to their explicit controls below. Keeping the
   // entry points named avoids accidental duplicate Create/Browse triggers.
@@ -1489,13 +1514,13 @@ configureGameModals({ emitServer, say, recordActivity, captureActionStatusNode, 
   openTradeForDebt: () => {
     const partner = state.players.find(player => player.id !== 'p1' && !player.bankrupt && !player.spectating && player.online !== false);
     if (partner) openTradeModal(partner.id);
-    else parlorNotice('TRADE', 'No active trade partner is available.');
+    else parlorNotice('TRADE', 'No active trade partner is available.', 'warning');
   },
   openFinancingForDebt: () => openFinancingModal('loan'),
   openSponsorshipRequest: requestSponsorship, openTradeNegotiation, startGame });
 configureSponsorshipUi({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat });
 configureDeedDetail({ emitServer, say, captureActionStatusNode, announceActionStatus, renderAll });
-configureProfileBindings({ showView, emitServer, notice: message => parlorNotice("PROFILE", message) });
+configureProfileBindings({ showView, emitServer, notice: (message, severity) => parlorNotice("PROFILE", message, severity) });
 configureGameSave({ emitServer, setConnectionStatus, showView, renderAll });
 configureRoomsUi({ emitServer, say, captureActionStatusNode, announceActionStatus, renderChat, enterParlor, createRequestId });
 configureLobbyUi({

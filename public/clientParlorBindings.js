@@ -5,7 +5,7 @@
 // if-chain exactly. emitServer and leaveRoomForHome are injected.
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
-import { closeSurface } from "./clientSurfaces.js";
+import { closeSurface, openConfirmModal } from "./clientSurfaces.js";
 import { openAccountModal } from "./clientAccountIdentity.js";
 import { createVoteKickUi } from "./clientVoteKickUi.js";
 import {
@@ -22,7 +22,7 @@ import {
   finishFriendRequestAction,
 } from "./clientSocialSurfaces.js";
 
-let host = { emitServer: noop, leaveRoomForHome: noop };
+let host = { emitServer: noop, leaveRoomForHome: noop, removeComputerPlayer: noop };
 let roomVoteKickUi = null;
 const SOCIAL_ACTION_TIMEOUT_MS = 8000;
 let rankingSearchRequestId = 0;
@@ -517,6 +517,17 @@ function handlePlayerCardClick(event) {
   const action = event.target.closest("[data-player-action]");
   if (!playerActionEnabled(action)) return;
   const handler = PLAYER_ACTIONS[action.dataset.playerAction];
+  if (action.dataset.playerAction === "remove-computer") {
+    closeSurface("#player-modal");
+    openConfirmModal({
+      title: "Remove computer player?",
+      message: "This takes the computer seat off the table. You can add one again from the player list.",
+      confirmLabel: "REMOVE",
+      confirmTone: "red",
+      onConfirm: () => host.removeComputerPlayer(),
+    });
+    return;
+  }
   if (action.dataset.playerAction === "vote-kick") {
     const targetId = state.selectedPlayer?.serverId || state.selectedPlayer?.roomPlayerId || state.selectedPlayer?.id;
     if (targetId && roomVoteKickUi) roomVoteKickUi.requestStart(targetId, state.players);

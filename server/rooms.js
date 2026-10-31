@@ -16,7 +16,9 @@ import {
   stripRetiredRoomSettings
 } from './roomSettings.js';
 import { AVATAR_GRID_ERROR, isValidAvatarGrid, resolveFreeAppearanceColor } from './appearanceApi.js';
-import { cleanPlayerName, LOBBY_BOT_NAMES, nicknameRejection } from './nicknamePolicy.js';
+import { cleanPlayerName, nicknameRejection } from './nicknamePolicy.js';
+import { personaForSeat } from './botPersonas.js';
+import { botPersonaStore } from './botPersonaStore.js';
 import { GameState } from './gameLogic.js';
 import { outstandingDebtFor, settleQueuedDebtsOf } from './bankruptcyLogic.js';
 import {
@@ -725,12 +727,14 @@ class Room {
     const botCount = Math.min(existingBots.length, required);
     const colors = ['#286ea1', '#35a653', '#d9a62f'];
     for (let index = botCount; index < required; index += 1) {
+      const persona = personaForSeat(this.settings.botDifficulty, index);
       const bot = new Player({
         clientId: `bot-${this.roomCode}-${this.botSeatSecret}-${index + 1}`,
-        nickname: LOBBY_BOT_NAMES[index % LOBBY_BOT_NAMES.length],
+        nickname: persona.name,
         color: colors[index % colors.length],
         isBot: true
       });
+      bot.personaId = persona.id;
       // Bots resolve through the same color-plus-face identity as humans
       // (bot grids are null generic faces), so a bot never duplicates a
       // human icon the way a raw 3-color cycle would.
@@ -808,6 +812,7 @@ class Room {
       isBot: player.isBot,
       botBrain: player.isBot ? this.settings.botBrain : null,
       botDifficulty: player.isBot ? this.settings.botDifficulty : null,
+      personaStats: player.isBot && player.personaId ? botPersonaStore.statsFor(player.personaId) : null,
     };
   }
 

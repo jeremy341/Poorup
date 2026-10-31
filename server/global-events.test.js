@@ -713,6 +713,7 @@ function testLetTheLedgerRunAndTaxAuditSettlement() {
 
   const audit = makeEventRoom();
   const auditGame = audit.game;
+  auditGame.settings.vacationCash = true;
   const [x] = auditGame.players;
   x.cash = 2000;
   auditGame.roundNumber = 6;

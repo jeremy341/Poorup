@@ -86,7 +86,8 @@ function announceToScreenReaders(label, detail, isError) {
 function toastClass(kind, isError) {
   const mythical = kind === "mythical-achievement" ? " is-mythical" : "";
   const errorCls = isError ? " is-error" : "";
-  return `parlor-toast${mythical}${errorCls}`;
+  const warningCls = kind === "parlor-warning" ? " is-warning" : "";
+  return `parlor-toast${mythical}${errorCls}${warningCls}`;
 }
 
 function surfaceCard(target, fallback) {
@@ -175,8 +176,11 @@ function syncToastStack() {
     .forEach((toast, index) => toast.style.setProperty("--toasts-before", String(index)));
 }
 
-export function parlorNotice(title, message) {
-  announceSocialNotification({ kind: "parlor-error", title, message });
+// Severity is explicit: info is the neutral default, warning is amber, and error is always red.
+const NOTICE_KIND_BY_SEVERITY = { info: "parlor-info", warning: "parlor-warning", error: "parlor-error" };
+
+export function parlorNotice(title, message, severity = "info") {
+  announceSocialNotification({ kind: NOTICE_KIND_BY_SEVERITY[severity] || NOTICE_KIND_BY_SEVERITY.info, title, message });
 }
 
 function pageFocusCanMove() {
@@ -788,191 +792,173 @@ export function renderRankingsSurface(target = "#rankings-card") {
 const RULES_SECTIONS = [
   {
     id: "start-here",
-    label: "START HERE",
-    kicker: "01 · QUICK BRIEF",
-    title: "One table. Last wallet standing.",
-    status: "LIVE",
-    summary: "Poorup is a real-time property game. The board variant sets the space count and seat limit. Roll, move clockwise, make the next legal decision, and keep the table moving.",
-    content: `<div class="rules-callout"><strong class="t-label f13 g100">THE SHORT VERSION</strong><p class="t-body ink-2">Start on GO and move clockwise around your table's board. Every player takes a turn in order. Buy useful property, charge rent, manage cash, and survive the table longer than everyone else.</p></div><h3 class="t-section g300">A complete turn</h3><ol class="rules-steps"><li><span class="rules-step-number">01</span><div><strong class="t-label f12 g100">ROLL</strong><p class="t-body ink-2">The active player rolls the dice once and the token moves one space at a time.</p></div></li><li><span class="rules-step-number">02</span><div><strong class="t-label f12 g100">RESOLVE</strong><p class="t-body ink-2">Resolve the landed space, card, rent, tax, purchase, auction, or prison rule before ending the turn.</p></div></li><li><span class="rules-step-number">03</span><div><strong class="t-label f12 g100">CHOOSE</strong><p class="t-body ink-2">Buy, trade, accept a loan, or place a legal market action. After rolling, the active player may build until ending the turn. Selling buildings evenly and mortgaging an eligible deed are available on any turn.</p></div></li><li><span class="rules-step-number">04</span><div><strong class="t-label f12 g100">END</strong><p class="t-body ink-2">Press End Turn only after every required decision is complete. The next player then becomes active.</p></div></li></ol>`,
+    label: "THE GOAL",
+    kicker: "01 · THE GOAL",
+    title: "Last player with money wins",
+    summary: "Buy property, collect rent, and stay in the game longer than everyone else.",
+    content: `<div class="rules-callout"><strong class="t-label f13 g100">THE SHORT VERSION</strong><p class="t-body ink-2">Roll the dice and move around the board. Buy the properties you land on. Other players pay you rent when they land on your property. The last player still in the game wins.</p></div><h3 class="t-section g300">What you need</h3><ul class="rules-bullets"><li>Two to four players on Standard 40, or up to six on Metro 52.</li><li>Each player starts with the starting cash the host sets. The default is $1,500.</li><li>The page below explains each part of the game in the order you will meet it.</li></ul>`,
   },
   {
     id: "board-tiles",
-    label: "BOARD & TILES",
-    kicker: "02 · THE MAP",
-    title: "Read the board clockwise",
-    status: "LIVE",
-    summary: "Standard 40 and Metro 52 use different space counts, corner indexes, and seat limits. The visual order and server index match for each board.",
-    content: `<div class="rules-board-order"><div><span class="t-micro g400">STANDARD 40 · CLOCKWISE INDEX</span><strong class="t-label f20 g100">0 → 39</strong></div><div><span class="t-micro g400">STANDARD 40 · CORNERS</span><strong class="t-label f12 g100">GO · PASSING BY / PRISON · VACATION · GO TO PRISON</strong></div></div><p class="t-body ink-2">Standard 40 supports two to four players, with 10 spaces per side and corners at 0, 10, 20, and 30. Metro 52 supports up to six players, with 13 spaces per side and corners at 0, 13, 26, and 39. Use the active-board line above for the table's variant.</p><h3 class="t-section g300">Space families</h3><div class="rules-term-grid"><div><strong class="t-label f12 g100">PROPERTY</strong><p class="t-body ink-2">Buy deeds, collect rent, build evenly, and group properties by their color strip.</p></div><div><strong class="t-label f12 g100">SUPPORT</strong><p class="t-body ink-2">Airports, Electric Company, and Water Company use their own settlement rules.</p></div><div><strong class="t-label f12 g100">CARD</strong><p class="t-body ink-2">Surprise and Treasure draw from separate decks. Each card resolves on the server.</p></div><div><strong class="t-label f12 g100">TAX</strong><p class="t-body ink-2">Earnings Tax and Premium Tax remove cash. The active event can add a disclosed modifier.</p></div><div><strong class="t-label f12 g100">CORNER</strong><p class="t-body ink-2">GO pays on passage, Passing By has an outside lane and prison lane, Vacation uses the optional pool, and Go to Prison sends you to prison.</p></div><div><strong class="t-label f12 g100">NEUTRAL</strong><p class="t-body ink-2">Treasure, Surprise, and Vacation do not belong to a country group.</p></div></div>`,
+    label: "THE BOARD",
+    kicker: "02 · THE BOARD",
+    title: "Move clockwise around the board",
+    summary: "Standard 40 and Metro 52 have different space counts and seat limits. The board you are playing on is shown in the lobby.",
+    content: `<div class="rules-board-order"><div><span class="t-micro g400">STANDARD 40 · CLOCKWISE INDEX</span><strong class="t-label f20 g100">0 → 39</strong></div><div><span class="t-micro g400">STANDARD 40 · CORNERS</span><strong class="t-label f12 g100">GO · PASSING BY / PRISON · VACATION · GO TO PRISON</strong></div></div><p class="t-body ink-2">Standard 40 supports two to four players. It has 40 spaces, with 10 on each side. Metro 52 supports up to six players. It has 52 spaces, with 13 on each side.</p><h3 class="t-section g300">Kinds of space</h3><div class="rules-term-grid"><div><strong class="t-label f12 g100">PROPERTY</strong><p class="t-body ink-2">A deed you can buy. Rent is charged when someone lands on it.</p></div><div><strong class="t-label f12 g100">AIRPORT &amp; UTILITY</strong><p class="t-body ink-2">Airports and utilities are deeds too. They follow their own rent rules.</p></div><div><strong class="t-label f12 g100">CARD</strong><p class="t-body ink-2">Surprise and Treasure. Draw the top card and follow it.</p></div><div><strong class="t-label f12 g100">TAX</strong><p class="t-body ink-2">Earnings Tax and Premium Tax take cash from you.</p></div><div><strong class="t-label f12 g100">CORNER</strong><p class="t-body ink-2">GO, Passing By / Prison, Vacation, and Go to Prison.</p></div></div>`,
   },
   {
     id: "turn-flow",
-    label: "TURN FLOW",
-    kicker: "03 · TABLE RHYTHM",
-    title: "The next legal action is always the priority",
-    status: "LIVE",
-    summary: "Every turn follows the same short loop, and you cannot skip a purchase, card, auction or payment.",
-    content: `<div class="rules-code-flow"><span>ROLL</span><i>→</i><span>MOVE</span><i>→</i><span>LAND</span><i>→</i><span>RESOLVE</span><i>→</i><span>END TURN</span></div><p class="t-body ink-2">Players have unlimited time for each turn. The only clock is inactivity: after 30 seconds with no input, or at once if the game tab is hidden, a 3-minute countdown starts, and a player who stays idle through it can be removed from the room.</p><h3 class="t-section g300">Blocking decisions</h3><ul class="rules-bullets"><li>A purchase decision must be accepted, passed, or sent to auction before the turn can end.</li><li>A card choice, debt payment, trade confirmation, or bankruptcy decision temporarily owns the focus.</li><li>Only the active player can roll or perform turn-scoped actions. Building and selling are available to that player after rolling and until turn end.</li><li>Mortgaging an owned deed may happen on any turn when collateral and debt rules allow it. The server rejects stale or out-of-turn requests for turn-scoped actions.</li></ul><div class="rules-inline-note"><span class="t-micro g400">ROUND</span><span class="t-body ink-2">A round completes when every active player has received one turn. Global-event timing uses this round counter.</span></div>`,
+    label: "YOUR TURN",
+    kicker: "03 · YOUR TURN",
+    title: "Each turn has four steps",
+    summary: "Roll, move, decide, end. The game will not let you skip a required decision.",
+    content: `<div class="rules-code-flow"><span>ROLL</span><i>→</i><span>MOVE</span><i>→</i><span>LAND</span><i>→</i><span>DECIDE</span><i>→</i><span>END TURN</span></div><ol class="rules-steps"><li><span class="rules-step-number">01</span><div><strong class="t-label f12 g100">ROLL</strong><p class="t-body ink-2">Roll the dice once. Your piece moves one space at a time.</p></div></li><li><span class="rules-step-number">02</span><div><strong class="t-label f12 g100">LAND</strong><p class="t-body ink-2">Follow the space you land on. You may need to buy, pay rent, draw a card, or pay a tax.</p></div></li><li><span class="rules-step-number">03</span><div><strong class="t-label f12 g100">DECIDE</strong><p class="t-body ink-2">Buy property, build houses, trade, or take a loan. Building is only allowed on your own turn, after you roll.</p></div></li><li><span class="rules-step-number">04</span><div><strong class="t-label f12 g100">END TURN</strong><p class="t-body ink-2">Press End Turn when you are done. The next player then takes their turn.</p></div></li></ol><h3 class="t-section g300">Good to know</h3><ul class="rules-bullets"><li>A purchase must be bought, passed to auction, or declined before you can end your turn.</li><li>A card, a debt you owe, or a trade offer you received can hold up your turn until you answer it.</li><li>Only the active player can roll or take turn actions.</li><li>Players have unlimited time for each turn. If you do nothing for 30 seconds, a 3-minute countdown starts. A player idle for 3 minutes can be removed by inactivity.</li></ul><div class="rules-inline-note"><span class="t-micro g400">ROUND</span><span class="t-body ink-2">A round ends when every player has had one turn. Global events count rounds.</span></div>`,
   },
   {
     id: "cash-bank",
-    label: "CASH & BANK",
-    kicker: "04 · THE LEDGER",
-    title: "Every dollar has a reason",
-    status: "LIVE",
-    summary: "The bank pays rewards, collects taxes and settles purchases, and every important transfer shows in the log.",
-    content: `<h3 class="t-section g300">Cash rules</h3><ul class="rules-bullets"><li>Each player starts with the lobby's Starting Cash value.</li><li>Passing GO pays $200. Landing exactly on GO pays the configured Double GO amount when enabled.</li><li>Cash can move through rent, cards, taxes, prizes, trades, loans, builds, mortgages, and the Vacation pool.</li><li>If you cannot pay, the game opens the debt and bankruptcy steps instead of letting your cash go negative.</li></ul><h3 class="t-section g300">Vacation pool</h3><p class="t-body ink-2">When Vacation Pool is on, configured taxes and penalties feed the center pool. Landing on Vacation claims the pool. The setting does not change the tile order or movement index.</p>`,
+    label: "MONEY",
+    kicker: "04 · MONEY",
+    title: "Money comes in and goes out",
+    summary: "Passing GO pays you. Rent, taxes, fines, and purchases take money out. Every payment shows in the log.",
+    content: `<h3 class="t-section g300">How you get money</h3><ul class="rules-bullets"><li>Passing GO pays $200.</li><li>Landing exactly on GO pays $400 when Double GO is on. Otherwise it pays $200.</li><li>Card rewards, rent from other players, and sales to the bank also add cash.</li></ul><h3 class="t-section g300">How you spend money</h3><ul class="rules-bullets"><li>Buying a deed costs its printed price.</li><li>Rent is paid to the owner of a deed you land on.</li><li>Earnings Tax costs $200. Premium Tax costs $75.</li><li>Getting out of jail with the fine costs $50.</li><li>Cards can also ask you to pay.</li></ul><h3 class="t-section g300">Vacation Pool</h3><p class="t-body ink-2">The Vacation Pool is off by default. Taxes and some penalties go into the pool in the center. The player who lands on Vacation collects the whole pool. The host can turn it off.</p><div class="rules-warning"><span class="t-micro red">YOU CAN'T GO NEGATIVE</span><span class="t-body ink-2">If a payment is more than your cash, the game stops and asks you to fix the debt. See End of Game.</span></div>`,
   },
   {
     id: "properties",
-    label: "PROPERTIES",
-    kicker: "05 · DEEDS",
-    title: "Build a group, then make it work",
-    status: "LIVE",
-    summary: "Properties are grouped by their color strip. The strip is the association; the name, price, and rotation are presentation only.",
-    content: `<h3 class="t-section g300">Buying</h3><p class="t-body ink-2">When you land on an unowned property, you can buy it at the printed price. With Player Finance enabled, open Purchase Funding for gifts or a temporary passive rent share. Accepting completes the named purchase immediately. If Auction is on and you pass, the deed can go to a server-run auction.</p><h3 class="t-section g300">Rent</h3><ul class="rules-bullets"><li>Rent depends on the deed, group ownership, and building level.</li><li>Owning every deed in a group activates the group's monopoly multiplier.</li><li>Mortgaged deeds do not collect normal rent until redeemed.</li><li>No Rent In Jail prevents an owner in prison from collecting rent during the configured turn.</li></ul><h3 class="t-section g300">Building</h3><p class="t-body ink-2">After rolling on your own turn, build houses and hotels before ending your turn. You may sell buildings evenly for half their cost on any turn. Build evenly across a complete group. There is no shared limit on houses or hotels. Each deed can have four houses, then one hotel.</p>`,
+    label: "PROPERTY",
+    kicker: "05 · PROPERTY",
+    title: "Buy property and collect rent",
+    summary: "Buy deeds you land on. Own every deed in a color group to raise the rent.",
+    content: `<h3 class="t-section g300">Buying</h3><p class="t-body ink-2">When you land on a property nobody owns, you can buy it for the printed price. If Auction is on and you pass, the deed goes to auction. The highest bidder wins it.</p><h3 class="t-section g300">Rent</h3><ul class="rules-bullets"><li>The rent for each deed is shown on the deed. Rent goes up as the owner adds houses and hotels.</li><li>A color strip is the colored band on a deed. Deeds that share a color are one group.</li><li>Own every deed in a group to hold a monopoly. With Double Rent on, the rent doubles while you hold the whole group.</li><li>A mortgaged deed collects no rent until it is paid off.</li><li>Rent is calculated by the server, so it always matches the deed.</li></ul>`,
   },
   {
     id: "support-spaces",
-    label: "SUPPORT SPACES",
+    label: "AIRPORTS & UTILITIES",
     kicker: "06 · AIRPORTS & UTILITIES",
-    title: "Support tiles amplify the table",
-    status: "LIVE",
-    summary: "Airports and utilities are independent support tiles. They are not country properties and do not change the board's physical dimensions.",
-    content: `<div class="rules-term-grid"><div><strong class="t-label f12 g100">AIRPORTS</strong><p class="t-body ink-2">ACC, BKK, AMS, and MB Airport are separate deeds priced at $200. Airport effects and rent are resolved by the server.</p></div><div><strong class="t-label f12 g100">ELECTRIC COMPANY</strong><p class="t-body ink-2">A utility deed whose charge is calculated from the dice result and ownership state.</p></div><div><strong class="t-label f12 g100">WATER COMPANY</strong><p class="t-body ink-2">A utility deed with the same support-tile settlement contract and its own printed price.</p></div><div><strong class="t-label f12 g100">COLOR STRIPS</strong><p class="t-body ink-2">Only property strips define country groups. Airports and utilities never inherit a country group.</p></div></div><h3 class="t-section g300">Airport flights</h3><p class="t-body ink-2">When flights are enabled, the destination owner's arrival fee takes priority. Otherwise, an eligible origin owner's departure fee applies; without an eligible owner, the standard fare applies. You pay no fee when you are the payee.</p>`,
+    title: "Airports and utilities",
+    summary: "Airports and utilities are deeds that follow their own rent rules. They are not part of a color group.",
+    content: `<div class="rules-term-grid"><div><strong class="t-label f12 g100">AIRPORTS</strong><p class="t-body ink-2">ACC, BKK, AMS, and MB Airport. Each costs $200. Rent goes up with each airport you own: $25, $50, $100, then $200 for all four.</p></div><div><strong class="t-label f12 g100">UTILITIES</strong><p class="t-body ink-2">Electric Company and Water Company. Each costs $150. Rent is a multiple of the dice roll, and owning both raises the multiple.</p></div></div><h3 class="t-section g300">Flights</h3><p class="t-body ink-2">Flights is an optional add-on, and it is off by default. When it is on, airports can charge fees for landing or taking off.</p>`,
   },
   {
-    id: "cards",
-    label: "SURPRISE & TREASURE",
-    kicker: "07 · CARD DECKS",
-    title: "A draw is a decision, not decoration",
-    status: "LIVE",
-    summary: "Surprise and Treasure are separate decks with classic-style movement, cash, repairs, jail, and player interaction effects.",
-    content: `<h3 class="t-section g300">When a card appears</h3><p class="t-body ink-2">Landing on Surprise draws from the Surprise deck. Landing on Treasure draws from the Treasure deck. The server removes the card, resolves its action, and records the result.</p><h3 class="t-section g300">Card result patterns</h3><ul class="rules-bullets"><li>Move to a named space, with GO payment when the move passes GO.</li><li>Collect or pay a cash amount.</li><li>Collect from every player or pay every player.</li><li>Pay a repair amount per house or hotel based on your current buildings.</li><li>Go directly to prison or receive a Get Out of Prison card.</li><li>Return the card to the bottom of its deck after settlement.</li></ul><div class="rules-inline-note"><span class="t-micro g400">RESULT COPY</span><span class="t-body ink-2">Dynamic card results show the actual amount paid or received, not only the card's formula.</span></div>`,
+    id: "build-mortgage",
+    label: "HOUSES & MORTGAGES",
+    kicker: "07 · HOUSES & MORTGAGES",
+    title: "Build houses or borrow against a deed",
+    summary: "Build during your turn. Mortgage a deed when you need cash fast.",
+    content: `<h3 class="t-section g300">Houses and hotels</h3><ul class="rules-bullets"><li>Build only on your own turn, after you roll. You may build houses and hotels before ending your turn.</li><li>Build evenly. You cannot add a second house to one deed until every deed in the group has one.</li><li>Each deed can hold four houses. A fifth build makes one hotel, and the hotel replaces the four houses.</li><li>Selling a house or hotel returns half its cost. You can sell buildings evenly for half their cost on any turn, unless an event changes the rate.</li><li>There is no shared limit on houses or hotels.</li></ul><h3 class="t-section g300">Mortgage</h3><ul class="rules-bullets"><li>A mortgage is a loan from the bank, secured by one of your deeds. You get cash now.</li><li>Mortgaging an owned deed may happen on any turn.</li><li>While a deed is mortgaged, it collects no rent.</li><li>To mortgage a deed, sell every building in its color group first.</li><li>A mortgaged deed can still be traded.</li><li>A deed used as loan security cannot be mortgaged or traded until the loan is paid off.</li></ul>`,
   },
   {
     id: "trade-auction",
     label: "TRADES & AUCTIONS",
-    kicker: "08 · NEGOTIATION",
-    title: "Make deals without losing the ledger",
-    status: "LIVE",
-    summary: "Trading is player-driven, while auctions are server-timed. Both systems lock the assets they are settling before cash changes hands.",
-    content: `<h3 class="t-section g300">Trades</h3><ul class="rules-bullets"><li>Trading must be enabled in the room settings.</li><li>Choose deeds and cash, send the offer, and wait for the recipient's decision. A deed sale is a trade with a price agreed between the players.</li><li>Both players must still own the offered deeds and have the offered cash when accepted.</li><li>Sell every house or hotel in a color set before any deed in that set can be traded. Mortgaged deeds may be traded; the mortgage remains on the deed, with no separate transfer fee.</li><li>Close an incoming offer to keep it pending. Open it from Deals to accept, decline, or negotiate; senders can adjust or cancel their own offer.</li></ul><h3 class="t-section g300">Auctions</h3><ul class="rules-bullets"><li>An auction starts when a buyer passes an unowned deed and Auction is enabled.</li><li>Players bid with available cash. Each valid bid resets the five-second timer.</li><li>There is no pass action during an auction; a player who does not bid remains eligible until the timer expires.</li><li>The highest valid bid wins and is charged atomically when the timer expires.</li><li>Disconnects and late bids cannot create a second winner.</li></ul>`,
+    kicker: "08 · TRADES & AUCTIONS",
+    title: "Trade with players, or bid at auction",
+    summary: "Trades need both players to agree. Auctions run on a short timer.",
+    content: `<h3 class="t-section g300">Trades</h3><ul class="rules-bullets"><li>Trading must be on. The host sets it in the lobby.</li><li>Pick the deeds and cash you want to offer, then send the offer.</li><li>The other player accepts, declines, or counter-offers.</li><li>Before you trade a deed, sell every house and hotel in its color group.</li><li>Both players must still have the deeds and cash in the offer when it is accepted.</li></ul><h3 class="t-section g300">Auctions</h3><ul class="rules-bullets"><li>An auction starts when a player passes a deed nobody owns, and Auction is on.</li><li>Bid with the cash you have.</li><li>Each valid bid resets the five-second timer.</li><li>When the timer runs out, the highest bid wins and is paid.</li><li>There is no pass action during an auction. You can bid until the timer runs out.</li></ul>`,
   },
   {
-    id: "build-mortgage",
-    label: "BUILD & MORTGAGE",
-    kicker: "09 · ASSET CONTROL",
-    title: "Liquidity has a cost",
-    status: "LIVE",
-    summary: "Build during your own turn; sell buildings evenly and mortgage an eligible deed on any turn. The deed manager keeps both actions visible.",
-    content: `<h3 class="t-section g300">Houses and hotels</h3><p class="t-body ink-2">After you roll and before you end your own turn, you may build evenly across a complete group. You may sell houses or hotels to the bank on any turn, for half their cost, while keeping the group even. There is no shared building-supply limit. Construction is blocked when a global event freezes building. A hotel replaces four houses on the same deed.</p><h3 class="t-section g300">Mortgage</h3><ul class="rules-bullets"><li>You may mortgage a deed you own on any player's turn if it is not otherwise locked, but every building in its color set must first be sold.</li><li>Open debt, collateral, and ownership rules can block a mortgage.</li><li>A mortgaged deed does not collect normal rent.</li><li>Redeeming a mortgage is handled through the applicable debt rules, not as a discretionary build action.</li><li>Bank-loan collateral locks cannot be mortgaged or traded until the loan is settled.</li><li>Bankruptcy settlement liquidates or transfers assets through the server's declared order.</li></ul>`,
+    id: "cards",
+    label: "SURPRISE & TREASURE",
+    kicker: "09 · SURPRISE & TREASURE",
+    title: "Draw a card and follow it",
+    summary: "Surprise and Treasure are two separate decks. The card is shown, and the result is logged.",
+    content: `<h3 class="t-section g300">When a card appears</h3><p class="t-body ink-2">Landing on Surprise draws from the Surprise deck. Landing on Treasure draws from the Treasure deck. The card is read out, its effect happens, and the result appears in the log.</p><h3 class="t-section g300">Common card effects</h3><ul class="rules-bullets"><li>Move to a named space. If you pass GO on the way, you collect $200.</li><li>Collect cash from the bank, or pay cash to the bank.</li><li>Collect from every player, or pay every player.</li><li>Pay repairs for each house and hotel you own.</li><li>Go directly to prison.</li><li>Keep a Get Out of Prison card for later use.</li></ul><div class="rules-inline-note"><span class="t-micro g400">ITEM REWARDS</span><span class="t-body ink-2">When Item Rewards is on, about 1 in 40 draws gives you an item instead of a card. See Items.</span></div>`,
   },
   {
     id: "prison-vacation",
     label: "PRISON & CORNERS",
-    kicker: "10 · CORNER RULES",
-    title: "Passing by is two lanes in one corner",
-    status: "LIVE",
-    summary: "The Passing By / Prison corner is one board space with an outside lane and an interior prison lane. Landing on it and passing it are different outcomes.",
-    content: `<div class="rules-callout"><strong class="t-label f13 g100">PASSING BY LANE</strong><p class="t-body ink-2">A player who simply passes the corner continues around the outside lane. They are not in prison.</p><strong class="t-label f13 g100">PRISON LANE</strong><p class="t-body ink-2">A player sent to prison or landing on the prison area is shown inside the bars. Their movement and rent rules follow the prison state.</p></div><h3 class="t-section g300">Leaving prison</h3><ul class="rules-bullets"><li>Pay the configured fine.</li><li>Use a Get Out of Prison card.</li><li>Roll the required doubles path when the rules allow it.</li></ul><p class="t-body ink-2">Go to Prison sends the player directly to prison without collecting a passage reward. Vacation is a neutral corner and can hold the optional pool.</p>`,
+    kicker: "10 · PRISON & CORNERS",
+    title: "Prison and the corners",
+    summary: "Passing By has two lanes. Going to prison and landing in prison are different things.",
+    content: `<div class="rules-callout"><strong class="t-label f13 g100">PASSING BY</strong><p class="t-body ink-2">If you pass this corner on the outside lane, you are not in prison. If you land in the prison lane, you are in prison.</p></div><h3 class="t-section g300">Getting out of prison</h3><ul class="rules-bullets"><li>Pay the $50 fine.</li><li>Use a Get Out of Prison card.</li><li>After 3 turns in jail, the $50 fine is charged automatically if you can pay it.</li></ul><p class="t-body ink-2">Go to Prison sends you straight to prison. You do not collect the $200 for passing GO. Vacation is a neutral corner. With the Vacation Pool on, landing there collects the pool.</p>`,
+  },
+  {
+    id: "wallet-items",
+    label: "ITEMS",
+    kicker: "11 · ITEMS",
+    title: "Keep, use, or sell an item",
+    summary: "Items come from the Surprise and Treasure decks when Item Rewards is on. Open Cash On Hand to see your Wallet & Items.",
+    content: `<div class="rules-term-grid"><div><strong class="t-label f12 g100">PRISON KEY · SELL $25</strong><p class="t-body ink-2">Use it before you roll, on your turn in prison, to leave. It works like a Get Out of Prison card.</p></div><div><strong class="t-label f12 g100">PARLOR BOND · SELL $400</strong><p class="t-body ink-2">Sell it to the bank for $400 at any time. Or wait two rounds, then redeem it for $800.</p></div><div><strong class="t-label f12 g100">SILVER KEEPSAKE · SELL $600</strong><p class="t-body ink-2">A collectible with no use. Sell it to the bank for $600.</p></div></div><h3 class="t-section g300">Rules for items</h3><ul class="rules-bullets"><li>Item Rewards is off by default. The host can turn it on in the lobby.</li><li>Each item can be used or sold once.</li><li>Items cannot be traded or exchanged.</li><li>If an action is not available, the Wallet shows why.</li><li>Net worth counts a Parlor Bond at $400 until it matures, then at $800.</li><li>Your items are private. They come back if you reconnect. A new match starts with none.</li></ul><h3 class="t-section g300">Bank fees on sales</h3><p class="t-body ink-2">With Bank Accounts on, the bank keeps a fee when you sell an item. The fee depends on your account tier: 10% on Standard, 5% on Parlor Premium, and none on Parlor Black. On Standard, a Parlor Bond sells for $360. Redeeming a matured bond is not a sale, so it has no fee.</p><div class="rules-inline-note"><span class="t-micro g400">DEBT RESCUE</span><span class="t-body ink-2">If you owe money, selling or redeeming items is one way to pay it. This is debt rescue. See End of Game.</span></div>`,
   },
   {
     id: "loans",
-    label: "FINANCE & BANKRUPTCY",
-    kicker: "11 · FINANCING",
-    title: "Borrow only when the table can carry it",
-    status: "LIVE",
-    summary: "Player loans and bank loans are separate contracts. Both are recorded, visible, and resolved before a player can quietly spend beyond their means.",
-  content: `<h3 class="t-section g300">Bank loans</h3><ul class="rules-bullets"><li>Bank loans are optional and use a maturity date, total interest, and collateral lock.</li><li>Collateral cannot be traded or mortgaged while pledged.</li><li>Global events may add a disclosed interest surcharge or pause new offers, but cannot rewrite a settled payment.</li><li>New collateral quotes lock each deed's printed price at agreement. At default, eligible collateral credits the unpaid balance up to that balance; no surplus cash is paid. Any residual debt stays in the debt settlement ledger. Legacy agreements keep their recorded terms.</li></ul><h3 class="t-section g300">Player loans</h3><p class="t-body ink-2">Player Finance allows player loans and temporary passive rent shares when the host enables it. Incoming current offers can be negotiated from the Deals rail; the sender can adjust or cancel before acceptance. Legacy active equity and convertible notes retain their recorded terms; old pending offers must be rebuilt or declined.</p><h3 class="t-section g300">Temporary rent shares</h3><p class="t-body ink-2">One owner and one investor agree 1–20 rounds (default 3) on any buyable deed, including airports and utilities. The investor receives the agreed percentage of rent actually collected, with no title, sale proceeds, voting or control. The owner pays construction costs and may build or sell buildings. Deed sale, mortgage and pledge stay blocked until expiry at the start of the recorded round. Expiry or either party leaving or going bankrupt ends the right without a capital refund. New rent shares cannot be resold. Purchase Funding uses these same terms.</p><h3 class="t-section g300">Wallet &amp; items</h3><p class="t-body ink-2">Press Cash On Hand to open the Wallet &amp; Items workbench. Account and Items are two views of the same private round ledger, so closing the modal never accepts, sells, or cancels anything. Rebates apply only to market-order and flight fees; rent, taxes, loans and wagers earn none. Surprise and Treasure rewards appear in Items. They can be used, traded, exchanged or sold when the table rules allow it.</p><h3 class="t-section g300">Bankruptcy</h3><p class="t-body ink-2">An unpaid player may sell, mortgage, trade, or borrow through the legal rescue path, but cannot end the turn while a payment remains open. After the debt is paid, a balance of exactly $0 is valid. If no legal rescue remains, the player declares bankruptcy: a human becomes a read-only spectator, their board token disappears, and the Sidebar shows <strong> SPECTATING</strong>. A solvent creditor receives eligible assets; bank or voluntary releases return assets to the bank.</p>`,
+    label: "BANK LOANS",
+    kicker: "12 · BANK LOANS",
+    title: "Borrow when you need cash",
+    summary: "Bank loans and player loans are optional. Each one has a set amount, interest, and a due date.",
+    content: `<h3 class="t-section g300">Bank loans</h3><ul class="rules-bullets"><li>Bank loans are optional. The host turns them on in the lobby.</li><li>The bank lends you cash and holds one of your deeds as security.</li><li>A loan has a due date and total interest, set when you take it out.</li><li>The deed cannot be traded or mortgaged until you repay the loan.</li><li>If you default, the deed is credited against the unpaid balance. You receive no extra cash, and any balance still owed stays on your record.</li><li>The host chooses the interest level: Fair, Predatory, or Extreme.</li></ul><h3 class="t-section g300">Player loans</h3><p class="t-body ink-2">Player loans are optional, and the host turns on Player Finance. You can offer cash to another player. They can accept, decline, or counter. You can change or cancel your offer until it is accepted.</p><h3 class="t-section g300">Rent shares</h3><p class="t-body ink-2">One player can pay another for a share of the rent from a deed. The share lasts 1 to 20 rounds, and the default is 3. The owner keeps the deed and does the building. The other player only gets the agreed share of rent. The share ends when its rounds run out, or when either player leaves or goes bankrupt.</p>`,
+  },
+  {
+    id: "end-of-game",
+    label: "END OF GAME",
+    kicker: "13 · END OF GAME",
+    title: "Debt, bankruptcy, and the winner",
+    summary: "You cannot end your turn while you owe money. If you cannot pay, you go bankrupt and the game goes on.",
+    content: `<h3 class="t-section g300">Owing money</h3><p class="t-body ink-2">If a payment is more than your cash, you must pay it before you can end your turn. You can fix it by selling buildings, selling or redeeming items, mortgaging deeds, trading, or taking a loan. This is called debt rescue.</p><h3 class="t-section g300">Bankruptcy</h3><ul class="rules-bullets"><li>If you cannot pay and have no way left to raise cash, you go bankrupt.</li><li>A human player becomes a read-only spectator. They can watch, but cannot play.</li><li>Your token leaves the board, and the Sidebar shows SPECTATING.</li><li>If someone is owed money, they receive your deeds and cash that can be transferred. If the bank is owed, the deeds return to the bank.</li><li>Bots that go bankrupt are removed from the table.</li></ul><h3 class="t-section g300">Winning</h3><p class="t-body ink-2">The last player still in the game wins.</p>`,
   },
   {
     id: "global-events",
     label: "GLOBAL EVENTS",
-    kicker: "12 · HEADLINES",
-    title: "Rare headlines change the weather",
-    status: "LIVE",
-    summary: "Global Events are optional, server-authoritative, and shared by the whole table. They scale with round progress instead of exposing a pile of tuning sliders.",
-    content: `<h3 class="t-section g300">Lifecycle</h3><div class="rules-code-flow"><span>ELIGIBLE</span><i>→</i><span>WARNING</span><i>→</i><span>ACTIVE</span><i>→</i><span>RECOVERY</span><i>→</i><span>ENDED</span></div><ul class="rules-bullets"><li>Early rounds establish the economy. Negative crises are not eligible immediately.</li><li>A warning appears before a negative modifier activates.</li><li>One event normally runs at a time. Curated combinations are capped and named.</li><li>Duration, rarity, and severity derive from round progress and event tier.</li><li>The banner, event log, and reconnect snapshot show the same remaining-round count.</li></ul><h3 class="t-section g300">What events can touch</h3><p class="t-body ink-2">Events may affect rent, construction, taxes, loans, support tiles, casino limits, market prices, volatility, and recovery. They never silently change a committed transaction.</p><div class="rules-warning"><span class="t-micro red">FAIRNESS RULE</span><span class="t-body ink-2">A casino event can change a disclosed limit or fee. It cannot secretly change the red, black, or green odds.</span></div>`,
+    kicker: "14 · GLOBAL EVENTS",
+    title: "Rare events change the whole table",
+    summary: "Global events are optional. They affect everyone at once and always show a banner.",
+    content: `<h3 class="t-section g300">How events work</h3><ul class="rules-bullets"><li>Global events are off by default. The host turns them on with one switch.</li><li>Early rounds are calm. Negative events can start later.</li><li>A warning appears before a negative event starts.</li><li>Only one event normally runs at a time.</li><li>The banner shows how many rounds are left.</li></ul><h3 class="t-section g300">What an event can change</h3><p class="t-body ink-2">An event can change rent, building costs, taxes, loan interest, airport and utility rules, market prices, and casino limits. An event never changes a payment that has already happened.</p><div class="rules-warning"><span class="t-micro red">FAIR ODDS</span><span class="t-body ink-2">An event can change a casino limit or fee, but never the red, black, or green odds.</span></div>`,
   },
   {
     id: "casino-market",
     label: "CASINO & MARKET",
-    kicker: "13 · ECONOMY ADD-ONS",
-    title: "Optional systems, clearly marked",
-    status: "LIVE",
-    summary: "The Casino and fictional Market are optional, server-settled room add-ons. They use players' in-game cash and remain off in classic rooms.",
-    content: `<h3 class="t-section g300">Casino</h3><p class="t-body ink-2">European roulette uses red, black, and green/0 with fixed disclosed odds. Stakes come from your in-game cash. Bets are escrowed, resolved once by the server, and logged. Players cannot use loan-funded cash for wagers.</p><h3 class="t-section g300">Market</h3><p class="t-body ink-2">The fictional exchange starts with country, airport, utilities, and property indexes. BASIC supports buy and sell. MARGIN adds a maintenance obligation, SHORTING adds finite borrowable units and deterministic buy-ins, and DERIVATIVES adds fully collateralized calls and puts. Prices update at round boundaries and event settlement.</p><h3 class="t-section g300">Shared guardrails</h3><ul class="rules-bullets"><li>Both systems start off by default. Hosts may enable each separately with either starting preset.</li><li>Global Events can alter limits, fees, prices, and volatility, not hidden casino odds.</li><li>Transactions use server idempotency keys so retries cannot duplicate money.</li><li>Positions and bets appear in match history as aggregate results, without exposing other players' private details.</li></ul><div class="rules-planned"><span class="t-micro g400">OPTIONAL · VIRTUAL ECONOMY ONLY</span><span class="t-body ink-2">No deposits, withdrawals, cash-out, or cash-value prizes are part of this design.</span></div>`,
+    kicker: "15 · CASINO & MARKET",
+    title: "Optional side games",
+    summary: "The casino and the market are optional. Both use in-game cash only.",
+    content: `<h3 class="t-section g300">Casino</h3><p class="t-body ink-2">The casino is a roulette wheel with red, black, and green 0. Its odds are fixed and shown before you bet. You bet your in-game cash. The server holds the bet, settles it once, and logs the result. Loan money cannot be used for bets.</p><h3 class="t-section g300">Market</h3><p class="t-body ink-2">The market is a fictional exchange with made-up indexes for countries, airports, utilities, and property. Prices move at the end of each round. The host picks how advanced it is:</p><ul class="rules-bullets"><li>Basic: buy and sell.</li><li>Margin: buy with borrowed value. You must keep a minimum balance.</li><li>Shorting: bet that a price will fall. There is a limited supply to borrow.</li><li>Derivatives: options that are fully backed by cash you hold.</li></ul><div class="rules-planned"><span class="t-micro g400">VIRTUAL ONLY</span><span class="t-body ink-2">No real money. No deposits, withdrawals, or cash prizes.</span></div>`,
   },
   {
     id: "bots",
     label: "BOTS",
-    kicker: "14 · DECISIONS",
-    title: "CPU seats follow the same contracts",
-    status: "LIVE",
-    summary: "Bots are reserved seats in the lobby and use the same server rules as human players. They are not allowed to bypass turn gates or money checks.",
-    content: `<ul class="rules-bullets"><li>Bots buy, pass, build, sell buildings, mortgage, unmortgage, trade, make enabled player-loan and temporary rent-share offers, and bid according to a bounded risk profile.</li><li>They can choose jail fine, Get Out of Prison card, bank-loan repayment, market sell/rebalancing, sponsorship actions, and debt bankruptcy when no legal rescue remains.</li><li>A bot preserves a cash buffer for rent, taxes, debt, and known obligations.</li><li>Bots never borrow money to gamble and cannot see private player information.</li><li>AI BOT uses the provider when available and falls back automatically to the deterministic House Brain when credits or service fail.</li><li>NO-AI BOT skips provider calls entirely. Both modes use the same server action events, table chat signals, and legality checks.</li></ul>`,
+    kicker: "16 · BOTS",
+    title: "Bots follow the same rules",
+    summary: "Bots take seats in the lobby. They play by the same rules as people and cannot skip turns or cheat on money.",
+    content: `<ul class="rules-bullets"><li>Bots buy, pass, build, sell, mortgage, trade, and bid at auction.</li><li>They keep a cash buffer for rent, taxes, and debts.</li><li>They never borrow to gamble, and they cannot see private information.</li><li>AI BOT uses an AI provider when one is available. If the provider fails, it switches to the built-in House Brain.</li><li>NO-AI BOT never calls a provider. It uses only the House Brain.</li></ul>`,
   },
   {
     id: "social-profile",
-    label: "SOCIAL & PROFILES",
-    kicker: "15 · PARLOR PEOPLE",
-    title: "Stay in the table while you connect",
-    status: "LIVE",
-    summary: "Social and profile surfaces are independent top-level pages, while in-game player cards keep friend actions inside the game shell.",
-    content: `<h3 class="t-section g300">Profiles</h3><p class="t-body ink-2">A profile contains public identity, selected design, statistics, match history, and achievements. Passwords and private account data never appear on another player's public card.</p><h3 class="t-section g300">Friends</h3><ul class="rules-bullets"><li>Search uses the unique username, not the display name.</li><li>Friend requests, blocks, reports, and room invites are server records.</li><li>Clicking an in-game player opens a read-only card with social actions. The player stays in the lobby or round.</li><li>Match history is private to its owner and accepted friends by default; the owner can opt into a public summary.</li></ul><h3 class="t-section g300">Rankings</h3><p class="t-body ink-2">Rankings are global, read-only projections of completed server games, wins, five-game-qualified win rate, rarity-weighted achievement score, loan discipline, and bankruptcies.</p>`,
+    label: "PROFILES & FRIENDS",
+    kicker: "17 · PROFILES & FRIENDS",
+    title: "Profiles, friends, and rankings",
+    summary: "Your profile shows your public details, stats, and history. Search friends by username.",
+    content: `<h3 class="t-section g300">Profiles</h3><p class="t-body ink-2">Your profile shows your public name, the design you picked, your stats, your match history, and your achievements. Passwords and private account details never appear on a profile.</p><h3 class="t-section g300">Friends</h3><ul class="rules-bullets"><li>Search for friends by their username, not their display name.</li><li>You can send friend requests, block players, report players, and invite friends to a room.</li><li>Click a player in a game to see their card. Your place in the game does not change.</li><li>Your match history is visible to you and your accepted friends. You can choose to share a public summary.</li></ul><h3 class="t-section g300">Rankings</h3><p class="t-body ink-2">Rankings use completed games. They show wins, win rate after five games, achievement score, loan discipline, and bankruptcies.</p>`,
   },
   {
     id: "achievements",
     label: "ACHIEVEMENTS",
-    kicker: "16 · RECORDS",
-    title: "Badges remember the strange plays",
-    status: "LIVE",
-    summary: "Achievements are grouped by tablecraft, global events, social play, and secrets. Mythical achievements are rare and announced globally.",
-    content: `<ul class="rules-bullets"><li>Click an achievement to open its readable detail dialog.</li><li>Filter by category, when earned, and rarity without leaving the Profile page.</li><li>Rarity uses text and color: Common, Uncommon, Rare, Epic, Legendary, and Mythical.</li><li>Mythical unlocks create one generic server-wide announcement for every currently connected player. The title stays private until the owner reveals it.</li><li>Achievement progress is never a hidden cash requirement and does not change the rules of a live match.</li></ul>`,
+    kicker: "18 · ACHIEVEMENTS",
+    title: "Badges for special plays",
+    summary: "Achievements are badges for things you do in games. They never change the rules of a match.",
+    content: `<ul class="rules-bullets"><li>Click an achievement to read what it takes.</li><li>Filter by category, by whether you have earned it, and by rarity.</li><li>Rarity is shown as text and color: Common, Uncommon, Rare, Epic, Legendary, and Mythical.</li><li>A Mythical unlock is announced to every connected player. Your title stays hidden until you choose to show it.</li><li>Achievements never cost cash and never change a live match.</li></ul>`,
   },
   {
     id: "lobby-settings",
     label: "LOBBY SETTINGS",
-    kicker: "17 · HOST CONTROL",
-    title: "Every switch has a consequence",
-    status: "LIVE",
-    summary: "Hosts configure the table before the first round. The active rules snapshot stays visible in the lobby so nobody has to guess what changed.",
-  content: `<div class="rules-settings-table"><div><strong class="t-label f12 g100">Max Players</strong><span class="t-body ink-2">2–4 seats on Standard 40, up to 6 on Metro 52.</span></div><div><strong class="t-label f12 g100">Bots</strong><span class="t-body ink-2">Reserve CPU seats up to the available capacity.</span></div><div><strong class="t-label f12 g100">Bot Brain</strong><span class="t-body ink-2">AI BOT uses the provider and falls back automatically to the no-AI House Brain when credits or service fail. NO-AI BOT never calls a provider.</span></div><div><strong class="t-label f12 g100">Bot Difficulty</strong><span class="t-body ink-2">House, Table, or Expert changes evaluation depth, never legality.</span></div><div><strong class="t-label f12 g100">Starting Cash</strong><span class="t-body ink-2">Bank handout when the round begins.</span></div><div><strong class="t-label f12 g100">Room Visibility</strong><span class="t-body ink-2">Public tables are joined from the directory and do not expose an invite code. Private tables use a six-character code.</span></div><div><strong class="t-label f12 g100">Vacation Pool</strong><span class="t-body ink-2">Taxes feed the Vacation pool when on.</span></div><div><strong class="t-label f12 g100">Double GO</strong><span class="t-body ink-2">Landing exactly on GO pays the configured bonus.</span></div><div><strong class="t-label f12 g100">Trading</strong><span class="t-body ink-2">Allow player-to-player offers.</span></div><div><strong class="t-label f12 g100">Auction</strong><span class="t-body ink-2">Send passed unowned deeds to auction.</span></div><div><strong class="t-label f12 g100">No Rent In Jail</strong><span class="t-body ink-2">Stop an imprisoned owner collecting rent that turn.</span></div><div><strong class="t-label f12 g100">Bank Loans</strong><span class="t-body ink-2">Allow emergency bank credit with collateral.</span></div><div><strong class="t-label f12 g100">Loan Severity</strong><span class="t-body ink-2">Fair, Predatory, or Extreme interest tier.</span></div><div><strong class="t-label f12 g100">Global Events</strong><span class="t-body ink-2">A single ON/OFF switch. The server derives rarity, duration, and severity from round progress.</span></div><div><strong class="t-label f12 g100">Inactivity</strong><span class="t-body ink-2">Turns have no timer. A player idle for 3 minutes can be removed by inactivity: the countdown starts after 30 seconds without input, or at once if the game tab is hidden, and everyone can see it.</span></div><div><strong class="t-label f12 g100">Bankruptcy</strong><span class="t-body ink-2">Settle an open payment through legal rescue actions or declare bankruptcy. Human bankrupt players become read-only spectators; bots are eliminated without spectator controls.</span></div></div>`,
+    kicker: "19 · LOBBY SETTINGS",
+    title: "What the host can change",
+    summary: "The host sets these before the first round. The lobby shows the active settings so nobody has to guess.",
+    content: `<div class="rules-settings-table"><div><strong class="t-label f12 g100">Max Players</strong><span class="t-body ink-2">2–4 seats on Standard 40, up to 6 on Metro 52.</span></div><div><strong class="t-label f12 g100">Bots</strong><span class="t-body ink-2">Fill empty seats with bots, up to the room's capacity.</span></div><div><strong class="t-label f12 g100">Bot Brain</strong><span class="t-body ink-2">AI BOT uses a provider and falls back to the House Brain. NO-AI BOT never calls a provider.</span></div><div><strong class="t-label f12 g100">Bot Difficulty</strong><span class="t-body ink-2">House, Table, or Expert. Higher levels think further ahead. They never break the rules.</span></div><div><strong class="t-label f12 g100">Starting Cash</strong><span class="t-body ink-2">The cash each player gets when the round begins. The default is $1,500.</span></div><div><strong class="t-label f12 g100">Room Visibility</strong><span class="t-body ink-2">Public rooms appear in the directory. Private rooms use a six-character code.</span></div><div><strong class="t-label f12 g100">Vacation Pool</strong><span class="t-body ink-2">Off by default. Taxes feed the pool, and landing on Vacation collects it.</span></div><div><strong class="t-label f12 g100">Double GO</strong><span class="t-body ink-2">Landing exactly on GO pays $400 instead of $200.</span></div><div><strong class="t-label f12 g100">Trading</strong><span class="t-body ink-2">Lets players make offers to each other.</span></div><div><strong class="t-label f12 g100">Auction</strong><span class="t-body ink-2">On by default. Passed deeds go to auction.</span></div><div><strong class="t-label f12 g100">Double Rent</strong><span class="t-body ink-2">Off by default. Owning a whole color group doubles its rent.</span></div><div><strong class="t-label f12 g100">Bank Loans</strong><span class="t-body ink-2">Lets players borrow from the bank with a deed as security.</span></div><div><strong class="t-label f12 g100">Loan Severity</strong><span class="t-body ink-2">Fair, Predatory, or Extreme interest.</span></div><div><strong class="t-label f12 g100">Global Events</strong><span class="t-body ink-2">One on/off switch. Timing and strength follow the round count.</span></div><div><strong class="t-label f12 g100">Item Rewards</strong><span class="t-body ink-2">Off by default. Turns on items from the Surprise and Treasure decks.</span></div><div><strong class="t-label f12 g100">Bank Accounts</strong><span class="t-body ink-2">Off by default. Turns on account tiers with sale fees and rebates. See the table below.</span></div></div><h3 class="t-section g300">Bank account tiers</h3><div class="rules-term-grid"><div><strong class="t-label f12 g100">STANDARD · FREE</strong><p class="t-body ink-2">Sale fee 10%. No rebate.</p></div><div><strong class="t-label f12 g100">PARLOR PREMIUM · $200</strong><p class="t-body ink-2">Sale fee 5%. Rebate 10% on market and flight fees.</p></div><div><strong class="t-label f12 g100">PARLOR BLACK · $500</strong><p class="t-body ink-2">No sale fee. Rebate 20% on market and flight fees.</p></div></div><p class="t-body ink-2">Rent, taxes, loans, wagers, and upgrades never earn a rebate.</p><h3 class="t-section g300">Inactivity</h3><p class="t-body ink-2">Turns have no timer. If a player does nothing for 30 seconds, or at once if their game tab is hidden, a 3-minute countdown starts. Everyone can see it. If the player stays idle through it, they can be removed.</p>`,
   },
   {
     id: "reconnect-accessibility",
     label: "RECONNECT & ACCESS",
-    kicker: "18 · TRUST",
-    title: "The table should survive the real world",
-    status: "LIVE",
-    summary: "Poorup is designed for a remote game night: reconnects, clear announcements, keyboard navigation, and reduced motion are part of the rules surface.",
-    content: `<h3 class="t-section g300">Reconnect</h3><p class="t-body ink-2">A reconnect receives the latest server snapshot, room membership, turn stage, open obligation, event banner, and player appearance. It does not replay settled cash or card transactions.</p><h3 class="t-section g300">Accessibility</h3><ul class="rules-bullets"><li>All actions use native buttons, links, inputs, or selects.</li><li>Focus rings remain visible and blocking surfaces manage keyboard focus.</li><li>State is not communicated by color alone. Labels, symbols, and status text accompany color.</li><li>Reduced-motion preferences disable decorative movement while preserving state changes.</li><li>Audio effects and music are independent, global toggles with accessible names.</li></ul>`,
+    kicker: "20 · RECONNECT & ACCESS",
+    title: "Reconnecting and accessibility",
+    summary: "If you disconnect, you come back to the same place in the game. Keyboard and reduced-motion settings work everywhere.",
+    content: `<h3 class="t-section g300">Reconnecting</h3><p class="t-body ink-2">When you reconnect, you get the current board, your seat, the turn, any open payment, the event banner, and your items. Money and cards that already settled are not replayed.</p><h3 class="t-section g300">Accessibility</h3><ul class="rules-bullets"><li>Every action uses a normal button, link, input, or menu.</li><li>Focus rings stay visible.</li><li>Color is never the only signal. Labels, symbols, and text go with it.</li><li>Reduced motion turns off decorative movement. Changes in state still show.</li><li>Sound effects and music have separate on/off switches.</li></ul>`,
+  },
+  {
+    id: "rulesets-market",
+    label: "PRESETS",
+    kicker: "21 · PRESETS",
+    title: "Standard or Advanced",
+    summary: "Standard and Advanced set starting defaults. Both presets allow every optional economy system.",
+    content: `<h3 class="t-section g300">Two starting presets</h3><ul class="rules-bullets"><li>Standard turns on the classic game: buying, rent, auctions, trades, building, mortgages, cards, prison, and bankruptcy. Optional systems start off.</li><li>Advanced also turns on Player Finance.</li><li>Either preset lets you turn any optional system on or off yourself.</li><li>Your own choices stay when you change presets.</li><li>The lobby shows the rules in effect for the room.</li></ul><h3 class="t-section g300">Market advanced tiers</h3><p class="t-body ink-2">When Market Access is on, Basic is always available. The host can add Margin, Shorting, or Derivatives. Humans and bots use the same list of allowed trades.</p>`,
   },
 ];
-
-// Expansion contract: keeping this chapter data-driven lets the Rules-book
-// explain new presets without adding another top-level navigation surface.
-RULES_SECTIONS.push({
-    id: "rulesets-market",
-  label: "RULESETS & SEASONS",
-  kicker: "19 · EXPANSION",
-  title: "Choose the table, then earn the record",
-  status: "LIVE",
-  summary: "Standard and Advanced set starting defaults. Both presets allow every optional economy system.",
-  content: `<h3 class="t-section g300">Starting presets and custom rules</h3><ul class="rules-bullets"><li>New tables start with Standard defaults: buying deeds, rent, auctions, trades, building, mortgages, cards, prison and bankruptcy form the board-game core. Optional economy modules start off, and the host can enable any of them independently.</li><li>Advanced starts Player Finance on. Neither preset locks any feature: the host can mix player finance, bank loans, casino, market, flights, bank accounts and global events however they want. Explicit choices survive preset changes.</li><li>Player Finance controls new player loans, rent shares and gift or rent-share Purchase Funding. Existing active contracts remain viewable and repayable when it is off.</li><li>The board variant is separate: Standard 40 supports up to four seats; Metro 52 has 13 spaces per side and up to six seats.</li><li>Room snapshots show the server's effective rules. Historical active agreements retain their recorded terms.</li></ul><h3 class="t-section g300">Market complexity</h3><p class="t-body ink-2">With Market Access enabled, Basic enables buy/sell indexes. Margin adds a maintenance obligation, Shorting adds finite borrowable units and deterministic buy-ins, and Derivatives adds fully collateralized calls and puts. Every tier uses the same server candidate list for humans and bots.</p>`
-});
-const marketRulesChapter = RULES_SECTIONS.find((section) => section.id === "casino-market");
-if (marketRulesChapter) marketRulesChapter.content = marketRulesChapter.content.replace("without margin, shorting, options, or real-world securities.", "with staged margin, shorting, and fully collateralized options when the host enables a higher Market Complexity tier; real-world securities remain excluded.");
-
-RULES_SECTIONS.push({
-  id: "wallet-items",
-  label: "WALLET & ITEMS",
-  kicker: "20 · INVENTORY",
-  title: "Keep, use, or sell",
-  status: "LIVE",
-  summary: "The host can enable Item Rewards with either preset. Surprise and Treasure can then hand out bonds and keepsakes, but only rarely. Open Wallet & Items to manage your inventory.",
-  content: `<div class="rules-term-grid"><div><strong class="t-label f12 g100">PRISON KEY · SELL $25</strong><p class="t-body ink-2">Spend one before rolling on your turn in prison. It follows the existing prison-card rules.</p></div><div><strong class="t-label f12 g100">PARLOR BOND · SELL $400</strong><p class="t-body ink-2">Redeem for $800 after two rounds. Each bond shows its maturity round. Selling early pays $400.</p></div><div><strong class="t-label f12 g100">SILVER KEEPSAKE · SELL $600</strong><p class="t-body ink-2">Keep it or sell it to the bank. It has no additional use effect.</p></div></div><ul class="rules-bullets"><li>Item Rewards starts off. Classic prison cards still work when it is off, with no bank sale or added net worth.</li><li>Each item can be used or sold once. Items cannot be traded or exchanged. Unavailable actions show the reason.</li><li>Sales and mature bond redemptions can raise cash during debt rescue. Pending decisions can restrict use; the server checks each action.</li><li>Net worth includes the current realizable value: bonds count as $50 before maturity and $100 when mature. Reward reductions apply when items are granted.</li><li>Inventory is private, reconnects restore it, and a new match resets it. Bankruptcy and seat removal settle it once under the table's exit rules.</li></ul>`,
-});
 
 function rulesSectionById(id) {
   return RULES_SECTIONS.find((section) => section.id === id) || RULES_SECTIONS[0];
@@ -1030,7 +1016,7 @@ function rulesEmptyArticleHTML() {
 }
 
 // Chapters most players need are always listed; the optional systems sit behind one fold.
-const MORE_SECTION_IDS = new Set(["global-events", "casino-market", "bots", "social-profile", "achievements", "lobby-settings", "reconnect-accessibility", "rulesets-market", "wallet-items"]);
+const MORE_SECTION_IDS = new Set(["support-spaces", "cards", "prison-vacation", "wallet-items", "loans", "global-events", "casino-market", "bots", "social-profile", "achievements", "lobby-settings", "reconnect-accessibility", "rulesets-market"]);
 
 function rulesIndexLinkHTML(section, index, active) {
   return `<button class="rules-index-link${indexLinkClasses(section, active)}" type="button" data-rules-section="${section.id}" aria-current="${indexAriaCurrent(section, active)}"><span class="rules-index-number">${String(index + 1).padStart(2, "0")}</span><span>${section.label}</span></button>`;
@@ -1214,8 +1200,9 @@ function playerIdentityBits(player) {
 }
 
 function playerFactsBits(player) {
-  const games = player.stats?.gamesPlayed ?? "-";
-  const wins = player.stats?.wins ?? "-";
+  const stats = player.personaStats || player.stats;
+  const games = stats?.gamesPlayed ?? "-";
+  const wins = stats?.wins ?? "-";
   const achievements = player.achievementsPrivate ? "PRIVATE" : player.achievementsFriendsOnly ? "FRIENDS ONLY" : (player.achievements?.length ?? "-");
   const mutual = player.mutualFriends ?? "-";
   return { games, wins, achievements, mutual };
@@ -1234,14 +1221,23 @@ function playerActionBits(player, canSocial, friendStatus) {
   };
 }
 
+// Before the round, the host can remove a computer seat from its card.
+function localPlayerIsHost() {
+  const me = state.players?.[0];
+  return Boolean(me && (me.isHost || (me.serverId && me.serverId === state.hostId)));
+}
+
 function playerActionPanelHTML(player, canSocial, actions, friendLabel) {
   if (!canSocial) {
     const copy = player.id === "p1"
       ? "THIS IS YOUR PLAYER CARD · USE PROFILE FOR PRIVATE DETAILS"
       : player.bot
-        ? "BOT SEAT · NO SOCIAL ACCOUNT LINKED"
+        ? `COMPUTER · ${String(player.botDifficulty || "table").toUpperCase()} · NO SOCIAL ACCOUNT`
         : "GUEST SEAT · SOCIAL ACTIONS NEED AN ACCOUNT";
-    return `<p class="t-micro ink-3 player-profile-actions-note">${copy}</p>`;
+    const removeAction = player.bot && state.phase === "lobby" && localPlayerIsHost()
+      ? `<button class="cta-red" type="button" data-player-action="remove-computer"><span class="cta-text cta-text-sm">Remove computer player</span></button>`
+      : "";
+    return `<p class="t-micro ink-3 player-profile-actions-note">${copy}</p>${removeAction}`;
   }
   return `<button class="cta-red" type="button" data-player-action="friend" ${actions.friendAttr}><span class="cta-text cta-text-sm">${friendLabel}</span></button><button class="btn-dark" type="button" data-player-action="invite" ${actions.canSocialAttr}><span class="t-label f11">INVITE TO ROOM</span></button><button class="btn-dark" type="button" data-player-action="history" ${actions.historyAttr}><span class="t-label f11">MATCH HISTORY</span></button><button class="btn-dark" type="button" data-player-action="block" ${actions.canSocialAttr}><span class="t-label f11">BLOCK</span></button><button class="btn-dark" type="button" data-player-action="report" ${actions.canSocialAttr}><span class="t-label f11">REPORT</span></button>`;
 }

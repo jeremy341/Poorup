@@ -448,48 +448,14 @@ function lobbySetupNotice(locked, hostLocked) {
   return "";
 }
 
-function lobbyRulesSnapshot(settings) {
-  const board = String(settings.boardVariant || state.boardVariant || "standard-40").toUpperCase();
-  const players = `${settings.maxPlayers} players · $${Number(settings.startingCash).toLocaleString()} start`;
-  return `<div class="settings-rule">
-      <strong style="color:var(--gold-300)">Active rules snapshot</strong><br>
-      ${board}<br>
-      ${String(settings.rulesProfile || "standard").toUpperCase()} · ${players} · ${toggleCopy(settings.vacationPool, "pool on", "no pool")} ·
-      ${toggleCopy(settings.trading, "trading on", "no trades")} ·
-      ${toggleCopy(settings.auction, "auction on", "no auction")} ·
-      ${toggleCopy(settings.playerFinance, "player finance on", "player finance off")} · ${bankLoanCopy(settings)} ·
-      ${toggleCopy(settings.globalEvents, "global events on", "global events off")} ·
-      ${toggleCopy(settings.casino, "casino on", "casino off")} ·
-      ${toggleCopy(settings.market, "market on", "market off")} ·
-      ${toggleCopy(settings.flights, "flights on", "flights off")} ·
-      ${toggleCopy(settings.bankAccountUpgrades, "bank accounts on", "bank accounts off")} ·
-      ${toggleCopy(settings.itemRewards, "item rewards on", "item rewards off")} ·
-      ${botCopy(settings)} ·
-      eliminate busted players when no legal rescue remains
-    </div>`;
-}
-
-function toggleCopy(enabled, on, off) {
-  return enabled ? on : off;
-}
-
-function bankLoanCopy(settings) {
-  return settings.bankLoans ? `${String(settings.bankLoanSeverity).toLowerCase()} bank loans` : "bank loans off";
-}
-
-function botCopy(settings) {
-  if (!settings.bots) return "no bots";
-  return `bot ${String(settings.botBrain || "ai").toLowerCase()} · ${String(settings.botDifficulty || "table").toLowerCase()}`;
-}
-
 function botBrainControl(settings) {
   const exhausted = state.botProviderStatus?.state === "quota-exhausted";
   const selected = String(settings.botBrain || "ai").toLowerCase() === "no-ai" ? "no-ai" : "ai";
-  const aiLabel = exhausted ? "AI BOT · CREDITS EXHAUSTED" : "AI BOT";
+  const aiLabel = exhausted ? "AI COMPUTER · CREDITS EXHAUSTED" : "AI COMPUTER";
   const aiDisabled = exhausted ? "disabled" : "";
   const status = exhausted ? '<span class="setting-status setting-status-error" data-bot-provider-copy>AI CREDITS EXHAUSTED</span>' : "";
-  const help = exhausted ? "AI BOT is unavailable. Select NO-AI BOT to use the offline house brain." : "AI BOT uses the provider and falls back automatically when unavailable.";
-  return `<span class="setting-control-stack"><select class="setting-select${exhausted ? " is-error" : ""}" data-setting="botBrain" aria-describedby="bot-brain-help"><option value="ai" ${selected === "ai" ? "selected" : ""} ${aiDisabled}>${aiLabel}</option><option value="no-ai" ${selected === "no-ai" ? "selected" : ""}>NO-AI BOT</option></select><span id="bot-brain-help" class="sr-only">${help}</span>${status}</span>`;
+  const help = exhausted ? "AI COMPUTER is unavailable. Select NO-AI COMPUTER to use the offline house brain." : "AI COMPUTER uses the provider and falls back automatically when unavailable.";
+  return `<span class="setting-control-stack"><select class="setting-select${exhausted ? " is-error" : ""}" data-setting="botBrain" aria-describedby="bot-brain-help"><option value="ai" ${selected === "ai" ? "selected" : ""} ${aiDisabled}>${aiLabel}</option><option value="no-ai" ${selected === "no-ai" ? "selected" : ""}>NO-AI COMPUTER</option></select><span id="bot-brain-help" class="sr-only">${help}</span>${status}</span>`;
 }
 
 function renderLobbyRail() {
@@ -510,11 +476,11 @@ function renderLobbyRail() {
 function lobbyTableRules(s) {
   return lobbySection("Table Rules", [
     settingRow("Starting Preset", "Choose a starting point, then customize every rule below.", sel("rulesProfile", s.rulesProfile || "standard", [["standard", "STANDARD"], ["advanced", "ADVANCED"]])),
-    settingRow("Board Variant", "Standard is the classic 40-space board. Metro adds 12 spaces and supports up to six seats.", sel("boardVariant", s.boardVariant || "standard-40", [["standard-40", "STANDARD · 40"], ["metro-52", "METRO · 52 / 6 SEATS"]])),
+    settingRow("Board Variant", "Standard: 40 spaces. Metro: 52 spaces, up to 6 players.", sel("boardVariant", s.boardVariant || "standard-40", [["standard-40", "STANDARD · 40"], ["metro-52", "METRO · 52 / 6 SEATS"]])),
     settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, s.boardVariant === "metro-52" ? 6 : 4)),
-    settingRowNum("Bots", "Reserve CPU seats for Solo Dev Mode.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
-    settingRow("Bot Brain", "Choose AI or the offline house brain. AI falls back automatically when credits or service are unavailable.", botBrainControl(s)),
-    settingRow("Bot Difficulty", "Change search depth and reserve tolerance, never the legal rules.", sel("botDifficulty", s.botDifficulty, [["house","HOUSE"],["table","TABLE"],["expert","EXPERT"]])),
+    settingRowNum("Computer players", "Add computer players to fill empty seats.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
+    settingRow("Computer Brain", "AI when available, offline otherwise.", botBrainControl(s)),
+    settingRow("Computer Difficulty", "How hard computer players think.", sel("botDifficulty", s.botDifficulty, [["house","HOUSE"],["table","TABLE"],["expert","EXPERT"]])),
     settingRowNum("Starting Cash", "Bank hands this to each player at start.", sel("startingCash", s.startingCash, [["500","$500"],["1000","$1,000"],["1500","$1,500"],["2000","$2,000"],["2500","$2,500"],["3000","$3,000"]])),
     settingRow("Vacation Pool", "Taxes fill free parking. First to land claims it.", tog("vacationPool", s.vacationPool)),
     settingRow("Double GO", "Landing exactly on GO pays $400 instead of $200.", tog("doubleGo", s.doubleGo)),
@@ -526,22 +492,24 @@ function lobbyEconomy(s) {
     settingRow("Trading", "Players may propose trades.", tog("trading", s.trading)),
     settingRow("Auction", "Unowned deeds go to auction if buyer passes.", tog("auction", s.auction)),
     settingRow("No Rent In Jail", "Owner in jail can't collect rent that turn.", tog("noRentInJail", s.noRentInJail)),
-    settingRow("Player Finance", "Player loans, temporary rent shares, and purchase funding.", tog("playerFinance", s.playerFinance)),
-    settingRow("Bank Loans", "Emergency credit with collateral and a hard maturity.", tog("bankLoans", s.bankLoans)),
-    settingRow("Loan Severity", "Premium applied to emergency bank credit.", sel("bankLoanSeverity", s.bankLoanSeverity, [["fair","FAIR"],["predatory","PREDATORY"],["extreme","EXTREME"]])),
-    settingRow("Casino Access", "Virtual-money European roulette. No cash-out or loan-funded bets.", tog("casino", s.casino)),
-    settingRow("Airport Flights", "Fly airport to airport. Airport owners set the departure and arrival fees.", tog("flights", s.flights)),
-    settingRow("Bank Accounts", "Buy a tier in the wallet. Higher tiers rebate fees on market orders and flights.", tog("bankAccountUpgrades", s.bankAccountUpgrades)),
-    settingRow("Item Rewards", "Surprise and Treasure can award bonds and keepsakes. Manage them in Wallet & Items.", tog("itemRewards", s.itemRewards)),
-    settingRow("Market Access", "Fictional indexes with visible prices and a small trading fee.", tog("market", s.market)),
-    settingRow("Market Complexity", "Unlock margin, shorting, or derivatives in staged order.", sel("marketComplexity", s.marketComplexity || "basic", [["basic", "BASIC"], ["margin", "MARGIN"], ["shorting", "SHORTING"], ["derivatives", "DERIVATIVES"]])),
   ]);
 }
 
-function lobbyOptionalSections(s) {
-  return [
-    lobbySection("Global Events", [settingRow("Global Events", "Rare, escalating headlines. Timing and severity scale with the round.", tog("globalEvents", Boolean(s.globalEvents)))]),
+// Optional systems start off. They always show as their own section below the core rules.
+function lobbyAdvancedSystems(s) {
+  const rows = [
+  settingRow("Player Finance", "Player loans, temporary rent shares, and purchase funding.", tog("playerFinance", s.playerFinance)),
+  settingRow("Bank Loans", "Emergency credit with collateral and a hard maturity.", tog("bankLoans", s.bankLoans)),
+  settingRow("Loan Severity", "Premium applied to emergency bank credit.", sel("bankLoanSeverity", s.bankLoanSeverity, [["fair","FAIR"],["predatory","PREDATORY"],["extreme","EXTREME"]])),
+  settingRow("Casino Access", "Virtual-money European roulette. No cash-out or loan-funded bets.", tog("casino", s.casino)),
+  settingRow("Airport Flights", "Fly airport to airport. Airport owners set the departure and arrival fees.", tog("flights", s.flights)),
+  settingRow("Bank Accounts", "Buy a tier in the wallet. Higher tiers rebate fees on market orders and flights.", tog("bankAccountUpgrades", s.bankAccountUpgrades)),
+  settingRow("Item Rewards", "Surprise and Treasure can award bonds and keepsakes. Manage them in Wallet & Items.", tog("itemRewards", s.itemRewards)),
+  settingRow("Market Access", "Fictional indexes with visible prices and a small trading fee.", tog("market", s.market)),
+  settingRow("Market Complexity", "Unlock margin, shorting, or derivatives in staged order.", sel("marketComplexity", s.marketComplexity || "basic", [["basic", "BASIC"], ["margin", "MARGIN"], ["shorting", "SHORTING"], ["derivatives", "DERIVATIVES"]])),
+  settingRow("Global Events", "Rare, escalating headlines. Timing and severity scale with the round.", tog("globalEvents", Boolean(s.globalEvents))),
   ];
+  return lobbySection("Advanced Systems", rows);
 }
 
 function lobbySectionsMarkup(s, locked, hostLocked) {
@@ -549,8 +517,7 @@ function lobbySectionsMarkup(s, locked, hostLocked) {
     lobbySetupNotice(locked, hostLocked),
     lobbyTableRules(s),
     lobbyEconomy(s),
-    ...lobbyOptionalSections(s),
-    lobbyRulesSnapshot(s),
+    lobbyAdvancedSystems(s),
   ].join("");
 }
 
@@ -567,6 +534,23 @@ function applyLobbyLockState(locked, hostLocked) {
 function renderLobbyRailContent(s, locked, hostLocked) {
   $("#lobby-settings-body").innerHTML = lobbySectionsMarkup(s, locked, hostLocked);
   applyLobbyLockState(locked, hostLocked);
+}
+
+// Removes one computer seat through the same server setting the Bots stepper uses.
+export function removeComputerPlayer() {
+  if ((Number(state.settings.bots) || 0) <= 0) return;
+  state.settings.bots = Math.max(0, (Number(state.settings.bots) || 0) - 1);
+  host.updateServerSetting("bots", state.settings.bots);
+  renderLobbyRail();
+}
+
+// Adds one computer seat through the same server setting the Bots stepper uses.
+export function addComputerPlayer() {
+  const [, max] = stepperLimits("bots");
+  if ((Number(state.settings.bots) || 0) >= max) return;
+  state.settings.bots = clamp((Number(state.settings.bots) || 0) + 1, 0, max);
+  host.updateServerSetting("bots", state.settings.bots);
+  renderLobbyRail();
 }
 
 function syncServerAppearance() {
@@ -652,8 +636,8 @@ function quickTableFallbackCreate() {
     visibility: "public",
     boardVariant: "standard-40"
   };
-  state.pendingRoomSettings = { vacationPool: true, trading: true, auction: false };
-  parlorNotice("QUICK TABLE", "NO OPEN TABLES. HOSTING A NEW PUBLIC TABLE.");
+  state.pendingRoomSettings = { vacationPool: false, trading: true, auction: true };
+  parlorNotice("QUICK TABLE", "NO OPEN TABLES. HOSTING A NEW PUBLIC TABLE WITH CLASSIC RULES.");
   enterParlor();
 }
 
@@ -676,7 +660,6 @@ function quickTableDirectoryAck(response, requestId) {
 function requestQuickTableDirectory() {
   const requestId = ++quickTableRequestId;
   clearQuickTableDirectoryTimer();
-  parlorNotice("QUICK TABLE", "LOOKING FOR AN OPEN PUBLIC TABLE…");
   quickTableDirectoryTimer = setTimeout(() => {
     quickTableDirectoryAck({ success: false, error: "Directory request timed out." }, requestId);
   }, QUICK_TABLE_DIRECTORY_TIMEOUT_MS);
@@ -702,7 +685,7 @@ function retryQuickTableJoin(response) {
   clearQuickTableDirectoryTimer();
   host.showView("home");
   host.renderAll();
-  parlorNotice("QUICK TABLE", `${response.error} Looking for another open table…`);
+  parlorNotice("QUICK TABLE", `${response.error} Looking for another open table…`, "warning");
   requestQuickTableDirectory();
 }
 
@@ -778,6 +761,16 @@ function onParlorEntryResponse(response, event) {
     return;
   }
   applyParlorEntryAck(response);
+}
+
+// Solo entry: a table with one computer player. The host still starts the round.
+export function playVsComputer() {
+  if (!requireGuestAlias()) return;
+  if (quickTableFlow || state.roomEntryPending) return;
+  state.quickJoin = false;
+  state.pendingRoomMeta = { roomName: "COMPUTER TABLE", visibility: "public", boardVariant: "standard-40" };
+  state.pendingRoomSettings = { vacationPool: false, trading: true, auction: true, bots: 1 };
+  enterParlor();
 }
 
 export function enterParlor(code) {
@@ -1062,17 +1055,16 @@ export function bindLobbyUi() {
   // Standard-40 room only when no compatible seat is available. The join is
   // checked by the authoritative server, with two bounded retries for rooms
   // that fill between list-rooms and join-room.
+  $("#play-vs-computer-btn")?.addEventListener("click", playVsComputer);
   $("#quick-table-btn")?.addEventListener("click", () => {
     if (!requireGuestAlias()) return;
     if (quickTableFlow || state.roomEntryPending) return;
     quickTableFlow = true;
     quickTableRetryCount = 0;
     state.quickJoin = true;
-    state.settings.vacationPool = true;
+    state.settings.vacationPool = false;
     state.settings.trading = true;
-    state.settings.auction = false;
-    // Quick Table rewrites the rules silently otherwise: say so up front.
-    parlorNotice("QUICK TABLE", "NO AUCTIONS · VACATION POOL ON · TRADING ON.");
+    state.settings.auction = true;
     requestQuickTableDirectory();
   });
 

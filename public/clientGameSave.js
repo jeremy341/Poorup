@@ -81,7 +81,7 @@ function clearSave() {
     room mute, and only return to the parlor view when the player is mid-room. */
 function reportRestoreFailure(response, explicit) {
   if (!explicit && state.phase === "home") return;
-  parlorNotice("CONNECTION", response.error || "No active room session was found.");
+  parlorNotice("CONNECTION", response.error || "No active room session was found.", "error");
   if (!explicit) {
     // A connected socket with no authoritative room is a terminal restart
     // outcome, not an offline transport. Clear the stale board projection and
