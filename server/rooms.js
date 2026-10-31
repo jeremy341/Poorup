@@ -812,7 +812,7 @@ class Room {
       isBot: player.isBot,
       botBrain: player.isBot ? this.settings.botBrain : null,
       botDifficulty: player.isBot ? this.settings.botDifficulty : null,
-      personaStats: player.isBot ? botPersonaStore.profileFor(player.personaId) : null,
+      personaStats: player.isBot && player.personaId ? botPersonaStore.statsFor(player.personaId) : null,
     };
   }
 

@@ -1203,7 +1203,7 @@ function playerFactsBits(player) {
   const stats = player.personaStats || player.stats;
   const games = stats?.gamesPlayed ?? "-";
   const wins = stats?.wins ?? "-";
-  const achievements = player.personaStats ? (player.personaStats.achievements ?? 0) : player.achievementsPrivate ? "PRIVATE" : player.achievementsFriendsOnly ? "FRIENDS ONLY" : (player.achievements?.length ?? "-");
+  const achievements = player.achievementsPrivate ? "PRIVATE" : player.achievementsFriendsOnly ? "FRIENDS ONLY" : (player.achievements?.length ?? "-");
   const mutual = player.mutualFriends ?? "-";
   return { games, wins, achievements, mutual };
 }
@@ -1234,13 +1234,10 @@ function playerActionPanelHTML(player, canSocial, actions, friendLabel) {
       : player.bot
         ? `COMPUTER · ${String(player.botDifficulty || "table").toUpperCase()} · NO SOCIAL ACCOUNT`
         : "GUEST SEAT · SOCIAL ACTIONS NEED AN ACCOUNT";
-    const profileAction = player.bot && player.personaStats
-      ? `<button class="btn-dark" type="button" data-player-action="computer-profile"><span class="t-label f11">COMPUTER PROFILE</span></button>`
-      : "";
     const removeAction = player.bot && state.phase === "lobby" && localPlayerIsHost()
       ? `<button class="cta-red" type="button" data-player-action="remove-computer"><span class="cta-text cta-text-sm">Remove computer player</span></button>`
       : "";
-    return `<p class="t-micro ink-3 player-profile-actions-note">${copy}</p>${profileAction}${removeAction}`;
+    return `<p class="t-micro ink-3 player-profile-actions-note">${copy}</p>${removeAction}`;
   }
   return `<button class="cta-red" type="button" data-player-action="friend" ${actions.friendAttr}><span class="cta-text cta-text-sm">${friendLabel}</span></button><button class="btn-dark" type="button" data-player-action="invite" ${actions.canSocialAttr}><span class="t-label f11">INVITE TO ROOM</span></button><button class="btn-dark" type="button" data-player-action="history" ${actions.historyAttr}><span class="t-label f11">MATCH HISTORY</span></button><button class="btn-dark" type="button" data-player-action="block" ${actions.canSocialAttr}><span class="t-label f11">BLOCK</span></button><button class="btn-dark" type="button" data-player-action="report" ${actions.canSocialAttr}><span class="t-label f11">REPORT</span></button>`;
 }
@@ -1338,22 +1335,6 @@ function renderPlayerProfileView(card, player, accountId) {
   renderRecentMatches(card, player);
 }
 
-function computerUnlockHTML(entry) {
-  return '<li class="computer-profile-unlock"><div class="computer-profile-unlock-head"><strong class="t-label f11 g100">' + esc(entry.title || entry.achievementId) + '</strong><span class="t-micro ink-3">' + esc(entry.rarity || "") + '</span></div><p class="t-body ink-2">' + esc(entry.body || "") + '</p></li>';
-}
-
-// A computer seat has no account, so its profile is only its own record: games, wins and the unlocks it earned.
-function renderComputerProfileView(card, player) {
-  const stats = player.personaStats || {};
-  const unlocked = Array.isArray(stats.unlocked) ? stats.unlocked : [];
-  const name = esc(player.displayName || player.name);
-  const difficulty = esc(String(player.botDifficulty || "table").toUpperCase());
-  const list = unlocked.length
-    ? '<ul class="computer-profile-unlocks">' + unlocked.map(computerUnlockHTML).join("") + '</ul>'
-    : '<p class="t-body ink-3 social-empty">NO UNLOCKS YET.</p>';
-  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">COMPUTER PROFILE · ${difficulty}</div><h2 class="t-section g100" id="player-modal-title">${name}</h2><p class="t-body ink-2" id="player-modal-description">Computer players keep their own record. It never reaches accounts or rankings.</p></div>${closeButtonHTML({ id: "player-modal-close", label: "Close player profile", className: "social-close" })}</div><div class="player-profile-facts"><div><span class="t-micro ink-3">GAMES</span><strong class="t-label f13 g100">${esc(String(stats.gamesPlayed ?? "-"))}</strong></div><div><span class="t-micro ink-3">WINS</span><strong class="t-label f13 green">${esc(String(stats.wins ?? "-"))}</strong></div><div><span class="t-micro ink-3">ACHIEVEMENTS</span><strong class="t-label f13 g300">${unlocked.length}</strong></div></div><div class="computer-profile-body thin-scroll">${list}</div><button class="btn-dark social-back" id="player-modal-back" type="button"><span class="t-label f11">BACK TO PLAYER</span></button>`;
-}
-
 export function renderPlayerSurface() {
   const card = $("#player-card");
   const player = state.selectedPlayer;
@@ -1361,10 +1342,6 @@ export function renderPlayerSurface() {
   const accountId = player.accountId || player.id;
   if (state.selectedPlayerView === "history") {
     renderPlayerHistoryView(card, player);
-    return;
-  }
-  if (state.selectedPlayerView === "computer") {
-    renderComputerProfileView(card, player);
     return;
   }
   renderPlayerProfileView(card, player, accountId);
