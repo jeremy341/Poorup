@@ -73,6 +73,7 @@ export const TEST_GROUPS = Object.freeze({
     'server/market-snapshot-and-loans.test.js', 'server/start-salary-paths.test.js',
     'server/equity-rent-income.test.js', 'server/group-traffic-percent.test.js',
     'server/room-setting-validation.test.js',
+    'server/bot-audit-fixes.test.js', 'server/money-audit-fixes.test.js', 'server/rooms-audit-fixes.test.js',
   ],
   timers: ['server/player-lifecycle-timers.test.js'],
   account: [
