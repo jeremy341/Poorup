@@ -678,7 +678,7 @@ function retryAudioAfterGesture() {
 function renderPlayers() {
   const seated = state.players.slice(0, state.settings.maxPlayers);
   const serverNow = currentServerTime();
-  const rows = seated.map((p, i) => lobbySeatRowHTML(p, i, serverNow));
+  const rows = seated.map((p, i) => playerRowHTML(p, i, serverNow));
   if (lobbyAddSeatAvailable(seated.length)) rows.push(lobbyAddSeatHTML());
   setHtml($("#player-list"), rows.join(""));
 }
@@ -693,12 +693,6 @@ function lobbyAddSeatAvailable(seatedCount) {
   return state.phase === "lobby" && lobbyHostIsLocal() && seatedCount < state.settings.maxPlayers;
 }
 
-// In the lobby the host can remove a computer seat from its row. The control sits beside the row, not inside it.
-function lobbySeatRowHTML(p, i, serverNow) {
-  const row = playerRowHTML(p, i, serverNow);
-  if (!p.bot || state.phase !== "lobby" || !lobbyHostIsLocal()) return row;
-  return `<div class="player-row-wrap">${row}<button class="player-row-remove" type="button" data-remove-computer>Remove computer player</button></div>`;
-}
 
 function lobbyAddSeatHTML() {
   return `<button class="player-row player-row-add" type="button" data-add-computer>
@@ -1296,7 +1290,6 @@ function bindGameActions() {
   $("#lobby-start-btn").addEventListener("click", startGame);
   $("#player-list").addEventListener("click", (e) => {
     if (e.target.closest("[data-add-computer]")) addComputerPlayer();
-    if (e.target.closest("[data-remove-computer]")) removeComputerPlayer();
   });
   $("#pay-jail-fine")?.addEventListener("click", () => {
     emitWithChatError("pay-jail-fine", {}, "The jail fine could not be paid.");
@@ -1406,7 +1399,7 @@ function bindEvents() {
   bindHomeNavigation();
   bindRulesPage();
 
-  bindParlorSurfaces({ emitServer, leaveRoomForHome });
+  bindParlorSurfaces({ emitServer, leaveRoomForHome, removeComputerPlayer });
 
   // Home actions are bound to their explicit controls below. Keeping the
   // entry points named avoids accidental duplicate Create/Browse triggers.

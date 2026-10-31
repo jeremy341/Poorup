@@ -1220,6 +1220,12 @@ function playerActionBits(player, canSocial, friendStatus) {
   };
 }
 
+// Before the round, the host can remove a computer seat from its card.
+function localPlayerIsHost() {
+  const me = state.players?.[0];
+  return Boolean(me && (me.isHost || (me.serverId && me.serverId === state.hostId)));
+}
+
 function playerActionPanelHTML(player, canSocial, actions, friendLabel) {
   if (!canSocial) {
     const copy = player.id === "p1"
@@ -1227,7 +1233,10 @@ function playerActionPanelHTML(player, canSocial, actions, friendLabel) {
       : player.bot
         ? "BOT SEAT · NO SOCIAL ACCOUNT LINKED"
         : "GUEST SEAT · SOCIAL ACTIONS NEED AN ACCOUNT";
-    return `<p class="t-micro ink-3 player-profile-actions-note">${copy}</p>`;
+    const removeAction = player.bot && state.phase === "lobby" && localPlayerIsHost()
+      ? `<button class="btn-dark" type="button" data-player-action="remove-computer">Remove computer player</button>`
+      : "";
+    return `<p class="t-micro ink-3 player-profile-actions-note">${copy}</p>${removeAction}`;
   }
   return `<button class="cta-red" type="button" data-player-action="friend" ${actions.friendAttr}><span class="cta-text cta-text-sm">${friendLabel}</span></button><button class="btn-dark" type="button" data-player-action="invite" ${actions.canSocialAttr}><span class="t-label f11">INVITE TO ROOM</span></button><button class="btn-dark" type="button" data-player-action="history" ${actions.historyAttr}><span class="t-label f11">MATCH HISTORY</span></button><button class="btn-dark" type="button" data-player-action="block" ${actions.canSocialAttr}><span class="t-label f11">BLOCK</span></button><button class="btn-dark" type="button" data-player-action="report" ${actions.canSocialAttr}><span class="t-label f11">REPORT</span></button>`;
 }
