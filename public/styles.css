@@ -3300,14 +3300,15 @@ button[id$="-close"],
 .trade-side-head > div { display: flex; flex-direction: column; min-width: 0; }
 .trade-cash-label { margin-top: 5px; }
 .trade-deed-list {
-  display: flex; flex-direction: column; gap: 6px;
-  max-height: 168px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 10px;
+  max-height: 240px; overflow-y: auto;
   padding-right: 2px;
 }
 .trade-empty { padding: 10px 2px; color: var(--text-muted); }
 .trade-deed {
   display: flex; align-items: center; gap: 10px;
-  padding: 8px 10px 8px 12px;
+  min-height: 46px;
+  padding: 10px 12px 10px 14px;
   background: var(--surface-panel-raised);
   border: 1px solid var(--line-subtle);
   border-radius: 2px;

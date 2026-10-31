@@ -1012,7 +1012,7 @@ function rulesEmptyArticleHTML() {
 }
 
 // Chapters most players need are always listed; the optional systems sit behind one fold.
-const MORE_SECTION_IDS = new Set(["global-events", "casino-market", "bots", "social-profile", "achievements", "lobby-settings", "reconnect-accessibility", "rulesets-market", "wallet-items"]);
+const MORE_SECTION_IDS = new Set(["support-spaces", "cards", "prison-vacation", "wallet-items", "loans", "global-events", "casino-market", "bots", "social-profile", "achievements", "lobby-settings", "reconnect-accessibility", "rulesets-market"]);
 
 function rulesIndexLinkHTML(section, index, active) {
   return `<button class="rules-index-link${indexLinkClasses(section, active)}" type="button" data-rules-section="${section.id}" aria-current="${indexAriaCurrent(section, active)}"><span class="rules-index-number">${String(index + 1).padStart(2, "0")}</span><span>${section.label}</span></button>`;

@@ -526,22 +526,31 @@ function lobbyEconomy(s) {
     settingRow("Trading", "Players may propose trades.", tog("trading", s.trading)),
     settingRow("Auction", "Unowned deeds go to auction if buyer passes.", tog("auction", s.auction)),
     settingRow("No Rent In Jail", "Owner in jail can't collect rent that turn.", tog("noRentInJail", s.noRentInJail)),
-    settingRow("Player Finance", "Player loans, temporary rent shares, and purchase funding.", tog("playerFinance", s.playerFinance)),
-    settingRow("Bank Loans", "Emergency credit with collateral and a hard maturity.", tog("bankLoans", s.bankLoans)),
-    settingRow("Loan Severity", "Premium applied to emergency bank credit.", sel("bankLoanSeverity", s.bankLoanSeverity, [["fair","FAIR"],["predatory","PREDATORY"],["extreme","EXTREME"]])),
-    settingRow("Casino Access", "Virtual-money European roulette. No cash-out or loan-funded bets.", tog("casino", s.casino)),
-    settingRow("Airport Flights", "Fly airport to airport. Airport owners set the departure and arrival fees.", tog("flights", s.flights)),
-    settingRow("Bank Accounts", "Buy a tier in the wallet. Higher tiers rebate fees on market orders and flights.", tog("bankAccountUpgrades", s.bankAccountUpgrades)),
-    settingRow("Item Rewards", "Surprise and Treasure can award bonds and keepsakes. Manage them in Wallet & Items.", tog("itemRewards", s.itemRewards)),
-    settingRow("Market Access", "Fictional indexes with visible prices and a small trading fee.", tog("market", s.market)),
-    settingRow("Market Complexity", "Unlock margin, shorting, or derivatives in staged order.", sel("marketComplexity", s.marketComplexity || "basic", [["basic", "BASIC"], ["margin", "MARGIN"], ["shorting", "SHORTING"], ["derivatives", "DERIVATIVES"]])),
   ]);
 }
 
-function lobbyOptionalSections(s) {
-  return [
-    lobbySection("Global Events", [settingRow("Global Events", "Rare, escalating headlines. Timing and severity scale with the round.", tog("globalEvents", Boolean(s.globalEvents)))]),
+// Optional systems start off. They sit behind one collapsed block that opens itself when any of them is on,
+// so a casual host sees the core rules first.
+const ADVANCED_SYSTEM_KEYS = ["playerFinance", "bankLoans", "casino", "flights", "bankAccountUpgrades", "itemRewards", "market", "globalEvents"];
+
+function lobbyAdvancedSystems(s) {
+  const rows = [
+  settingRow("Player Finance", "Player loans, temporary rent shares, and purchase funding.", tog("playerFinance", s.playerFinance)),
+  settingRow("Bank Loans", "Emergency credit with collateral and a hard maturity.", tog("bankLoans", s.bankLoans)),
+  settingRow("Loan Severity", "Premium applied to emergency bank credit.", sel("bankLoanSeverity", s.bankLoanSeverity, [["fair","FAIR"],["predatory","PREDATORY"],["extreme","EXTREME"]])),
+  settingRow("Casino Access", "Virtual-money European roulette. No cash-out or loan-funded bets.", tog("casino", s.casino)),
+  settingRow("Airport Flights", "Fly airport to airport. Airport owners set the departure and arrival fees.", tog("flights", s.flights)),
+  settingRow("Bank Accounts", "Buy a tier in the wallet. Higher tiers rebate fees on market orders and flights.", tog("bankAccountUpgrades", s.bankAccountUpgrades)),
+  settingRow("Item Rewards", "Surprise and Treasure can award bonds and keepsakes. Manage them in Wallet & Items.", tog("itemRewards", s.itemRewards)),
+  settingRow("Market Access", "Fictional indexes with visible prices and a small trading fee.", tog("market", s.market)),
+  settingRow("Market Complexity", "Unlock margin, shorting, or derivatives in staged order.", sel("marketComplexity", s.marketComplexity || "basic", [["basic", "BASIC"], ["margin", "MARGIN"], ["shorting", "SHORTING"], ["derivatives", "DERIVATIVES"]])),
+  settingRow("Global Events", "Rare, escalating headlines. Timing and severity scale with the round.", tog("globalEvents", Boolean(s.globalEvents))),
   ];
+  const anyOn = ADVANCED_SYSTEM_KEYS.some(key => Boolean(s[key]));
+  return `<details class="lobby-advanced"${anyOn ? " open" : ""}>
+    <summary class="t-label">ADVANCED SYSTEMS · ${anyOn ? "SOME ON" : "ALL OFF"}</summary>
+    ${lobbySection("Optional Systems", rows)}
+  </details>`;
 }
 
 function lobbySectionsMarkup(s, locked, hostLocked) {
@@ -549,7 +558,7 @@ function lobbySectionsMarkup(s, locked, hostLocked) {
     lobbySetupNotice(locked, hostLocked),
     lobbyTableRules(s),
     lobbyEconomy(s),
-    ...lobbyOptionalSections(s),
+    lobbyAdvancedSystems(s),
     lobbyRulesSnapshot(s),
   ].join("");
 }
