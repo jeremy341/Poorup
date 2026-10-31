@@ -26,8 +26,6 @@ function stringList(value, limit) {
 // One descriptor per participant field, in output order.
 export const PARTICIPANT_FIELDS = [
   { key: 'accountId', fromRecord: (v) => (typeof v?.accountId === 'string' ? v.accountId : null), fromPlayer: (p) => p.accountId },
-  // Computer seats carry a persona id instead of an account, so their unlocks can be kept apart from accounts.
-  { key: 'personaId', fromRecord: (v) => (typeof v?.personaId === 'string' ? v.personaId.slice(0, 40) : null), fromPlayer: (p) => (p.isBot && typeof p.personaId === 'string' ? p.personaId : null) },
   { key: 'displayNameAtMatch', fromRecord: (v) => (typeof v?.displayNameAtMatch === 'string' ? v.displayNameAtMatch.slice(0, 24) : 'PLAYER'), fromPlayer: (p) => p.nickname },
   { key: 'colorAtMatch', fromRecord: (v) => (typeof v?.colorAtMatch === 'string' ? v.colorAtMatch : '#35a653'), fromPlayer: (p) => p.color },
   { key: 'finalPlacement', fromRecord: (v) => (Number.isInteger(v?.finalPlacement) && v.finalPlacement > 0 ? v.finalPlacement : null), fromPlayer: (p, ctx) => ctx.placementById.get(p.id) || (p.id === ctx.winnerId ? 1 : null) },

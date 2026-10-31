@@ -22,16 +22,14 @@ assert.deepEqual(resolveAuxiliaryStorePaths({ POORUP_DATA_DIR: `  ${root}  ` }),
   cosmetics: path.join(root, 'cosmetics.json'),
   telemetry: path.join(root, 'telemetry.json'),
   analyticsRollup: path.join(root, 'analytics-rollup.json'),
-  aiProviders: path.join(root, 'ai-providers.json'),
-  botPersonas: path.join(root, 'bot-personas.json')
+  aiProviders: path.join(root, 'ai-providers.json')
 });
 assert.deepEqual(resolveAuxiliaryStorePaths({}), {
   seasons: undefined,
   cosmetics: undefined,
   telemetry: undefined,
   analyticsRollup: undefined,
-  aiProviders: undefined,
-  botPersonas: undefined
+  aiProviders: undefined
 });
 assert.deepEqual(resolveRetiredStorePaths({ POORUP_DATA_DIR: `  ${root}  ` }), {
   seasons: path.join(root, 'seasons.json'),

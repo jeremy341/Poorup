@@ -5,7 +5,6 @@ import { AUCTION_DURATION_MS } from './auctionApi.js';
 import { MARKET_FEE_RATE, marketQuoteHistorySnapshot } from './marketLogic.js';
 import { computePlacementById } from './gamePlacement.js';
 import { stripRetiredRoomSettings } from './roomSettings.js';
-import { botPersonaStore } from './botPersonaStore.js';
 
 function isViewerSeat(player, viewerPlayerId) {
   return Boolean(viewerPlayerId && player.id === viewerPlayerId);
@@ -40,8 +39,7 @@ function playerSummaryFields(game, player, viewerPlayerId) {
       ? game.finalNetWorthById[player.id]
       : null,
     botBrain: player.isBot ? game.settings.botBrain : null,
-    botDifficulty: player.isBot ? game.settings.botDifficulty : null,
-    personaStats: player.isBot ? botPersonaStore.profileFor(player.personaId) : null
+    botDifficulty: player.isBot ? game.settings.botDifficulty : null
   };
 }
 

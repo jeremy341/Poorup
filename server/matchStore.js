@@ -132,8 +132,6 @@ function sanitizeContractEntry(contract) {
     kind: sanitizeContractKind(source.kind),
     fromAccountId: stringOrNull(source.fromAccountId),
     toAccountId: stringOrNull(source.toAccountId),
-    fromPersonaId: stringOrNull(source.fromPersonaId),
-    toPersonaId: stringOrNull(source.toPersonaId),
     fromPlayerId: stringOrNull(source.fromPlayerId),
     toPlayerId: stringOrNull(source.toPlayerId),
     amount: nonNegativeNumber(source.amount),
