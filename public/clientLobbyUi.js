@@ -35,7 +35,6 @@ import { stopAuctionTimer } from "./clientAuctionUi.js";
 let host = {
   emitServer: noop,
   updateServerSetting: noop,
-  startRound: noop,
   showView: noop,
   renderAll: noop,
   say: noop,
@@ -802,11 +801,8 @@ function applyParlorEntryAck(response) {
 
 function applyPendingRoomSettings() {
   if (!state.pendingRoomSettings) return;
-  const { startRound, ...settings } = state.pendingRoomSettings;
-  Object.entries(settings).forEach(([key, value]) => host.updateServerSetting(key, value));
+  Object.entries(state.pendingRoomSettings).forEach(([key, value]) => host.updateServerSetting(key, value));
   state.pendingRoomSettings = null;
-  // Settings go out first on the same socket, so the start is processed after the computer seat exists.
-  if (startRound) host.startRound();
 }
 
 function onParlorEntryResponse(response, event) {
@@ -821,13 +817,13 @@ function onParlorEntryResponse(response, event) {
   applyParlorEntryAck(response);
 }
 
-// Solo entry: a private table with one computer player, started as soon as the room is ready.
+// Solo entry: a table with one computer player. The host still starts the round.
 export function playVsComputer() {
   if (!requireGuestAlias()) return;
   if (quickTableFlow || state.roomEntryPending) return;
   state.quickJoin = false;
   state.pendingRoomMeta = { roomName: "COMPUTER TABLE", visibility: "public", boardVariant: "standard-40" };
-  state.pendingRoomSettings = { vacationPool: false, trading: true, auction: true, bots: 1, startRound: true };
+  state.pendingRoomSettings = { vacationPool: false, trading: true, auction: true, bots: 1 };
   enterParlor();
 }
 

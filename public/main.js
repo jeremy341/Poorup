@@ -1521,7 +1521,6 @@ configureRoomsUi({ emitServer, say, captureActionStatusNode, announceActionStatu
 configureLobbyUi({
   emitServer,
   updateServerSetting,
-  startRound: startGame,
   showView,
   renderAll,
   say,
