@@ -13,6 +13,7 @@ class AuctionState {
     this.active = true;
     this.highestBid = 0;
     this.highestBidderId = null;
+    this.bids = [];
     this.participants = [];
     this.startingPlayerId = startingPlayerId;
     this.startedAt = Date.now();
@@ -136,6 +137,7 @@ const auctionApi = {
     const auction = this.auction;
     auction.highestBid = amount;
     auction.highestBidderId = player.id;
+    (auction.bids ||= []).push({ playerId: player.id, amount });
     auction.lastBidAt = now;
     auction.cooldownUntil = now + AUCTION_BID_COOLDOWN_MS;
     auction.endsAt = now + AUCTION_DURATION_MS;
@@ -160,6 +162,7 @@ const auctionApi = {
       this.closeAuctionWithoutBids(auction);
       return;
     }
+    auction.highestBidderId = this.auctionWinnerId(auction);
     const winner = this.getPlayerById(auction.highestBidderId);
     if (!this.auctionWinnerEligible(winner, auction.highestBid)) {
       this.feedMessage('Auction ended without a valid winner.');
@@ -168,6 +171,21 @@ const auctionApi = {
       return;
     }
     this.completeAuctionSale(auction, winner);
+  },
+
+  // The seat that wins the close. Bids must strictly rise, so equal top bids are rare, but a bid list
+  // can still hold them. With bank accounts on, the higher bank tier takes an exact tie (Parlor Black
+  // over Parlor Premium over Standard). Among equal tiers, and with the rule off, the earliest bid keeps
+  // the win, as before.
+  auctionWinnerId(auction) {
+    const top = Number(auction.highestBid) || 0;
+    const tied = (auction.bids || []).filter(bid => bid.amount === top && this.getPlayerById(bid.playerId));
+    if (tied.length < 2 || !this.bankAccountsEnabled()) return auction.highestBidderId;
+    let best = tied[0];
+    for (const bid of tied.slice(1)) {
+      if (this.bankAccountOf(this.getPlayerById(bid.playerId)).tier > this.bankAccountOf(this.getPlayerById(best.playerId)).tier) best = bid;
+    }
+    return best.playerId;
   },
 
   closeAuctionWhilePaused(auction) {

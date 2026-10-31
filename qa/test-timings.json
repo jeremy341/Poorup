@@ -232,6 +232,7 @@
     "server/trade-expiry.test.js": 250,
     "server/airport-flights.test.js": 300,
     "server/bank-account.test.js": 275,
+    "server/bank-tier-perks.test.js": 60,
     "server/about-page.test.js": 375,
     "server/net-worth-timeline.test.js": 250,
     "server/bot-contract-policy.test.js": 325,
