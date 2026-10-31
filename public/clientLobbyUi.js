@@ -690,7 +690,7 @@ function quickTableFallbackCreate() {
     boardVariant: "standard-40"
   };
   state.pendingRoomSettings = { vacationPool: false, trading: true, auction: true };
-  parlorNotice("QUICK TABLE", "NO OPEN TABLES. HOSTING A NEW PUBLIC TABLE.");
+  parlorNotice("QUICK TABLE", "NO OPEN TABLES. HOSTING A NEW PUBLIC TABLE WITH CLASSIC RULES.");
   enterParlor();
 }
 
@@ -713,7 +713,6 @@ function quickTableDirectoryAck(response, requestId) {
 function requestQuickTableDirectory() {
   const requestId = ++quickTableRequestId;
   clearQuickTableDirectoryTimer();
-  parlorNotice("QUICK TABLE", "LOOKING FOR AN OPEN PUBLIC TABLE…");
   quickTableDirectoryTimer = setTimeout(() => {
     quickTableDirectoryAck({ success: false, error: "Directory request timed out." }, requestId);
   }, QUICK_TABLE_DIRECTORY_TIMEOUT_MS);
@@ -1123,8 +1122,6 @@ export function bindLobbyUi() {
     state.settings.vacationPool = false;
     state.settings.trading = true;
     state.settings.auction = true;
-    // Quick Table rewrites the rules silently otherwise: say so up front.
-    parlorNotice("QUICK TABLE", "CLASSIC RULES · AUCTION ON · VACATION POOL OFF · TRADING ON.");
     requestQuickTableDirectory();
   });
 
