@@ -533,26 +533,7 @@ function applyLobbyLockState(locked, hostLocked) {
 
 function renderLobbyRailContent(s, locked, hostLocked) {
   $("#lobby-settings-body").innerHTML = lobbySectionsMarkup(s, locked, hostLocked);
-  renderLobbyStartHint(s, locked, hostLocked);
   applyLobbyLockState(locked, hostLocked);
-}
-
-// The start block explains a blocked start and offers the fix on the same spot.
-function renderLobbyStartHint(s, locked, hostLocked) {
-  const hint = $("#lobby-start-hint");
-  if (!hint) return;
-  const needsSeat = !locked && !hostLocked && (state.players?.length || 0) < 2;
-  hint.hidden = !needsSeat;
-  if (!needsSeat) {
-    hint.innerHTML = "";
-    return;
-  }
-  const [, max] = stepperLimits("bots");
-  const full = (Number(s.bots) || 0) >= max;
-  hint.innerHTML = `<p class="t-body ink-2">At least two players are required.</p>
-    ${full
-      ? '<p class="t-micro ink-3">Raise Max Players in Table Rules to seat more computer players.</p>'
-      : '<button class="btn-dark lobby-add-computer" type="button" data-add-computer>Add computer player</button>'}`;
 }
 
 // Adds one computer seat through the same server setting the Bots stepper uses.
@@ -940,10 +921,6 @@ function inRoomSession() {
 }
 
 function onLobbySettingsClick(e) {
-  if (e.target.closest("[data-add-computer]")) {
-    addComputerPlayer();
-    return;
-  }
   const togBtn = e.target.closest("[data-setting]");
   if (togBtn?.classList.contains("tog")) {
     onToggleSetting(togBtn);
@@ -1085,7 +1062,6 @@ export function bindLobbyUi() {
 
   // lobby settings interactions
   $("#lobby-settings-body").addEventListener("click", onLobbySettingsClick);
-  $("#lobby-start-hint")?.addEventListener("click", onLobbySettingsClick);
   $("#lobby-settings-body").addEventListener("change", applySettingField);
 }
 
