@@ -495,10 +495,7 @@ function lobbyEconomy(s) {
   ]);
 }
 
-// Optional systems start off. They sit behind one collapsed block that opens itself when any of them is on,
-// so a casual host sees the core rules first.
-const ADVANCED_SYSTEM_KEYS = ["playerFinance", "bankLoans", "casino", "flights", "bankAccountUpgrades", "itemRewards", "market", "globalEvents"];
-
+// Optional systems start off. They always show as their own section below the core rules.
 function lobbyAdvancedSystems(s) {
   const rows = [
   settingRow("Player Finance", "Player loans, temporary rent shares, and purchase funding.", tog("playerFinance", s.playerFinance)),
@@ -512,11 +509,7 @@ function lobbyAdvancedSystems(s) {
   settingRow("Market Complexity", "Unlock margin, shorting, or derivatives in staged order.", sel("marketComplexity", s.marketComplexity || "basic", [["basic", "BASIC"], ["margin", "MARGIN"], ["shorting", "SHORTING"], ["derivatives", "DERIVATIVES"]])),
   settingRow("Global Events", "Rare, escalating headlines. Timing and severity scale with the round.", tog("globalEvents", Boolean(s.globalEvents))),
   ];
-  const anyOn = ADVANCED_SYSTEM_KEYS.some(key => Boolean(s[key]));
-  return `<details class="lobby-advanced"${anyOn ? " open" : ""}>
-    <summary class="t-label">ADVANCED SYSTEMS · ${anyOn ? "SOME ON" : "ALL OFF"}</summary>
-    ${lobbySection("Optional Systems", rows)}
-  </details>`;
+  return lobbySection("Advanced Systems", rows);
 }
 
 function lobbySectionsMarkup(s, locked, hostLocked) {
