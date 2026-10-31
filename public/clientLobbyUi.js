@@ -35,6 +35,7 @@ import { stopAuctionTimer } from "./clientAuctionUi.js";
 let host = {
   emitServer: noop,
   updateServerSetting: noop,
+  startRound: noop,
   showView: noop,
   renderAll: noop,
   say: noop,
@@ -801,8 +802,11 @@ function applyParlorEntryAck(response) {
 
 function applyPendingRoomSettings() {
   if (!state.pendingRoomSettings) return;
-  Object.entries(state.pendingRoomSettings).forEach(([key, value]) => host.updateServerSetting(key, value));
+  const { startRound, ...settings } = state.pendingRoomSettings;
+  Object.entries(settings).forEach(([key, value]) => host.updateServerSetting(key, value));
   state.pendingRoomSettings = null;
+  // Settings go out first on the same socket, so the start is processed after the computer seat exists.
+  if (startRound) host.startRound();
 }
 
 function onParlorEntryResponse(response, event) {
@@ -815,6 +819,16 @@ function onParlorEntryResponse(response, event) {
     return;
   }
   applyParlorEntryAck(response);
+}
+
+// Solo entry: a private table with one computer player, started as soon as the room is ready.
+export function playVsComputer() {
+  if (!requireGuestAlias()) return;
+  if (quickTableFlow || state.roomEntryPending) return;
+  state.quickJoin = false;
+  state.pendingRoomMeta = { roomName: "COMPUTER TABLE", visibility: "public", boardVariant: "standard-40" };
+  state.pendingRoomSettings = { vacationPool: false, trading: true, auction: true, bots: 1, startRound: true };
+  enterParlor();
 }
 
 export function enterParlor(code) {
@@ -1103,6 +1117,7 @@ export function bindLobbyUi() {
   // Standard-40 room only when no compatible seat is available. The join is
   // checked by the authoritative server, with two bounded retries for rooms
   // that fill between list-rooms and join-room.
+  $("#play-vs-computer-btn")?.addEventListener("click", playVsComputer);
   $("#quick-table-btn")?.addEventListener("click", () => {
     if (!requireGuestAlias()) return;
     if (quickTableFlow || state.roomEntryPending) return;
