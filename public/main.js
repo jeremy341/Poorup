@@ -223,6 +223,7 @@ import {
 } from "./clientDeedDetailUi.js";
 import {
   addComputerPlayer,
+  removeComputerPlayer,
   bindLobbyUi,
   configureLobbyUi,
   enterParlor,
@@ -677,16 +678,26 @@ function retryAudioAfterGesture() {
 function renderPlayers() {
   const seated = state.players.slice(0, state.settings.maxPlayers);
   const serverNow = currentServerTime();
-  const rows = seated.map((p, i) => playerRowHTML(p, i, serverNow));
+  const rows = seated.map((p, i) => lobbySeatRowHTML(p, i, serverNow));
   if (lobbyAddSeatAvailable(seated.length)) rows.push(lobbyAddSeatHTML());
   setHtml($("#player-list"), rows.join(""));
 }
 
+function lobbyHostIsLocal() {
+  const me = state.players[0];
+  return Boolean(me && (me.isHost || (me.serverId && me.serverId === state.hostId)));
+}
+
 // Before the round starts, the host can add a computer player straight from the empty seat.
 function lobbyAddSeatAvailable(seatedCount) {
-  const me = state.players[0];
-  const isHost = Boolean(me && (me.isHost || (me.serverId && me.serverId === state.hostId)));
-  return state.phase === "lobby" && isHost && seatedCount < state.settings.maxPlayers;
+  return state.phase === "lobby" && lobbyHostIsLocal() && seatedCount < state.settings.maxPlayers;
+}
+
+// In the lobby the host can remove a computer seat from its row. The control sits beside the row, not inside it.
+function lobbySeatRowHTML(p, i, serverNow) {
+  const row = playerRowHTML(p, i, serverNow);
+  if (!p.bot || state.phase !== "lobby" || !lobbyHostIsLocal()) return row;
+  return `<div class="player-row-wrap">${row}<button class="player-row-remove" type="button" data-remove-computer>Remove computer player</button></div>`;
 }
 
 function lobbyAddSeatHTML() {
@@ -1285,6 +1296,7 @@ function bindGameActions() {
   $("#lobby-start-btn").addEventListener("click", startGame);
   $("#player-list").addEventListener("click", (e) => {
     if (e.target.closest("[data-add-computer]")) addComputerPlayer();
+    if (e.target.closest("[data-remove-computer]")) removeComputerPlayer();
   });
   $("#pay-jail-fine")?.addEventListener("click", () => {
     emitWithChatError("pay-jail-fine", {}, "The jail fine could not be paid.");

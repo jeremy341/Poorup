@@ -536,6 +536,14 @@ function renderLobbyRailContent(s, locked, hostLocked) {
   applyLobbyLockState(locked, hostLocked);
 }
 
+// Removes one computer seat through the same server setting the Bots stepper uses.
+export function removeComputerPlayer() {
+  if ((Number(state.settings.bots) || 0) <= 0) return;
+  state.settings.bots = Math.max(0, (Number(state.settings.bots) || 0) - 1);
+  host.updateServerSetting("bots", state.settings.bots);
+  renderLobbyRail();
+}
+
 // Adds one computer seat through the same server setting the Bots stepper uses.
 export function addComputerPlayer() {
   const [, max] = stepperLimits("bots");

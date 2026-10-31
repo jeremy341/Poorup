@@ -147,6 +147,9 @@
 .pr-tag-host { color: var(--gold-050); background: color-mix(in srgb, var(--gold-300) 22%, transparent); }
 .pr-tag-computer { color: var(--gold-050); border-color: var(--gold-300); font-size: 12px; padding: 2px 7px; letter-spacing: 0.1em; }
 .player-row-add { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; margin-top: 6px; padding: 6px 10px; background: transparent; border: 1px dashed var(--gold-300); color: var(--gold-100); text-align: left; cursor: pointer; }
+.player-row-wrap { position: relative; }
+.player-row-remove { display: block; margin: 4px 0 2px auto; min-height: 30px; padding: 0 10px; background: transparent; border: 1px solid var(--line-default); color: var(--text-secondary); font-family: var(--font-ui); font-size: 11px; letter-spacing: 0.08em; cursor: pointer; }
+.player-row-remove:hover, .player-row-remove:focus-visible { color: var(--gold-050); border-color: var(--gold-300); }
 .player-row-add:hover, .player-row-add:focus-visible { background: var(--surface-hover); }
 
 /* ---- right rail: one flat column (wallet line, trade chips, property list) ---- */
