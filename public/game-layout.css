@@ -485,3 +485,5 @@
 #market-modal .market-position-strip > div { gap: 8px; padding: 8px 0; }
 @media (max-width: 720px) { #market-modal .market-position-strip { grid-template-columns: minmax(0, 1fr); } }
 #market-modal .market-desk-summary { grid-template-columns: minmax(0, 1fr); }
+/* The computer-player button adds a row inside this card, which otherwise crowds the Patrol hint above it at 1280x720. */
+#view-home .home-entry-desk { margin-top: 13px; }
