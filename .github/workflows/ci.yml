@@ -123,8 +123,8 @@ jobs:
                 shard_total=4
                 group=full
                 browser_mode=full
-                browser_shards='[1, 2, 3, 4, 5, 6]'
-                browser_shard_total=6
+                browser_shards='[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
+                browser_shard_total=10
                 ;;
               main) tier=fast ;;
               *) tier=light ;;
@@ -142,8 +142,8 @@ jobs:
                 group=full
                 if [ "$FRONTEND_CHANGED" = "true" ]; then
                   browser_mode=full
-                  browser_shards='[1, 2, 3, 4, 5, 6]'
-                  browser_shard_total=6
+                  browser_shards='[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
+                  browser_shard_total=10
                 else
                   browser_mode=smoke
                   browser_shards='[1]'
@@ -418,7 +418,7 @@ jobs:
           done
           curl -fsS localhost:8099/ >/dev/null
       - name: UI and accessibility contract shard (every viewport project in full mode)
-        # Full mode: every spec, every viewport project, six shards on six runners. Smoke
+        # Full mode: every spec, every viewport project, ten shards on ten runners. Smoke
         # mode: the @ui-smoke critical checks on the iPad Pro 11 landscape
         # profile, including the live-game desk contract, so a server-only
         # promotion still proves the UI boots and renders against the new server.
