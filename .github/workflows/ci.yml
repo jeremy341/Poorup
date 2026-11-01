@@ -381,12 +381,48 @@ jobs:
         if: failure()
         run: docker logs poorup-ci
 
+  # A promotion whose tree already passed browser QA on its source commit has nothing new to test.
+  # The check is read from the API and must be a successful browser QA run on that commit, so a
+  # missing or failed run always means the suite runs.
+  verified:
+    name: verified tree
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [plan]
+    if: needs.plan.outputs.tier == 'heavy'
+    outputs:
+      verified: ${{ steps.check.outputs.verified }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          verified=false
+          if [[ "$EVENT_NAME" == "pull_request" && "$BASE_REF" == "main" && -n "$PR_HEAD_SHA" ]]; then
+            candidate="$(git rev-parse 'HEAD^{tree}')"
+            lanetree="$(git rev-parse "$PR_HEAD_SHA^{tree}" 2>/dev/null || echo missing)"
+            if [[ "$candidate" == "$lanetree" ]]; then
+              passed="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${PR_HEAD_SHA}/check-runs?per_page=100" \
+                --jq '[.check_runs[] | select(.name == "browser QA")] | (length > 0 and all(.conclusion == "success"))' 2>/dev/null || echo false)"
+              [[ "$passed" == "true" ]] && verified=true
+            fi
+          fi
+          echo "tree under test: $(git rev-parse 'HEAD^{tree}')"
+          echo "verified=$verified" >> "$GITHUB_OUTPUT"
+          echo "browser suite skipped: $verified"
+
   browser-shards:
     name: browser QA shard ${{ matrix.shard }}/${{ needs.plan.outputs.browser_shard_total }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    needs: [plan]
-    if: needs.plan.outputs.tier == 'heavy'
+    needs: [plan, verified]
+    if: needs.plan.outputs.tier == 'heavy' && needs.verified.outputs.verified != 'true'
     # The pinned Playwright image already carries Chromium and its system libraries, so a shard skips the browser
     # download and the apt install. The tag must match the locked @playwright/test version.
     container:
@@ -444,7 +480,7 @@ jobs:
     name: browser QA
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    needs: [plan, browser-shards]
+    needs: [plan, verified, browser-shards]
     if: always() && needs.plan.outputs.tier == 'heavy'
     steps:
       - uses: actions/checkout@v4
@@ -460,15 +496,17 @@ jobs:
       - run: npm ci
         if: steps.node-modules.outputs.cache-hit != 'true'
       - name: Download Playwright shard reports
+        if: needs.verified.outputs.verified != 'true'
         uses: actions/download-artifact@v7
         with:
           pattern: playwright-blob-shard-*
           path: all-blob-reports
           merge-multiple: true
       - name: Merge Playwright reports
+        if: needs.verified.outputs.verified != 'true'
         run: npx playwright merge-reports --reporter=html all-blob-reports
       - name: Upload merged Playwright report
-        if: always()
+        if: always() && needs.verified.outputs.verified != 'true'
         uses: actions/upload-artifact@v6
         with:
           name: playwright-html-report
@@ -477,7 +515,12 @@ jobs:
           retention-days: 7
       - name: Require every browser shard
         if: always()
-        run: test "${{ needs.browser-shards.result }}" = success
+        run: |
+          if [ "${{ needs.verified.outputs.verified }}" = "true" ]; then
+            echo "Shards skipped: this tree already passed browser QA on its source commit."
+            exit 0
+          fi
+          test "${{ needs.browser-shards.result }}" = success
 
   tree-check:
     name: tree check
