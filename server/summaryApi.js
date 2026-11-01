@@ -5,6 +5,7 @@ import { AUCTION_DURATION_MS } from './auctionApi.js';
 import { MARKET_FEE_RATE, marketQuoteHistorySnapshot } from './marketLogic.js';
 import { computePlacementById } from './gamePlacement.js';
 import { stripRetiredRoomSettings } from './roomSettings.js';
+import { botPersonaStore } from './botPersonaStore.js';
 
 function isViewerSeat(player, viewerPlayerId) {
   return Boolean(viewerPlayerId && player.id === viewerPlayerId);
@@ -39,7 +40,8 @@ function playerSummaryFields(game, player, viewerPlayerId) {
       ? game.finalNetWorthById[player.id]
       : null,
     botBrain: player.isBot ? game.settings.botBrain : null,
-    botDifficulty: player.isBot ? game.settings.botDifficulty : null
+    botDifficulty: player.isBot ? game.settings.botDifficulty : null,
+    personaStats: player.isBot ? botPersonaStore.profileFor(player.personaId) : null
   };
 }
 
@@ -160,6 +162,10 @@ const summaryApi = {
       ...playerSummaryFields(this, player, viewerPlayerId),
       ...playerViewerFields(player, viewerPlayerId)
     };
+    // Recap figures are counts and totals only, so every viewer may see them on the end screen.
+    entry.itemCount = Array.isArray(player.items) ? player.items.length : 0;
+    entry.matchRebate = Math.max(0, Number(player.matchRebate) || 0);
+    entry.bestTradeNet = Math.max(0, Number(player.bestTradeNet) || 0);
     // Inventory instance IDs and action eligibility belong only to this seat.
     // Public, spectator and rival projections omit the inventory field entirely.
     if (isViewerSeat(player, viewerPlayerId)) entry.items = this.summaryItems(player, viewerPlayerId);

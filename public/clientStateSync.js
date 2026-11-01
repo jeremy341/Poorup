@@ -210,6 +210,7 @@ export function serverPlayerView(player) {
     avatarGrid: sanitizeAvatarGrid(player.avatarGrid),
     botBrain: orNull(player.botBrain),
     botDifficulty: orNull(player.botDifficulty),
+    personaStats: orNull(player.personaStats),
   };
 }
 
