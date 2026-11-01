@@ -697,7 +697,7 @@ function lobbyAddSeatAvailable(seatedCount) {
 
 
 function lobbyAddSeatHTML() {
-  return `<button class="player-row player-row-add" type="button" data-add-computer>
+  return `<button class="player-add-row" type="button" data-add-computer>
     <span class="pr-av" aria-hidden="true">+</span>
     <span class="t-label">Add computer player</span>
   </button>`;
