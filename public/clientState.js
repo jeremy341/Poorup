@@ -174,6 +174,7 @@ const state = {
   profiles: loadProfiles(),   // persisted array of saved player designs
   achievementRecords: initialAchievementRecords,
   unlockedAchievements: new Set(initialAchievementRecords.keys()),
+  profileSubject: null,       // a computer player shown on the profile page; null for the signed-in player
   achievementFilter: "all",
   achievementDateFilter: "all",
   achievementRarityFilter: "all",

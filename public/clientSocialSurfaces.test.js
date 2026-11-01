@@ -179,12 +179,11 @@ check("inGameReturnBarIsPinnedInsideAFixedCardWithInternalScroll", () => {
   assert.match(ux, /position:\s*sticky/);
 });
 
-check("computerProfileIsAPublicPageOpenedFromTheBotCard", () => {
-  assert.match(source, /data-player-action="computer-profile"/);
-  assert.match(bindings, /action\.dataset\.playerAction === "computer-profile"[\s\S]*host\.openComputerProfile\(personaId\)/);
-  assert.doesNotMatch(source, /selectedPlayerView === "computer"/, "the card no longer renders a computer view inline");
+check("computerProfilesOpenFromSearchOutsideTheRoomAndNotFromTheCard", () => {
+  assert.doesNotMatch(source, /data-player-action="computer-profile"/, "the in-room card no longer offers a computer profile");
+  assert.match(bindings, /id\?\.startsWith\("computer:"\)[\s\S]*host\.openComputerProfile\(id\.slice/);
+  assert.match(source, /player\.computer/, "search rows mark computer players");
   const page = readFileSync(new URL("./clientComputerProfile.js", import.meta.url), "utf8");
   assert.match(page, /get-computer-profile/);
-  assert.match(page, /NO UNLOCKS YET/);
-  assert.match(styles, /\.computer-profile-unlock\s*\{/);
+  assert.match(page, /showProfile/, "the page is the normal profile page, not a separate view");
 });

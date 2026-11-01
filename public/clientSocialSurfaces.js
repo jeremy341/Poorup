@@ -208,7 +208,10 @@ export function socialPlayerRowHTML(player, actionLabel = "VIEW") {
   if (!player) return "";
   const id = player.id || player.accountId;
   const mutual = Number(player.mutualFriends) || 0;
-  return `<div class="social-player-row"><div class="social-player-avatar">${avatarHTML(player, 3, 0)}</div><div class="social-player-main"><strong class="t-label f12 g100">${esc(player.displayName || player.name || "PLAYER")}</strong><span class="t-micro ink-3">@${esc(player.username || "guest")}${mutual ? ` · ${mutual} MUTUAL` : ""}</span></div><button class="btn-dark social-player-open" type="button" data-social-player="${esc(id)}"><span class="t-label f11">${actionLabel}</span></button></div>`;
+  const line = player.computer
+    ? `COMPUTER · ${esc(String(player.difficulty || "table").toUpperCase())}`
+    : `@${esc(player.username || "guest")}${mutual ? ` · ${mutual} MUTUAL` : ""}`;
+  return `<div class="social-player-row"><div class="social-player-avatar">${avatarHTML(player, 3, 0)}</div><div class="social-player-main"><strong class="t-label f12 g100">${esc(player.displayName || player.name || "PLAYER")}</strong><span class="t-micro ink-3">${line}</span></div><button class="btn-dark social-player-open" type="button" data-social-player="${esc(id)}"><span class="t-label f11">${actionLabel}</span></button></div>`;
 }
 
 
@@ -1234,13 +1237,10 @@ function playerActionPanelHTML(player, canSocial, actions, friendLabel) {
       : player.bot
         ? `COMPUTER · ${String(player.botDifficulty || "table").toUpperCase()} · NO SOCIAL ACCOUNT`
         : "GUEST SEAT · SOCIAL ACTIONS NEED AN ACCOUNT";
-    const profileAction = player.bot && player.personaStats
-      ? `<button class="btn-dark" type="button" data-player-action="computer-profile"><span class="t-label f11">COMPUTER PROFILE</span></button>`
-      : "";
     const removeAction = player.bot && state.phase === "lobby" && localPlayerIsHost()
       ? `<button class="cta-red" type="button" data-player-action="remove-computer"><span class="cta-text cta-text-sm">Remove computer player</span></button>`
       : "";
-    return `<p class="t-micro ink-3 player-profile-actions-note">${copy}</p>${profileAction}${removeAction}`;
+    return `<p class="t-micro ink-3 player-profile-actions-note">${copy}</p>${removeAction}`;
   }
   return `<button class="cta-red" type="button" data-player-action="friend" ${actions.friendAttr}><span class="cta-text cta-text-sm">${friendLabel}</span></button><button class="btn-dark" type="button" data-player-action="invite" ${actions.canSocialAttr}><span class="t-label f11">INVITE TO ROOM</span></button><button class="btn-dark" type="button" data-player-action="history" ${actions.historyAttr}><span class="t-label f11">MATCH HISTORY</span></button><button class="btn-dark" type="button" data-player-action="block" ${actions.canSocialAttr}><span class="t-label f11">BLOCK</span></button><button class="btn-dark" type="button" data-player-action="report" ${actions.canSocialAttr}><span class="t-label f11">REPORT</span></button>`;
 }

@@ -233,7 +233,9 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     if (!searchRateAllowed(viewer)) return reply(callback, { success: false, error: 'Too many searches. Try again in a minute.' });
     const query = normalizeSearchQuery(payload.query);
     if (query.length < 3) return reply(callback, { success: true, players: [] });
-    reply(callback, { success: true, players: searchMatches(query, payload.exact === true, viewer) });
+    const exact = payload.exact === true;
+    const players = [...searchMatches(query, exact, viewer), ...(exact ? [] : computerMatches(query))].slice(0, 20);
+    reply(callback, { success: true, players });
   });
 
   on('get-match-history', (payload = {}, callback) => {
@@ -804,6 +806,13 @@ function registerSocialSocketHandlers(on, socket, runtime) {
       .filter(candidate => searchableByViewer(candidate, viewer))
       .slice(0, 20)
       .map(publicSearchProfile);
+  }
+
+  // Computer players are findable by name in player search, but never in the exact-match rankings lookup.
+  function computerMatches(query) {
+    return BOT_PERSONAS
+      .filter(persona => persona.name.toLowerCase().includes(query))
+      .map(persona => ({ id: `computer:${persona.id}`, personaId: persona.id, computer: true, displayName: persona.name, username: null, difficulty: persona.difficulty, mutualFriends: null }));
   }
 
   function searchNameMatches(candidate, query, exact) {

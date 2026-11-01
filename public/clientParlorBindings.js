@@ -247,7 +247,12 @@ function onSocialAccount(event) {
 }
 
 function onSocialPlayer(player) {
-  openPlayerSurface(player.dataset.socialPlayer);
+  const id = player.dataset.socialPlayer;
+  if (id?.startsWith("computer:")) {
+    host.openComputerProfile(id.slice("computer:".length));
+    return;
+  }
+  openPlayerSurface(id);
 }
 
 function onSocialRequest(request) {
@@ -517,12 +522,6 @@ function handlePlayerCardClick(event) {
   const action = event.target.closest("[data-player-action]");
   if (!playerActionEnabled(action)) return;
   const handler = PLAYER_ACTIONS[action.dataset.playerAction];
-  if (action.dataset.playerAction === "computer-profile") {
-    const personaId = state.selectedPlayer?.personaStats?.id;
-    closeSurface("#player-modal");
-    if (personaId) host.openComputerProfile(personaId);
-    return;
-  }
   if (action.dataset.playerAction === "remove-computer") {
     closeSurface("#player-modal");
     openConfirmModal({

@@ -402,6 +402,7 @@ export function bootstrapAccountCookieSession() {
 let accountModalMode = "register";
 
 function unlockedSet() {
+  if (state.profileSubject) return state.profileSubject.unlockedIds;
   return state.unlockedAchievements || new Set();
 }
 

@@ -68,6 +68,8 @@ function sourceGrid(draft, profile, account) {
 }
 
 export function profileDisplaySource() {
+  const subject = state.profileSubject;
+  if (subject) return { account: null, profile: null, subject, name: subject.name, color: "#286ea1", grid: null, designName: null };
   const account = state.account?.account || null;
   const draft = state.profileDraft || null;
   const profile = draft || selectedProfile();
@@ -92,6 +94,15 @@ function renderProfileHero(source, displayName) {
   replaceText("#profile-overview-name", displayName);
   // The hero names the player; the subtitle also carries the design name, so a just-saved design is visible here.
   const designLabel = source.designName ? String(source.designName).toUpperCase() : "";
+  if (source.subject) {
+    setText("#profile-hero-handle", `COMPUTER · ${String(source.subject.difficulty || "table").toUpperCase()}`);
+    const subjectState = $("#profile-hero-state");
+    if (subjectState) {
+      subjectState.textContent = "COMPUTER PLAYER · RECORD KEPT APART FROM ACCOUNTS";
+      subjectState.classList.remove("is-account");
+    }
+    return;
+  }
   const base = account ? `@${account.username}` : "GUEST MODE";
   setText("#profile-hero-handle", designLabel ? `${base} · ${designLabel}` : base);
   const stateLabel = $("#profile-hero-state");
@@ -124,6 +135,15 @@ function joinedLabel(account) {
 }
 
 function renderProfileStats(source) {
+  if (source.subject) {
+    const { gamesPlayed, wins } = source.subject;
+    replaceText("#profile-stat-games", String(gamesPlayed));
+    replaceText("#profile-stat-wins", String(wins));
+    replaceText("#profile-stat-rate", accountRate({ gamesPlayed, wins }));
+    replaceText("#profile-stat-bankruptcies", "-");
+    setText("#profile-stat-joined", "COMPUTER");
+    return;
+  }
   const account = source.account;
   const stats = profileStatCells(account);
   replaceText("#profile-stat-games", String(stats.games));
@@ -140,6 +160,14 @@ function overviewStatusText() {
 
 function renderProfileOverview(source) {
   const account = source.account;
+  if (source.subject) {
+    const grid = $("#view-profile .profile-overview-grid");
+    if (grid && !grid.querySelector(".computer-profile-note")) {
+      grid.insertAdjacentHTML("beforeend", `<p class="t-body ink-2 computer-profile-note">A computer player. Its games, wins and unlocks are kept apart from accounts, friends and rankings.</p>`);
+    }
+    return;
+  }
+  $("#view-profile .computer-profile-note")?.remove();
   replaceText("#profile-overview-mode", account ? `@${account.username}` : "GUEST MODE");
   setText("#profile-overview-status", overviewStatusText());
   setText("#profile-overview-sync", account ? "ACCOUNT SYNC" : "LOCAL ONLY");
@@ -856,9 +884,20 @@ function restoreHistoryFocus(root, target) {
   [...root.querySelectorAll(`[${target.attribute}]`)].find((candidate) => candidate.getAttribute(target.attribute) === target.value)?.focus({ preventScroll: true });
 }
 
+function subjectMatchRowHTML(match) {
+  const placement = match.placement === 1 ? "WIN" : match.placement ? `PLACE ${esc(match.placement)}` : "MATCH";
+  const tone = match.placement === 1 ? "green" : "g100";
+  return `<div class="player-profile-match"><span class="t-micro ink-3">${esc(String(match.completedAt || "UNDATED").slice(0, 10))}</span><strong class="t-label f11 ${tone}">${placement}</strong><span class="t-micro ink-3">${esc(match.players)} PLAYERS · ${esc(match.events)} EVENTS</span></div>`;
+}
+
 export function renderProfileHistory() {
   const root = $("#profile-history-content");
   if (!root) return;
+  if (state.profileSubject) {
+    const matches = state.profileSubject.matches;
+    root.innerHTML = matches.length ? matches.map(subjectMatchRowHTML).join("") : `<p class="t-body ink-3 social-empty">NO MATCHES YET.</p>`;
+    return;
+  }
   const account = state.account?.account || null;
   const history = accountHistoryList(account);
   if (!account || !history.length) {
