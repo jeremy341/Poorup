@@ -30,18 +30,25 @@ function sanitizeHistoryList(value) {
   return [...new Set(list.filter(item => typeof item === 'string' && item).map(item => item.slice(0, 160)))].slice(0, MAX_HISTORY_ENTRIES);
 }
 
+function sanitizeCount(value) {
+  return Math.max(0, Math.floor(Number(value) || 0));
+}
+
+function sanitizeRecord(entry) {
+  const achievements = Array.isArray(entry?.achievements) ? entry.achievements.map(sanitizeAchievement).filter(Boolean) : [];
+  return {
+    gamesPlayed: sanitizeCount(entry?.gamesPlayed),
+    wins: sanitizeCount(entry?.wins),
+    achievements: achievements.slice(0, MAX_ACHIEVEMENTS),
+    treasureCards: sanitizeHistoryList(entry?.treasureCards),
+    events: sanitizeHistoryList(entry?.events),
+  };
+}
+
 function sanitizeRecords(value) {
   const records = {};
   for (const persona of BOT_PERSONAS) {
-    const entry = value && typeof value === 'object' ? value[persona.id] : null;
-    const achievements = Array.isArray(entry?.achievements) ? entry.achievements.map(sanitizeAchievement).filter(Boolean) : [];
-    records[persona.id] = {
-      gamesPlayed: Math.max(0, Math.floor(Number(entry?.gamesPlayed) || 0)),
-      wins: Math.max(0, Math.floor(Number(entry?.wins) || 0)),
-      achievements: achievements.slice(0, MAX_ACHIEVEMENTS),
-      treasureCards: sanitizeHistoryList(entry?.treasureCards),
-      events: sanitizeHistoryList(entry?.events),
-    };
+    records[persona.id] = sanitizeRecord(value && typeof value === 'object' ? value[persona.id] : null);
   }
   return records;
 }

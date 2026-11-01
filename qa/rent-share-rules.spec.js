@@ -103,7 +103,7 @@ test('active rent-share and collateral defaults disclose rights and exact residu
 test('full finance explanations remain on the Rules page',async({page})=>{
   await fixture(page);
   await page.evaluate(()=>window.__ipadModalCapture.social.openRulesSurface('loans'));
-  await expect(page.locator('#rules-book-page-heading')).toContainText('Borrow only');
+  await expect(page.locator('#rules-book-page-heading')).toContainText('Borrow when you need cash');
   const body=page.locator('.rules-article-body');
   await expect(body).toContainText('The owner pays construction costs');
   await expect(body).toContainText('New rent shares cannot be resold');
