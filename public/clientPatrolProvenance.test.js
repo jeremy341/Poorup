@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { sanitizeAccountSession } from './clientSanitize.js';
 
 function profileRenderer(enabled) {
-  const source = fs.readFileSync(new URL('./clientProfileRender.js', import.meta.url), 'utf8')
+  const source = fs.readFileSync(new URL('./clientProfileHistory.js', import.meta.url), 'utf8')
     .replace(/^import .*;\r?\n/gm, '')
     .replace(/^export /gm, '') + '\n;globalThis.render = profileStatisticsHTML;';
   const context = { PARLOR_PATROL_ENABLED: enabled };

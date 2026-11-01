@@ -733,7 +733,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     const normalizedBrain = String(value ?? '').trim().toLowerCase().replace('_', '-');
     if (key === 'botBrain' && normalizedBrain !== 'no-ai'
       && runtime.botProviderStatus?.().state === 'quota-exhausted') {
-      return reply(callback, { success: false, code: 'AI_CREDITS_EXHAUSTED', error: 'AI credits are exhausted. Choose NO-AI BOT.' });
+      return reply(callback, { success: false, code: 'AI_CREDITS_EXHAUSTED', error: 'AI credits are exhausted. Choose NO-AI COMPUTER.' });
     }
     const settingResult = room.setRoomSetting(key, value);
     if (settingResult?.rejected) {
