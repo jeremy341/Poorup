@@ -7,7 +7,7 @@ const DEFAULT_ROOM_SETTINGS = {
   itemRewards: false,
   maxPlayers: 4,
   doubleRent: false,
-  vacationCash: true,
+  vacationCash: false,
   auction: true,
   trading: true,
   doubleGo: false,

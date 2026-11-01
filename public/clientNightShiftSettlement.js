@@ -53,7 +53,7 @@ export function finishSettlement(settlement, response) {
   clearPersistedPendingSettlement(settlement);
   if (!response?.success) {
     nightShiftState.serverRunError = String(response?.error || "Could not confirm that the score was saved.").slice(0, 120);
-    nightRun.host.parlorNotice("NIGHT SHIFT", nightShiftState.serverRunError);
+    nightRun.host.parlorNotice("NIGHT SHIFT", nightShiftState.serverRunError, "error");
     return;
   }
   if (settlement.account === state.account?.account) applyRunBest(response);
@@ -68,7 +68,7 @@ export function beginSettlement() {
     if (nightRun.nightShiftSettlement !== settlement) return;
     nightRun.nightShiftSettlement = null;
     nightShiftState.serverRunError = "Could not confirm that the patrol score was saved.";
-    nightRun.host.parlorNotice("NIGHT SHIFT", nightShiftState.serverRunError);
+    nightRun.host.parlorNotice("NIGHT SHIFT", nightShiftState.serverRunError, "error");
   }, 8000);
   return settlement;
 }
@@ -80,7 +80,7 @@ export function awaitSettlementReconnect(settlement, message = "Connection lost.
   settlement.requestGeneration += 1;
   settlement.awaitingReconnect = true;
   nightShiftState.serverRunError = message;
-  nightRun.host.parlorNotice("NIGHT SHIFT", message);
+  nightRun.host.parlorNotice("NIGHT SHIFT", message, "warning");
 }
 
 function settlementRequestIsStale(settlement, requestGeneration) {

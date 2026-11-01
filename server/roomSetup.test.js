@@ -288,7 +288,7 @@ check('buildMatchRecordOptions matches the emitRoomState settlement shape', () =
   assert.strictEqual(options.playerContracts.length, 3);
   assert.deepStrictEqual(options.playerContracts[0], {
     id: 'pc1', kind: 'loan', fromPlayerId: 'p1', toPlayerId: 'p2',
-    fromAccountId: 'acct_a', toAccountId: null, amount: 50, premiumRate: 0.2,
+    fromAccountId: 'acct_a', toAccountId: null, fromPersonaId: null, toPersonaId: null, amount: 50, premiumRate: 0.2,
     equityShare: null, collateralTileIndices: [7], collateralTileIndex: 7, propertyIndex: null,
     sourceContractId: null, transferSharePct: null, transferPrice: null,
     conversionShare: 0, equityControl: null, status: 'active'
@@ -297,7 +297,7 @@ check('buildMatchRecordOptions matches the emitRoomState settlement shape', () =
   assert.deepStrictEqual(options.playerContracts[1].collateralTileIndices, []);
   assert.deepStrictEqual(options.playerContracts[2], {
     id: 'pc3', kind: 'equity-transfer', fromPlayerId: 'p1', toPlayerId: 'p2',
-    fromAccountId: 'acct_a', toAccountId: null, amount: 40, premiumRate: undefined,
+    fromAccountId: 'acct_a', toAccountId: null, fromPersonaId: null, toPersonaId: null, amount: 40, premiumRate: undefined,
     equityShare: undefined, collateralTileIndices: [2, 4], collateralTileIndex: 2,
     propertyIndex: 8, sourceContractId: 'source-1', transferSharePct: 15,
     transferPrice: 40, conversionShare: 0, equityControl: null, status: 'pending'

@@ -49,8 +49,6 @@ test('trade builder reserves equal deed slots and scrolls full rows without movi
     await page.locator('#trade-card').screenshot({ path: path.join(output, `${testInfo.project.name}.png`), animations: 'disabled' });
   }
   await expectAlignedCash(page);
-  const viewport = page.viewportSize();
-  const expectedRows = viewport.width >= 1920 && viewport.height >= 1200 ? 5 : 3;
   const lists = page.locator('#trade-card .trade-deed-list');
   const metrics = await lists.evaluateAll(elements => elements.map(list => {
     const box = list.getBoundingClientRect();
@@ -67,8 +65,13 @@ test('trade builder reserves equal deed slots and scrolls full rows without movi
   expect(metrics[0].height, 'both players reserve the same deed area').toBe(metrics[1].height);
   expect(metrics[0].overflow).toBe('auto');
   expect(metrics[0].scrollHeight).toBeGreaterThan(metrics[0].clientHeight);
-  expect(metrics[0].rows.filter(row => row.top >= metrics[0].top - 1 && row.bottom <= metrics[0].bottom + 1)).toHaveLength(expectedRows);
-  expect(metrics[0].rows[expectedRows].top, 'next deed stays below the visible area').toBeGreaterThanOrEqual(metrics[0].bottom);
+  const visibleRows = metrics[0].rows.filter(row => row.top >= metrics[0].top - 1 && row.bottom <= metrics[0].bottom + 1);
+  // The loosened deed rows fit a different number of full rows at each size, so the count comes from the geometry: at least two,
+  // with the next deed cut off to show there is more to scroll.
+  expect(visibleRows.length, "at least two deeds show in full").toBeGreaterThanOrEqual(2);
+
+  // The next deed may peek in as a scroll cue, but it must not be fully visible.
+  expect(metrics[0].rows[visibleRows.length].bottom, 'next deed is not fully visible').toBeGreaterThan(metrics[0].bottom);
   for (const row of metrics[0].rows) expect(row.height, 'deeds retain a usable target size').toBeGreaterThanOrEqual(44);
   await expect(lists.nth(0)).toHaveAttribute('tabindex', '0');
   await expect(lists.nth(0)).toHaveAttribute('aria-label', 'Deeds to offer');

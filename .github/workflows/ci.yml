@@ -123,8 +123,8 @@ jobs:
                 shard_total=4
                 group=full
                 browser_mode=full
-                browser_shards='[1, 2, 3]'
-                browser_shard_total=3
+                browser_shards='[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
+                browser_shard_total=10
                 ;;
               main) tier=fast ;;
               *) tier=light ;;
@@ -142,8 +142,8 @@ jobs:
                 group=full
                 if [ "$FRONTEND_CHANGED" = "true" ]; then
                   browser_mode=full
-                  browser_shards='[1, 2, 3]'
-                  browser_shard_total=3
+                  browser_shards='[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
+                  browser_shard_total=10
                 else
                   browser_mode=smoke
                   browser_shards='[1]'
@@ -387,6 +387,11 @@ jobs:
     timeout-minutes: 35
     needs: [plan]
     if: needs.plan.outputs.tier == 'heavy'
+    # The pinned Playwright image already carries Chromium and its system libraries, so a shard skips the browser
+    # download and the apt install. The tag must match the locked @playwright/test version.
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --user root
     strategy:
       fail-fast: false
       matrix:
@@ -398,22 +403,12 @@ jobs:
           node-version: 22
           cache: npm
       - uses: actions/cache@v6
-        id: playwright-cache
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - uses: actions/cache@v6
         id: node-modules
         with:
           path: node_modules
           key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm ci
         if: steps.node-modules.outputs.cache-hit != 'true'
-      - name: Install Chromium and its system dependencies
-        # Browsers are pinned by package-lock.json, so a cache hit means the
-        # binaries and the runner's apt dependencies are already present.
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
       - name: Start the local parlor
         run: |
           PORT=8099 node server/server.js > /tmp/poorup-browser.log 2>&1 &
@@ -423,7 +418,7 @@ jobs:
           done
           curl -fsS localhost:8099/ >/dev/null
       - name: UI and accessibility contract shard (every viewport project in full mode)
-        # Full mode: every spec, every viewport project, three shards. Smoke
+        # Full mode: every spec, every viewport project, ten shards on ten runners. Smoke
         # mode: the @ui-smoke critical checks on the iPad Pro 11 landscape
         # profile, including the live-game desk contract, so a server-only
         # promotion still proves the UI boots and renders against the new server.

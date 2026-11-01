@@ -208,14 +208,15 @@ for (const rulesProfile of ['standard', 'advanced']) {
   state.settings.itemRewards = true;
   renderLobbyRail();
   assert.match(lobbyBody.innerHTML, /data-setting="itemRewards"[^>]*aria-pressed="true"/);
-  assert.match(lobbyBody.innerHTML, /item rewards on/);
+  assert.match(lobbyBody.innerHTML, /Advanced Systems/);
+  assert.doesNotMatch(lobbyBody.innerHTML, /<details class="lobby-advanced"/);
 }
 const { renderRulesSurface } = await import('./clientSocialSurfaces.js');
 const rulesRoot = { innerHTML: '', querySelectorAll: () => [] };
 globalThis.document = { querySelector: () => rulesRoot };
 state.rulesSection = 'wallet-items';
 renderRulesSurface();
-for (const term of ['PRISON KEY', 'PARLOR BOND', 'SILVER KEEPSAKE', 'SELL $25', 'SELL $400', 'SELL $600', 'two rounds', 'debt rescue', 'reconnects restore']) assert.ok(rulesRoot.innerHTML.includes(term), term);
+for (const term of ['PRISON KEY', 'PARLOR BOND', 'SILVER KEEPSAKE', 'SELL $25', 'SELL $400', 'SELL $600', 'two rounds', 'debt rescue', 'come back if you reconnect']) assert.ok(rulesRoot.innerHTML.includes(term), term);
 state.rulesSection = 'rulesets-market';
 renderRulesSurface();
 assert.match(rulesRoot.innerHTML, /Both presets allow every optional economy system/);
