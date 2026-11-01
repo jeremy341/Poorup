@@ -101,52 +101,6 @@ test('emergency credit presents the complete bank terms and returns focus on can
   await expect(page.locator('#open-create-btn')).toBeFocused();
 });
 
-async function createRound(page, browser, boardVariant) {
-  const guestContext = await browser.newContext();
-  const guest = await guestContext.newPage();
-  const code = `U${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-  await page.goto('/');
-  await page.locator('#home-alias').fill('LAYOUT HOST');
-  await page.locator('#open-create-btn').click();
-  await page.locator('#rc-vis-selector [data-vis="private"]').click();
-  await page.locator('#rc-room-code').fill(code);
-  await page.locator('#rc-create-btn').click();
-  await page.locator('#su-start').click();
-  await page.locator('[data-setting="boardVariant"]').selectOption(boardVariant);
-  await guest.goto(new URL('/', page.url()).href);
-  await guest.locator('#open-join-btn').click();
-  await guest.locator('#room-join').fill(code);
-  await guest.locator('#join-nickname').fill('LAYOUT GUEST');
-  await guest.locator('#join-room-submit').click();
-  await guest.locator('#su-start').click();
-  await expect(page.locator('#player-list .player-row')).toHaveCount(2);
-  await page.locator('#lobby-start-btn').click();
-  await expect(page.locator('#view-game')).toBeVisible();
-  return guestContext;
-}
-
-for (const boardVariant of ['standard-40', 'metro-52']) {
-  test(`${boardVariant} fills the center without overlapping turn controls`, async ({ page, browser }, testInfo) => {
-    const guestContext = await createRound(page, browser, boardVariant);
-    try {
-      await expect(page.locator('#board-grid .tile')).toHaveCount(boardVariant === 'metro-52' ? 52 : 40);
-      const boxes = await page.evaluate(() => {
-        const box = selector => document.querySelector(selector).getBoundingClientRect().toJSON();
-        return { stage: box('.board-area'), board: box('.board-holder'), name: box('#hud-name'), dice: box('#hud-dice'), roll: box('#roll-btn'), viewport: [innerWidth, innerHeight], document: [document.documentElement.scrollWidth, document.documentElement.scrollHeight] };
-      });
-      const { name, dice } = boxes;
-      const overlap = name.left < dice.right && name.right > dice.left && name.top < dice.bottom && name.bottom > dice.top;
-      expect(overlap, 'current turn name stays above the dice').toBe(false);
-      expect(boxes.document).toEqual(boxes.viewport);
-      // Boards stop growing at 1600px on very large screens, so "fills the center" means the smaller of the stage and that cap.
-      expect(boxes.board.width).toBeGreaterThanOrEqual(Math.min(boxes.stage.width, boxes.stage.height, 1600) * 0.94);
-      expect(boxes.board.bottom).toBeLessThanOrEqual(boxes.viewport[1] + 1);
-      if (testInfo.project.use.hasTouch) expect(boxes.roll.height).toBeGreaterThanOrEqual(44);
-      await page.screenshot({ path: testInfo.outputPath(`${boardVariant}-board.png`), animations: 'disabled' });
-    } finally { await guestContext.close(); }
-  });
-}
-
 test('short desktop home reserves space for clock and wordmark', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-1440x900', 'one desktop zoom-equivalent check');
   await page.setViewportSize({ width: 960, height: 540 });

@@ -83,6 +83,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
           MERGE_GROUP_BASE: ${{ github.event.merge_group.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
           DOCS_CHANGED: ${{ steps.changes.outputs.docs }}
           CODE_CHANGED: ${{ steps.changes.outputs.code }}
           FRONTEND_CHANGED: ${{ steps.changes.outputs.frontend }}
@@ -133,17 +134,23 @@ jobs:
           if [ "$EVENT_NAME" = "pull_request" ]; then
             case "$BASE_REF" in
               testing)
-                # The promotion hop never drops browser coverage entirely:
-                # UI-affecting diffs get the full 3-shard suite, server-only
-                # diffs get a fast UI-liveness smoke shard.
+                # The promotion hop never drops browser coverage entirely: UI-affecting
+                # diffs get the browser suite, server-only diffs get a UI-liveness smoke.
+                # Only the promotion from development runs every viewport profile. A
+                # feature PR runs the two representative profiles, which is about a sixth
+                # of the work and keeps the UI checks that matter on every change.
                 tier=heavy
                 shards='[1, 2, 3, 4]'
                 shard_total=4
                 group=full
-                if [ "$FRONTEND_CHANGED" = "true" ]; then
+                if [ "$FRONTEND_CHANGED" = "true" ] && [ "$HEAD_REF" = "development" ]; then
                   browser_mode=full
                   browser_shards='[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
                   browser_shard_total=10
+                elif [ "$FRONTEND_CHANGED" = "true" ]; then
+                  browser_mode=pr
+                  browser_shards='[1, 2, 3, 4]'
+                  browser_shard_total=4
                 else
                   browser_mode=smoke
                   browser_shards='[1]'
@@ -404,7 +411,7 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           verified=false
-          if [[ "$EVENT_NAME" == "pull_request" && "$BASE_REF" == "main" && -n "$PR_HEAD_SHA" ]]; then
+          if [[ "$EVENT_NAME" == "pull_request" && -n "$PR_HEAD_SHA" ]]; then
             candidate="$(git rev-parse 'HEAD^{tree}')"
             lanetree="$(git rev-parse "$PR_HEAD_SHA^{tree}" 2>/dev/null || echo missing)"
             if [[ "$candidate" == "$lanetree" ]]; then
@@ -459,11 +466,18 @@ jobs:
         # profile, including the live-game desk contract, so a server-only
         # promotion still proves the UI boots and renders against the new server.
         run: |
-          if [ "${{ needs.plan.outputs.browser_mode }}" = "smoke" ]; then
-            npm run test:browser -- --grep @ui-smoke --project=ipad-1194x834 --workers=2 --reporter=blob
-          else
-            npm run test:browser -- --workers=2 --shard=${{ matrix.shard }}/${{ needs.plan.outputs.browser_shard_total }} --reporter=blob
-          fi
+          case "${{ needs.plan.outputs.browser_mode }}" in
+            smoke)
+              npm run test:browser -- --grep @ui-smoke --project=ipad-1194x834 --workers=2 --reporter=blob
+              ;;
+            pr)
+              # Feature PRs: two representative profiles, no retries, so a real failure reports at once.
+              POORUP_QA_RETRIES=0 npm run test:browser -- --workers=2 --project=desktop-1920x1080 --project=ipad-1194x834 --shard=${{ matrix.shard }}/${{ needs.plan.outputs.browser_shard_total }} --reporter=blob
+              ;;
+            *)
+              npm run test:browser -- --workers=2 --shard=${{ matrix.shard }}/${{ needs.plan.outputs.browser_shard_total }} --reporter=blob
+              ;;
+          esac
         env:
           POORUP_QA_BASE_URL: http://127.0.0.1:8099
       - name: Upload Playwright blob report
@@ -496,17 +510,17 @@ jobs:
       - run: npm ci
         if: steps.node-modules.outputs.cache-hit != 'true'
       - name: Download Playwright shard reports
-        if: needs.verified.outputs.verified != 'true'
+        if: needs.verified.outputs.verified != 'true' && needs.browser-shards.result == 'failure'
         uses: actions/download-artifact@v7
         with:
           pattern: playwright-blob-shard-*
           path: all-blob-reports
           merge-multiple: true
       - name: Merge Playwright reports
-        if: needs.verified.outputs.verified != 'true'
+        if: needs.verified.outputs.verified != 'true' && needs.browser-shards.result == 'failure'
         run: npx playwright merge-reports --reporter=html all-blob-reports
       - name: Upload merged Playwright report
-        if: always() && needs.verified.outputs.verified != 'true'
+        if: always() && needs.verified.outputs.verified != 'true' && needs.browser-shards.result == 'failure'
         uses: actions/upload-artifact@v6
         with:
           name: playwright-html-report
