@@ -613,11 +613,36 @@ function createRuntime(deps) {
     });
   }
 
+  // Computer personas keep their own unlocks. They are not announced and never reach account profiles or rankings.
+  function recordBotPersonaAchievements(candidates) {
+    candidates.forEach(candidate => {
+      try {
+        botPersonaStore.recordAchievement(candidate.personaId, candidate);
+      } catch (error) {
+        console.error('Persona achievement settlement failed:', error?.message || 'unknown error');
+      }
+    });
+  }
+
+  // Treasure cards and headlines are kept across games, so rules that count them can be reached by a persona too.
+  function recordBotPersonaHistory(matchRecord) {
+    (matchRecord?.participants || []).forEach(participant => {
+      if (!participant.personaId) return;
+      botPersonaStore.recordHistory(participant.personaId, {
+        treasureCards: participant.treasureCardsSeenList || [],
+        events: matchRecord.globalEvents || [],
+      });
+    });
+  }
+
   function recordRoomStats(room) {
     recordBotPersonaResults(room);
     const matchRecord = accountStore.recordGameResults(room.game.players, room.game.lastWinner.id, buildMatchRecordOptions(room));
     const historyReader = accountId => accountStore.getMatchHistory(accountId);
-    const candidates = achievementStore.evaluateMatch(matchRecord, historyReader);
+    const allCandidates = achievementStore.evaluateMatch(matchRecord, historyReader, personaId => botPersonaStore.historyFor(personaId));
+    recordBotPersonaAchievements(allCandidates.filter(candidate => !candidate.accountId && candidate.personaId));
+    recordBotPersonaHistory(matchRecord);
+    const candidates = allCandidates.filter(candidate => candidate.accountId);
     annotateMatchAchievements(matchRecord, candidates);
     // The account snapshot was written before achievement enrichment;
     // update that same match ID once so a restart sees the authoritative
