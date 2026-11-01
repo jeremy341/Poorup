@@ -207,7 +207,7 @@ function onBotStatus(status) {
   label.classList.remove("is-hidden", "is-thinking");
   if (status.state === "thinking") {
     label.classList.add("is-thinking");
-    label.textContent = `${status.nickname} · CPU THINKING · ${String(status.brain || "ai").toUpperCase()}`;
+    label.textContent = `${status.nickname} · COMPUTER THINKING · ${String(status.brain || "ai").toUpperCase()}`;
     return;
   }
   const brainLabel = status.fallback || status.effectiveBrain === "no-ai" ? "NO-AI FALLBACK" : "AI ADVISOR";

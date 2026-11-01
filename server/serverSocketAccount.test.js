@@ -44,9 +44,9 @@ assert.deepEqual(invoke({ key: 'startingCash', value: 1800 }), { success: true }
 assert.equal(room.settings.startingCash, 1800);
 assert.deepEqual(invoke({ key: 'botBrain', value: 'no-ai' }), { success: true });
 runtime.botProviderStatus = () => ({ state: 'quota-exhausted', revision: 1, reason: 'credits-exhausted' });
-assert.deepEqual(invoke({ key: 'botBrain', value: 'ai' }), { success: false, code: 'AI_CREDITS_EXHAUSTED', error: 'AI credits are exhausted. Choose NO-AI BOT.' });
+assert.deepEqual(invoke({ key: 'botBrain', value: 'ai' }), { success: false, code: 'AI_CREDITS_EXHAUSTED', error: 'AI credits are exhausted. Choose NO-AI COMPUTER.' });
 assert.equal(room.settings.botBrain, 'no-ai');
-assert.deepEqual(invoke({ key: 'botBrain', value: { unexpected: true } }), { success: false, code: 'AI_CREDITS_EXHAUSTED', error: 'AI credits are exhausted. Choose NO-AI BOT.' });
+assert.deepEqual(invoke({ key: 'botBrain', value: { unexpected: true } }), { success: false, code: 'AI_CREDITS_EXHAUSTED', error: 'AI credits are exhausted. Choose NO-AI COMPUTER.' });
 
 function makeSocket(id) {
   return {

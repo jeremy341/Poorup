@@ -178,3 +178,12 @@ check("inGameReturnBarIsPinnedInsideAFixedCardWithInternalScroll", () => {
   assert.match(ux, /\.table-return-btn\s*\{[^}]*min-height:\s*44px/);
   assert.match(ux, /position:\s*sticky/);
 });
+
+check("computerProfilesOpenFromSearchOutsideTheRoomAndNotFromTheCard", () => {
+  assert.doesNotMatch(source, /data-player-action="computer-profile"/, "the in-room card no longer offers a computer profile");
+  assert.match(bindings, /id\?\.startsWith\("computer:"\)[\s\S]*host\.openComputerProfile\(id\.slice/);
+  assert.match(source, /player\.computer/, "search rows mark computer players");
+  const page = readFileSync(new URL("./clientComputerProfile.js", import.meta.url), "utf8");
+  assert.match(page, /get-computer-profile/);
+  assert.match(page, /showProfile/, "the page is the normal profile page, not a separate view");
+});

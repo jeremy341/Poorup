@@ -3,6 +3,7 @@
 // createRuntime() per process: server.js builds the stores and io, then hands them here. Pinned by server/rooms.test.js and server/server.test.js.
 import { AUCTION_DURATION_MS } from './gameLogic.js';
 import { ensureRoomHost } from './rooms.js';
+import { botPersonaStore } from './botPersonaStore.js';
 import { normalizeAvatarGrid, normalizeClientId, normalizeChatText, buildMatchRecordOptions } from './roomSetup.js';
 import { createRoomPresenceRuntime } from './roomPresenceRuntime.js';
 import { createRoomVoteKickRuntime } from './roomVoteKickRuntime.js';
@@ -604,10 +605,44 @@ function createRuntime(deps) {
     return true;
   }
 
+  // Computer personas keep their own record. Accounts and rankings never see these games.
+  function recordBotPersonaResults(room) {
+    const winnerId = room.game.lastWinner.id;
+    room.game.players.forEach(player => {
+      if (player.isBot && player.personaId) botPersonaStore.recordGame(player.personaId, player.id === winnerId);
+    });
+  }
+
+  // Computer personas keep their own unlocks. They are not announced and never reach account profiles or rankings.
+  function recordBotPersonaAchievements(candidates) {
+    candidates.forEach(candidate => {
+      try {
+        botPersonaStore.recordAchievement(candidate.personaId, candidate);
+      } catch (error) {
+        console.error('Persona achievement settlement failed:', error?.message || 'unknown error');
+      }
+    });
+  }
+
+  // Treasure cards and headlines are kept across games, so rules that count them can be reached by a persona too.
+  function recordBotPersonaHistory(matchRecord) {
+    (matchRecord?.participants || []).forEach(participant => {
+      if (!participant.personaId) return;
+      botPersonaStore.recordHistory(participant.personaId, {
+        treasureCards: participant.treasureCardsSeenList || [],
+        events: matchRecord.globalEvents || [],
+      });
+    });
+  }
+
   function recordRoomStats(room) {
+    recordBotPersonaResults(room);
     const matchRecord = accountStore.recordGameResults(room.game.players, room.game.lastWinner.id, buildMatchRecordOptions(room));
     const historyReader = accountId => accountStore.getMatchHistory(accountId);
-    const candidates = achievementStore.evaluateMatch(matchRecord, historyReader);
+    const allCandidates = achievementStore.evaluateMatch(matchRecord, historyReader, personaId => botPersonaStore.historyFor(personaId));
+    recordBotPersonaAchievements(allCandidates.filter(candidate => !candidate.accountId && candidate.personaId));
+    recordBotPersonaHistory(matchRecord);
+    const candidates = allCandidates.filter(candidate => candidate.accountId);
     annotateMatchAchievements(matchRecord, candidates);
     // The account snapshot was written before achievement enrichment;
     // update that same match ID once so a restart sees the authoritative

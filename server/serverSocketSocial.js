@@ -7,6 +7,8 @@ import { PARLOR_PATROL_ENABLED, PARLOR_PATROL_OFF_MESSAGE } from './accountStore
 import { reply } from './socketHandlerSupport.js';
 import { authAttemptKey } from './serverSocketAccount.js';
 import { normalizeChatText, matchHistoryPrivacyError, summarizeMatchHistoryRecordForViewer } from './roomSetup.js';
+import { BOT_PERSONAS } from './botPersonas.js';
+import { botPersonaStore } from './botPersonaStore.js';
 
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 const LEADERBOARD_METRICS = Object.freeze([
@@ -197,6 +199,21 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     reply(callback, result);
   });
 
+  // A computer player's public page: its own record and its most recent matches. Computer players have no privacy settings to honour.
+  on('get-computer-profile', (payload = {}, callback) => {
+    const persona = BOT_PERSONAS.find(entry => entry.id === payload.personaId);
+    if (!persona) return reply(callback, { success: false, error: 'Computer player not found.' });
+    const stats = botPersonaStore.profileFor(persona.id);
+    const matches = matchStore.listAll()
+      .filter(record => (record.participants || []).some(entry => entry.personaId === persona.id))
+      .slice(0, 10)
+      .map(record => {
+        const row = record.participants.find(entry => entry.personaId === persona.id);
+        return { completedAt: record.completedAt || null, placement: row?.finalPlacement ?? null, players: record.participants.length, events: (record.globalEvents || []).length };
+      });
+    reply(callback, { success: true, profile: { id: persona.id, name: persona.name, difficulty: persona.difficulty, ...stats }, matches });
+  });
+
   on('get-public-player-card', (payload = {}, callback) => {
     const viewer = accountForSocket(socket, payload);
     if (restricted(viewer)) return reply(callback, ACCOUNT_DELETION_PENDING);
@@ -216,7 +233,9 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     if (!searchRateAllowed(viewer)) return reply(callback, { success: false, error: 'Too many searches. Try again in a minute.' });
     const query = normalizeSearchQuery(payload.query);
     if (query.length < 3) return reply(callback, { success: true, players: [] });
-    reply(callback, { success: true, players: searchMatches(query, payload.exact === true, viewer) });
+    const exact = payload.exact === true;
+    const players = [...searchMatches(query, exact, viewer), ...(exact ? [] : computerMatches(query))].slice(0, 20);
+    reply(callback, { success: true, players });
   });
 
   on('get-match-history', (payload = {}, callback) => {
@@ -787,6 +806,13 @@ function registerSocialSocketHandlers(on, socket, runtime) {
       .filter(candidate => searchableByViewer(candidate, viewer))
       .slice(0, 20)
       .map(publicSearchProfile);
+  }
+
+  // Computer players are findable by name in player search, but never in the exact-match rankings lookup.
+  function computerMatches(query) {
+    return BOT_PERSONAS
+      .filter(persona => persona.name.toLowerCase().includes(query))
+      .map(persona => ({ id: `computer:${persona.id}`, personaId: persona.id, computer: true, displayName: persona.name, username: null, difficulty: persona.difficulty, mutualFriends: null }));
   }
 
   function searchNameMatches(candidate, query, exact) {
