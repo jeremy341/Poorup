@@ -179,10 +179,12 @@ check("inGameReturnBarIsPinnedInsideAFixedCardWithInternalScroll", () => {
   assert.match(ux, /position:\s*sticky/);
 });
 
-check("computerProfileIsReachableFromTheBotCardAndShowsOnlyItsRecord", () => {
+check("computerProfileIsAPublicPageOpenedFromTheBotCard", () => {
   assert.match(source, /data-player-action="computer-profile"/);
-  assert.match(bindings, /action\.dataset\.playerAction === "computer-profile"[\s\S]*state\.selectedPlayerView = "computer"/);
-  assert.match(source, /state\.selectedPlayerView === "computer"/);
-  assert.match(source, /NO UNLOCKS YET/);
+  assert.match(bindings, /action\.dataset\.playerAction === "computer-profile"[\s\S]*host\.openComputerProfile\(personaId\)/);
+  assert.doesNotMatch(source, /selectedPlayerView === "computer"/, "the card no longer renders a computer view inline");
+  const page = readFileSync(new URL("./clientComputerProfile.js", import.meta.url), "utf8");
+  assert.match(page, /get-computer-profile/);
+  assert.match(page, /NO UNLOCKS YET/);
   assert.match(styles, /\.computer-profile-unlock\s*\{/);
 });

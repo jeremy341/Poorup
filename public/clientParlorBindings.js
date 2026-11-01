@@ -22,7 +22,7 @@ import {
   finishFriendRequestAction,
 } from "./clientSocialSurfaces.js";
 
-let host = { emitServer: noop, leaveRoomForHome: noop, removeComputerPlayer: noop };
+let host = { emitServer: noop, leaveRoomForHome: noop, removeComputerPlayer: noop, openComputerProfile: noop };
 let roomVoteKickUi = null;
 const SOCIAL_ACTION_TIMEOUT_MS = 8000;
 let rankingSearchRequestId = 0;
@@ -518,8 +518,9 @@ function handlePlayerCardClick(event) {
   if (!playerActionEnabled(action)) return;
   const handler = PLAYER_ACTIONS[action.dataset.playerAction];
   if (action.dataset.playerAction === "computer-profile") {
-    state.selectedPlayerView = "computer";
-    renderPlayerSurface();
+    const personaId = state.selectedPlayer?.personaStats?.id;
+    closeSurface("#player-modal");
+    if (personaId) host.openComputerProfile(personaId);
     return;
   }
   if (action.dataset.playerAction === "remove-computer") {

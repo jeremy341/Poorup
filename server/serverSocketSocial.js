@@ -7,6 +7,8 @@ import { PARLOR_PATROL_ENABLED, PARLOR_PATROL_OFF_MESSAGE } from './accountStore
 import { reply } from './socketHandlerSupport.js';
 import { authAttemptKey } from './serverSocketAccount.js';
 import { normalizeChatText, matchHistoryPrivacyError, summarizeMatchHistoryRecordForViewer } from './roomSetup.js';
+import { BOT_PERSONAS } from './botPersonas.js';
+import { botPersonaStore } from './botPersonaStore.js';
 
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 const LEADERBOARD_METRICS = Object.freeze([
@@ -195,6 +197,21 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     if (!otherId) return reply(callback, PLAYER_NOT_FOUND);
     const result = socialStore.reportPlayer(account.id, otherId, payload.reason);
     reply(callback, result);
+  });
+
+  // A computer player's public page: its own record and its most recent matches. Computer players have no privacy settings to honour.
+  on('get-computer-profile', (payload = {}, callback) => {
+    const persona = BOT_PERSONAS.find(entry => entry.id === payload.personaId);
+    if (!persona) return reply(callback, { success: false, error: 'Computer player not found.' });
+    const stats = botPersonaStore.profileFor(persona.id);
+    const matches = matchStore.listAll()
+      .filter(record => (record.participants || []).some(entry => entry.personaId === persona.id))
+      .slice(0, 10)
+      .map(record => {
+        const row = record.participants.find(entry => entry.personaId === persona.id);
+        return { completedAt: record.completedAt || null, placement: row?.finalPlacement ?? null, players: record.participants.length, events: (record.globalEvents || []).length };
+      });
+    reply(callback, { success: true, profile: { id: persona.id, name: persona.name, difficulty: persona.difficulty, ...stats }, matches });
   });
 
   on('get-public-player-card', (payload = {}, callback) => {

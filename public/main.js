@@ -137,6 +137,7 @@ import {
   closeTradeModal,
 } from "./clientTradeUi.js";
 import { bindParlorSurfaces, syncRoomVoteKickUi } from "./clientParlorBindings.js";
+import { configureComputerProfile, openComputerProfile } from "./clientComputerProfile.js";
 import { friendlyActionError } from "./clientActionErrorCopy.js";
 import { createChatSender } from "./clientChatSend.js";
 import { createPresenceMonitor } from "./clientPlayerPresence.js";
@@ -1078,6 +1079,7 @@ function syncViewVisibility(name) {
   $("#view-home").classList.toggle("is-hidden", name !== "home");
   $("#view-game").classList.toggle("is-hidden", name !== "game");
   $("#view-profile").classList.toggle("is-hidden", name !== "profile");
+  $("#view-computer")?.classList.toggle("is-hidden", name !== "computer");
   const optionalViews = [
     ["#view-rankings", "rankings"],
     ["#view-social", "social"],
@@ -1399,7 +1401,8 @@ function bindEvents() {
   bindHomeNavigation();
   bindRulesPage();
 
-  bindParlorSurfaces({ emitServer, leaveRoomForHome, removeComputerPlayer });
+  bindParlorSurfaces({ emitServer, leaveRoomForHome, removeComputerPlayer, openComputerProfile });
+  configureComputerProfile({ emit: emitServer, showView, notice: message => parlorNotice("COMPUTER", message, "error") });
 
   // Home actions are bound to their explicit controls below. Keeping the
   // entry points named avoids accidental duplicate Create/Browse triggers.

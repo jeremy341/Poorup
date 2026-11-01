@@ -46,7 +46,7 @@ assert.equal(store.statsFor('dice-goblin').achievements, 1);
 assert.equal(store.achievementsFor('dice-goblin')[0].title, 'THE 41ST TILE');
 // The table card reads counts and unlocks together; an unknown persona has no profile.
 assert.equal(store.profileFor('not-a-persona'), null);
-assert.deepEqual(store.profileFor('dice-goblin'), { gamesPlayed: 2, wins: 1, achievements: 1, unlocked: store.achievementsFor('dice-goblin') });
+assert.deepEqual(store.profileFor('dice-goblin'), { id: 'dice-goblin', gamesPlayed: 2, wins: 1, achievements: 1, unlocked: store.achievementsFor('dice-goblin') });
 console.log('persona achievement checks passed');
 
 // A computer seat can earn a match-only rule, and its unlock carries no account key.

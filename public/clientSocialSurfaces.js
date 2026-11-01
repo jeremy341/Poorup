@@ -1338,22 +1338,6 @@ function renderPlayerProfileView(card, player, accountId) {
   renderRecentMatches(card, player);
 }
 
-function computerUnlockHTML(entry) {
-  return '<li class="computer-profile-unlock"><div class="computer-profile-unlock-head"><strong class="t-label f11 g100">' + esc(entry.title || entry.achievementId) + '</strong><span class="t-micro ink-3">' + esc(entry.rarity || "") + '</span></div><p class="t-body ink-2">' + esc(entry.body || "") + '</p></li>';
-}
-
-// A computer seat has no account, so its profile is only its own record: games, wins and the unlocks it earned.
-function renderComputerProfileView(card, player) {
-  const stats = player.personaStats || {};
-  const unlocked = Array.isArray(stats.unlocked) ? stats.unlocked : [];
-  const name = esc(player.displayName || player.name);
-  const difficulty = esc(String(player.botDifficulty || "table").toUpperCase());
-  const list = unlocked.length
-    ? '<ul class="computer-profile-unlocks">' + unlocked.map(computerUnlockHTML).join("") + '</ul>'
-    : '<p class="t-body ink-3 social-empty">NO UNLOCKS YET.</p>';
-  card.innerHTML = `<div class="social-surface-head"><div><div class="t-micro g400">COMPUTER PROFILE · ${difficulty}</div><h2 class="t-section g100" id="player-modal-title">${name}</h2><p class="t-body ink-2" id="player-modal-description">Computer players keep their own record. It never reaches accounts or rankings.</p></div>${closeButtonHTML({ id: "player-modal-close", label: "Close player profile", className: "social-close" })}</div><div class="player-profile-facts"><div><span class="t-micro ink-3">GAMES</span><strong class="t-label f13 g100">${esc(String(stats.gamesPlayed ?? "-"))}</strong></div><div><span class="t-micro ink-3">WINS</span><strong class="t-label f13 green">${esc(String(stats.wins ?? "-"))}</strong></div><div><span class="t-micro ink-3">ACHIEVEMENTS</span><strong class="t-label f13 g300">${unlocked.length}</strong></div></div><div class="computer-profile-body thin-scroll">${list}</div><button class="btn-dark social-back" id="player-modal-back" type="button"><span class="t-label f11">BACK TO PLAYER</span></button>`;
-}
-
 export function renderPlayerSurface() {
   const card = $("#player-card");
   const player = state.selectedPlayer;
@@ -1361,10 +1345,6 @@ export function renderPlayerSurface() {
   const accountId = player.accountId || player.id;
   if (state.selectedPlayerView === "history") {
     renderPlayerHistoryView(card, player);
-    return;
-  }
-  if (state.selectedPlayerView === "computer") {
-    renderComputerProfileView(card, player);
     return;
   }
   renderPlayerProfileView(card, player, accountId);

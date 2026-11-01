@@ -68,7 +68,7 @@ export function createBotPersonaStore(filePath = DEFAULT_FILE) {
     // What a table card shows for a computer seat: its counts and the unlocks it earned. Null for an unknown persona.
     profileFor(personaId) {
       if (!records[personaId]) return null;
-      return { ...this.statsFor(personaId), unlocked: this.achievementsFor(personaId) };
+      return { id: personaId, ...this.statsFor(personaId), unlocked: this.achievementsFor(personaId) };
     },
 
     // Treasure cards and headlines seen in earlier games, so rules that count across games can count for a persona too.
