@@ -231,6 +231,7 @@ const globalEventsApi = {
 
   globalEventDurationRounds(definition, combo) {
     if (combo?.duration) return combo.duration;
+    if (definition.durationRounds) return definition.durationRounds;
     const late = this.globalEventProgress() > 0.6;
     if (definition.id === 'housing-bubble') return late ? 8 : 7;
     return late ? 7 : 6;
