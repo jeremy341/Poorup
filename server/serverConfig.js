@@ -59,9 +59,8 @@ export function isOriginAllowed(origin, configuredOrigins = []) {
   return configuredOrigins.includes('*') || configuredOrigins.includes(origin);
 }
 
-// Socket.IO's allowRequest must apply the same exact-origin policy to every
-// transport, including direct WebSocket upgrades. Wildcards are intentionally
-// excluded from this admission seam.
+// Socket.IO's allowRequest applies the same exact-origin policy to every transport, including direct WebSocket upgrades.
+// Wildcards are excluded from this admission seam.
 export function isAllowedSocketOrigin(origin, allowedOrigins = []) {
   if (!origin) return true;
   const normalized = normalizeOrigin(origin);
@@ -69,10 +68,8 @@ export function isAllowedSocketOrigin(origin, allowedOrigins = []) {
   return allowedOrigins.filter(candidate => candidate !== '*').includes(normalized);
 }
 
-// Resolve a socket peer only through an explicitly trusted proxy hop count;
-// otherwise attacker-controlled forwarding headers cannot mint fresh limiter
-// identities on every reconnect. The result is the limiter key: an IPv6 /64 is
-// one peer (see rateLimitAddressKey).
+// Resolve a socket peer only through an explicitly trusted proxy hop count. Otherwise attacker-controlled forwarding headers
+// could mint fresh limiter identities on every reconnect. The result is the limiter key: an IPv6 /64 is one peer (see rateLimitAddressKey).
 export function resolveClientAddress(handshake = {}, trustedProxyHops = 0) {
   return rateLimitAddressKey(resolveRawClientAddress(handshake, trustedProxyHops));
 }

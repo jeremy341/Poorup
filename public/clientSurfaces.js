@@ -1,9 +1,6 @@
-/* ============================================================
-   SHARED SURFACE / DIALOG CONTROLLER: keep every blocking
-   surface keyboard-safe without coupling the game state machine
-   to a particular modal implementation. parlorNotice is injected
-   by the entry module for the table-notice throttle.
-   ============================================================ */
+// SHARED SURFACE / DIALOG CONTROLLER: keeps every blocking surface keyboard-safe without coupling
+// the game state machine to a modal implementation. The entry module injects parlorNotice for the
+// table-notice throttle.
 import { $, esc } from "./clientDom.js";
 import { hydrateSprites } from "./clientSprites.js";
 import { state } from "./clientState.js";
@@ -15,7 +12,7 @@ const SURFACE_SELECTORS = [
   "#card-modal", "#card-gallery", "#gameover-modal",
 ];
 
-/* Table popups belong only to a live game — blocked while parked at parlor home. */
+/* Table popups belong only to a live game; blocked while parked at parlor home. */
 const GAME_POPUP = new Set([
   "#popup", "#deed-modal", "#card-modal", "#choice-modal", "#offer-modal", "#trade-modal", "#deal-detail-modal",
   "#auction-modal", "#financing-modal", "#bank-loan-modal", "#wallet-modal", "#flight-modal", "#market-modal", "#casino-modal", "#sponsorship-modal", "#gameover-modal", "#bankruptcy-modal",
@@ -75,7 +72,7 @@ function closeConfirmationCopy(selector) {
     return { title: "Leave this decision open?", message: "Your payment or bankruptcy decision is still required. Close without choosing and the table will keep waiting for you." };
   }
   if (selector === "#auction-modal") {
-    return { title: "Leave the auction?", message: "The auction is still active. Keep this window open to bid or pass, or close it without changing your bid." };
+    return { title: "Leave the auction?", message: "The auction is still active. Keep this window open to keep bidding, or close it without changing your bid." };
   }
   if (selector === "#choice-modal") {
     return { title: "Leave the required choice?", message: "This auction purchase choice is still required. Close without choosing and the table will keep waiting." };
@@ -179,7 +176,7 @@ function blockedAsGamePopup(selector) {
   if (!GAME_POPUP.has(selector)) return false;
   if (state.phase !== "home") return false;
   if (tableNoticeThrottled()) {
-    notice("TABLE NOTICE", "That notice belongs to the table — it can be opened during a game.");
+    notice("TABLE NOTICE", "That notice belongs to the table. It can be opened during a game.");
   }
   return true;
 }
@@ -256,7 +253,7 @@ export function closeSurface(selector, options = {}) {
   if (!surface) return;
   if (!options.force && shouldConfirmSurfaceClose(selector) && surfaceVisible(surface)) {
     const copy = closeConfirmationCopy(selector);
-    openConfirmModal({ ...copy, confirmLabel: "CLOSE WITHOUT ACTION", onConfirm: () => closeSurface(selector, { force: true }) });
+    openConfirmModal({ ...copy, confirmLabel: "CLOSE WITHOUT ACTION", confirmTone: "neutral", onConfirm: () => closeSurface(selector, { force: true }) });
     return false;
   }
   const returnFocus = surfaceReturns.get(selector) || null;
@@ -316,7 +313,7 @@ export function focusSurface(selector, focusSelector) {
  * shared dialog controller so they inherit focus trapping, Escape handling,
  * inert background behaviour, and focus restoration.
  */
-export function openConfirmModal({ title = "Confirm action", message = "", confirmLabel = "CONFIRM", onConfirm } = {}) {
+export function openConfirmModal({ title = "Confirm action", message = "", confirmLabel = "CONFIRM", confirmTone = "red", onConfirm, mark = true } = {}) {
   const card = $("#confirm-card");
   if (!card) return;
   pendingConfirmation = typeof onConfirm === "function" ? onConfirm : null;
@@ -327,12 +324,14 @@ export function openConfirmModal({ title = "Confirm action", message = "", confi
           <div class="t-micro red">CONFIRM ACTION</div>
           <h2 class="t-section g100" id="confirm-title">${esc(title)}</h2>
         </div>
-        <span data-sprite="diamond" data-size="3" aria-hidden="true"></span>
+        ${mark ? '<span data-sprite="diamond" data-size="3" aria-hidden="true"></span>' : ""}
       </div>
       <p class="t-body ink-2 confirm-message" id="confirm-description">${esc(message)}</p>
       <div class="confirm-actions">
         <button class="btn-dark" type="button" id="confirm-cancel"><span class="t-label f11">CANCEL</span></button>
-        <button class="cta-red" type="button" id="confirm-accept"><span class="cta-text cta-text-sm">${esc(confirmLabel)}</span></button>
+        ${confirmTone === "neutral"
+          ? `<button class="btn-dark" type="button" id="confirm-accept"><span class="t-label f11">${esc(confirmLabel)}</span></button>`
+          : `<button class="cta-red" type="button" id="confirm-accept"><span class="cta-text cta-text-sm">${esc(confirmLabel)}</span></button>`}
       </div>
     </div>`;
   hydrateSprites(card);

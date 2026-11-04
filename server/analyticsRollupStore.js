@@ -19,6 +19,7 @@ export const ALLOWED_ROLLUP_KINDS = new Set([
 
 const DIMENSION_KEYS = new Set(ALLOWED_ANALYTICS_DIMENSIONS);
 const BUCKET_MS = 3_600_000;
+const DURATION_SAMPLE_LIMIT = 2048;
 const MAX_FUTURE_SKEW_MS = 24 * 3_600_000;
 const EVENT_KEYS = new Set(['kind', 'createdAt', 'id', 'data', 'pseudonymId', 'accountId', ...ALLOWED_ANALYTICS_DIMENSIONS]);
 const BOARD_VARIANTS = new Set(['standard-40', 'metro-52']);
@@ -143,10 +144,9 @@ export function validateAnalyticsDimensions(input = {}) {
   return validDimensions(dimensions);
 }
 
-// The action id is not part of the key: bot decisions have one candidate id per
-// tile or trade, and a row each would exhaust the bucket's dimension slots. The
-// budgeted bots[...].actions map counts them instead. The empty segment keeps
-// the key layout that stored rollups and the projection already use.
+// The action id is not part of the key: bot decisions have one candidate id per tile or trade,
+// and a row each would exhaust the bucket's dimension slots, so the bots[...].actions map counts them.
+// The empty segment keeps the key layout that stored rollups already use.
 function dimensionKey(dimensions) {
   return [
     dimensions.seasonId, dimensions.rulesetRevision, dimensions.balanceRevision,
@@ -210,7 +210,22 @@ function addDuration(target, value) {
   if (!Number.isFinite(seconds)) return;
   target.count += 1;
   target.sum = boundedNumber(target.sum + seconds);
-  if (target.values.length < 2048) target.values.push(seconds);
+  if (target.values.length < DURATION_SAMPLE_LIMIT) {
+    target.values.push(seconds);
+    return;
+  }
+  // Reservoir sampling (algorithm R): once the sample is full, the n-th value replaces a random slot with
+  // probability limit / n, so `values` stays a uniform sample of every duration seen, not just the first ones.
+  const slot = Math.floor(Math.random() * target.count);
+  if (slot < DURATION_SAMPLE_LIMIT) target.values[slot] = seconds;
+}
+
+// Takes `count` values spread evenly through a list. The lists it is used on are uniform random samples, so an
+// evenly spaced subset is a uniform sample of them too.
+function takeEvenly(values, count) {
+  if (count >= values.length) return values.slice();
+  if (count <= 0) return [];
+  return Array.from({ length: count }, (_, index) => values[Math.floor((index * values.length) / count)]);
 }
 
 function featureKey(data) {
@@ -483,9 +498,23 @@ function mergeNumeric(target, source, key) {
 
 function mergeDuration(target, source) {
   if (!source || typeof source !== 'object') return;
+  const targetCount = Math.max(0, Number(target?.count) || 0);
   mergeNumeric(target, source, 'count');
   mergeNumeric(target, source, 'sum');
-  if (Array.isArray(source.values)) target.values = [...(target.values || []), ...source.values.filter(value => Number.isFinite(Number(value))).slice(0, Math.max(0, 2048 - (target.values || []).length))];
+  if (!Array.isArray(source.values)) return;
+  const incoming = source.values.filter(value => Number.isFinite(Number(value)));
+  const existing = Array.isArray(target.values) ? target.values : [];
+  if (existing.length + incoming.length <= DURATION_SAMPLE_LIMIT) {
+    target.values = [...existing, ...incoming];
+    return;
+  }
+  // Both sides are samples of their own counts: keep each side in proportion to the durations it stands for,
+  // so a long window is not summarised by its first hours only.
+  const sourceCount = Math.max(incoming.length, Number(source.count) || 0);
+  const share = targetCount + sourceCount > 0 ? targetCount / (targetCount + sourceCount) : 0.5;
+  const fromTarget = Math.min(existing.length, Math.max(0, Math.round(DURATION_SAMPLE_LIMIT * share)));
+  const fromSource = Math.min(incoming.length, DURATION_SAMPLE_LIMIT - fromTarget);
+  target.values = [...takeEvenly(existing, fromTarget), ...takeEvenly(incoming, fromSource)];
 }
 
 const MERGE_NUMERIC_KEYS = [
@@ -736,7 +765,7 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
     while (keys.length > bucketLimit) { delete state.buckets[keys.shift()]; removed += 1; }
     if (removed) pendingWrites += 1;
     // A quiet prune has no record to piggyback on, so it is written out here
-    // instead of staying in memory until the next event.
+    // so it does not wait in memory for the next event.
     if (options.flush) {
       const written = flush();
       if (isThenable(written)) return written.then(() => removed);

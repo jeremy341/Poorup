@@ -34,34 +34,54 @@ async function prepareBoard(page) {
   });
 }
 
+async function activateOwnedTile(page, index, activation) {
+  const tile = page.locator(`#board-grid .tile[data-tile="${index}"]`);
+  if (activation === 'click') await tile.click();
+  else { await tile.focus(); await page.keyboard.press(activation); }
+  return tile;
+}
+
+async function expectOwnedDeedOpened(page) {
+  await expect(page.locator('#deed-modal')).toBeVisible();
+  await expect(page.locator('#popup')).toBeHidden();
+  await expect(page.locator('#dd-mortgage')).toBeVisible();
+  await expect(page.locator('#dd-close')).toBeFocused();
+  await expect(page.locator('#log-drawer')).toHaveClass(/is-open/);
+}
+
+async function expectPlayerOwnedActions(page) {
+  await expect(page.locator('#dd-buy')).toBeVisible();
+  await expect(page.locator('#dd-trade-deed')).toBeVisible();
+  await expect(page.locator('#dd-bank-sale')).toHaveCount(0);
+}
+
+async function captureOwnedDeedCard(page, testInfo) {
+  const output = process.env.POORUP_OWNED_DEED_CAPTURE_DIR;
+  if (!output) return;
+  await mkdir(output, { recursive: true });
+  await page.locator('#deed-card-detail').screenshot({ path: path.join(output, `${testInfo.project.name}.png`), animations: 'disabled' });
+}
+
+async function closeOwnedDeed(page, activation) {
+  if (activation === 'Space') await page.keyboard.press('Escape');
+  else await page.locator('#dd-close').click();
+  await expect(page.locator('#deed-modal')).toBeHidden();
+}
+
 test('owned board deeds open management directly and return focus without an intermediate inspector', async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await prepareBoard(page);
   await page.evaluate(async () => (await import('/clientLogDrawer.js')).toggleLogDrawerFromButton());
   for (const [index, activation] of [[1, 'click'], [5, 'Enter'], [12, 'Space']]) {
-    const tile = page.locator(`#board-grid .tile[data-tile="${index}"]`);
-    if (activation === 'click') await tile.click();
-    else { await tile.focus(); await page.keyboard.press(activation); }
-    await expect(page.locator('#deed-modal')).toBeVisible();
-    await expect(page.locator('#popup')).toBeHidden();
-    await expect(page.locator('#dd-mortgage')).toBeVisible();
-    await expect(page.locator('#dd-close')).toBeFocused();
-    await expect(page.locator('#log-drawer')).toHaveClass(/is-open/);
+    const tile = await activateOwnedTile(page, index, activation);
+    await expectOwnedDeedOpened(page);
     if (index === 1) {
-      await expect(page.locator('#dd-buy')).toBeVisible();
-      await expect(page.locator('#dd-trade-deed')).toBeVisible();
-      await expect(page.locator('#dd-bank-sale')).toHaveCount(0);
-      const output = process.env.POORUP_OWNED_DEED_CAPTURE_DIR;
-      if (output) {
-        await mkdir(output, { recursive: true });
-        await page.locator('#deed-card-detail').screenshot({ path: path.join(output, `${testInfo.project.name}.png`), animations: 'disabled' });
-      }
+      await expectPlayerOwnedActions(page);
+      await captureOwnedDeedCard(page, testInfo);
     }
     expect(await page.evaluate(() => window.__deedRequests)).toEqual([]);
-    if (activation === 'Space') await page.keyboard.press('Escape');
-    else await page.locator('#dd-close').click();
-    await expect(page.locator('#deed-modal')).toBeHidden();
+    await closeOwnedDeed(page, activation);
     await expect(tile).toBeFocused();
     await expect(page.locator('#log-drawer')).toHaveClass(/is-open/);
     expect(await page.evaluate(() => window.__ownedDeedNavigation.state.highlight)).toBeNull();

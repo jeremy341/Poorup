@@ -1,9 +1,6 @@
-// One loading / empty / error / unauthorized treatment for every console section.
-// A section is `[data-section]` with a `[data-section-state]` message slot and a
-// `[data-section-body]` for the content. Content already on screen stays visible
-// while it refreshes or after a failed refresh, so a flaky network never blanks
-// a table the operator is reading. Unauthorized clears the body: nothing is kept
-// on screen for a session that is no longer an admin.
+// One loading, empty, error and unauthorized treatment for every console section. A section is
+// `[data-section]` with a `[data-section-state]` message slot and a `[data-section-body]`. Content
+// stays on screen through refreshes and failures. Unauthorized clears it, since the session does not carry admin rights.
 
 export const FAILURE_TEXT = Object.freeze({
   401: 'ADMIN ACCOUNT REQUIRED',
@@ -36,37 +33,36 @@ function stateMarkup(kind) {
   return `${glyph}<span class="t-label f12 admin-state-text"></span>${hint}${retry}`;
 }
 
-export function setSectionState(section, kind, { message = '', onRetry = null } = {}) {
-  if (!section) return;
-  const state = slot(section, 'state');
-  const body = slot(section, 'body');
-  const hasData = section.getAttribute('data-has-data') === 'true';
-  section.setAttribute('data-section-kind', kind);
-  section.setAttribute('aria-busy', String(kind === 'loading'));
-  if (kind === 'ready') {
-    section.setAttribute('data-has-data', 'true');
-    state?.classList.add('is-hidden');
-    if (state) state.textContent = '';
-    body?.classList.remove('is-hidden');
-    return;
-  }
+// Drop the data but keep the structure, so the section can be filled again after a new sign-in.
+function clearSectionBody(body) {
+  if (!body) return;
+  if (body.hasAttribute('data-clear')) body.textContent = '';
+  body.querySelectorAll('[data-clear]').forEach(element => { element.textContent = ''; });
+  body.classList.add('is-hidden');
+}
+
+function markSectionReady(section, state, body) {
+  section.setAttribute('data-has-data', 'true');
+  state?.classList.add('is-hidden');
+  if (state) state.textContent = '';
+  body?.classList.remove('is-hidden');
+}
+
+// Returns false when the body should keep its content and the state line is left alone.
+function setBodyForKind(section, body, kind, hasData) {
   if (kind === 'unauthorized') {
     section.setAttribute('data-has-data', 'false');
-    if (body) {
-      // Drop the data but keep the structure, so the section can be filled again after a new sign-in.
-      if (body.hasAttribute('data-clear')) body.textContent = '';
-      body.querySelectorAll('[data-clear]').forEach(element => { element.textContent = ''; });
-      body.classList.add('is-hidden');
-    }
-  } else if (kind === 'loading' && hasData) {
-    // Refresh in place: keep the content, let the freshness chip say it is refreshing.
-    return;
-  } else if (hasData && kind === 'error') {
-    body?.classList.remove('is-hidden');
-  } else {
-    body?.classList.add('is-hidden');
+    clearSectionBody(body);
+    return true;
   }
-  if (!state) return;
+  // Refresh in place: keep the content, let the freshness chip say it is refreshing.
+  if (kind === 'loading' && hasData) return false;
+  if (hasData && kind === 'error') body?.classList.remove('is-hidden');
+  else body?.classList.add('is-hidden');
+  return true;
+}
+
+function renderSectionStateLine(state, kind, { message = '', onRetry = null } = {}) {
   state.classList.remove('is-hidden');
   state.setAttribute('data-state-kind', kind);
   state.setAttribute('tabindex', '-1');
@@ -82,6 +78,22 @@ export function setSectionState(section, kind, { message = '', onRetry = null } 
       if (typeof onRetry === 'function') onRetry();
     });
   }
+}
+
+export function setSectionState(section, kind, options = {}) {
+  if (!section) return;
+  const state = slot(section, 'state');
+  const body = slot(section, 'body');
+  const hasData = section.getAttribute('data-has-data') === 'true';
+  section.setAttribute('data-section-kind', kind);
+  section.setAttribute('aria-busy', String(kind === 'loading'));
+  if (kind === 'ready') {
+    markSectionReady(section, state, body);
+    return;
+  }
+  if (!setBodyForKind(section, body, kind, hasData)) return;
+  if (!state) return;
+  renderSectionStateLine(state, kind, options);
 }
 
 // Shows a failure from an HTTP status in the right state.

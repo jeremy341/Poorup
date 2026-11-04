@@ -1,8 +1,6 @@
-// An auction is opened by the seat whose roll landed on the deed. When that
-// seat leaves (bankruptcy or a seat removal) the auction is cancelled before
-// the turn advances: nothing is reserved while bidding, so the deed stays
-// unowned and the successor rolls normally. A closing auction resolves the
-// turn only for the roll owner that started it.
+// An auction is opened by the seat whose roll landed on the deed. If that seat leaves, the auction
+// is cancelled before the turn advances: nothing is reserved while bidding, so the deed stays unowned
+// and the successor rolls normally. A closing auction resolves the turn only for the roll owner that started it.
 import assert from 'node:assert/strict';
 import nodeCrypto from 'crypto';
 import { RoomManager } from './gameLogic.js';
@@ -44,7 +42,7 @@ function assertSuccessorCanRoll(room, game, successorSocket) {
 
 let passed = 0;
 
-// 1. The roller declares bankruptcy while its auction is open.
+// The roller declares bankruptcy while its auction is open.
 {
   const { room, game } = trioRoom();
   openAuctionByRoller(room, game);
@@ -54,7 +52,7 @@ let passed = 0;
   passed += 1;
 }
 
-// 2. The roller leaves the table (seat removal) while its auction is open.
+// The roller leaves the table (seat removal) while its auction is open.
 {
   const { manager, room, game } = trioRoom();
   openAuctionByRoller(room, game);
@@ -63,8 +61,8 @@ let passed = 0;
   passed += 1;
 }
 
-// 3. Control: the roller's own auction closes without bids and resolves the
-//    roll as before (the turn then awaits an explicit end).
+// Control: the roller's own auction closes without bids and resolves the roll as before,
+// and the turn then awaits an explicit end.
 {
   const { room, game } = trioRoom();
   openAuctionByRoller(room, game);
@@ -75,8 +73,8 @@ let passed = 0;
   passed += 1;
 }
 
-// 4. A successor that has not rolled owns a passed-purchase auction that closes
-//    without bids. The close must not resolve a roll it never made.
+// A successor that has not rolled owns a passed-purchase auction that closes
+// without bids. The close must not resolve a roll it never made.
 {
   const { room, game } = trioRoom();
   const b = game.players[1];
@@ -92,8 +90,8 @@ let passed = 0;
   passed += 1;
 }
 
-// 5. Same guard on a sale: the successor wins the passed-purchase auction and
-//    can still roll normally afterwards.
+// Same guard on a sale: the successor wins the passed-purchase auction and
+// can still roll normally afterwards.
 {
   const { room, game } = trioRoom();
   const b = game.players[1];

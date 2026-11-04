@@ -120,7 +120,7 @@ check("tile-aware labels and ladders name airports and utilities accurately", ()
   state.owners = { 15: "p1", 49: "p1" };
   assert.equal(deedUi.deedCurrentRentLabel(waterworks), "10× DICE ROLL");
   state.owners = { 15: "p1", 37: "p1", 49: "p1" };
-  assert.equal(deedUi.deedCurrentRentLabel(waterworks), "14× DICE ROLL", "Metro-52 third utility steps to 14x (F-014)");
+  assert.equal(deedUi.deedCurrentRentLabel(waterworks), "14× DICE ROLL", "Metro-52 third utility steps to 14x");
   const socketOffer = clientSocket.normalizeTradeOffer({
     id: "socket-only",
     from: "remote-player",
@@ -142,7 +142,12 @@ check("trade offer dismissal persists by room and trade id and remains neutral",
   expectMatch(modals, /dismissTradeOffer/);
   expectMatch(sync, /reconcileTradeOfferDismissal/);
   expectMatch(rail, /state\.offers/);
-  expectMatch(dealUi, /trade\.toPlayerId\s*===\s*localServerId\(\)/);
+  const tradeDetail = dealUi.match(/function tradeDetailHTML\(trade\)\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  assert.ok(tradeDetail, "trade detail renderer exists");
+  expectMatch(tradeDetail, /const self\s*=\s*localServerId\(\)/);
+  expectMatch(tradeDetail, /trade\.toPlayerId\s*===\s*self/);
+  expectMatch(tradeDetail, /self\s*&&\s*\(self\s*===\s*trade\.fromPlayerId\s*\|\|\s*self\s*===\s*trade\.toPlayerId\)/);
+  expectMatch(tradeDetail, /!participant\s*\?\s*""\s*:/);
   const closeHandler = modals.match(/function closeOfferWithoutResponse\(\)\s*\{[^}]*\}/)?.[0] || "";
   assert.ok(closeHandler, "neutral offer close handler exists");
   assert.doesNotMatch(closeHandler, /emitServer|respond-trade/);

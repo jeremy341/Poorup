@@ -1,8 +1,6 @@
-/* ============================================================
-   DEED CARD + RENT LADDER RENDERING: the deed modal, rail-rail
-   cards, and ladder rows used by popups, the right rail, and trade
-   tables. Reads state via clientDeedRules; emits byte-identical HTML.
-   ============================================================ */
+// DEED CARD + RENT LADDER RENDERING: the deed modal, rail
+// cards, and ladder rows used by popups, the right rail, and trade
+// tables. Reads state via clientDeedRules; emits byte-identical HTML.
 import { esc } from "./clientDom.js";
 import { spriteHTML } from "./clientSprites.js";
 import {
@@ -55,7 +53,7 @@ ${pad.close}</div>`;
 
 function propertyLadderPips(lvl) {
   if (lvl === HOTEL_LEVEL) return spriteHTML("hotel", 2, "#cfa75f");
-  if (lvl === 0) return `<span class="t-micro ink-3">—</span>`;
+  if (lvl === 0) return `<span class="t-micro ink-3">-</span>`;
   return Array.from({ length: lvl }).map(() => spriteHTML("house", 2, "#4b853d")).join("");
 }
 
@@ -134,16 +132,16 @@ export function tileRentExplanation(tile) {
 
 export function deedCurrentRentLabel(tile, currentLevel = houseLevel(tile)) {
   const currentRent = serverTileFor(tile.i)?.currentRent;
-  if (typeof currentRent === "number" && Number.isFinite(currentRent)) return `$${currentRent.toLocaleString()} / TURN`;
+  if (typeof currentRent === "number" && Number.isFinite(currentRent)) return `$${currentRent.toLocaleString()}`;
   if (tile?.kind === "utility") {
     const UTILITY_DICE_MULTIPLIERS = [4, 10, 14, 18];
     const owned = Math.min(Math.max(countOwnedGroup(tile, "utility"), 1), UTILITY_DICE_MULTIPLIERS.length);
     return `${UTILITY_DICE_MULTIPLIERS[owned - 1]}× DICE ROLL`;
   }
   if (tile?.kind === "property") {
-    return `$${RENT_TABLE[tile.group].rents[Math.min(currentLevel, RENT_TABLE[tile.group].rents.length - 1)]} / TURN`;
+    return `$${RENT_TABLE[tile.group].rents[Math.min(currentLevel, RENT_TABLE[tile.group].rents.length - 1)]}`;
   }
-  return `$${rentFor(tile)} / TURN`;
+  return `$${rentFor(tile)}`;
 }
 
 function deedRailColor(tile) {

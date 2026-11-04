@@ -34,7 +34,7 @@ assert.equal(await second.consumePasswordReset(token, 'new-password'), true);
 now += 31 * 60 * 1000;
 assert.equal(second.prune(), 0);
 
-// S13-08: a matching and a non-matching reset request do the same disk work, and a
+// A matching and a non-matching reset request do the same disk work, and a
 // failed persist leaves no token in memory (nothing mailed, earlier token intact).
 {
   const guardedPath = path.join(root, 'guarded.json');
@@ -78,7 +78,34 @@ assert.equal(second.prune(), 0);
     console.error = realError;
   }
 }
-// X4c: a recovery generation stored with the password makes token consumption
+// A failed account write must leave a verification token available for retry.
+{
+  const retryPath = path.join(root, 'verification-retry.json');
+  const retryAccount = { id: 'verify-retry', username: 'verifyretry', recoveryEmail: 'prior@example.test', recoveryEmailVerified: true };
+  let failAccountPersist = false;
+  const retryMessages = [];
+  const retryStore = {
+    getAccountById: id => id === retryAccount.id ? retryAccount : null,
+    verifyPassword: () => true,
+    persist: () => { if (failAccountPersist) throw new Error('accounts file busy'); },
+  };
+  const recovery = createAccountRecovery({ accountStore: retryStore, filePath: retryPath, now: () => now, publicOrigin: 'https://play.example.test', mailAdapter: { send: async message => { retryMessages.push(message); return { success: true }; } } });
+  await recovery.requestEmailVerification({ accountId: retryAccount.id, currentPassword: 'pw', email: 'next@example.test' });
+  const token = new URL(retryMessages[0].variables.actionUrl).searchParams.get('token');
+  const tokenHash = hashToken(token);
+  failAccountPersist = true;
+  assert.equal(await recovery.consumeEmailVerification(token), false, 'a failed durable account update is not reported as successful');
+  assert.equal(retryAccount.recoveryEmail, 'prior@example.test', 'the in-memory account is rolled back after a failed write');
+  assert.equal(retryAccount.recoveryEmailVerified, true);
+  assert.equal(retryAccount.pendingRecoveryEmail, 'next@example.test');
+  assert.equal(recovery.tokenCount(), 1, 'the token remains available for a retry');
+  assert.equal(JSON.parse(fs.readFileSync(retryPath, 'utf8')).some(entry => entry.tokenHash === tokenHash), true, 'the token remains durable after account persistence fails');
+  failAccountPersist = false;
+  assert.equal(await recovery.consumeEmailVerification(token), true, 'the same verification link succeeds after the store recovers');
+  assert.equal(retryAccount.recoveryEmail, 'next@example.test');
+  assert.equal(retryAccount.recoveryEmailVerified, true);
+}
+// A recovery generation stored with the password makes token consumption
 // durable even if cleanup of the separate token file cannot be written.
 {
   const revokePath = path.join(root, 'revoke.json');
@@ -281,3 +308,65 @@ assert.equal(second.prune(), 0);
 }
 fs.rmSync(root, { recursive: true, force: true });
 console.log('account recovery persistence: durability, generation and retry scenarios passed');
+
+// Replacing a pending address must be atomic from the link owner's perspective.
+{
+  const requestPath = path.join(root, 'verification-request-rollback.json');
+  const account = { id: 'request-rollback', username: 'requestrollback' };
+  let failAccountWrite = false;
+  let failTokenCleanup = false;
+  const messages = [];
+  const accountStore = {
+    getAccountById: () => account,
+    verifyPassword: () => true,
+    persist: () => { if (failAccountWrite) { failTokenCleanup = true; throw new Error('account write failed'); } },
+  };
+  const recovery = createAccountRecovery({ accountStore, filePath: requestPath, now: () => now, publicOrigin: 'https://play.example.test', mailAdapter: { send: async message => { messages.push(message); return { success: true }; } } });
+  const request = email => recovery.requestEmailVerification({ accountId: account.id, currentPassword: 'pw', email });
+  assert.equal((await request('previous@example.test')).success, true);
+  const previousToken = new URL(messages[0].variables.actionUrl).searchParams.get('token');
+  const previousHash = account.pendingRecoveryEmailTokenHash;
+  const rename = fs.renameSync;
+  fs.renameSync = (from, to) => { if (to === requestPath && failTokenCleanup) throw new Error('token cleanup failed'); return rename(from, to); };
+  const consoleError = console.error;
+  console.error = () => {};
+  try {
+    failAccountWrite = true;
+    const failed = await request('previous@example.test');
+    assert.equal(failed.success, false, 'a sent email is not reported as successful when account persistence fails');
+    const orphanToken = new URL(messages[1].variables.actionUrl).searchParams.get('token');
+    assert.equal(account.pendingRecoveryEmail, 'previous@example.test');
+    assert.equal(account.pendingRecoveryEmailTokenHash, previousHash);
+    assert.equal(await recovery.consumeEmailVerification(orphanToken), false, 'orphan link is unusable in memory');
+    failAccountWrite = false;
+    failTokenCleanup = false;
+    const restarted = createAccountRecovery({ accountStore, filePath: requestPath, now: () => now, publicOrigin: 'https://play.example.test', mailAdapter: { send: async () => ({ success: true }) } });
+    assert.equal(await restarted.consumeEmailVerification(orphanToken), false, 'orphan left on disk is unusable after restart');
+    assert.equal(await restarted.consumeEmailVerification(previousToken), true, 'previous pending link survives restart and failed cleanup');
+    assert.equal((await request('retry@example.test')).success, true, 'a fresh request works after storage recovers');
+  } finally { fs.renameSync = rename; console.error = consoleError; }
+}
+
+// A cleanup write failure after the account commit cannot revive the old link.
+{
+  const file = path.join(root, 'verification-cleanup.json');
+  const account = { id: 'cleanup', username: 'cleanup' };
+  const sent = [];
+  const accountStore = { getAccountById: () => account, verifyPassword: () => true, persist: () => {} };
+  const recovery = createAccountRecovery({ accountStore, filePath: file, now: () => now, publicOrigin: 'https://play.example.test', mailAdapter: { send: async message => { sent.push(message); return { success: true }; } } });
+  const request = email => recovery.requestEmailVerification({ accountId: account.id, currentPassword: 'pw', email });
+  assert.equal((await request('same@example.test')).success, true);
+  let writes = 0;
+  const rename = fs.renameSync;
+  const consoleError = console.error;
+  fs.renameSync = (from, to) => { if (to === file && ++writes === 2) throw new Error('cleanup write failed'); return rename(from, to); };
+  console.error = () => {};
+  try {
+    assert.equal((await request('same@example.test')).success, true, 'committed pending state remains valid if token cleanup fails');
+  } finally { fs.renameSync = rename; console.error = consoleError; }
+  const oldToken = new URL(sent[0].variables.actionUrl).searchParams.get('token');
+  const newToken = new URL(sent[1].variables.actionUrl).searchParams.get('token');
+  const restarted = createAccountRecovery({ accountStore, filePath: file, now: () => now, publicOrigin: 'https://play.example.test', mailAdapter: { send: async () => ({ success: true }) } });
+  assert.equal(await restarted.consumeEmailVerification(oldToken), false, 'old token left on disk cannot verify after restart');
+  assert.equal(await restarted.consumeEmailVerification(newToken), true, 'durable pending token remains usable');
+}

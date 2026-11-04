@@ -1,9 +1,8 @@
 import { adminRequest } from './clientAdminAiProvider.js';
 
-// Client side of the /admin/ops/* endpoints. Every payload is rebuilt field by field
-// from an explicit allowlist, so nothing the server did not promise can reach the
-// page: a room id that is not a one-way hash, an actor that is not a pseudonym, or a
-// stray field is dropped here, whatever the server sends.
+// Client side of the /admin/ops/* endpoints. Every payload is rebuilt field by field from an
+// explicit allowlist, so nothing the server did not promise reaches the page. Room ids that are
+// not one-way hashes, actors that are not pseudonyms and stray fields are dropped here.
 
 export const OPS_ENDPOINTS = Object.freeze({
   status: '/admin/ops/status',
@@ -133,7 +132,16 @@ export function normalizeOpsAudit(payload) {
         outcome: row.outcome === 'failed' ? 'failed' : 'ok',
       };
     }).filter(row => row.area && row.action),
+    health: normalizeAuditHealth(source.health),
   };
+}
+
+const AUDIT_HEALTH_STATES = ['ok', 'corrupt', 'unreadable'];
+
+// The server reports when the audit file was corrupt (log restarted empty) or unreadable.
+function normalizeAuditHealth(value) {
+  const row = record(value);
+  return { state: oneOf(row.state, AUDIT_HEALTH_STATES, 'ok'), message: plainText(row.message, 240) };
 }
 
 const NORMALIZERS = Object.freeze({ status: normalizeOpsStatus, rooms: normalizeOpsRooms, bots: normalizeOpsBots, audit: normalizeOpsAudit });
@@ -178,25 +186,35 @@ function dateDeadline(text, nowMs) {
 // The form's fields become a request body, or one reason and the field to blame.
 // A datetime-local value has no zone, so Date.parse reads it as the operator's local time.
 // An id or deadline the chosen mode does not use never blocks the change.
+// Returns a refusal, or null when the release id is absent or does not apply.
+function applyReleaseId(body, chosen, releaseId) {
+  const id = String(releaseId ?? '').trim();
+  if (!id || chosen === 'normal') return null;
+  if (!RELEASE_ID_PATTERN.test(id)) return refuse('releaseId', RELEASE_ID_ERROR);
+  body.releaseId = id;
+  return null;
+}
+
+// Returns { ok: true, deadline } (deadline may be absent), or a refusal.
+function drainDeadlineFor(chosen, deadlineMinutes, deadlineAt, nowMs) {
+  const minutes = String(deadlineMinutes ?? '').trim();
+  const at = String(deadlineAt ?? '').trim();
+  if (chosen !== 'draining' || (!minutes && !at)) return { ok: true };
+  if (minutes && at) return refuse('deadlineMinutes', 'Set the drain deadline as minutes from now or as a date and time, not both.');
+  return minutes ? minutesDeadline(minutes, nowMs) : dateDeadline(at, nowMs);
+}
+
 export function buildMaintenanceRequest({ mode, message = '', releaseId = '', deadlineAt = '', deadlineMinutes = '' } = {}, nowMs = Date.now()) {
   const chosen = oneOf(mode, MODES, '');
   if (!chosen) return refuse('mode', 'Choose normal, draining, or maintenance.');
   const body = { mode: chosen };
   const note = plainText(message, 200).trim();
   if (note && chosen !== 'normal') body.message = note;
-  const id = String(releaseId ?? '').trim();
-  if (id && chosen !== 'normal') {
-    if (!RELEASE_ID_PATTERN.test(id)) return refuse('releaseId', RELEASE_ID_ERROR);
-    body.releaseId = id;
-  }
-  const minutes = String(deadlineMinutes ?? '').trim();
-  const at = String(deadlineAt ?? '').trim();
-  if (chosen === 'draining' && (minutes || at)) {
-    if (minutes && at) return refuse('deadlineMinutes', 'Set the drain deadline as minutes from now or as a date and time, not both.');
-    const parsed = minutes ? minutesDeadline(minutes, nowMs) : dateDeadline(at, nowMs);
-    if (!parsed.ok) return parsed;
-    body.deadline = parsed.deadline;
-  }
+  const releaseRefusal = applyReleaseId(body, chosen, releaseId);
+  if (releaseRefusal) return releaseRefusal;
+  const deadline = drainDeadlineFor(chosen, deadlineMinutes, deadlineAt, nowMs);
+  if (!deadline.ok) return deadline;
+  if (deadline.deadline !== undefined) body.deadline = deadline.deadline;
   return { ok: true, body };
 }
 

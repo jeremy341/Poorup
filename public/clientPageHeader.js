@@ -37,7 +37,7 @@ export function renderPageHeader(view) {
       <div class="home-menu-wrap">
         <button class="btn-dark audio-toggle home-menu-btn" type="button" id="${view}-menu-btn" data-settings-toggle title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="${view}-menu"><span class="home-menu-icon" aria-hidden="true"></span></button>
         <div class="home-menu is-hidden" id="${view}-menu" data-settings-menu role="group" aria-label="Settings">
-          <div class="t-micro g400 home-menu-title">SETTINGS</div>
+          <div class="t-micro g400 home-menu-title">SETTINGS</div>${home ? '' : '\n          <div class="header-menu-connection" role="status" aria-live="polite"><span class="dot dot-green blink" data-global-online aria-hidden="true"></span> <span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div>'}
           <button class="btn-dark hdr-rules home-menu-item" type="button" id="${view}-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
           <p class="t-micro ink-3 home-menu-note">Single-key shortcuts: B browse, C create, J join, P profile.</p>
           <a class="btn-dark home-menu-item about-menu-entry" href="/about" data-about-link><span class="t-label f12">ABOUT POORUP</span></a>

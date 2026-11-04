@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { AccountStore } from './accountStore.js';
 
-// E37-07: account records that fail load validation are not silently erased by
+// Account records that fail load validation are not silently erased by
 // the next write. They are preserved in a sidecar before the store is rewritten,
 // and a write that would shrink the record set without a purge is refused.
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-account-load-'));

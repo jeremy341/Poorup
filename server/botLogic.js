@@ -1,10 +1,7 @@
 import { playerFinanceEnabled } from './financeRules.js';
-// Pure bot decision policy, extracted verbatim from the scheduleBotTurn/
-// scheduleBotAuction timers in server.js. Every function here is deterministic
-// and free of timers, sockets, and IO, so the whole policy is characterization-
-// testable in isolation (server/botLogic.test.js pins the exact answers).
-// The server keeps only scheduling and execution; it asks these helpers what
-// a bot should do and runs the answer through room.runBotAction.
+// Pure bot decision policy, extracted verbatim from the scheduleBotTurn and scheduleBotAuction timers in server.js.
+// Every function is deterministic and free of timers, sockets and IO, so it is characterization-testable
+// (server/botLogic.test.js pins the exact answers). The server only schedules and runs the answer through room.runBotAction.
 import { buildBotStrategicContext, BOT_RULE_VERSION } from './botStrategicContext.js';
 import { evaluateCandidate, planningHorizon } from './botFuturePlanner.js';
 import { groupBuildPlan } from './botDevelopmentForecast.js';
@@ -26,7 +23,7 @@ import {
   auctionWillingness
 } from './botCandidates.js';
 import { auctionLiquidityReserve, completesColourSet, auctionRaiseOptions, defaultAuctionRaise, isAuctionRaise, AUCTION_BID_STEP, AUCTION_BID_INCREMENTS } from './botAuctionPolicy.js';
-import { runAdvisorChoicePhase, runAdvisorTurn, PHASE_EXECUTORS } from './advisorLogic.js';
+import { chooseActionSafely, runAdvisorChoicePhase, runAdvisorTurn, PHASE_EXECUTORS } from './advisorLogic.js';
 
 export { sponsorshipContributionAmount };
 export { debtMortgageCandidates } from './botCandidates.js';
@@ -177,10 +174,8 @@ function clearsTradeBar(giveValue, askValue, factor) {
   return Math.round(giveValue * 100) >= Math.round(askValue * factor * 100);
 }
 
-// Monopoly veto first: never hand over a build-ready monopoly completer,
-// no matter how flattering the face value looks. Shapes without player
-// ids or grouped tiles (incl. legacy unit tests) skip the veto and keep
-// the pinned face-value behavior.
+// Monopoly veto first: never hand over a build-ready monopoly completer, however flattering the face value.
+// Shapes without player ids or grouped tiles (including legacy unit tests) skip the veto and keep the pinned face-value behavior.
 function tradeVetoed(game, trade) {
   if (!game) return false;
   if (!trade?.toPlayerId) return false;
@@ -206,7 +201,7 @@ function teamingAcceptFactor(game, trade, factor) {
 }
 
 // A deed leg the engine cannot deliver at settlement time: the deed is gone,
-// no longer owned by the seat that must hand it over, or encumbered.
+// not owned by the seat that must hand it over, or encumbered.
 function tradeLegDeliverable(game, tile, ownerId) {
   if (!tile) return false;
   if (typeof game.tradeLegTileUnavailable === 'function') {
@@ -223,11 +218,9 @@ function spendableCashOf(game, player) {
   return Number(player?.cash || 0);
 }
 
-// The accept-side guards the engine runs when the offer is answered (see the
-// settlement guards in tradeApi.js): both seats must still be alive, both deed
-// legs must still be deliverable, and the answering seat must be able to fund
-// its own cash leg. An offer that cannot pass them is void the moment the bot
-// says yes, so the bot never accepts one.
+// The accept-side guards the engine runs when an offer is answered (tradeApi.js settlement guards): both seats must
+// be alive, both deed legs deliverable, and the answering seat able to fund its cash leg. An offer that fails them is void
+// the moment the bot says yes, so the bot never accepts one.
 function tradeSettlementReady(game, trade) {
   if (!game || !trade) return true;
   if (typeof game.getPlayerById !== 'function') return true;
@@ -478,7 +471,7 @@ export async function decideBotAuction({ auction, bot, startingCash, game = null
   const candidates = auctionChoiceCandidates(baseline, bot, highestBid);
   const supportsAuctionChoice = advisorSupportsChoicePhase(advisor, 'auction');
   const decision = supportsAuctionChoice
-    ? await advisor.chooseAction({ ...context, candidates })
+    ? await chooseActionSafely(advisor, { ...context, candidates })
     : null;
   const { botDecision: safeDecision, evaluationTrace } = splitEvaluationTrace(decision);
   const chosen = candidates.find(candidate => candidate.id === safeDecision?.actionId);
@@ -518,10 +511,8 @@ export function isAuctionBotParticipant(auction, player) {
   return !player.bankrupt && !player.disconnected;
 }
 
-// The deed that completes a colour set is worth more than its face price (the
-// auction prices it that way), so it is exempt from the cash floor: the planner
-// still weighs the thin cash it leaves. `game` is optional; without a board only
-// the flat floor can be applied.
+// The deed completing a colour set is worth more than its face price (the auction prices it that way), so it is exempt
+// from the cash floor, though the planner still weighs the thin cash it leaves. Without a board, only the flat floor applies.
 export function shouldBuyProperty(bot, tile, game = null) {
   if (!tile) return false;
   const floor = completesColourSet(game, bot, tile) ? 0 : PURCHASE_RESERVE_CASH;
@@ -554,7 +545,7 @@ function shouldSeekSponsorship(game, bot, tile) {
   return needed != null && availableSponsorCash(game, bot) >= needed;
 }
 
-// Only sponsors who could really give to this buyer count (F-033): a bot that
+// Only sponsors who could really give to this buyer count: a bot that
 // is round-gated, gifted-out, or loan-backed would never contribute, and a
 // request opened on its cash would park the table.
 function availableSponsorCash(game, bot) {
@@ -573,8 +564,7 @@ function earlyLapRentCover(game) {
     : largest), 0);
 }
 
-// Early laps: waive the cash reserve, deeds are leverage (aggressive
-// doctrine). The waiver still leaves one standard rent covered.
+// Early laps: waive the cash reserve (aggressive doctrine). The waiver still leaves one standard rent covered.
 function earlyLapCashBuy(game, bot, tile) {
   if (!tile) return false;
   const lap = game?.roundNumber || 99;
@@ -588,10 +578,8 @@ function plannedPurchaseDecision(game, bot, tile) {
   const seed = `${game.startedAt || 'pending'}:purchase`;
   const options = { difficulty, seed };
   const buy = evaluateCandidate(snapshot, { id: `buy:${tile.index}`, kind: 'buy', tileIndex: tile.index, price: tile.price, risk: 0, score: 0 }, options);
-  // evaluateCandidate scores against standing still (the planner's own roll
-  // baseline, always 0), so a deed is bought only when its marginal value is
-  // not negative. A `pass` candidate has no planner applier and would score 0
-  // by construction, which is why the baseline is the marginal zero itself.
+  // evaluateCandidate scores against standing still (the planner's roll baseline, always 0), so a deed is bought
+  // only when its marginal value is not negative. A `pass` has no planner applier and would score 0 by construction.
   return buy.score >= 0;
 }
 
@@ -607,7 +595,7 @@ export function shouldBuyWithPlan(game, bot, tile) {
   if (earlyLapCashBuy(game, bot, tile)) return true;
   if (!shouldBuyProperty(bot, tile, game)) return false;
   // Strategic decline: affordable but everyone is broke and the deed is not
-  // my completer — let it go to auction and win it cheap.
+  // my completer: let it go to auction and win it cheap.
   if (declineForCheapAuction(game, bot, tile)) return false;
   if (!Array.isArray(game.tiles)) return true;
   return plannedPurchaseDecision(game, bot, tile) || auctionWouldPayFacePrice(game, bot, tile);
@@ -659,11 +647,9 @@ export function pruneStaleOwnDeal(room, bot, game) {
 // cools the same offer off for a few rounds of ledger decay.
 const DECLINED_OFFER_GRUDGE = 3;
 
-// C25-11: a proposal the partner let lapse (declined, or replaced by a counter)
-// used to leave no trace, so the identical offer was sent again every turn and
-// the grudge gate read a ledger nothing wrote. Settled proposals (the completed
-// count moved) and withdrawn ones (cleared by the bot's own cancel) are not
-// rejections. Returns true when it recorded a declined offer.
+// A proposal the partner let lapse (declined, or replaced by a counter) must leave a trace, or the identical offer
+// is sent again every turn and the grudge gate reads an empty ledger. Settled and withdrawn proposals are not rejections.
+// Returns true when it recorded a declined offer.
 export function recordDeclinedProposal(bot, game) {
   const proposal = bot?.lastTradeProposal;
   if (!proposal) return false;
@@ -727,10 +713,8 @@ function deterministicPhaseDecision({ room, bot, game, phase, decisionContext })
   return attachBotDecision(result, attachPhaseTrace(result, decisionContext, phase));
 }
 
-// Executes the classified phase against the room (the room only enters this
-// module as an injected collaborator, never as an import) and returns the
-// action result. Purchase offers carry over to the caller's tail resolution
-// for the second pass, matching the original inline double-check.
+// Executes the classified phase against the room (injected as a collaborator, never imported) and returns the action result.
+// Purchase offers carry over to the caller's tail resolution for the second pass, matching the original inline double-check.
 export async function runBotTurn(room, bot, advisor) {
   const game = room.game;
   const { phase, decisionContext } = beginBotTurn(room, bot, game);
@@ -750,7 +734,7 @@ export async function runBotTurn(room, bot, advisor) {
   return deterministicPhaseDecision({ room, bot, game, phase, decisionContext });
 }
 
-// Candidate kind -> the room call it implies; the table order preserves the
+// Candidate kind: the room call it implies; the table order preserves the
 // original if/else chain, including roll as the unmatched fallback.
 export const CANDIDATE_RUNNERS = {
   'item-use': (room, bot, candidate) => room.runBotAction(bot.id, actor => room.useItem(actor, { itemId: candidate.itemId, requestId: `bot-use:${candidate.itemId}` })),

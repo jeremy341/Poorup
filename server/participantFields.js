@@ -1,12 +1,7 @@
-// Shared participant schema for the two match-record builders:
-//   - matchStore.sanitizeMatch (record-shaped input loaded/persisted by MatchStore)
-//   - accountStore.recordGameResults (live RoomManager player objects, Set-typed fields)
-// Both stores used to hand-write the same 60 fields in the same order (a CodeScene
-// "Bumpy Road" hotspot). The key list and order now live here; the coercions stay
-// per-side because record input and live-player input genuinely differ (Sets,
-// bankLoan.status, casinoLedger.length, raw spreads/leaks on the player side).
-// Characterization goldens in server/gameLogic.test.js pin the current output of
-// both builders; do not "clean up" a coercer without regenerating those goldens.
+// Shared participant schema for the two match-record builders: matchStore.sanitizeMatch (persisted records) and
+// accountStore.recordGameResults (live RoomManager players, with Set-typed fields). Both share one list of the same 60 fields in the same order.
+// Coercions stay per side because record and live input differ (Sets, bankLoan.status, casinoLedger.length, raw spreads).
+// Characterization goldens in server/gameLogic.test.js pin both outputs; regenerate them before changing a coercer.
 
 export const numberOrZero = (value) => Number(value) || 0;
 export const nonNegative = (value) => Math.max(0, Number(value) || 0);
@@ -31,6 +26,8 @@ function stringList(value, limit) {
 // One descriptor per participant field, in output order.
 export const PARTICIPANT_FIELDS = [
   { key: 'accountId', fromRecord: (v) => (typeof v?.accountId === 'string' ? v.accountId : null), fromPlayer: (p) => p.accountId },
+  // Computer seats carry a persona id instead of an account, so their unlocks can be kept apart from accounts.
+  { key: 'personaId', fromRecord: (v) => (typeof v?.personaId === 'string' ? v.personaId.slice(0, 40) : null), fromPlayer: (p) => (p.isBot && typeof p.personaId === 'string' ? p.personaId : null) },
   { key: 'displayNameAtMatch', fromRecord: (v) => (typeof v?.displayNameAtMatch === 'string' ? v.displayNameAtMatch.slice(0, 24) : 'PLAYER'), fromPlayer: (p) => p.nickname },
   { key: 'colorAtMatch', fromRecord: (v) => (typeof v?.colorAtMatch === 'string' ? v.colorAtMatch : '#35a653'), fromPlayer: (p) => p.color },
   { key: 'finalPlacement', fromRecord: (v) => (Number.isInteger(v?.finalPlacement) && v.finalPlacement > 0 ? v.finalPlacement : null), fromPlayer: (p, ctx) => ctx.placementById.get(p.id) || (p.id === ctx.winnerId ? 1 : null) },
@@ -106,7 +103,10 @@ export const PARTICIPANT_FIELDS = [
 // actually owns the field. This preserves the legacy participant shape while
 // allowing completed trades to contribute truthful season metrics.
 const OPTIONAL_PARTICIPANT_FIELDS = [
-  { key: 'tradesCompleted', fromRecord: (v) => nonNegative(v?.tradesCompleted), fromPlayer: (p) => nonNegative(p.tradesCompleted) }
+  { key: 'tradesCompleted', fromRecord: (v) => nonNegative(v?.tradesCompleted), fromPlayer: (p) => nonNegative(p.tradesCompleted) },
+  { key: 'itemsHeld', source: 'items', fromRecord: (v) => nonNegative(v?.itemsHeld), fromPlayer: (p) => (Array.isArray(p.items) ? p.items.length : 0) },
+  { key: 'matchRebate', fromRecord: (v) => nonNegative(v?.matchRebate), fromPlayer: (p) => nonNegative(p.matchRebate) },
+  { key: 'bestTradeNet', fromRecord: (v) => nonNegative(v?.bestTradeNet), fromPlayer: (p) => nonNegative(p.bestTradeNet) }
 ];
 
 const MATCH_DETAIL_FIELDS = [
@@ -138,7 +138,7 @@ export function participantFromPlayer(player, context) {
     result[field.key] = field.fromPlayer(player, context);
   });
   OPTIONAL_PARTICIPANT_FIELDS.forEach((field) => {
-    if (Object.prototype.hasOwnProperty.call(player || {}, field.key)) result[field.key] = field.fromPlayer(player, context);
+    if (Object.prototype.hasOwnProperty.call(player || {}, field.source || field.key)) result[field.key] = field.fromPlayer(player, context);
   });
   if (context?.includeMatchDetails) {
     MATCH_DETAIL_FIELDS.forEach((field) => { result[field.key] = field.fromPlayer(player, context); });

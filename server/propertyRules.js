@@ -1,8 +1,6 @@
 import { deedHasShareInterest, rentShareConstructionAllowed } from './rentShareRules.js';
-// Board-tile eligibility rules: what a player may trade, build on, sell
-// from, mortgage, or unmortgage. Pure module: every predicate reads the
-// GameState it is handed (via its own accessor methods) and never mutates.
-// server/property-actions.test.js and server/rent.test.js pin every branch.
+// Board-tile eligibility rules: what a player may trade, build on, sell from, mortgage, or unmortgage. Pure: every predicate reads the
+// GameState it is handed (via its accessor methods) and never mutates. property-actions.test.js and rent.test.js pin every branch.
 
 function tradeableTileType(tile) {
   if (tile.type === 'property') return true;
@@ -164,10 +162,8 @@ function unmortgageFrozen(game) {
   if (game.globalEventActive('housing-bubble')) return true;
   if (game.globalEventActive('credit-freeze')) return true;
   if (game.globalEventActive('bank-run')) return true;
-  // Effects fallback: during a combination event the merged effect set
-  // carries mortgagesBlocked from whichever parent fired into the combo,
-  // while the sibling ID gates above may have gone dark. Mirror the
-  // mortgageBlockedByEvent fallback so both directions stay frozen.
+  // Effects fallback: during a combination event the merged effect set carries mortgagesBlocked from whichever parent fired,
+  // while the sibling ID gates above may have gone dark. Mirror the mortgageBlockedByEvent fallback so both directions stay frozen.
   return Boolean(game.activeEventEffects().mortgagesBlocked);
 }
 
@@ -184,10 +180,8 @@ export function canUnmortgageTile(game, player, tile) {
   return !game.isPlayerContractCollateral(player, tile);
 }
 
-// The price to lift a mortgage: the mortgage value plus 10 percent, scaled by
-// the event value multiplier and rounded up to whole dollars. The product is
-// trimmed to micro-dollars first, because 50 * 1.1 is 55.00000000000001 in
-// floating point and a bare ceil would charge $56 instead of $55.
+// The price to lift a mortgage: the mortgage value plus 10 percent, scaled by the event value multiplier, rounded up to whole dollars.
+// The product is trimmed to micro-dollars first: 50 * 1.1 is 55.00000000000001 in floating point, and a bare ceil would charge $56, not $55.
 export function unmortgageCostFor(price, valueMultiplier = 1) {
   const half = Math.floor((price || 0) / 2);
   return Math.ceil(Number((half * 1.1 * valueMultiplier).toFixed(6)));

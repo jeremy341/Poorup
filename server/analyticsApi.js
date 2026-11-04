@@ -186,10 +186,9 @@ export function buildAnalyticsBalance({ rollup, registry, accountId, adminIds, q
   const query = normalizeAnalyticsQuery(queryInput);
   const health = rollupHealth(rollup);
   if (health.loaded === false) return failure(503, 'Rollup unavailable.');
-  // A rollup that has never recorded a match is empty, not broken: it answers an
-  // honest empty snapshot. A rollup that has data but has gone quiet is "stale";
-  // the Status tab still has live numbers to show then, and every other tab is
-  // built from the rollup alone and stays unavailable.
+  // An empty rollup (no matches ever recorded) answers an honest empty snapshot, not an error.
+  // A rollup with data that has gone quiet is "stale". The Status tab still has live numbers,
+  // but every other tab is built from the rollup alone and stays unavailable.
   const stale = health.fresh === false && health.empty !== true;
   const liveOnly = stale && query.tab === 'overview' && Boolean(summarizeRuntimeMetrics(registry));
   if (stale && !liveOnly) return failure(503, 'Rollup unavailable.');

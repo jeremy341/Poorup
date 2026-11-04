@@ -1,22 +1,12 @@
-// Shared opponent-aware trade valuation for bots (deterministic, testable).
-// Used by the no-AI brain (botLogic.js accept path) and the AI candidate
-// builder (botApi.js proposals) so both price set completion the same way.
-// All math is integer whole-dollars; every function degrades gracefully when
-// tiles lack group/owner info (legacy price-only behavior) so pinned tests
-// calling with bare {price} stubs keep passing.
-//
-// Parameter choices (Jev-guided): quadratic progress credit, 2x monopoly
-// premium, flat per-group traffic tiers, build-readiness = 1 house cost.
+// Shared opponent-aware trade valuation for bots (deterministic, testable). The no-AI accept path and the AI proposal builder both use it,
+// so set completion is priced the same way. Integer whole dollars; tiles without group or owner info fall back to price-only (bare {price} stubs pass).
+// Parameters are Jev-guided: quadratic progress credit, a 2x monopoly premium, flat traffic tiers, and one house as build-readiness.
 import { PROPERTY_RENT_MULTIPLIERS } from './gameData.js';
 import { unmortgageCostFor } from './propertyRules.js';
 
-// Flat traffic tiers as integer percent (Collins-inspired order:
-// Orange > Light Blue > Red > Pink > Yellow > Green > Metro Gold > Brown >
-// Dark Blue > Metro Silver). This table is the ONLY copy: botDevelopmentForecast.js
-// and botTableBrain.js import it, so build priority, threat, and trade pricing
-// cannot disagree about which groups matter. Every group boardRegistry.GROUPS
-// declares needs a key here — Metro-52 ships Metro Gold + Metro Silver, and an
-// absent key is invisible at runtime because it inherits the Green-tier default.
+// Flat traffic tiers as integer percent (Collins-inspired order: Orange > Light Blue > Red > Pink > Yellow > Green > Metro Gold
+// > Brown > Dark Blue > Metro Silver). This is the only copy: botDevelopmentForecast and botTableBrain import it, so build priority,
+// threat and trade pricing agree. Every group in boardRegistry.GROUPS needs a key, since a missing one silently inherits the Green tier.
 export const GROUP_TRAFFIC_PERCENT = Object.freeze({
   Orange: 130,
   'Light Blue': 120,
@@ -33,10 +23,8 @@ export const GROUP_TRAFFIC_PERCENT = Object.freeze({
 export const MONOPOLY_PREMIUM_NUM = 2;
 export const MONOPOLY_PREMIUM_DEN = 1;
 
-// Ungrouped tiles (railroads, utilities) legitimately have no tier, so the
-// fall-through stays the flat 100 baseline; regression-b27-b29.test.js asserts
-// every real group resolves to a non-default tier so the fallback cannot hide a
-// missing board group.
+// Ungrouped tiles (railroads, utilities) have no tier, so the fall-through is the flat 100 baseline.
+// group-traffic-percent.test.js asserts every real group resolves to a non-default tier, so the fallback cannot hide a missing group.
 export function trafficPercent(group) {
   return GROUP_TRAFFIC_PERCENT[group] || 100;
 }
@@ -121,12 +109,9 @@ export function groupDevelopmentGain(ownedTiles, group) {
   return { group, gainPerCircuit: gain, housesNeeded: need };
 }
 
-// ONE portfolio valuation for both trade paths: the face value of the deeds
-// a seat holds, the quadratic progress credit for the groups it is close to
-// completing, and the build value of a group it has completed. The proposal
-// side (botApi.tradePortfolioValue) and the acceptance side
-// (botLogic.shouldAcceptTrade) have to price a portfolio the same way, or a
-// proposed trade can fail the partner's own acceptance bar.
+// ONE portfolio valuation for both trade paths: face value of the deeds held, quadratic progress credit for groups near completion,
+// and the build value of a completed group. The proposal side (botApi.tradePortfolioValue) and the acceptance side
+// (botLogic.shouldAcceptTrade) must price a portfolio identically, or a proposed trade can fail the partner's own acceptance bar.
 export function portfolioValue(game, playerId, propertyIndexes) {
   if (!game || !playerId || !Array.isArray(propertyIndexes)) return 0;
   const owned = new Set(propertyIndexes.map(Number).filter(Number.isInteger));
@@ -186,17 +171,11 @@ function resolver(game) {
   return typeof game?.getTile === 'function' ? index => game.getTile(index) : () => null;
 }
 
-// Does handing `giveIndexes` to `receiverId` complete one of their groups?
-// `returnIndexes` are the receiver's own deeds that go back the other way in the
-// same trade: they are netted out, so swapping one Brown for another completes
-// nothing. Returns { givesMonopoly, groups: [{group, before, after, total}],
-// buildReady }. buildReady (receiver cash >= one house) is informational only;
-// the veto no longer reads it, because a $99 buyer finishes the set the moment
-// they have $100 and the table cannot watch their wallet.
-export function monopolyGiveaway(game, giveIndexes, receiverId, returnIndexes = []) {
-  const result = { givesMonopoly: false, groups: [], buildReady: false };
-  if (!game || !receiverId || !Array.isArray(giveIndexes) || !giveIndexes.length) return result;
-  const resolve = resolver(game);
+// Does handing `giveIndexes` to `receiverId` complete one of their groups? `returnIndexes` are the receiver's own deeds going back
+// the other way: they are netted out, so swapping one Brown for another completes nothing. Returns { givesMonopoly, groups, buildReady }.
+// buildReady (cash >= one house) is informational only: the veto ignores it, because a $99 buyer finishes the set once they have $100.
+// The hand-over deeds the giver parts with, bucketed by colour group (ungrouped tiles are skipped).
+function givenDeedsByGroup(resolve, giveIndexes) {
   const byGroup = new Map();
   for (const index of giveIndexes) {
     const tile = resolve(index);
@@ -204,36 +183,63 @@ export function monopolyGiveaway(game, giveIndexes, receiverId, returnIndexes = 
     if (!byGroup.has(tile.group)) byGroup.set(tile.group, []);
     byGroup.get(tile.group).push(tile);
   }
+  return byGroup;
+}
+
+// The receiver's own deeds that come back the other way, counted per colour group.
+function returnedDeedsByGroup(resolve, returnIndexes, receiverId) {
   const returned = new Map();
   for (const index of indexList(returnIndexes)) {
     const tile = resolve(index);
     if (!tile?.group || tile.ownerId !== receiverId) continue;
     returned.set(tile.group, (returned.get(tile.group) || 0) + 1);
   }
+  return returned;
+}
+
+// The groups the receiver finishes: short of a full set before the trade, complete after it, once returned deeds are netted out.
+function groupsCompletedBy(game, receiverId, byGroup, returned) {
+  const groups = [];
   for (const [group, deeds] of byGroup) {
     const { owned, total } = ownedInGroup(game, receiverId, group);
     if (!total) continue;
     const after = owned + deeds.length - (returned.get(group) || 0);
-    if (owned < total && after >= total) {
-      result.givesMonopoly = true;
-      result.groups.push({ group, before: owned, after, total });
-    }
+    if (owned < total && after >= total) groups.push({ group, before: owned, after, total });
   }
-  if (result.givesMonopoly) {
-    const receiver = typeof game.getPlayerById === 'function' ? game.getPlayerById(receiverId) : null;
-    const cash = Math.max(0, Math.floor(Number(receiver?.cash) || 0));
-    const threshold = Math.min(...result.groups.map(entry => cheapestHouseCost(game, entry.group)));
-    result.buildReady = cash >= threshold;
-  }
-  return result;
+  return groups;
 }
 
-// What the giver must be paid, in cash on top of the deeds coming back, for
-// handing `outgoingIndexes` to `receiverId` while `incomingIndexes` come back.
-// A completing trade is priced at the monopoly premium (2x deed value for the
-// deeds of the completed group). needCash is the cash the giver must receive; it
-// is negative when the deeds coming back already overpay (the giver may then pay
-// cash), and 0 when the trade completes nothing.
+// Whether the receiver's cash covers one house on the cheapest of the completed groups.
+function receiverBuildReady(game, receiverId, groups) {
+  const receiver = typeof game.getPlayerById === 'function' ? game.getPlayerById(receiverId) : null;
+  const cash = Math.max(0, Math.floor(Number(receiver?.cash) || 0));
+  const threshold = Math.min(...groups.map(entry => cheapestHouseCost(game, entry.group)));
+  return cash >= threshold;
+}
+
+export function monopolyGiveaway(game, giveIndexes, receiverId, returnIndexes = []) {
+  const result = { givesMonopoly: false, groups: [], buildReady: false };
+  if (!game || !receiverId || !Array.isArray(giveIndexes) || !giveIndexes.length) return result;
+  const resolve = resolver(game);
+  const groups = groupsCompletedBy(
+    game,
+    receiverId,
+    givenDeedsByGroup(resolve, giveIndexes),
+    returnedDeedsByGroup(resolve, returnIndexes, receiverId)
+  );
+  if (!groups.length) return result;
+  return { givesMonopoly: true, groups, buildReady: receiverBuildReady(game, receiverId, groups) };
+}
+
+// The extra price a deed carries when handing it over completes its colour group (zero otherwise).
+function monopolyPremiumOn(value, tile, completed) {
+  if (!completed.has(tile.group)) return 0;
+  return Math.floor(value * (MONOPOLY_PREMIUM_NUM - MONOPOLY_PREMIUM_DEN) / MONOPOLY_PREMIUM_DEN);
+}
+
+// What the giver must be paid, in cash on top of returning deeds, for handing `outgoingIndexes` to `receiverId` while
+// `incomingIndexes` come back. A completing trade is priced at the monopoly premium (2x deed value for the completed group).
+// needCash is negative when returning deeds already overpay, and 0 when the trade completes nothing.
 export function monopolyRequirement(game, outgoingIndexes, incomingIndexes, receiverId) {
   const outgoing = indexList(outgoingIndexes);
   const incoming = indexList(incomingIndexes);
@@ -242,38 +248,59 @@ export function monopolyRequirement(game, outgoingIndexes, incomingIndexes, rece
   if (!giveaway.givesMonopoly) return result;
   const resolve = resolver(game);
   const completed = new Set(giveaway.groups.map(entry => entry.group));
+  addRequiredValues(result, game, resolve, outgoing, completed);
+  addIncomingValues(result, game, resolve, incoming);
+  result.needCash = result.requiredValue - result.incomingValue;
+  return result;
+}
+
+function addRequiredValues(result, game, resolve, outgoing, completed) {
   for (const index of outgoing) {
     const tile = resolve(index);
     if (!tile) continue;
     const value = deedValue(game, tile);
     result.requiredValue += value;
-    if (completed.has(tile.group)) result.requiredValue += Math.floor(value * (MONOPOLY_PREMIUM_NUM - MONOPOLY_PREMIUM_DEN) / MONOPOLY_PREMIUM_DEN);
+    result.requiredValue += monopolyPremiumOn(value, tile, completed);
   }
+}
+
+function addIncomingValues(result, game, resolve, incoming) {
   for (const index of incoming) {
     const tile = resolve(index);
     if (tile) result.incomingValue += deedValue(game, tile);
   }
-  result.needCash = result.requiredValue - result.incomingValue;
-  return result;
 }
 
 // Groups a player completes or breaks when `outgoingIndexes` leave and
-// `incomingIndexes` arrive. Used to keep a seat from trading away its own set.
-export function tradeSetChanges(game, playerId, outgoingIndexes, incomingIndexes) {
-  const result = { completes: [], breaks: [] };
-  if (!game || !playerId) return result;
-  const resolve = resolver(game);
-  const delta = new Map();
+// `incomingIndexes` arrive. Keeps a seat from trading away its own set.
+// Net change in the seat's deed count per colour group: deeds it gives away count against it, deeds it receives count for it.
+function applyOutgoingDeeds(delta, resolve, playerId, outgoingIndexes) {
   for (const index of indexList(outgoingIndexes)) {
     const tile = resolve(index);
     if (!tile?.group || tile.ownerId !== playerId) continue;
     delta.set(tile.group, (delta.get(tile.group) || 0) - 1);
   }
+}
+
+function applyIncomingDeeds(delta, resolve, playerId, incomingIndexes) {
   for (const index of indexList(incomingIndexes)) {
     const tile = resolve(index);
     if (!tile?.group || tile.ownerId === playerId) continue;
     delta.set(tile.group, (delta.get(tile.group) || 0) + 1);
   }
+}
+
+function setDeltaByGroup(resolve, playerId, outgoingIndexes, incomingIndexes) {
+  const delta = new Map();
+  applyOutgoingDeeds(delta, resolve, playerId, outgoingIndexes);
+  applyIncomingDeeds(delta, resolve, playerId, incomingIndexes);
+  return delta;
+}
+
+export function tradeSetChanges(game, playerId, outgoingIndexes, incomingIndexes) {
+  const result = { completes: [], breaks: [] };
+  if (!game || !playerId) return result;
+  const delta = setDeltaByGroup(resolver(game), playerId, outgoingIndexes, incomingIndexes);
   for (const [group, change] of delta) {
     const { owned, total } = ownedInGroup(game, playerId, group);
     if (!total) continue;
@@ -284,11 +311,9 @@ export function tradeSetChanges(game, playerId, outgoingIndexes, incomingIndexes
   return result;
 }
 
-// Should the responder veto this trade? Vetoes any trade that finishes the other
-// seat's colour set (netting what the responder receives back) unless the
-// responder is paid the monopoly premium. The other seat's cash is irrelevant:
-// the veto is on the set, not on whether they can build this turn. Legacy shapes
-// without player ids or grouped tiles never veto, preserving pinned behavior.
+// Should the responder veto this trade? Vetoes any trade that finishes the other seat's colour set (netting what the responder
+// receives back), unless the responder is paid the monopoly premium. The other seat's cash is irrelevant: the veto is on the set,
+// not on whether they can build this turn. Legacy shapes without player ids or grouped tiles never veto.
 export function vetoTrade(game, trade, responderId) {
   const calm = { vetoed: false, reasonCode: null, detail: null };
   if (!game || !trade || !responderId) return calm;

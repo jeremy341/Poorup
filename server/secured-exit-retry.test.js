@@ -153,6 +153,17 @@ for (const reason of ['disconnect', 'inactivity']) {
   });
 }
 
+const isRemovedAfterNotice = entry => entry.payload?.text?.includes('was removed after');
+function removedAfterNotices(harness) {
+  const notices = harness.emitted.filter(isRemovedAfterNotice);
+  return { direct: notices.filter(entry => entry.socketId === harness.socket.id), room: notices.filter(entry => !entry.socketId) };
+}
+function assertOneRemovalNotice(harness) {
+  const { direct, room } = removedAfterNotices(harness);
+  assert.equal(direct.length, 1, 'the removed target receives one direct successful notice');
+  assert.equal(room.length, 1, 'the room receives one successful notice');
+}
+
 test('a passed vote-kick retries safe settlement without extra ballots or early removal notices', () => {
   const ctx = fixture(), harness = runtimeHarness(ctx);
   const started = harness.runtime.startRoomVoteKick(harness.sockets.get(ctx.lender.socketId), { targetPlayerId: ctx.borrower.id, requestId: 'secured-vote-start' });
@@ -162,18 +173,16 @@ test('a passed vote-kick retries safe settlement without extra ballots or early 
   const passed = harness.runtime.castRoomVoteKick(harness.sockets.get(ctx.other.socketId), payload);
   assert.equal(passed.vote.status, 'passed');
   assert.deepEqual(snapshot(ctx), before);
-  assert.equal(harness.emitted.some(entry => entry.payload?.text?.includes('was removed after')), false);
+  assert.equal(harness.emitted.some(isRemovedAfterNotice), false);
   harness.runtime.castRoomVoteKick(harness.sockets.get(ctx.other.socketId), payload);
   assert.deepEqual(snapshot(ctx), before);
   harness.setTime(11_000);
   harness.runDue();
   assert.equal(ctx.game.players.includes(ctx.borrower), false);
-  assert.equal(harness.emitted.filter(entry => entry.socketId === harness.socket.id && entry.payload?.text?.includes('was removed after')).length, 1, 'the removed target receives one direct successful notice');
-  assert.equal(harness.emitted.filter(entry => !entry.socketId && entry.payload?.text?.includes('was removed after')).length, 1, 'the room receives one successful notice');
-  assert.equal(harness.emitted.find(entry => entry.socketId === harness.socket.id && entry.payload?.text?.includes('was removed after')).seatPresent, false, 'the direct notice follows successful seat removal');
+  assertOneRemovalNotice(harness);
+  assert.equal(removedAfterNotices(harness).direct[0].seatPresent, false, 'the direct notice follows successful seat removal');
   assertSettled(ctx);
   harness.setTime(12_000);
   harness.runDue();
-  assert.equal(harness.emitted.filter(entry => entry.socketId === harness.socket.id && entry.payload?.text?.includes('was removed after')).length, 1, 'the removed target receives one direct successful notice');
-  assert.equal(harness.emitted.filter(entry => !entry.socketId && entry.payload?.text?.includes('was removed after')).length, 1, 'the room receives one successful notice');
+  assertOneRemovalNotice(harness);
 });

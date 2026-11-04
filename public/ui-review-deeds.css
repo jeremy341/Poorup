@@ -30,7 +30,7 @@
 .dd-context-sell:focus-visible { outline: 2px solid var(--gold-300); outline-offset: 2px; }
 .dd-context-sell:disabled { opacity: .55; cursor: not-allowed; }
 .dd-context-note { color: var(--text-muted); font-size: 11px; line-height: 1.4; }
-.dd-context-sell .t-micro { color: var(--green-status); font-size: 9px; white-space: nowrap; }
+.dd-context-sell .t-micro { color: var(--green-status); font-size: 11px; white-space: nowrap; }
 /* Sell is destructive; redemption restores the deed's earning state. */
 #deed-modal #dd-sell:not(:disabled),
 #deed-modal .dd-is-mortgaged #dd-trade-deed:not(:disabled) { border-color: var(--red-bright); color: var(--red-bright); background: var(--surface-panel-deep); }
@@ -65,11 +65,11 @@
 #trade-modal .trade-deed-list { width: 100%; min-width: 0; }
 #trade-modal .trade-deed { width: 100%; max-width: 100%; min-width: 0; }
 #trade-modal .trade-deed-name { flex: 1 1 0; min-width: 0; }
-#trade-modal .trade-deed-mortgage-badge { flex-shrink: 0; white-space: nowrap; color: var(--red-bright); font-size: 9px; }
+#trade-modal .trade-deed-mortgage-badge { flex-shrink: 0; white-space: nowrap; color: var(--red-bright); font-size: 11px; }
 #trade-modal .trade-deed.is-mortgaged .trade-deed-name::after { content: none; }
 .trade-deed.is-mortgaged { opacity: 1; cursor: pointer; }
 .trade-deed.is-mortgaged:disabled { cursor: not-allowed; }
-.trade-deed-block-reason { display: block; margin-top: 3px; color: var(--red-bright); font-size: 9px; line-height: 1.2; white-space: normal; }
+.trade-deed-block-reason { display: block; margin-top: 3px; color: var(--red-bright); font-size: 11px; line-height: 1.2; white-space: normal; }
 
 @media (max-height: 620px) {
   #deed-modal .deed-detail-card { max-height: calc(100dvh - 24px); overflow-y: auto; }

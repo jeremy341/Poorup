@@ -47,7 +47,7 @@ function connect(id, address) {
   return connectWithRuntime(runtime, id, address);
 }
 
-// F-042: a successful login to the attacker's own account must not reset the
+// A successful login to the attacker's own account must not reset the
 // per-IP attempt budget that is being spent guessing the victim's password.
 const attacker = connect('attacker-socket', '203.0.113.20');
 let processed = 0;
@@ -63,7 +63,7 @@ for (let cycle = 0; cycle < 3; cycle += 1) {
 assert.ok(limited > 0, 'interleaved own-account logins must not reset the IP budget');
 assert.ok(processed <= 8, `at most the window budget is processed (processed ${processed})`);
 
-// F-042: per-account lockout applies across addresses, so rotating IPs cannot
+// Per-account lockout applies across addresses, so rotating IPs cannot
 // keep guessing one account.
 for (let index = 0; index < 10; index += 1) {
   const guesser = connect(`guess-${index}`, `198.51.100.${index + 1}`);
@@ -89,7 +89,7 @@ for (let index = 0; index < 9; index += 1) {
 const stillOpen = await connect('attacker-again', '198.51.104.1').call('account-login', { username: 'attacker1', password: 'attacker-pass-1' });
 assert.equal(stillOpen.success, true, 'a successful login resets that account failure count');
 
-// F-046: every password-checking socket event draws from the same budget.
+// Every password-checking socket event draws from the same budget.
 const cancelling = connect('cancel-socket', '192.0.2.77');
 await cancelling.call('account-login', { username: 'attacker1', password: 'attacker-pass-1' });
 let cancelProcessed = 0;
@@ -102,7 +102,7 @@ for (let index = 0; index < 12; index += 1) {
 assert.ok(cancelLimited > 0, 'delete-cancel password checks are rate limited');
 assert.ok(cancelProcessed <= 8, `delete-cancel checks stay inside the budget (processed ${cancelProcessed})`);
 
-// E24-10: an unknown username pays the same scrypt as a known one, so response
+// An unknown username pays the same scrypt as a known one, so response
 // time does not reveal which usernames exist.
 const realScrypt = crypto.scryptSync;
 let scryptRuns = 0;
@@ -118,7 +118,7 @@ try {
   crypto.scryptSync = realScrypt;
 }
 
-// E24-10: username availability is rate limited per address, so the endpoint
+// Username availability is rate limited per address, so the endpoint
 // cannot be walked to enumerate accounts at socket speed.
 const probing = connect('probe-socket', '198.51.110.7');
 let availabilityLimited = 0;
@@ -129,7 +129,7 @@ for (let index = 0; index < 40; index += 1) {
 assert.ok(availabilityLimited >= 10, `check-username is rate limited per address (limited ${availabilityLimited})`);
 assert.equal((await connect('probe-other', '198.51.110.8').call('check-username', { username: 'free-name' })).success, true, 'another address keeps its own budget');
 
-// E24-09: a pending-deletion account may still sign in to cancel the deletion,
+// A pending-deletion account may still sign in to cancel the deletion,
 // but login must not seat it at a lobby table.
 store.register({ username: 'pending01', password: 'pending-pass-1', displayName: 'Pending' });
 store.register({ username: 'active01', password: 'active-pass-1', displayName: 'Active' });

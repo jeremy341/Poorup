@@ -1,19 +1,29 @@
 import { OVERVIEW_KPIS } from './clientAnalyticsCatalog.js';
 
-// The six headline tiles. Each shows the number, the change against the previous
-// period when the server sent one, and the real denominator behind a rate. The
-// definition is the tile's title and is also read out to assistive technology.
-// A tile is amber or red only when the server said so (`state`) or sent thresholds
-// to compare against; nothing here invents a limit.
+// The six headline tiles: the number, the change against the previous period (when sent),
+// and the real denominator behind a rate. The definition is the tile title, also read out to AT.
+// Amber or red only when the server says so (`state`) or sends thresholds; nothing invents a limit.
 
 export function escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character])); }
 
+function finiteNumberFromString(value) {
+  if (value.trim() === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function firstFiniteField(value) {
+  for (const key of ['value', 'rate', 'count']) {
+    const parsed = finiteNumber(value[key]);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
 export function finiteNumber(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value === 'string') { if (value.trim() === '') return null; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
-  if (value && typeof value === 'object') {
-    for (const key of ['value', 'rate', 'count']) { const parsed = finiteNumber(value[key]); if (parsed !== null) return parsed; }
-  }
+  if (typeof value === 'string') return finiteNumberFromString(value);
+  if (value && typeof value === 'object') return firstFiniteField(value);
   return null;
 }
 
@@ -38,7 +48,7 @@ export function isPercentUnit(unit) { return unit === 'percent' || unit === 'ado
 function scaledPercent(number) { return Math.abs(number) <= 1 ? number * 100 : number; }
 
 function displayValue(value, unit) {
-  if (value === null) return '—';
+  if (value === null) return '-';
   if (isPercentUnit(unit)) return `${numberFormat(scaledPercent(value), 1)}%`;
   if (unit === 'milliseconds') return numberFormat(value, 0);
   if (unit === 'seconds') return numberFormat(value);
@@ -66,17 +76,23 @@ function denominatorText(item) {
 
 const STATES = ['ok', 'warn', 'bad'];
 
+// Only a value that reaches a threshold is classed as warn or bad; a KPI with
+// thresholds but no breach is ok.
+function stateFromThresholds(value, thresholds) {
+  const warn = finiteNumber(thresholds.warn);
+  const bad = finiteNumber(thresholds.bad);
+  if (bad !== null && value >= bad) return 'bad';
+  if (warn !== null && value >= warn) return 'warn';
+  return warn !== null || bad !== null ? 'ok' : 'none';
+}
+
 export function kpiState(item) {
   const given = String(item.state || '').toLowerCase();
   if (STATES.includes(given)) return given;
   const thresholds = item.thresholds && typeof item.thresholds === 'object' ? item.thresholds : null;
   const value = finiteNumber(item.value);
   if (!thresholds || value === null) return 'none';
-  const warn = finiteNumber(thresholds.warn);
-  const bad = finiteNumber(thresholds.bad);
-  if (bad !== null && value >= bad) return 'bad';
-  if (warn !== null && value >= warn) return 'warn';
-  return warn !== null || bad !== null ? 'ok' : 'none';
+  return stateFromThresholds(value, thresholds);
 }
 
 const STATE_WORDS = Object.freeze({ ok: 'WITHIN LIMIT', warn: 'WATCH', bad: 'OVER LIMIT', none: '' });

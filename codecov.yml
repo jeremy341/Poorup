@@ -1,4 +1,4 @@
-# Codecov — Poorup. Policy: new code must not make the project worse.
+# Codecov for Poorup. New code must not lower coverage.
 # Baseline is intentionally gentle (project ~64% server-side at adoption).
 coverage:
   precision: 1

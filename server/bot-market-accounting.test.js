@@ -1,9 +1,8 @@
-// Regression pins for audit findings 2 and 3 (docs/BOT-ENGINE-AUDIT-2026-10.md):
-//   2. the planner booked an open-short as +48 (sale proceeds as profit, liability and
-//      fees ignored), so bots farmed shorts, never covered, drained the borrow pool and
-//      ended with unpaid shortDefaultDebt;
-//   3. the round-limit winner and the net-worth chart ignored shorts, spot units, margin
-//      and contracts, so a seat could be crowned by opening a short.
+// Regression pins for bot market accounting:
+//   - the planner booked an open short as +48 (sale proceeds as profit, liability and fees ignored), so bots
+//     farmed shorts, never covered, drained the borrow pool and ended with unpaid shortDefaultDebt;
+//   - the round-limit winner and the net-worth chart ignored shorts, spot units, margin and contracts, so a seat
+//     could be crowned by opening a short.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { ROUND_LIMIT } from './gameData.js';

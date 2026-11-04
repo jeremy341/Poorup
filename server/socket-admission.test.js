@@ -56,7 +56,7 @@ const churn = createSocketAdmission({ maxConnections: 100_000, maxHandshakes: 5,
 for (let index = 0; index < 10_050; index += 1) churn.allow(`churn-peer-${index}`, 0);
 assert.equal(churn.size() <= 10_000, true, 'handshake buckets are capped');
 
-// S09-5: a blank env var is "unset", not zero. Number('') is 0, which used to
+// A blank env var is "unset", not zero. Number('') is 0, which would
 // deny every event (max) or collapse the window to its 100 ms floor.
 {
   assert.equal(createSocketRateLimiter({ max: '', windowMs: 1000 }).allow('blank-max'), true, 'a blank max falls back to the default');
@@ -71,7 +71,7 @@ assert.equal(churn.size() <= 10_000, true, 'handshake buckets are capped');
   assert.equal(createSocketRateLimiter({ max: '0', windowMs: 1000 }).allow('zero-max'), false, 'an explicit 0 still denies everything');
 }
 
-// S09-6 / o02 M1: peers key on the IPv6 /64, and an IPv4-mapped address keys
+// Peers key on the IPv6 /64, and an IPv4-mapped address keys
 // as its IPv4, so a client cannot mint a fresh budget per address.
 {
   const v6 = createSocketRateLimiter({ max: 100, peerMax: 2, windowMs: 1000, now: () => 0 });
@@ -88,7 +88,7 @@ assert.equal(churn.size() <= 10_000, true, 'handshake buckets are capped');
   assert.equal(v6Admission.allow('2001:db8:9:9::3', 0), false, 'handshakes from one /64 share a budget');
 }
 
-// o02 M1: a full map of live buckets must not drop the buckets that matter. A
+// A full map of live buckets must not drop the buckets that matter. A
 // victim already at its limit stays limited after 10k foreign keys arrive.
 {
   const victimLimiter = createSocketRateLimiter({ max: 100, peerMax: 1, windowMs: 60_000, now: () => 0 });

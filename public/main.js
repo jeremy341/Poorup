@@ -1,7 +1,5 @@
-/* ============================================================
-   ENTRY MODULE: game logic, renderers, and event wiring.
-   Shared data and state live in the client*.js modules imported here.
-   ============================================================ */
+// ENTRY MODULE: game logic, renderers, and event wiring.
+// Shared data and state live in the client*.js modules imported here.
 import { $, esc, setHtml } from "./clientDom.js";
 import {
   hydrateSprites,
@@ -91,7 +89,11 @@ import {
 } from "./clientRailEvents.js";
 import { configureProfileRender, renderAccountPanel } from "./clientProfileRender.js";
 import {
+  applyPatrolState,
   configureNightShift,
+  handlePatrolDisconnect,
+  handlePatrolReconnect,
+  hasPendingPatrolSettlement,
   nightShiftState,
   startNightShift,
   stopNightShift,
@@ -109,6 +111,7 @@ import {
   renderRulesSurface,
 } from "./clientSocialSurfaces.js";
 import {
+  bootstrapAccountCookieSession,
   getAccountAuthGeneration,
   guardAccountAuthCallback,
   markAccountSocialStateFresh,
@@ -134,6 +137,8 @@ import {
   closeTradeModal,
 } from "./clientTradeUi.js";
 import { bindParlorSurfaces, syncRoomVoteKickUi } from "./clientParlorBindings.js";
+import { configureComputerProfile, openComputerProfile } from "./clientComputerProfile.js";
+import { showComputerProfile } from "./clientProfileBindings.js";
 import { friendlyActionError } from "./clientActionErrorCopy.js";
 import { createChatSender } from "./clientChatSend.js";
 import { createPresenceMonitor } from "./clientPlayerPresence.js";
@@ -219,6 +224,8 @@ import {
   renderDeedDetail,
 } from "./clientDeedDetailUi.js";
 import {
+  addComputerPlayer,
+  removeComputerPlayer,
   bindLobbyUi,
   configureLobbyUi,
   enterParlor,
@@ -290,12 +297,20 @@ function playSound(name) {
 
 syncLocalAppearance();
 
-/* ============================================================
-   LIVE SOCKET.IO ADAPTER
-   The ZIP remains the complete UI source; this small boundary maps its
-   renderer state to the existing server-authoritative game protocol.
-   ============================================================ */
+// LIVE SOCKET.IO ADAPTER
+// The ZIP remains the complete UI source; this small boundary maps its
+// renderer state to the existing server-authoritative game protocol.
 const socket = typeof window.io === "function" ? window.io() : null;
+function isPatrolRetryCurrent(ready, accountId) {
+  return Boolean(ready && socket?.connected && state.account?.account?.id === accountId);
+}
+function retryPatrolAfterAuthReady() {
+  const accountId = state.account?.account?.id;
+  if (!hasPendingPatrolSettlement() || !accountId) return;
+  bootstrapAccountCookieSession().then((ready) => {
+    if (isPatrolRetryCurrent(ready, accountId)) handlePatrolReconnect();
+  }).catch(() => {});
+}
 function reconnectAccountSocket() {
   if (!socket) return;
   if (socket.connected) socket.disconnect();
@@ -385,7 +400,7 @@ function handleSettingResult(settingResult, context) {
   if (settingResult?.success !== false) return;
   if (!Object.is(state.settings[context.key], context.value)) return;
   restoreRejectedServerSetting(context.key, context.previousSettings, context.previousRuleset, context.previousBoardVariant);
-  parlorNotice("TABLE SETTINGS", settingResult.error || "That table setting was rejected.");
+  parlorNotice("TABLE SETTINGS", settingResult.error || "That table setting was rejected.", "error");
   renderLobbyRail();
 }
 
@@ -562,10 +577,8 @@ function setConnectionStatus(status, announce = false) {
   }
 }
 
-/* ============================================================
-   OPTIONAL ACCOUNT / PROFILE IDENTITY
-   Guest play stays local; an account only adds durable identity and stats.
-   ============================================================ */
+// OPTIONAL ACCOUNT / PROFILE IDENTITY
+// Guest play stays local; an account only adds durable identity and stats.
 
 function createRequestId(kind) {
   return String(state.clientId || "client") + ":" + String(kind || "action") + ":" + Date.now() + ":" + Math.random().toString(36).slice(2, 8);
@@ -579,9 +592,7 @@ function record(text) {
   if (state.log.length > 40) state.log.length = 40;
 }
 
-/* ============================================================
-   5. HOME SCREEN
-   ============================================================ */
+// HOME SCREEN
 
 function refreshEconomySnapshot() {
   emitServer("get-economy-snapshot", {}, (response) => {
@@ -664,14 +675,32 @@ function retryAudioAfterGesture() {
 // The hidden theme runtime owns playback and status announcements.
 
 
-/* ============================================================
-   6. GAME RENDERERS
-   ============================================================ */
+// GAME RENDERERS
 
 function renderPlayers() {
   const seated = state.players.slice(0, state.settings.maxPlayers);
   const serverNow = currentServerTime();
-  setHtml($("#player-list"), seated.map((p, i) => playerRowHTML(p, i, serverNow)).join(""));
+  const rows = seated.map((p, i) => playerRowHTML(p, i, serverNow));
+  if (lobbyAddSeatAvailable(seated.length)) rows.push(lobbyAddSeatHTML());
+  setHtml($("#player-list"), rows.join(""));
+}
+
+function lobbyHostIsLocal() {
+  const me = state.players[0];
+  return Boolean(me && (me.isHost || (me.serverId && me.serverId === state.hostId)));
+}
+
+// Before the round starts, the host can add a computer player straight from the empty seat.
+function lobbyAddSeatAvailable(seatedCount) {
+  return state.phase === "lobby" && lobbyHostIsLocal() && seatedCount < state.settings.maxPlayers;
+}
+
+
+function lobbyAddSeatHTML() {
+  return `<button class="player-add-row" type="button" data-add-computer>
+    <span class="pr-av" aria-hidden="true">+</span>
+    <span class="t-label">Add computer player</span>
+  </button>`;
 }
 
 function playerRowHTML(p, i, serverNow = currentServerTime()) {
@@ -701,12 +730,12 @@ function playerRowHTML(p, i, serverNow = currentServerTime()) {
 }
 
 /* Before the game starts the left rail is the only seat list, so it carries the
-   host and CPU markers the lobby panel used to show. */
+   host and computer player markers of the lobby panel. */
 function lobbyTagHTML(p) {
   if (state.phase === "playing") return "";
   const isHost = Boolean(p.isHost) || Boolean(p.serverId && p.serverId === state.hostId);
   if (isHost) return `<span class="pr-tag pr-tag-host t-micro">HOST</span>`;
-  if (p.bot) return `<span class="pr-tag t-micro">CPU</span>`;
+  if (p.bot) return `<span class="pr-tag pr-tag-computer t-micro">COMPUTER</span>`;
   return "";
 }
 
@@ -729,7 +758,7 @@ function playerStatusLabel(p) {
   if (p.bankrupt) return "BANKRUPT";
   if (!p.online) return "AFK";
   if (p.id === "p1") return "YOU";
-  if (p.bot) return `CPU · ${(p.botBrain || "ai").toUpperCase()} · ${(p.botDifficulty || "table").toUpperCase()}`;
+  if (p.bot) return `COMPUTER · ${(p.botBrain || "ai").toUpperCase()} · ${(p.botDifficulty || "table").toUpperCase()}`;
   return "ONLINE";
 }
 
@@ -760,7 +789,7 @@ function chatMessageHTML(message) {
   return `<p class="t-body chat-line"><span style="color:${message.color}">${esc(message.who)}:</span> <span class="ink-2">${esc(message.text)}</span></p>`;
 }
 
-// F789-12: a role="log" region must only receive the new rows. Appending (and trimming the oldest)
+// A role="log" region must only receive the new rows. Appending (and trimming the oldest)
 // keeps the reader's selection and avoids re-announcing the whole buffer; a first render, room
 // change or unknown tail falls back to one full render.
 function renderChatMessages(body) {
@@ -813,7 +842,7 @@ function renderChat() {
 
 
 
-/* Deed detail/house manager + card reveal now live in
+/* Deed detail/house manager + card reveal live in
    clientDeedDetailUi.js / clientGameModalsUi.js. */
 function renderStep(label, render) {
   try {
@@ -898,14 +927,12 @@ function syncRoomPresenceUi() {
   syncRoomVoteKickUi(state.voteKick || null, state.players, serverTime);
 }
 
-/* Lobby settings rail + profile editor/identity bindings now live in
+/* Lobby settings rail + profile editor/identity bindings live in
    clientLobbyUi.js / clientProfileBindings.js. */
 
 
 
-/* ============================================================
-   8. GAME LOGIC
-   ============================================================ */
+// GAME LOGIC
 
 function isLocalPlayerBlocked() {
   const localPlayer = state.players[0];
@@ -961,7 +988,7 @@ async function runTurn(idx) {
     requestId,
     event: "roll-dice",
     errorMessage: "The roll could not be completed.",
-    timeoutMessage: "Roll could not be confirmed — try again.",
+    timeoutMessage: "Roll could not be confirmed. Try again.",
   });
 }
 
@@ -976,7 +1003,7 @@ function endTurn(idx) {
     requestId,
     event: "end-turn",
     errorMessage: "The turn could not be ended.",
-    timeoutMessage: "The turn could not be confirmed — try again.",
+    timeoutMessage: "The turn could not be confirmed. Try again.",
   });
 }
 
@@ -1048,9 +1075,7 @@ function buyTile(tile, submittedStatusNode = null, onSuccess = null) {
 /* Forced choice/auction, trading modals and the persist/resume cluster
    live in clientGameModalsUi.js / clientGameSave.js. */
 
-/* ============================================================
-   9. ROUTING + EVENTS
-   ============================================================ */
+// ROUTING + EVENTS
 function syncViewVisibility(name) {
   $("#view-home").classList.toggle("is-hidden", name !== "home");
   $("#view-game").classList.toggle("is-hidden", name !== "game");
@@ -1092,6 +1117,8 @@ function syncHomeViewLifecycle(name) {
 }
 
 function showView(name) {
+  // A computer player's page is only open while the profile view is showing.
+  if (name !== "profile") state.profileSubject = null;
   prepareViewExit(name);
   syncViewVisibility(name);
   syncViewMetadata(name);
@@ -1211,10 +1238,8 @@ function bindRulesPage() {
 }
 
 function bindDrawerAndBoardModes() {
-  // resume round
   $("#resume-btn")?.addEventListener("click", () => resumeGame());
 
-  // log drawer
   $("#log-toggle-btn")?.addEventListener("click", toggleLogDrawerFromButton);
   $("#drawer-close")?.addEventListener("click", closeLogDrawer);
 
@@ -1223,7 +1248,7 @@ function bindDrawerAndBoardModes() {
 }
 
 function bindAmbientExits() {
-  // Parlor Patrol is switched off: its controls stay hidden and unbound.
+  // Keep Patrol controls synchronized with the client feature flag.
   syncParlorPatrolAvailability();
   if (!PARLOR_PATROL_ENABLED) return;
   $("#home-helicopter")?.addEventListener("click", hitHomeHelicopter);
@@ -1243,7 +1268,7 @@ function onGlobalEventVoteClick(event) {
   globalEventVoteTimer = setTimeout(() => {
     state.globalEventVotePending = false;
     if (state.phase !== "playing") return;
-    parlorNotice("GLOBAL EVENT", "Vote timed out. The table state will refresh when the connection returns.");
+    parlorNotice("GLOBAL EVENT", "Vote timed out. The table state will refresh when the connection returns.", "warning");
     renderGlobalEvent();
   }, 8000);
   emitServer("vote-global-event", { choiceId: choice.dataset.globalChoice }, (response) => {
@@ -1256,7 +1281,7 @@ function onGlobalEventVoteClick(event) {
 }
 
 function bindGameActions() {
-  // game → home
+  // game to home
   $("#brand-home").addEventListener("click", leaveRoomForHome);
   $("#tn-room-copy").addEventListener("click", copyRoomCode);
   $("#hud-cash-action")?.addEventListener("click", (event) => {
@@ -1267,6 +1292,9 @@ function bindGameActions() {
 
   // lobby start round
   $("#lobby-start-btn").addEventListener("click", startGame);
+  $("#player-list").addEventListener("click", (e) => {
+    if (e.target.closest("[data-add-computer]")) addComputerPlayer();
+  });
   $("#pay-jail-fine")?.addEventListener("click", () => {
     emitWithChatError("pay-jail-fine", {}, "The jail fine could not be paid.");
   });
@@ -1355,7 +1383,6 @@ function onRailTabKeyDown(event) {
 }
 
 function bindRail() {
-  // tabs
   $("#tabs").addEventListener("click", onRailTabClick);
   $("#tabs").addEventListener("keydown", onRailTabKeyDown);
 
@@ -1367,7 +1394,6 @@ function bindRail() {
     if (event.target.matches("details.finance-bank")) state.financeBankOpen = event.target.open;
   }, true);
 
-  // popup
   $("#popup-scrim").addEventListener("click", closePopup);
   $("#trade-scrim").addEventListener("click", closeTradeModal);
   $("#financing-scrim").addEventListener("click", closeFinancingModal);
@@ -1377,7 +1403,8 @@ function bindEvents() {
   bindHomeNavigation();
   bindRulesPage();
 
-  bindParlorSurfaces({ emitServer, leaveRoomForHome });
+  bindParlorSurfaces({ emitServer, leaveRoomForHome, removeComputerPlayer, openComputerProfile });
+  configureComputerProfile({ emit: emitServer, showProfile: showComputerProfile, notice: message => parlorNotice("COMPUTER", message, "error") });
 
   // Home actions are bound to their explicit controls below. Keeping the
   // entry points named avoids accidental duplicate Create/Browse triggers.
@@ -1416,7 +1443,6 @@ function bindEvents() {
 
   bindGameActions();
 
-  // chat
   $("#chat-form").addEventListener("submit", onChatFormSubmit);
 
   bindBoardLayout();
@@ -1455,9 +1481,7 @@ function bindEvents() {
 }
 
 
-/* ============================================================
-   10. INIT
-   ============================================================ */
+// INIT
 document.documentElement.style.setProperty('--dice-shake-cycle', `${DICE_SHAKE_CYCLE_MS}ms`);
 document.documentElement.style.setProperty('--modal-enter-duration', `${MODAL_ENTER_MS}ms`);
 configureSurfaces({ notice: parlorNotice });
@@ -1495,13 +1519,13 @@ configureGameModals({ emitServer, say, recordActivity, captureActionStatusNode, 
   openTradeForDebt: () => {
     const partner = state.players.find(player => player.id !== 'p1' && !player.bankrupt && !player.spectating && player.online !== false);
     if (partner) openTradeModal(partner.id);
-    else parlorNotice('TRADE', 'No active trade partner is available.');
+    else parlorNotice('TRADE', 'No active trade partner is available.', 'warning');
   },
   openFinancingForDebt: () => openFinancingModal('loan'),
   openSponsorshipRequest: requestSponsorship, openTradeNegotiation, startGame });
 configureSponsorshipUi({ emitServer, say, recordActivity, captureActionStatusNode, announceActionStatus, renderChat });
 configureDeedDetail({ emitServer, say, captureActionStatusNode, announceActionStatus, renderAll });
-configureProfileBindings({ showView, emitServer, notice: message => parlorNotice("PROFILE", message) });
+configureProfileBindings({ showView, emitServer, notice: (message, severity) => parlorNotice("PROFILE", message, severity) });
 configureGameSave({ emitServer, setConnectionStatus, showView, renderAll });
 configureRoomsUi({ emitServer, say, captureActionStatusNode, announceActionStatus, renderChat, enterParlor, createRequestId });
 configureLobbyUi({
@@ -1522,6 +1546,9 @@ configureLobbyUi({
   createRequestId,
 });
 socket?.on("update-state", reconcileParlorEntrySnapshot);
+socket?.on("patrol-state", applyPatrolState);
+socket?.on("disconnect", handlePatrolDisconnect);
+socket?.on("connect", retryPatrolAfterAuthReady);
 configureNightShift({
   emitServer,
   parlorNotice,
@@ -1532,7 +1559,9 @@ configureNightShift({
   stopHomeClock,
   stopHomeHelicopter,
   scheduleHomeHelicopter,
+  retryPendingSettlement: retryPatrolAfterAuthReady,
 });
+if (socket?.connected) retryPatrolAfterAuthReady();
 configureThemeUi({ applyTheme: renderTheme, onThemeChange: (themeId) => ensureMusicController()?.setTheme(themeId, { play: state.music }) });
 // The operator cookie is read only at the Socket.IO handshake, so sign-in and sign-out reconnect.
 configureMaintenanceUi({ emitServer, reconnectSocket: () => { if (!socket) return; socket.disconnect(); socket.connect(); } });

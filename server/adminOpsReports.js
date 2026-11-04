@@ -1,12 +1,11 @@
-// Read models for /admin/ops/*. Pure functions over numbers the caller measured:
-// nothing here reads the clock, the filesystem or a socket. A value the server
-// cannot know is null, never a guess, and no payload carries a room code, a
-// nickname, an account id or chat.
+// Read models for /admin/ops/*. Pure functions over numbers the caller measured: nothing here
+// reads the clock, filesystem or socket. An unknown value is null, never a guess, and no payload
+// carries a room code, nickname, account id or chat.
 import crypto from 'node:crypto';
 import { MIN_PERCENTILE_SAMPLES } from './metricsRegistry.js';
 import { buildBots, normalizeAnalyticsQuery } from './analyticsProjection.js';
 
-// ---- status ---------------------------------------------------------------
+// status
 //
 // Check thresholds (all counters are since the process started):
 //   backup    ok      latest run succeeded, no failures, not overdue
@@ -43,6 +42,24 @@ export const PENDING_WRITES_WARN = 50;
 
 function check(id, label, state, detail) {
   return { id, label, state, detail };
+}
+
+// Callers pass a Date or epoch milliseconds.
+function toEpochMs(now) {
+  return now instanceof Date ? now.getTime() : Number(now);
+}
+
+function nonNegative(value) {
+  return Math.max(0, Number(value) || 0);
+}
+
+function nonNegativeInt(value) {
+  return Math.max(0, Math.floor(Number(value) || 0));
+}
+
+// A counter that the metrics snapshot did not supply is null, not zero.
+function metricField(metrics, name) {
+  return metrics ? metrics[name] : null;
 }
 
 function minutesAgo(iso, nowMs) {
@@ -122,19 +139,38 @@ function sinceStart(metrics, name) {
 // operatorPassword says only whether POORUP_MAINTENANCE_PASSWORD is set; this
 // view is admin-only, so the public site never learns it from here.
 function maintenanceView(snapshot, operatorPassword = false) {
+  const current = snapshot || {};
   return {
-    mode: snapshot?.mode || 'normal',
-    lockout: snapshot?.mode === 'maintenance' && snapshot?.lockout === true,
-    message: snapshot?.message || '',
-    releaseId: snapshot?.releaseId || '',
-    drainDeadline: snapshot?.drainDeadline || null,
-    activeRounds: Math.max(0, Number(snapshot?.activeRounds) || 0),
+    mode: current.mode || 'normal',
+    lockout: current.mode === 'maintenance' && current.lockout === true,
+    message: current.message || '',
+    releaseId: current.releaseId || '',
+    drainDeadline: current.drainDeadline || null,
+    activeRounds: nonNegative(current.activeRounds),
     operatorPassword: operatorPassword === true,
   };
 }
 
+function backupSummary(backup) {
+  return {
+    configured: backup?.configured === true,
+    fresh: backup?.configured ? backup.fresh === true : null,
+    lastRunAt: backup?.lastRunAt || null,
+    failures: nonNegative(backup?.failures),
+  };
+}
+
+function runtimeSummary(runtime) {
+  return {
+    uptimeSeconds: nonNegativeInt(runtime.uptimeSeconds),
+    sockets: nonNegativeInt(runtime.sockets),
+    rooms: nonNegativeInt(runtime.rooms),
+    activeRounds: nonNegativeInt(runtime.activeRounds),
+  };
+}
+
 export function buildOpsStatus({ now = Date.now(), runtime = {}, metrics = null, backup = null, backupIntervalMs = null, storage = {}, maintenance = null, operatorPassword = false } = {}) {
-  const nowMs = now instanceof Date ? now.getTime() : Number(now);
+  const nowMs = toEpochMs(now);
   const checks = [
     backupCheck(backup, backupIntervalMs, nowMs),
     errorsCheck(metrics),
@@ -149,27 +185,19 @@ export function buildOpsStatus({ now = Date.now(), runtime = {}, metrics = null,
     health: {
       state: overallState(checks, view),
       checks,
-      uptimeSeconds: Math.max(0, Math.floor(Number(runtime.uptimeSeconds) || 0)),
-      sockets: Math.max(0, Math.floor(Number(runtime.sockets) || 0)),
-      rooms: Math.max(0, Math.floor(Number(runtime.rooms) || 0)),
-      activeRounds: Math.max(0, Math.floor(Number(runtime.activeRounds) || 0)),
-      backup: {
-        configured: backup?.configured === true,
-        fresh: backup?.configured ? backup.fresh === true : null,
-        lastRunAt: backup?.lastRunAt || null,
-        failures: Math.max(0, Number(backup?.failures) || 0),
-      },
-      errorCount: metrics ? metrics.errorCount : null,
-      restoreFailures: metrics ? metrics.restoreFailures : null,
+      ...runtimeSummary(runtime),
+      backup: backupSummary(backup),
+      errorCount: metricField(metrics, 'errorCount'),
+      restoreFailures: metricField(metrics, 'restoreFailures'),
       roomReconnects: sinceStart(metrics, 'roomReconnects'),
       botFallbacks: sinceStart(metrics, 'botFallbacks'),
-      latencyP95Ms: metrics ? metrics.latencyP95Ms : null,
+      latencyP95Ms: metricField(metrics, 'latencyP95Ms'),
     },
     maintenance: view,
   };
 }
 
-// ---- rooms ----------------------------------------------------------------
+// rooms
 //
 // phase       lobby     the round has not started and no round has ended here
 //             playing   a round is running
@@ -235,51 +263,65 @@ function roomPhase(room) {
   return game.lastEndReason ? 'finished' : 'lobby';
 }
 
-export function buildOpsRooms({ rooms = [], tracker, now = Date.now(), metrics = null } = {}) {
-  const nowMs = now instanceof Date ? now.getTime() : Number(now);
+// Players still in the room: humans are seated and connected, bots are the house seats.
+function seatCounts(room) {
+  const players = Array.isArray(room.game?.players) ? room.game.players : [];
+  return {
+    humans: players.filter(player => !player.isBot && !player.disconnected).length,
+    bots: players.filter(player => player.isBot).length,
+  };
+}
+
+function roomRow(tracker, room, timing, nowMs) {
+  const phase = roomPhase(room);
+  const { humans, bots } = seatCounts(room);
+  const idleSeconds = Math.max(0, Math.floor((nowMs - timing.changedAt) / 1000));
+  return {
+    id: tracker.idFor(room),
+    phase,
+    visibility: room.visibility === 'private' ? 'private' : 'public',
+    humans,
+    bots,
+    round: phase === 'playing' ? Math.max(0, Math.floor(Number(room.game.roundNumber) || 0)) : null,
+    ageSeconds: Math.max(0, Math.floor((nowMs - timing.firstSeenAt) / 1000)),
+    idleSeconds,
+    stalled: phase === 'playing' && idleSeconds >= STALLED_AFTER_SECONDS,
+  };
+}
+
+function roomTotals(rows) {
   const totals = { rooms: 0, lobby: 0, playing: 0, humans: 0, bots: 0 };
+  for (const row of rows) {
+    totals.rooms += 1;
+    totals.humans += row.humans;
+    totals.bots += row.bots;
+    if (row.phase === 'lobby') totals.lobby += 1;
+    if (row.phase === 'playing') totals.playing += 1;
+  }
+  return totals;
+}
+
+export function buildOpsRooms({ rooms = [], tracker, now = Date.now(), metrics = null } = {}) {
+  const nowMs = toEpochMs(now);
   const items = [];
   for (const room of rooms) {
     if (!room || room.destroyed) continue;
     const timing = tracker.timings(room);
-    const phase = roomPhase(room);
-    const players = Array.isArray(room.game?.players) ? room.game.players : [];
-    const humans = players.filter(player => !player.isBot && !player.disconnected).length;
-    const bots = players.filter(player => player.isBot).length;
-    const idleSeconds = Math.max(0, Math.floor((nowMs - timing.changedAt) / 1000));
-    totals.rooms += 1;
-    totals.humans += humans;
-    totals.bots += bots;
-    if (phase === 'lobby') totals.lobby += 1;
-    if (phase === 'playing') totals.playing += 1;
-    items.push({
-      firstSeenAt: timing.firstSeenAt,
-      row: {
-        id: tracker.idFor(room),
-        phase,
-        visibility: room.visibility === 'private' ? 'private' : 'public',
-        humans,
-        bots,
-        round: phase === 'playing' ? Math.max(0, Math.floor(Number(room.game.roundNumber) || 0)) : null,
-        ageSeconds: Math.max(0, Math.floor((nowMs - timing.firstSeenAt) / 1000)),
-        idleSeconds,
-        stalled: phase === 'playing' && idleSeconds >= STALLED_AFTER_SECONDS,
-      },
-    });
+    items.push({ firstSeenAt: timing.firstSeenAt, row: roomRow(tracker, room, timing, nowMs) });
   }
   items.reverse();
   items.sort((a, b) => b.firstSeenAt - a.firstSeenAt);
   return {
     success: true,
     generatedAt: new Date(nowMs).toISOString(),
-    totals,
+    totals: roomTotals(items.map(item => item.row)),
     // Seats that came back inside their reconnect grace since the process started.
     sinceStart: { reconnects: sinceStart(metrics, 'roomReconnects') },
     rooms: items.slice(0, ROOM_LIST_LIMIT).map(item => item.row),
   };
 }
 
-// ---- bots -----------------------------------------------------------------
+// bots
 //
 // What the rollup records per bot decision (see recordBotTelemetry in
 // socketRuntime.js): the room's engine (botMode ai / no-ai), a decision count, a
@@ -296,14 +338,23 @@ export function buildOpsRooms({ rooms = [], tracker, now = Date.now(), metrics =
 // both. Rows with no recorded decisions or matches predate this recording and
 // are left out rather than shown as zeros. Each match contributes at most its
 // last 200 decisions, so sampleSize can undercount very long matches.
+const PROVIDER_STATES = { healthy: 'healthy', open: 'cooldown', cooldown: 'cooldown', 'quota-exhausted': 'quota-exhausted', unconfigured: 'unconfigured' };
+
+function activeLabelOf(active) {
+  return typeof active?.label === 'string' && active.label ? active.label : null;
+}
+
+function capPerBotOf(status) {
+  const cap = Number(status?.active?.maxDecisionsPerGame ?? status?.provider?.budgetLimit);
+  return Number.isFinite(cap) && cap > 0 ? cap : null;
+}
+
 function providerView(status) {
   const reported = String(status?.provider?.state || '');
-  const states = { healthy: 'healthy', open: 'cooldown', cooldown: 'cooldown', 'quota-exhausted': 'quota-exhausted', unconfigured: 'unconfigured' };
-  const cap = Number(status?.active?.maxDecisionsPerGame ?? status?.provider?.budgetLimit);
   return {
-    state: states[reported] || 'unknown',
-    activeLabel: typeof status?.active?.label === 'string' && status.active.label ? status.active.label : null,
-    capPerBot: Number.isFinite(cap) && cap > 0 ? cap : null,
+    state: PROVIDER_STATES[reported] || 'unknown',
+    activeLabel: activeLabelOf(status?.active),
+    capPerBot: capPerBotOf(status),
   };
 }
 
@@ -311,41 +362,51 @@ function rate(numerator, denominator) {
   return denominator > 0 ? numerator / denominator : null;
 }
 
-export function buildOpsBots({ rollup, range = 'day', providerStatus = null, now = Date.now(), metrics = null } = {}) {
-  const nowMs = now instanceof Date ? now.getTime() : Number(now);
-  const query = normalizeAnalyticsQuery({ range });
-  const view = buildBots(rollup, query);
-  const providers = (view.rows || [])
-    .map((row) => {
-      const decisions = Math.max(0, Number(row.fallbackRate?.denominator) || 0);
-      const matches = Math.max(0, Number(row.matches) || 0);
-      const aiRoom = row.botMode === 'ai';
-      const fallbacks = aiRoom ? Math.max(0, Number(row.fallback) || 0) : null;
-      return {
-        provider: String(row.provider || 'unknown'),
-        botMode: String(row.botMode || 'unknown'),
-        matches,
-        decisions,
-        fallbacks,
-        fallbackRate: aiRoom ? rate(fallbacks, decisions) : null,
-        sampleSize: decisions,
-      };
-    })
-    .filter(row => row.decisions > 0 || row.matches > 0);
+function providerRow(row) {
+  const decisions = nonNegative(row.fallbackRate?.denominator);
+  const matches = nonNegative(row.matches);
+  const aiRoom = row.botMode === 'ai';
+  const fallbacks = aiRoom ? nonNegative(row.fallback) : null;
+  return {
+    provider: String(row.provider || 'unknown'),
+    botMode: String(row.botMode || 'unknown'),
+    matches,
+    decisions,
+    fallbacks,
+    fallbackRate: aiRoom ? rate(fallbacks, decisions) : null,
+    sampleSize: decisions,
+  };
+}
+
+function hasBotActivity(row) {
+  return row.decisions > 0 || row.matches > 0;
+}
+
+// Decision totals cover AI rooms only; they are null when no AI room reported anything.
+function botTotals(providers) {
   const aiRows = providers.filter(row => row.botMode === 'ai');
   const aiDecisions = aiRows.reduce((sum, row) => sum + row.decisions, 0);
   const aiFallbacks = aiRows.reduce((sum, row) => sum + (row.fallbacks || 0), 0);
+  const hasAi = aiRows.length > 0;
+  return {
+    botMatches: providers.reduce((sum, row) => sum + row.matches, 0),
+    decisions: hasAi ? aiDecisions : null,
+    fallbacks: hasAi ? aiFallbacks : null,
+    fallbackRate: hasAi ? rate(aiFallbacks, aiDecisions) : null,
+    sampleSize: aiDecisions,
+  };
+}
+
+export function buildOpsBots({ rollup, range = 'day', providerStatus = null, now = Date.now(), metrics = null } = {}) {
+  const nowMs = toEpochMs(now);
+  const query = normalizeAnalyticsQuery({ range });
+  const view = buildBots(rollup, query);
+  const providers = (view.rows || []).map(providerRow).filter(hasBotActivity);
   return {
     success: true,
     range: query.range,
     generatedAt: new Date(nowMs).toISOString(),
-    totals: {
-      botMatches: providers.reduce((sum, row) => sum + row.matches, 0),
-      decisions: aiRows.length ? aiDecisions : null,
-      fallbacks: aiRows.length ? aiFallbacks : null,
-      fallbackRate: aiRows.length ? rate(aiFallbacks, aiDecisions) : null,
-      sampleSize: aiDecisions,
-    },
+    totals: botTotals(providers),
     providers,
     // AI decisions answered by the house engine since the process started (a live
     // counter; the windowed numbers above come from the rollup and survive restarts).

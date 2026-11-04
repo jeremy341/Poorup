@@ -1,10 +1,7 @@
-// Pins the mechanism that orders the bot difficulty levels (docs/BOT-ENGINE-AUDIT-2026-10.md,
-// finding 1). The OUTCOME ordering (Expert > Table > House in head-to-head wins) was
-// measured with the tournament harness over hundreds of seeded three-seat games, which is
-// far too slow for the suite; this file pins what produced it so a refactor cannot flatten
-// the levels again:
-//   - the investment horizon (rounds of extra rent a deed, house or unmortgage is credited
-//     for) grows with the level: House 8 < Table 16 < Expert 32;
+// Pins the mechanism that orders the bot difficulty levels. The outcome ordering (Expert > Table > House
+// in head-to-head wins) was measured with the tournament harness, which is too slow for the suite.
+// These checks pin what produced it, so a refactor cannot flatten the levels:
+//   - the investment horizon (rounds of extra rent credited to a deed, house or unmortgage) grows with the level: House 8 < Table 16 < Expert 32;
 //   - at one fixed position the same build scores strictly higher the deeper the level;
 //   - the dice horizon still grows with the level, and an unknown level plays as Table.
 // (The auction judgement difference is pinned in bot-economics.test.js.)

@@ -13,6 +13,9 @@ import { normalizeRequestId } from './requestId.js';
 // well under this. Anything larger is refused before it reaches the replay
 // cache or the vote.
 const VOTE_KICK_PAYLOAD_LIMIT_CHARS = 1024;
+// A passed vote retries its seat removal once a second; after this many failures (about 30 s) it gives up so
+// the room is not locked out of new votes for as long as a collateral settlement keeps failing.
+const VOTE_KICK_REMOVAL_MAX_ATTEMPTS = 30;
 
 function publicVoteKick(vote) {
   if (!vote) return null;
@@ -68,10 +71,9 @@ function storeReplay(room, key, fingerprint, result) {
 export function createRoomVoteKickRuntime({ io, roomManager, runRoomTimer, setTimeoutFn, clearTimeoutFn, now, removeSeatForReason }) {
   const timers = new Map();
 
-  // A finished match is not mutable: the vote-kick and the seat removal it
-  // decides belong to a running match. The room's match phase tells a lobby
-  // that never played (where a vote-kick is a normal room action) from a
-  // match that is over, and game.started tells a running match from both.
+  // A finished match is not mutable: the vote-kick and the seat removal it decides belong to a running match. The room's match phase
+  // tells a lobby that never played (where a vote-kick is a normal room action) from a finished match, and game.started tells a running
+  // match from both.
   function matchHasEnded(room) {
     if (!room?.matchFinished) return false;
     return !room?.game?.started;
@@ -234,6 +236,15 @@ export function createRoomVoteKickRuntime({ io, roomManager, runRoomTimer, setTi
     const target = room.game.getPlayerById(vote.targetPlayerId);
     if (!target) return;
     if (!removeSeatForReason(room, target, 'vote-kick', true)) {
+      vote.removalAttempts = (vote.removalAttempts || 0) + 1;
+      if (vote.removalAttempts >= VOTE_KICK_REMOVAL_MAX_ATTEMPTS) {
+        // Give up: the target keeps its seat, the lock clears, and the room can vote again.
+        delete vote.removalPending;
+        io.in(room.roomCode).emit('system-message', {
+          text: `The vote passed, but ${target.nickname}'s seat could not be removed yet. A new vote can be started.`,
+        });
+        return;
+      }
       vote.removalPending = true;
       const timer = setTimeoutFn(() => runRoomTimer('room-votekick-removal', room.roomCode, () => {
         if (timers.get(room.roomCode) !== timer) return;

@@ -1,11 +1,6 @@
-/* ============================================================
-   AUDIO CONTROLS: the global effects/music toggles that appear in
-   every surface (main, game, profile, rankings, social, rules).
-   The per-view buttons proxy to the canonical #sound-toggle-btn and
-   #music-toggle-btn so a single handler owns the state flip; the
-   game-bound playSound chime and syncHomeMusic cross-fade are
-   injected. aria labels and icon paths match the old main.js text.
-   ============================================================ */
+// AUDIO CONTROLS: the global effects and music toggles on every surface (main, game, profile,
+// rankings, social, rules). Per-view buttons proxy to #sound-toggle-btn and #music-toggle-btn, so one
+// handler owns the state flip. playSound and syncHomeMusic are injected. Aria labels and icon paths match main.js.
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { saveSoundPreference, saveMusicPreference } from "./clientSanitize.js";
@@ -28,7 +23,7 @@ const MUSIC_BUTTONS = [
 const SOUND_PROXY_BUTTONS = SOUND_BUTTONS.slice(1);
 const MUSIC_PROXY_BUTTONS = MUSIC_BUTTONS.slice(1);
 
-// F789-08: the accessible name is stable ("Sound effects", "Parlor music"); only aria-pressed
+// The accessible name is stable ("Sound effects", "Parlor music"); only aria-pressed
 // carries the state, so a screen reader never hears the name flip together with the pressed state.
 function paintAudioButton(button, pressed, meta) {
   if (!button) return;

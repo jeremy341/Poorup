@@ -1,9 +1,6 @@
-// Input hygiene for player-visible text (F-056, F-057, F-058, E6-07, E1-03):
-// nicknames and account display names lose hidden and bidi characters, stay
-// to a plain character set, cannot impersonate a bot or a system label, and
-// stay unique per table. Chat text loses the same hidden characters and is
-// capped by code point. Public seams only: roomSetup normalizers and
-// validators, RoomManager seating, the appearance mixin, and AccountStore.
+// Input hygiene for player-visible text: nicknames and account display names lose hidden and bidi characters, stay to a plain
+// character set, cannot impersonate a bot or system label, and stay unique per table. Chat loses the same hidden characters and is
+// capped by code point. Public seams only: roomSetup normalizers and validators, RoomManager seating, the appearance mixin, AccountStore.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';

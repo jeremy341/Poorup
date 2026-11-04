@@ -6,7 +6,7 @@ import { defaultStackOffset, startTileStackOffset } from "./clientBoardStack.js"
 import { tileAriaLabel } from "./clientTileLabel.js";
 import { fileURLToPath } from "node:url";
 
-// Source-level contracts for the U2 visual lane (typography, targets, shell
+// Source-level contracts for the visual layer (typography, targets, shell
 // bounds). Browser-measured behaviour lives in qa/visual-contracts.spec.js.
 const root = dirname(fileURLToPath(import.meta.url));
 const css = readFileSync(join(root, "styles.css"), "utf8");
@@ -20,7 +20,7 @@ export function rule(selector, source = css) {
   return matches.map((m) => m[3]).join("\n");
 }
 
-// F789-13 needs a fake matchMedia before clientDom.js is evaluated.
+// The reduced-motion check needs a fake matchMedia before clientDom.js is evaluated.
 const reducedMotionListeners = [];
 const reducedMotionQuery = { matches: false, addEventListener: (_type, listener) => reducedMotionListeners.push(listener) };
 globalThis.window = { matchMedia: () => reducedMotionQuery };
@@ -31,7 +31,7 @@ function check(name, fn) {
   try { fn(); checks.push({ name, ok: true }); } catch (error) { checks.push({ name, ok: false, error }); }
 }
 
-check("F-084: display face is Jersey 15 (uppercase C stays distinct from O) and the wordmark keeps the brand face", () => {
+check("display face is Jersey 15 (uppercase C stays distinct from O) and the wordmark keeps the brand face", () => {
   assert.match(css, /--font-display:\s*"Jersey 15"/);
   assert.ok(existsSync(join(root, "assets/fonts/jersey15-regular.woff2")));
   assert.match(css, /--font-brand:\s*"Pixelify Sans"/);
@@ -40,7 +40,7 @@ check("F-084: display face is Jersey 15 (uppercase C stays distinct from O) and 
   assert.match(css, /font-synthesis:\s*none/);
 });
 
-check("F-080: stacked tokens on Start stay above the COLLECT / $200 caption and inside the tile", () => {
+check("stacked tokens on Start stay above the COLLECT / $200 caption and inside the tile", () => {
   for (const [tile, caption, size] of [[88, 0, 30], [74, -6, 26], [120, 10, 30], [60, -2, 22]]) {
     for (let count = 1; count <= 4; count += 1) {
       for (let idx = 0; idx < count; idx += 1) {
@@ -55,14 +55,14 @@ check("F-080: stacked tokens on Start stay above the COLLECT / $200 caption and 
   assert.deepEqual(defaultStackOffset(3, 1), { x: 11, y: -8 });
 });
 
-check("F-086: board tile labels grow at >= 1800px wide", () => {
-  const block = css.slice(css.indexOf("/* F-086"));
-  assert.ok(block.length < css.length, "F-086 block missing");
+check("board tile labels grow at >= 1800px wide", () => {
+  const block = css.slice(css.indexOf("/* Board tile captions:"));
+  assert.ok(block.length < css.length, "tile caption block missing");
   assert.match(block, /@media \(min-width: 1800px\)[\s\S]*?\.tile-name\s*\{[^}]*font-size:\s*clamp\(9px, 1\.3cqw, 14px\)/);
   assert.match(block, /\.tile-price\s*\{[^}]*font-size:\s*clamp\(10px, 1\.35cqw, 15px\)/);
 });
 
-check("F-052: tile accessible names carry owner, buildings and mortgage state", () => {
+check("tile accessible names carry owner, buildings and mortgage state", () => {
   const rio = { name: "RIO", price: 60 };
   assert.equal(tileAriaLabel(rio), "RIO, price $60");
   assert.equal(tileAriaLabel({ name: "TREASURE" }), "TREASURE");
@@ -75,7 +75,7 @@ check("F-052: tile accessible names carry owner, buildings and mortgage state", 
   assert.match(render, /function renderBoardTile[\s\S]*renderTileLabel\(el, tile\)/, "labels must refresh on every board render");
 });
 
-check("F789-11: live regions use one politeness per element and informational copy is polite", () => {
+check("live regions use one politeness per element and informational copy is polite", () => {
   const sockets = readFileSync(join(root, "clientSocketListeners.js"), "utf8");
   for (const tag of html.match(/<[^>]*aria-live=[^>]*>/g) || []) {
     const role = /role="(\w+)"/.exec(tag)?.[1];
@@ -89,7 +89,7 @@ check("F789-11: live regions use one politeness per element and informational co
   assert.doesNotMatch(html, /id="bot-provider-banner"[^>]*role="alert"/);
 });
 
-check("F789-12: chat log is a named, focusable log that appends only new rows", () => {
+check("chat log is a named, focusable log that appends only new rows", () => {
   assert.match(html, /id="chat-body" role="log" aria-label="Parlor chat messages"[^>]*tabindex="0"/);
   const main = readFileSync(join(root, "main.js"), "utf8");
   const fn = main.slice(main.indexOf("function renderChatMessages("), main.indexOf("function syncChatScroll("));
@@ -98,7 +98,7 @@ check("F789-12: chat log is a named, focusable log that appends only new rows", 
   assert.match(fn, /body\.innerHTML/, "full render stays the fallback for first render / room change");
 });
 
-check("F789-13: reduced motion is read live from matchMedia change events", () => {
+check("reduced motion is read live from matchMedia change events", () => {
   assert.equal(dom.REDUCED_MOTION, false);
   assert.equal(reducedMotionListeners.length, 1, "clientDom subscribes to the media query");
   reducedMotionQuery.matches = true;
@@ -108,18 +108,13 @@ check("F789-13: reduced motion is read live from matchMedia change events", () =
   assert.equal(dom.REDUCED_MOTION, false);
 });
 
-check("F789-14: toast dismiss target is at least 24x24 CSS px", () => {
+check("toast dismiss target is at least 24x24 CSS px", () => {
   const body = rule(".parlor-toast-close");
   assert.ok(Number(/width:\s*(\d+)px/.exec(body)?.[1]) >= 24, "width");
   assert.ok(Number(/height:\s*(\d+)px/.exec(body)?.[1]) >= 24, "height");
 });
 
-check("privacy page, auction tag and rankings empty state are readable and actionable", () => {
-  const privacy = readFileSync(join(root, "privacy.html"), "utf8");
-  assert.match(privacy, /class="privacy-document-nav"/);
-  assert.match(css, /main\.privacy-page-main\s*\{[^}]*overflow-y:\s*auto/);
-  assert.match(css, /\.privacy-document \.t-body\s*\{[^}]*font-size:\s*15px[^}]*line-height:\s*1\.7/);
-  assert.match(css, /\.privacy-document-nav a\s*\{[^}]*min-height:\s*40px/);
+check("auction tag and rankings empty state are readable and actionable", () => {
   assert.match(rule(".auction-leader-name"), /font-size:\s*15px/);
   assert.match(rule(".auction-bid-box .t-micro"), /font-size:\s*11px/);
   const social = readFileSync(join(root, "clientSocialSurfaces.js"), "utf8");

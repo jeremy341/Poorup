@@ -1,8 +1,6 @@
-// Characterization suite for GameState.proposePlayerContract and
-// GameState.tradeMarket (the two cc 44 twins). Pins every guard order and
-// error string, the replay-cache semantics, loan/equity/hybrid term
-// derivation, buy/sell cash+position math, crisis-buy tracking, and the
-// ledger/feed tails. Captured from the pre-refactor methods.
+// Characterization suite for GameState.proposePlayerContract and GameState.tradeMarket. Pins every guard order and error string,
+// the replay-cache semantics, loan, equity and hybrid term derivation, buy and sell cash and position math, crisis-buy tracking,
+// and the ledger and feed tails. Captured from the pre-refactor methods.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 
@@ -178,10 +176,7 @@ check('contract negotiation roles alternate after each counter', () => {
   const adjusted = game.adjustPlayerContract('socket-b', { contractId: counter.contract.id, amount: 95, premiumRate: 8, durationRounds: 4 });
   assert.equal(adjusted.success, true);
   assert.equal(game.pendingPlayerContract.toPlayerId, b.id);
-  // B authored every surviving term, so the decision belongs to A. This line
-  // used to assert the inverted hand-off (B accepting their own counter),
-  // which was the B-01 exploit: the responder fell back to counterDepth
-  // parity once the same seat negotiated twice in a row.
+  // B authored every surviving term, so the decision belongs to A: B's own accept must be refused.
   assert.deepEqual(game.respondPlayerContract('socket-b', true, 'role-accept', adjusted.contract.id), {
     success: false, error: 'No matching player contract was found.'
   });
@@ -360,7 +355,7 @@ check('a padded requestId replays as the same request instead of executing twice
   assert.equal(first.success, true);
   // " padded-proposal " names the same logical request. Keying on the raw
   // string misses the memo, so the second call runs the guard ladder again
-  // and returns a different result object instead of the memoized one.
+  // and returns a new result object, not the memoized one.
   const pendingAfterFirst = game.pendingPlayerContract;
   game.pendingPlayerContract = null;
   const padded = game.proposePlayerContract('socket-a', { toPlayerId: b.id, kind: 'loan', amount: 10, premiumRate: 12, durationRounds: 3, requestId: '  padded-proposal  ' });
@@ -537,7 +532,7 @@ check('new hybrid proposals reject even valid or invalid collateral explicitly',
   }
 });
 
-// --- W19: contract table invariants ------------------------------------------
+// Contract table invariants
 
 const NOT_RUNNING = { success: false, error: 'The game is not running.' };
 

@@ -10,7 +10,7 @@ import { backupJsonFile, createBackupRetentionAdapter, verifyBackup } from './ba
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-erasure-'));
 const clock = Date.parse('2026-10-12T12:00:00.000Z');
 
-// E24-07: a purge removes the account's analytics actor rows, and the removal
+// A purge removes the account's analytics actor rows, and the removal
 // is on disk before the purge reports success.
 {
   const pseudonymizer = createPseudonymizer({ key: 'erasure-test-key-0123456789' });
@@ -34,7 +34,7 @@ const clock = Date.parse('2026-10-12T12:00:00.000Z');
   rollup.close();
 }
 
-// E24-08: notifications other players received about the deleted account are
+// Notifications other players received about the deleted account are
 // removed, and its display name is redacted from any text that remains.
 {
   const social = new SocialStore(path.join(root, 'social.json'));
@@ -52,7 +52,7 @@ const clock = Date.parse('2026-10-12T12:00:00.000Z');
   assert.equal(kept.find(item => item.metadata.inviteId === 'inv-other').body, 'Other Name invited you to Dock Room.', 'unrelated notifications are untouched');
 }
 
-// E37-08 / E24-11: erasure reaches every backup copy. Unverifiable copies are
+// Erasure reaches every backup copy. Unverifiable copies are
 // deleted, quarantined copies are deleted, corrupt store copies are scrubbed or
 // deleted, and any copy that cannot be reached is counted as skipped.
 {
@@ -81,7 +81,7 @@ const clock = Date.parse('2026-10-12T12:00:00.000Z');
   assert.equal(verifyBackup(path.join(backupDir, sample)).success, true, 'a verified copy stays verified after scrubbing');
   assert.equal(fs.readFileSync(path.join(backupDir, sample), 'utf8').includes('acct-gone'), false);
 
-  // Records moved aside at load (E37-07) hold raw account data too.
+  // Records moved aside at load hold raw account data too.
   fs.writeFileSync(path.join(dataDir, 'accounts.json.rejected-2026-09-03T01-00-00-000Z-abcdef12.json'), JSON.stringify([{ id: 'acct-gone', username: 'gone01' }]));
   await adapter.anonymizeAccount('acct-gone');
   assert.equal(fs.readdirSync(dataDir).some(name => name.startsWith('accounts.json.rejected-')), false, 'a rejected-record sidecar that names the account is deleted');

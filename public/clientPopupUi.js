@@ -1,10 +1,6 @@
-/* ============================================================
-   TILE POPUP: the inspected-deed popup and the pure render
-   helpers (accent, kind label, icon, effect copy, rent schedule)
-   that the deed/choice/auction cards also reuse. Templates are
-   byte-for-byte the old main.js markup; game-bound calls
-   (buyTile, record) arrive via configurePopup hooks.
-   ============================================================ */
+// TILE POPUP: the inspected-deed popup and the pure render helpers (accent, kind label, icon,
+// effect copy, rent schedule) that the deed, choice and auction cards also reuse. Templates match
+// the main.js markup byte for byte. Game-bound calls (buyTile, record) arrive via configurePopup hooks.
 import { $, esc } from "./clientDom.js";
 import { closeButtonHTML } from "./clientCloseButton.js";
 import { state } from "./clientState.js";
@@ -114,7 +110,7 @@ function popRentLabel(tile) {
   if (tile.kind === "utility") return deedCurrentRentLabel(tile);
   if (tile.rent != null) return `$${tile.rent}`;
   if (tile.kind === "tax") return `PAY $${tile.price ?? 200}`;
-  return "—";
+  return "-";
 }
 
 function popOwnerLabel(owner, buyable) {
@@ -124,9 +120,9 @@ function popOwnerLabel(owner, buyable) {
 
 function popBuildTag(buyable, level) {
   if (!buyable || level <= 0) return "";
-  if (level === HOTEL_LEVEL) return ` <span class="t-label f11 g300">— HOTEL</span>`;
+  if (level === HOTEL_LEVEL) return ` <span class="t-label f11 g300">- HOTEL</span>`;
   const plural = level === 1 ? "" : "S";
-  return ` <span class="t-label f11 g300">— ${level} HOUSE${plural}</span>`;
+  return ` <span class="t-label f11 g300">- ${level} HOUSE${plural}</span>`;
 }
 
 function popColorSetRows(tile) {
@@ -150,7 +146,7 @@ function popOwnerFootHTML(owner) {
 
 function popAuctionHintHTML(unowned) {
   if (!unowned || !state.settings.auction) return "";
-  return `<div class="pop-buy-row"><p class="t-micro ink-3" style="text-align:center">AUCTION RULES ON — BUY WHEN YOU LAND HERE</p></div>`;
+  return `<div class="pop-buy-row"><p class="t-micro ink-3" style="text-align:center">AUCTION RULES ON - BUY WHEN YOU LAND HERE</p></div>`;
 }
 
 function popCanBuyNow(tile) {
@@ -253,7 +249,7 @@ export function closePopup() {
 export function onTileClick(tile, trigger = null) {
   if (!tileSupportsInspection(tile)) return;
   const owner = state.players.find((p) => p.id === state.owners[tile.i]);
-  host.record(`INSPECTED ${tile.name}${tile.price ? ` — $${tile.price}` : ""}${owner ? ` — OWNED BY ${owner.name}` : ""}`);
+  host.record(`INSPECTED ${tile.name}${tile.price ? `, $${tile.price}` : ""}${owner ? `, OWNED BY ${owner.name}` : ""}`);
   if (owner?.id === "p1" && ["property", "railroad", "utility"].includes(tile.kind)) {
     host.openDeedDetail(tile.i, trigger);
   } else {

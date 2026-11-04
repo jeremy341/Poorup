@@ -28,8 +28,11 @@
   .economy-adoption-list { grid-template-columns: minmax(0, 1fr); }
   .economy-report { flex-basis: auto; }
 }
-@media (max-height: 760px) {
-  .economy-report { grid-template-rows: auto auto; }
+/* Short windows: the outcome and adoption rows keep their size and the report scrolls to them. The fade at the
+   foot is the overflow cue; the bottom padding keeps the last row clear of it when the report is scrolled to its end. */
+@media (max-height: 800px) {
+  .economy-report { grid-template-rows: auto auto; padding-bottom: 28px; -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
+  .economy-outcome-list { grid-template-rows: none; grid-auto-rows: minmax(64px, auto); flex: none; }
 }
 @media (forced-colors: active) {
   .economy-adoption-track { border-color: CanvasText; }

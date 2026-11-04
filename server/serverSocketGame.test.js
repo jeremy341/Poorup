@@ -190,7 +190,7 @@ assert.equal(invoke(declinedAuction.hostHandlers.get('decline-property'), { tile
 assert.ok(declinedAuction.room.game.feed.some(entry => entry.text === `Auction started for ${declinedTile.name}. Players may place bids.`));
 assert.equal(declinedAuction.delivered.filter(entry => entry.event === 'system-message').length, 0, 'declining into auction uses the detailed feed instead of result.message');
 console.log('PASS declinedAuctionStartUsesFeedOnly');
-// S09-1: the author of the latest offer may withdraw it. After a counter that is
+// The author of the latest offer may withdraw it. After a counter that is
 // the borrower, who is not the contract's stable `fromPlayerId`.
 const counterCancel = relayRoom('relay-ccancel-a', 'relay-ccancel-b', 'relay-ccancel-a-client', 'relay-ccancel-b-client');
 const [counterLender, counterBorrower] = counterCancel.room.game.players;
@@ -215,7 +215,7 @@ assert.deepEqual(counterCancel.delivered.filter(entry => entry.event === 'player
   'the lender, who was awaiting the counter, gets the clearing update');
 console.log('PASS counterProposerCanCancelOwnOffer');
 
-// S06-08: a flight that lands on an unaffordable airport opens an auction, and
+// A flight that lands on an unaffordable airport opens an auction, and
 // the handler must arm its finish like every other auction-opening verb.
 const flightAuction = relayRoom('relay-fly-a', 'relay-fly-b', 'relay-fly-a-client', 'relay-fly-b-client');
 flightAuction.room.flyToAirport = () => ({ success: true, auctionStarted: true, fare: 0, basis: 'test' });
@@ -223,7 +223,7 @@ assert.equal(invoke(flightAuction.hostHandlers.get('fly-to-airport'), { tileInde
 assert.equal(flightAuction.getScheduledAuctions(), 1, 'fly-to-airport arms the auction finish');
 console.log('PASS flightIntoAuctionArmsFinish');
 
-// s06 S06-05: a bankrupt leader's lead is revoked with a restored bid window,
+// A bankrupt leader's lead is revoked with a restored bid window,
 // so the handler re-arms the finish for the auction that is still open.
 const bankruptAuction = relayRoom('relay-bk-a', 'relay-bk-b', 'relay-bk-a-client', 'relay-bk-b-client');
 bankruptAuction.room.game.startAuction(bankruptAuction.room.game.getTile(1), bankruptAuction.room.game.players[1].id);

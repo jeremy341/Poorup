@@ -1,9 +1,6 @@
-// Shared building blocks for the socket layer: the crash-safe per-event
-// emitter, the ack helpers every handler funnels through, and the factory
-// that installs the repetitive room-verb handlers from a definition table
-// (the pattern server/rooms.js GAME_PASSTHROUGHS uses for Room methods).
-// Behavior here is pinned by server/server.test.js (null-payload storm) and
-// the ack-shape checks in server/rooms.test.js.
+// Shared building blocks for the socket layer: the crash-safe per-event emitter, the ack helpers every handler funnels through,
+// and the factory that installs repetitive room-verb handlers from a definition table (the pattern GAME_PASSTHROUGHS in rooms.js uses).
+// Pinned by server/server.test.js (null-payload storm) and the ack-shape checks in server/rooms.test.js.
 
 // Ack payload the room verbs answer with. The property order (success,
 // error, then verb-specific extras) is what rooms.test.js string-compares.
@@ -27,7 +24,7 @@ function getRoomForSocket(runtime, socket, callback) {
   return room;
 }
 
-// sessionToken -> account, for handlers that act on a signed-in socket.
+// sessionToken to account, for handlers that act on a signed-in socket.
 function resolveAccount(accountStore, socket, payload = {}) {
   // An explicitly supplied token is authoritative. Never fall back to a
   // socket's cached account after that token fails, otherwise a logout or
@@ -114,13 +111,9 @@ function announceVerbResult(io, room, result, definition) {
   relayResultOffer(io, room, result, definition.relay);
 }
 
-// Single scaffold for every socket event. Malformed wire payloads
-// (null, strings, numbers) used to reach handler bodies written against
-// `payload = {}` defaults — which only guard undefined — and a throw
-// inside a socket.io listener escapes to the event emitter and kills
-// the whole server. This wrapper normalizes the payload, guarantees a
-// callable callback, and converts any synchronous or asynchronous
-// handler failure into a logged, ack'd error instead of a crash.
+// Single scaffold for every socket event. Malformed payloads (null, strings, numbers) would reach handler bodies written against
+// `payload = {}` defaults, which only guard undefined, and a throw inside a socket.io listener would kill the whole server.
+// The wrapper normalizes the payload, provides a callable callback, and turns any handler failure into a logged, ack'd error.
 function createSafeEmitter(socket, options = {}) {
   return function on(event, handler) {
     socket.on(event, (rawPayload, rawCallback) => {
@@ -132,7 +125,11 @@ function createSafeEmitter(socket, options = {}) {
         callback({ success: false, error: 'Too many requests. Try again shortly.' });
         return;
       }
-      runSocketHandler(handler, payload, callback, event);
+      const trackedCallback = response => {
+        if (response?.success === true) options.onAccepted?.(socket.id, event);
+        callback(response);
+      };
+      runSocketHandler(handler, payload, trackedCallback, event);
     });
   };
 }

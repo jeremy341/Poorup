@@ -1,10 +1,6 @@
-// Characterization suite for GameState.applyCard — the card-action dispatcher
-// in the rules engine. Each case drives one card action (and the tricky
-// branches: low-tax election modifier, airport-strike grounding, owned
-// railroad/utility rent, missing destinations) from an identical two-player
-// fixture and pins the observable contract: return shape, positions, cash
-// movement, pending purchase offer, turn resolution and feed volume. Captured
-// from the pre-refactor switch; the dispatch-table extraction must keep it green.
+// Characterization suite for GameState.applyCard, the card-action dispatcher in the rules engine.
+// Each case drives one card action (or a tricky branch) from an identical two-player fixture and pins
+// the observable contract. Captured from the pre-refactor switch; the dispatch table must keep it green.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 
@@ -518,10 +514,10 @@ for (const [name, [setup, card]] of Object.entries(CASES)) {
   try {
     assert.deepStrictEqual(runCase(setup, card), GOLDEN[name], name);
     passed += 1;
-    console.log(`PASS — applyCard ${name}`);
+    console.log(`PASS - applyCard ${name}`);
   } catch (error) {
     failures.push(name);
-    console.log(`FAIL — applyCard ${name}: ${error.message}`);
+    console.log(`FAIL - applyCard ${name}: ${error.message}`);
   }
 }
 console.log(`applyCard tests: ${passed} passed, ${failures.length} failed`);
@@ -546,9 +542,9 @@ try {
   assert.deepEqual({ result, payer: game.players[0].cash, owner: game.players[1].cash }, {
     result: { success: true }, payer: 980, owner: 1020
   });
-  console.log('PASS — applyCard nearestUtility-pre-roll uses minimum dice total');
+  console.log('PASS - applyCard nearestUtility-pre-roll uses minimum dice total');
 } catch (error) {
-  console.log(`FAIL — applyCard nearestUtility-pre-roll: ${error.message}`);
+  console.log(`FAIL - applyCard nearestUtility-pre-roll: ${error.message}`);
   process.exitCode = 1;
 }
 
@@ -568,13 +564,13 @@ try {
   game.applyCard(payer, { action: 'nearestUtility', multiplier: 10 }, {});
   assert.equal(payer.cash, 895);
   assert.equal(owner.cash, 1105);
-  console.log('PASS — applyCard utility rent honors active event modifiers');
+  console.log('PASS - applyCard utility rent honors active event modifiers');
 } catch (error) {
-  console.log(`FAIL — applyCard utility event modifier: ${error.message}`);
+  console.log(`FAIL - applyCard utility event modifier: ${error.message}`);
   process.exitCode = 1;
 }
 
-// F-015: the rent cap limits the single amount a card charges, so "pay double"
+// The rent cap limits the single amount a card charges, so "pay double"
 // to an airport never exceeds a $30 cap (double of a capped $25 would be $50).
 // Utility cards already capped after their multiplier; both must agree.
 try {
@@ -593,9 +589,9 @@ try {
   game.applyCard(payer, { action: 'nearestRailroad', multiplier: 2 }, {});
   assert.equal(payer.cash, 970);
   assert.equal(owner.cash, 1030);
-  console.log('PASS — applyCard railroad double rent honors the rent cap');
+  console.log('PASS - applyCard railroad double rent honors the rent cap');
 } catch (error) {
-  console.log(`FAIL — applyCard railroad double rent cap: ${error.message}`);
+  console.log(`FAIL - applyCard railroad double rent cap: ${error.message}`);
   process.exitCode = 1;
 }
 
@@ -615,9 +611,9 @@ try {
   game.applyCard(payer, { action: 'nearestUtility', multiplier: 10 }, {});
   assert.equal(payer.cash, 970);
   assert.equal(owner.cash, 1030);
-  console.log('PASS — applyCard utility rent honors the rent cap');
+  console.log('PASS - applyCard utility rent honors the rent cap');
 } catch (error) {
-  console.log(`FAIL — applyCard utility rent cap: ${error.message}`);
+  console.log(`FAIL - applyCard utility rent cap: ${error.message}`);
   process.exitCode = 1;
 }
 
@@ -632,9 +628,9 @@ try {
   game.applyCard(player, { action: 'pay', amount: 50 }, {});
   assert.equal(game.pendingPayment.amountRemaining, 30);
   assert.equal(game.cardCashAfterPlay(player, { action: 'pay', amount: 50 }, before, player.position), -20);
-  console.log('PASS — applyCard pay reveal reports actual partial payment');
+  console.log('PASS - applyCard pay reveal reports actual partial payment');
 } catch (error) {
-  console.log(`FAIL — applyCard pay reveal: ${error.message}`);
+  console.log(`FAIL - applyCard pay reveal: ${error.message}`);
   process.exitCode = 1;
 }
 
@@ -671,9 +667,9 @@ try {
     { creditorId: game.players[2].id, amountRemaining: 50 },
     { creditorId: game.players[3].id, amountRemaining: 50 }
   ]);
-  console.log('PASS — applyCard payEach parks every unpaid recipient leg');
+  console.log('PASS - applyCard payEach parks every unpaid recipient leg');
 } catch (error) {
-  console.log(`FAIL — applyCard payEach shortfall: ${error.message}`);
+  console.log(`FAIL - applyCard payEach shortfall: ${error.message}`);
   process.exitCode = 1;
 }
 
@@ -687,9 +683,9 @@ try {
   game.applyCard(player, { action: 'collect' }, {});
   assert.equal(player.cash, 300);
   assert.equal(game.cardCashAfterPlay(player, { action: 'collect' }, 100, player.position), 200);
-  console.log('PASS — applyCard collect reveal matches default payout');
+  console.log('PASS - applyCard collect reveal matches default payout');
 } catch (error) {
-  console.log(`FAIL — applyCard collect default: ${error.message}`);
+  console.log(`FAIL - applyCard collect default: ${error.message}`);
   process.exitCode = 1;
 }
 
@@ -707,13 +703,13 @@ try {
   const before = payer.cash;
   game.applyCard(payer, { action: 'moveTo', tileIndex: 3 }, {});
   assert.equal(game.cardCashAfterPlay(payer, { action: 'moveTo', tileIndex: 3 }, before), 190);
-  console.log('PASS — applyCard movement reveal includes salary and rent');
+  console.log('PASS - applyCard movement reveal includes salary and rent');
 } catch (error) {
-  console.log(`FAIL — applyCard movement reveal: ${error.message}`);
+  console.log(`FAIL - applyCard movement reveal: ${error.message}`);
   process.exitCode = 1;
 }
 
-// S03-6: nearest-airport/utility card rent is a landing, so it records the same
+// Nearest-airport/utility card rent is a landing, so it records the same
 // facts a dice landing does (airport visit stat, airport-strike rent flags).
 try {
   const manager = new RoomManager();
@@ -745,13 +741,13 @@ try {
   strikeGame.applyCard(strikePayer, { action: 'nearestUtility', multiplier: 10 }, {});
   assert.equal(strikePayer.cash < 1000, true, 'utility rent was charged');
   assert.equal(strikeOwner.nonAirportRentDuringStrike, true);
-  console.log('PASS — applyCard card rent records landing facts');
+  console.log('PASS - applyCard card rent records landing facts');
 } catch (error) {
-  console.log(`FAIL — applyCard card rent landing facts: ${error.message}`);
+  console.log(`FAIL - applyCard card rent landing facts: ${error.message}`);
   process.exitCode = 1;
 }
 
-// K2: the low-tax election cuts every card reward, including the per-player
+// The low-tax election cuts every card reward, including the per-player
 // collection of a collect-from-each card.
 try {
   const manager = new RoomManager();
@@ -766,13 +762,13 @@ try {
   game.applyCard(game.players[0], { action: 'collectFromEach', amount: 50 }, {});
   assert.equal(game.players[0].cash, 1040);
   assert.equal(game.players[1].cash, 960);
-  console.log('PASS — applyCard collectFromEach honors the low-tax discount');
+  console.log('PASS - applyCard collectFromEach honors the low-tax discount');
 } catch (error) {
-  console.log(`FAIL — applyCard collectFromEach low tax: ${error.message}`);
+  console.log(`FAIL - applyCard collectFromEach low tax: ${error.message}`);
   process.exitCode = 1;
 }
 
-// K3: a card transfer that empties the payer's wallet must record the
+// A card transfer that empties the payer's wallet must record the
 // zero-cash achievement flag, exactly like the debt paths do.
 try {
   const manager = new RoomManager();
@@ -789,9 +785,9 @@ try {
   game.applyCard(payer, { action: 'payEach', amount: 20 }, {});
   assert.equal(payer.cash, 0);
   assert.equal(payer.zeroCashReached, true);
-  console.log('PASS — applyCard payEach records the payer reaching zero cash');
+  console.log('PASS - applyCard payEach records the payer reaching zero cash');
 } catch (error) {
-  console.log(`FAIL — applyCard payEach zero cash: ${error.message}`);
+  console.log(`FAIL - applyCard payEach zero cash: ${error.message}`);
   process.exitCode = 1;
 }
 
@@ -810,13 +806,13 @@ try {
   game.applyCard(collector, { action: 'collectFromEach', amount: 15 }, {});
   assert.equal(payer.cash, 0);
   assert.equal(payer.zeroCashReached, true);
-  console.log('PASS — applyCard collectFromEach records the payer reaching zero cash');
+  console.log('PASS - applyCard collectFromEach records the payer reaching zero cash');
 } catch (error) {
-  console.log(`FAIL — applyCard collectFromEach zero cash: ${error.message}`);
+  console.log(`FAIL - applyCard collectFromEach zero cash: ${error.message}`);
   process.exitCode = 1;
 }
 
-// K4: cash arriving from a pay-each card must immediately settle a parked debt
+// Cash arriving from a pay-each card must immediately settle a parked debt
 // held by the recipient, matching the property/loan/trade rescue rule.
 try {
   const manager = new RoomManager();
@@ -847,8 +843,8 @@ try {
   assert.equal(debtor.cash, 0);
   assert.equal(creditor.cash, 1040);
   assert.equal(game.pendingPayment, null);
-  console.log('PASS — applyCard payEach settles a recipient parked debt');
+  console.log('PASS - applyCard payEach settles a recipient parked debt');
 } catch (error) {
-  console.log(`FAIL — applyCard payEach recipient debt: ${error.message}`);
+  console.log(`FAIL - applyCard payEach recipient debt: ${error.message}`);
   process.exitCode = 1;
 }

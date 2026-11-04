@@ -1,7 +1,6 @@
-// S18-5: a bot counter asks the original proposer for the ask plus a premium. The
-// server refuses a counter whose requested cash the proposer does not hold
-// (tradeApi 'One of the players no longer has enough cash.'), so the bot must not
-// build one; it would burn the action and fall back to a decline.
+// A bot counter asks the original proposer for the ask plus a premium. The server refuses a counter whose
+// requested cash the proposer does not hold (tradeApi 'One of the players no longer has enough cash.'), so the bot
+// must not build one; it would burn the action and fall back to a decline.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { counterTradeOffer } from './botCandidates.js';

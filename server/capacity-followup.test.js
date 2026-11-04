@@ -16,7 +16,7 @@ room.ensureBots();
 assert.equal(room.game.players.filter(player => !player.isBot && !player.bankrupt).length, 3);
 assert.equal(room.game.players.filter(player => player.isBot).length, 1);
 
-// X12: a retained bankrupt human seat still holds capacity. The rematch
+// A retained bankrupt human seat still holds capacity. The rematch
 // revives the eliminated seat, so the capacity and the bot math must count
 // it: a table that counts only the solvent humans grows past maxPlayers.
 {

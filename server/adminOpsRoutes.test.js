@@ -109,10 +109,9 @@ const secretRoom = () => ({
   },
 });
 
-// This harness writes through both route families in the shared per-operator
-// budget. Its ops clock runs one window ahead of the provider family's real
-// clock, so each family's burst starts a fresh window instead of tripping the
-// limit inside the test.
+// This harness writes through both route families in the shared per-operator budget. Its ops
+// clock runs one window ahead of the provider family's clock, so each burst starts a fresh window
+// rather than tripping the limit inside the test.
 const harness = buildHarness({ rooms: new Map([['QX7ZKD', secretRoom()]]), now: () => Date.now() + 61_000 });
 const { base, close } = await listen(harness.app);
 

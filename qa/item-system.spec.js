@@ -26,6 +26,29 @@ async function shot(page, info, id, label, selector) {
 async function noPageOverflow(page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1 && document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
 }
+// A started two-seat room with item rewards on unless itemRewards is false. Seat 0 is the host.
+function startedItemRoom({ host, guest, rulesProfile, itemRewards = true }) {
+  const room = new RoomManager().createRoom({ rulesProfile, socketId: host, clientId: host, nickname: 'HOST' });
+  room.addOrReconnectPlayer({ socketId: guest, clientId: guest, nickname: 'GUEST' });
+  if (itemRewards) room.setRoomSetting('itemRewards', true);
+  expect(room.startGame().success).toBe(true);
+  const game = room.game;
+  return { game, owner: game.players[0], other: game.players[1] };
+}
+// The data-deal-action values of a detail card's buttons, in DOM order.
+const dealActionNames = locator => locator.evaluateAll(buttons => buttons.map(button => button.dataset.dealAction));
+// Each catalog icon is present in the sprite and sits inside its row's glyph frame.
+async function expectIconsInFrames(card, spriteText, ids) {
+  for (const id of ids) {
+    expect(spriteText).toContain(`id="${id}"`);
+    const glyph = card.locator(`.wallet-item-row:has(use[href$="#${id}"]) .holding-item-glyph`);
+    const svg = glyph.locator('svg'); await expect(svg).toBeVisible();
+    const frame = await glyph.boundingBox(), icon = await svg.boundingBox();
+    expect(icon.x).toBeGreaterThanOrEqual(frame.x - 1); expect(icon.y).toBeGreaterThanOrEqual(frame.y - 1);
+    expect(icon.x + icon.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
+    expect(icon.y + icon.height).toBeLessThanOrEqual(frame.y + frame.height + 1);
+  }
+}
 
 test('a host can enable item rewards independently and preserve the choice between presets', async ({ page }, info) => {
   await page.goto('/'); await page.locator('#home-alias').fill('ITEMHOST');
@@ -40,10 +63,8 @@ test('a host can enable item rewards independently and preserve the choice betwe
 });
 
 test('real catalog items show their value and exercise server-owned effects', async ({ page }, info) => {
-  const manager = new RoomManager(), room = manager.createRoom({ socketId: 'ui-host', clientId: 'ui-host', nickname: 'HOST' });
-  room.addOrReconnectPlayer({ socketId: 'ui-guest', clientId: 'ui-guest', nickname: 'GUEST' });
-  room.setRoomSetting('itemRewards', true); expect(room.startGame().success).toBe(true);
-  const game = room.game, owner = game.players[0]; game.currentPlayerId = owner.id; game.roundNumber = 5; owner.inJail = true;
+  const { game, owner } = startedItemRoom({ host: 'ui-host', guest: 'ui-guest' });
+  game.currentPlayerId = owner.id; game.roundNumber = 5; owner.inJail = true;
   game.applyCard(owner, { action: 'jailFree' });
   game.applyCard(owner, { action: 'itemReward', catalogId: 'parlor-bond', itemName: 'a Parlor Bond' });
   game.applyCard(owner, { action: 'itemReward', catalogId: 'silver-keepsake', itemName: 'a Silver Keepsake' });
@@ -62,44 +83,34 @@ test('real catalog items show their value and exercise server-owned effects', as
     f.openWallet('items');
   }, { items: initialItems, ownerId: owner.id, round: game.roundNumber });
   const card = page.locator('#wallet-card');
-  for (const [name, value] of [['PRISON KEY', '$25'], ['PARLOR BOND', '$50'], ['SILVER KEEPSAKE', '$75']]) {
+  for (const [name, value] of [['PRISON KEY', '$25'], ['PARLOR BOND', '$400'], ['SILVER KEEPSAKE', '$600']]) {
     const row = card.locator('.wallet-item-row').filter({ hasText: name }); await expect(row).toContainText(value);
   }
   await expect(card.locator('.wallet-item-row')).toHaveCount(3); await expect(card).not.toContainText(/REWARD \d+/);
   const asset = await page.evaluate(async () => { const response = await fetch('/assets/item-icons.svg'); return { ok: response.ok, text: await response.text() }; });
   expect(asset.ok).toBe(true);
-  for (const id of ['prison-key', 'parlor-bond', 'silver-keepsake']) {
-    expect(asset.text).toContain(`id="${id}"`);
-    const glyph = card.locator(`.wallet-item-row:has(use[href$="#${id}"]) .holding-item-glyph`);
-    const svg = glyph.locator('svg'); await expect(svg).toBeVisible();
-    const frame = await glyph.boundingBox(), icon = await svg.boundingBox();
-    expect(icon.x).toBeGreaterThanOrEqual(frame.x - 1); expect(icon.y).toBeGreaterThanOrEqual(frame.y - 1);
-    expect(icon.x + icon.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
-    expect(icon.y + icon.height).toBeLessThanOrEqual(frame.y + frame.height + 1);
-  }
+  await expectIconsInFrames(card, asset.text, ['prison-key', 'parlor-bond', 'silver-keepsake']);
   await expect(card.locator('[data-wallet-item-action=trade], [data-wallet-item-action=exchange]')).toHaveCount(0);
   const bondRow = card.locator('.wallet-item-row').filter({ hasText: 'PARLOR BOND' });
   await expect(bondRow.locator('[data-wallet-item-action=use]')).toBeDisabled(); await expect(bondRow).toContainText('ROUND 7');
   await shot(page, info, 'real-items', 'Three real item types with server-owned values', '#wallet-card');
-  await bondRow.locator('[data-wallet-item-select]').click(); await expect(card.locator('.wallet-item-detail')).toContainText('$100');
+  await bondRow.locator('[data-wallet-item-select]').click(); await expect(card.locator('.wallet-item-detail')).toContainText('$800');
   await shot(page, info, 'bond-details', 'Bond value, maturity and details', '#wallet-card');
   await card.locator('.wallet-item-row').filter({ hasText: 'SILVER KEEPSAKE' }).locator('[data-wallet-item-action=sell]').click();
-  await expect.poll(() => owner.cash).toBe(initialCash + 75); await expect(card.locator('.wallet-item-row')).toHaveCount(2);
+  await expect.poll(() => owner.cash).toBe(initialCash + 600); await expect(card.locator('.wallet-item-row')).toHaveCount(2);
   await card.locator('.wallet-item-row').filter({ hasText: 'PRISON KEY' }).locator('[data-wallet-item-action=use]').click();
   await expect.poll(() => owner.inJail).toBe(false); await expect(card.locator('.wallet-item-row')).toHaveCount(1);
   game.roundNumber = 7; const readyItems = game.summaryItems(owner, owner.id);
   await page.evaluate(items => { const f = window.__ipadModalCapture; f.state.players[0].items = items; f.state.roundNumber = 7; f.wallet.renderWalletModalIfOpen(); }, readyItems);
   await expect(card.locator('[data-wallet-item-action=use]')).toBeEnabled();
   await shot(page, info, 'bond-mature', 'Mature bond with its redeem and sell choices', '#wallet-card');
-  await card.locator('[data-wallet-item-action=use]').click(); await expect.poll(() => owner.cash).toBe(initialCash + 175);
+  await card.locator('[data-wallet-item-action=use]').click(); await expect.poll(() => owner.cash).toBe(initialCash + 1400);
   await expect(card).toContainText('NO ITEMS THIS ROUND'); await noPageOverflow(page);
 });
 
 test('a long real inventory remains scrollable and keyboard reachable', async ({ page }, info) => {
-  const manager = new RoomManager(), room = manager.createRoom({ socketId: 'scroll-host', clientId: 'scroll-host', nickname: 'HOST' });
-  room.addOrReconnectPlayer({ socketId: 'scroll-guest', clientId: 'scroll-guest', nickname: 'GUEST' });
-  room.setRoomSetting('itemRewards', true); expect(room.startGame().success).toBe(true);
-  const game = room.game, owner = game.players[0]; game.currentPlayerId = owner.id; game.roundNumber = 5;
+  const { game, owner } = startedItemRoom({ host: 'scroll-host', guest: 'scroll-guest' });
+  game.currentPlayerId = owner.id; game.roundNumber = 5;
   for (let n = 0; n < 12; n++) game.applyCard(owner, { action: 'itemReward', catalogId: n % 2 ? 'parlor-bond' : 'silver-keepsake' });
   const items = game.summaryItems(owner, owner.id); expect(new Set(items.map(item => item.itemId)).size).toBe(12);
   await fixture(page); await page.evaluate(items => { const f = window.__ipadModalCapture; f.state.players[0].items = items; f.state.roundNumber = 5; f.openWallet('items'); }, items);
@@ -110,10 +121,8 @@ test('a long real inventory remains scrollable and keyboard reachable', async ({
 });
 
 test('an owner can sell an item during another player’s turn', async ({ page }, info) => {
-  const manager = new RoomManager(), room = manager.createRoom({ socketId: 'seller', clientId: 'seller', nickname: 'HOST' });
-  room.addOrReconnectPlayer({ socketId: 'other', clientId: 'other', nickname: 'GUEST' }); room.setRoomSetting('itemRewards', true);
-  expect(room.startGame().success).toBe(true);
-  const game = room.game, owner = game.players[0], other = game.players[1]; game.currentPlayerId = other.id;
+  const { game, owner, other } = startedItemRoom({ host: 'seller', guest: 'other' });
+  game.currentPlayerId = other.id;
   game.applyCard(owner, { action: 'itemReward', catalogId: 'silver-keepsake' });
   const before = owner.cash, items = game.summaryItems(owner, owner.id); expect(items[0].canSell).toBe(true);
   await page.exposeFunction('__offturnSale', ({ itemId, requestId }) => {
@@ -126,16 +135,15 @@ test('an owner can sell an item during another player’s turn', async ({ page }
     f.wallet.configureWalletUi({ emitServer: (_event, payload, ack) => window.__offturnSale(payload).then(({ result, items, cash }) => { f.state.players[0].items = items; f.state.players[0].cash = cash; ack(result); }), createRequestId: () => 'offturn-ui-sale', refreshWalletSnapshot: () => {}, renderRightRail: () => {}, renderHud: () => {} });
     f.openWallet('items');
   }, { items, ownerId: owner.id });
-  const sell = page.locator('#wallet-card [data-wallet-item-action=sell]'); await expect(sell).toBeEnabled(); await expect(sell).toContainText('$75');
+  const sell = page.locator('#wallet-card [data-wallet-item-action=sell]'); await expect(sell).toBeEnabled(); await expect(sell).toContainText('$600');
   await shot(page, info, 'offturn-sale', 'Selling an item during another player’s turn', '#wallet-card');
-  await sell.click(); await expect.poll(() => owner.cash).toBe(before + 75); await expect(page.locator('#wallet-card')).toContainText('NO ITEMS THIS ROUND');
+  await sell.click(); await expect.poll(() => owner.cash).toBe(before + 600); await expect(page.locator('#wallet-card')).toContainText('NO ITEMS THIS ROUND');
   await noPageOverflow(page);
 });
 
 test('an older loan can be negotiated into a current offer without moving cash before acceptance', async ({ page }, info) => {
-  const manager = new RoomManager(), room = manager.createRoom({ socketId: 'borrower', clientId: 'borrower', nickname: 'HOST', rulesProfile: 'advanced' });
-  room.addOrReconnectPlayer({ socketId: 'lender', clientId: 'lender', nickname: 'GUEST' }); expect(room.startGame().success).toBe(true);
-  const game = room.game, borrower = game.players[0], lender = game.players[1]; game.currentPlayerId = lender.id;
+  const { game, owner: borrower, other: lender } = startedItemRoom({ host: 'borrower', guest: 'lender', rulesProfile: 'advanced', itemRewards: false });
+  game.currentPlayerId = lender.id;
   const proposed = game.proposePlayerContract('lender', { toPlayerId: borrower.id, kind: 'loan', amount: 100, premiumRate: 15, durationRounds: 3 });
   expect(proposed.success).toBe(true); const legacy = proposed.contract; delete legacy.rulesVersion;
   const originalId = legacy.id, before = [borrower.cash, lender.cash];
@@ -149,11 +157,11 @@ test('an older loan can be negotiated into a current offer without moving cash b
     f.deal.openDealDetails('contract', legacy.id);
   }, { legacy, borrowerId: borrower.id, lenderId: lender.id });
   const card = page.locator('#deal-detail-card'); await expect(card).toContainText('earlier rules');
-  await expect(card.locator('[data-deal-action=back]')).toBeVisible(); await expect(card.locator('[data-deal-action=decline]')).toBeVisible();
+  await expect(card.locator('[data-deal-action=back]')).toHaveCount(0); await expect(card.locator('[data-deal-action=decline]')).toBeVisible();
   const negotiate = card.locator('[data-deal-action=negotiate]'); await expect(negotiate).toBeVisible(); await expect(negotiate).toHaveClass(/cta-red/);
   await expect(card.locator('[data-deal-action=accept]')).toHaveCount(0);
   await shot(page, info, 'legacy-negotiate', 'Older loan with a red Negotiate action', '#deal-detail-card');
-  await card.locator('[data-deal-action=back]').click(); await expect(page.locator('#deal-detail-modal')).toBeHidden();
+  await card.locator('#deal-detail-close').click(); await expect(page.locator('#deal-detail-modal')).toBeHidden();
   expect(game.pendingPlayerContract.id).toBe(originalId);
   await page.evaluate(id => window.__ipadModalCapture.deal.openDealDetails('contract', id), originalId);
   await card.locator('[data-deal-action=negotiate]').click(); await expect(page.locator('#financing-modal')).toBeVisible();
@@ -166,11 +174,114 @@ test('an older loan can be negotiated into a current offer without moving cash b
   expect([borrower.cash, lender.cash]).toEqual([before[0] + 120, before[1] - 120]); await noPageOverflow(page);
 });
 
-test('an offer with Player Finance disabled keeps Back and a red Decline', async ({ page }, info) => {
+test('an offer with Player Finance disabled explains unavailable actions and keeps a red Decline', async ({ page }, info) => {
   await fixture(page);
   await page.evaluate(() => { const f = window.__ipadModalCapture, s = f.state; s.players[0].clientId = s.clientId; s.settings.playerFinance = false; s.playerContractOffer = { id: 'disabled-offer', kind: 'loan', rulesVersion: 2, status: 'pending', fromPlayerId: 'visual-guest', toPlayerId: 'visual-host', fromPlayerName: 'GUEST', toPlayerName: 'HOST', amount: 100, premiumRate: 15, durationRounds: 3 }; f.deal.openDealDetails('contract', 'disabled-offer'); });
-  const card = page.locator('#deal-detail-card'); await expect(card.locator('[data-deal-action=back]')).toBeVisible();
-  await expect(card.locator('[data-deal-action=decline]')).toHaveClass(/cta-red/); await expect(card.locator('[data-deal-action=negotiate]')).toHaveCount(0);
+  const card = page.locator('#deal-detail-card'); await expect(card.locator('[data-deal-action=back]')).toHaveCount(0);
+  for (const action of ['accept', 'negotiate']) {
+    const control = card.locator(`[data-deal-action=${action}]`);
+    await expect(control).toBeDisabled();
+    await expect(control).toHaveAttribute('aria-describedby', 'deal-unavailable-reason');
+    await expect(control).toHaveAttribute('title', /Player Finance is off/);
+  }
+  await expect(card.locator('[data-deal-action=decline]')).toHaveClass(/cta-red/);
   await shot(page, info, 'offer-disabled', 'Finance-off offer has a red Decline action', '#deal-detail-card');
-  await card.locator('[data-deal-action=back]').click(); await expect(page.locator('#deal-detail-modal')).toBeHidden(); await noPageOverflow(page);
+  await card.locator('#deal-detail-close').click(); await expect(page.locator('#deal-detail-modal')).toBeHidden(); await noPageOverflow(page);
+});
+
+test('stale offer controls cannot act after finance or ownership changes', async ({ page }) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const { state: s, deal } = window.__ipadModalCapture;
+    s.players[0].clientId = s.clientId;
+    s.settings.playerFinance = true;
+    s.playerContractOffer = { id: 'stale', kind: 'loan', rulesVersion: 2, fromPlayerId: 'visual-guest', toPlayerId: 'visual-host', lastProposerId: 'visual-guest', counterDepth: 0, amount: 100 };
+    window.__dealCalls = [];
+    deal.configureDealUi({ emitServer: (...args) => window.__dealCalls.push(args[0]), openFinancingNegotiation: () => window.__dealCalls.push('editor'), announceActionStatus: () => {}, captureActionStatusNode: () => null, openConfirmModal: options => { window.__dealConfirm = options.onConfirm; } });
+    deal.openDealDetails('contract', 'stale');
+  });
+  const card = page.locator('#deal-detail-card');
+  await page.evaluate(() => { window.__ipadModalCapture.state.settings.playerFinance = false; });
+  await card.locator('[data-deal-action=accept]').click();
+  await card.locator('[data-deal-action=negotiate]').click();
+  expect(await page.evaluate(() => window.__dealCalls)).toEqual([]);
+  await card.locator('[data-deal-action=decline]').click();
+  await page.evaluate(() => { window.__ipadModalCapture.state.playerContractOffer.lastProposerId = 'visual-host'; window.__dealConfirm(); });
+  expect(await page.evaluate(() => window.__dealCalls)).toEqual([]);
+  await card.locator('[data-deal-action=accept]').click();
+  expect(await page.evaluate(() => window.__dealCalls)).toEqual([]);
+});
+
+test('trade actions put the primary action on the right for both roles', async ({ page }) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const { state: s, deal } = window.__ipadModalCapture;
+    s.players[0].clientId = s.clientId;
+    s.pendingTrade = { id: 'order-trade', fromPlayerId: 'visual-guest', toPlayerId: 'visual-host' };
+    deal.openDealDetails('trade', 'order-trade');
+  });
+  const actions = page.locator('#deal-detail-card [data-deal-action]');
+  expect(await dealActionNames(actions)).toEqual(['decline', 'negotiate', 'accept']);
+  await expect(actions.last()).toHaveClass(/cta-red/);
+  await page.evaluate(() => {
+    const { state: s, deal } = window.__ipadModalCapture;
+    s.pendingTrade = { id: 'order-trade', fromPlayerId: 'visual-host', toPlayerId: 'visual-guest' };
+    deal.renderDealDetailsIfOpen();
+  });
+  expect(await dealActionNames(actions)).toEqual(['cancel', 'adjust']);
+  await expect(actions.last()).toHaveClass(/cta-red/);
+});
+
+test('deal details are informational for outsiders and missing identities', async ({ page }) => {
+  await fixture(page);
+  const cases = ['outsider', null].flatMap(identity => ['trade', 'contract'].flatMap(kind => [true, false].map(finance => ({ identity, kind, finance }))));
+  for (const testCase of cases) {
+    await page.evaluate(({ identity, kind, finance }) => {
+      const { state: s, deal } = window.__ipadModalCapture;
+      s.players[0].clientId = identity ? s.clientId : 'different-client';
+      s.players[0].serverId = identity || 'visual-host';
+      s.settings.playerFinance = finance;
+      const offer = { id: 'spectator-offer', kind: 'loan', rulesVersion: 2, fromPlayerId: 'visual-guest', toPlayerId: 'visual-host', amount: 100 };
+      if (kind === 'trade') s.pendingTrade = offer;
+      else s.playerContractOffer = offer;
+      deal.openDealDetails(kind, offer.id);
+    }, testCase);
+    const card = page.locator('#deal-detail-card');
+    await expect(card).toContainText('OFFER DETAILS');
+    await expect(card.locator('[data-deal-action]')).toHaveCount(0);
+    await expect(card.locator('#deal-detail-close')).toBeEnabled();
+    await card.locator('#deal-detail-close').click();
+  }
+});
+
+test('trade negotiation limit is explained for both roles and blocks stale controls', async ({ page }) => {
+  await fixture(page);
+  await page.evaluate(() => {
+    const { state: s, deal } = window.__ipadModalCapture;
+    s.players[0].clientId = s.clientId;
+    s.pendingTrade = { id: 'limited-trade', fromPlayerId: 'visual-guest', toPlayerId: 'visual-host', counterDepth: 0 };
+    window.__tradeEditors = 0;
+    deal.configureDealUi({ openTradeNegotiation: () => { window.__tradeEditors++; }, announceActionStatus: () => {}, captureActionStatusNode: () => null });
+    deal.openDealDetails('trade', 'limited-trade');
+  });
+  const card = page.locator('#deal-detail-card');
+  await page.evaluate(() => { window.__ipadModalCapture.state.pendingTrade.counterDepth = 2; });
+  await card.locator('[data-deal-action=negotiate]').click();
+  expect(await page.evaluate(() => window.__tradeEditors)).toBe(0);
+  await page.evaluate(() => window.__ipadModalCapture.deal.renderDealDetailsIfOpen());
+  const actions = card.locator('[data-deal-action]');
+  expect(await dealActionNames(actions)).toEqual(['decline', 'negotiate', 'accept']);
+  await expect(card.locator('[data-deal-action=negotiate]')).toBeDisabled();
+  await expect(card.locator('[data-deal-action=negotiate]')).toHaveAttribute('aria-describedby', 'deal-unavailable-reason');
+  await expect(card.locator('#deal-unavailable-reason')).toContainText('negotiation limit');
+  await expect(card.locator('[data-deal-action=accept]')).toHaveClass(/cta-red/);
+  await page.evaluate(() => {
+    const { state: s, deal } = window.__ipadModalCapture;
+    s.pendingTrade = { id: 'limited-trade', fromPlayerId: 'visual-host', toPlayerId: 'visual-guest', counterDepth: 2 };
+    deal.renderDealDetailsIfOpen();
+  });
+  expect(await dealActionNames(actions)).toEqual(['adjust', 'cancel']);
+  await expect(card.locator('[data-deal-action=adjust]')).toBeDisabled();
+  await expect(card.locator('[data-deal-action=adjust]')).toHaveAttribute('aria-describedby', 'deal-unavailable-reason');
+  await expect(card.locator('[data-deal-action=cancel]')).toHaveClass(/cta-red/);
 });

@@ -1,12 +1,6 @@
-/* ============================================================
-   ACCOUNT APPEARANCE: a signed-in player's face and colour live on the
-   server account, so signing in on any browser brings them along.
-   - adoptAccountAppearance() makes the account's face the active design
-     on this browser (saving it into the local library if it is new).
-   - accountAppearancePayload() is what to send when the player picks or
-     saves a design while signed in.
-   The extra saved designs in the local library stay per browser.
-   ============================================================ */
+// ACCOUNT APPEARANCE: a signed-in player's face and color live on the server account.
+// adoptAccountAppearance() makes that face the active design on this browser, and
+// accountAppearancePayload() builds what to send when a design is saved. Extra local designs stay per browser.
 import { state, upsertProfile, getAppearanceMeta, syncLocalAppearance, buildPlayers, saveAccountSession } from "./clientState.js";
 import { saveActiveDesignId, APPEARANCES } from "./clientSanitize.js";
 import { faceGridFromPreset } from "./clientSprites.js";
@@ -53,10 +47,23 @@ export function adoptAccountAppearance(account) {
 }
 
 /** Saves a face to the signed-in account over the cookie-authenticated endpoint. */
-export async function saveFaceToAccount(face) {
-  if (!state.account || typeof fetch !== "function") return { success: false, skipped: true };
+function faceRequestHeaders() {
   const headers = { "content-type": "application/json" };
   if (state.account.sessionToken) headers["x-poorup-session-token"] = state.account.sessionToken;
+  return headers;
+}
+
+function faceSaveOutcome(response, payload) {
+  if (response.ok && payload?.success && payload.account) {
+    saveAccountSession({ sessionToken: state.account.sessionToken || "", account: payload.account });
+    return { success: true };
+  }
+  return { success: false, error: payload?.error || "Could not save your face to the account." };
+}
+
+export async function saveFaceToAccount(face) {
+  if (!state.account || typeof fetch !== "function") return { success: false, skipped: true };
+  const headers = faceRequestHeaders();
   try {
     const response = await fetch("/account/profile", {
       method: "POST",
@@ -65,11 +72,7 @@ export async function saveFaceToAccount(face) {
       body: JSON.stringify({ color: face.color, avatarGrid: face.avatarGrid }),
     });
     const payload = await response.json().catch(() => null);
-    if (response.ok && payload?.success && payload.account) {
-      saveAccountSession({ sessionToken: state.account.sessionToken || "", account: payload.account });
-      return { success: true };
-    }
-    return { success: false, error: payload?.error || "Could not save your face to the account." };
+    return faceSaveOutcome(response, payload);
   } catch {
     return { success: false, error: "Could not reach the server to save your face." };
   }

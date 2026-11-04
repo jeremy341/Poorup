@@ -1,7 +1,6 @@
-// Tab-restart seat recovery: sessionStorage dies with the tab, so a
-// reopened tab has a fresh clientId and clientId matching cannot find the
-// seat. The account session (localStorage) survives, so a disconnected seat
-// owned by the same account is reclaimed. Connected seats never match.
+// Tab-restart seat recovery: sessionStorage dies with the tab, so a reopened tab has a fresh clientId and clientId matching cannot
+// find the seat. The account session (localStorage) survives, so a disconnected seat owned by the same account is reclaimed.
+// Connected seats never match.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 

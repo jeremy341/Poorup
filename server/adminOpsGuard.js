@@ -1,5 +1,5 @@
 // One admin guard for every operator route (/admin/ai/* and /admin/ops/*).
-// It is the guard aiProviderRoutes.js always had, moved here unchanged so the
+// It is the guard aiProviderRoutes.js uses, shared here so the
 // two route families cannot drift apart:
 //   401  no account session
 //   403  signed in but not on the admin allow-list
@@ -18,26 +18,45 @@ export function sameOrigin(req, configuredOrigin = '') {
   return origin === `${protocol}://${req.get?.('host')}`;
 }
 
-// Router-level error handler for express.json: any 4xx the body parser raised
-// (bad JSON, too large, unsupported Content-Encoding, aborted upload) is the
-// caller's fault, so it answers as JSON with that status and is not counted as
-// a server error. Anything else goes on to the app's own handler.
+// Router-level error handler for express.json. A 4xx from the body parser (bad JSON, too large,
+// unsupported encoding, aborted upload) is the caller's fault: answer it as JSON with that status
+// and do not count it as a server error. Anything else goes to the app's own handler.
 export function jsonBodyErrorHandler(error, _req, res, next) {
   const status = Number(error?.status || error?.statusCode);
-  if (res.headersSent || !(status >= 400 && status < 500)) return next(error);
+  if (res.headersSent || !isClientBodyError(status)) return next(error);
   const message = status === 415 ? 'The request encoding is not supported.' : 'The request body is not valid JSON.';
   return res.status(status).json({ success: false, error: message });
 }
 
-// The write budget belongs to the operator, not to a route family: /admin/ai/*
-// and /admin/ops/* are two guards over the same accounts, so a per-guard map
-// would let one operator change twice as much as the limit allows. The map is
-// module scope so every guard instance consults the same windows.
+// The write budget belongs to the operator, not to a route family. /admin/ai/* and /admin/ops/*
+// are two guards over the same accounts, so a per-guard map would double the allowed writes.
+// The map is module scope so every guard instance shares the same windows.
 const writeBudgets = new Map();
 // Two guards can be handed different clocks (a family may run on its own
 // clock). A window that starts more than half a window ahead of ours belongs
 // to another clock, so it is not ours to extend: the caller opens a fresh one.
 const CLOCK_SKEW_TOLERANCE_MS = ADMIN_WRITE_WINDOW_MS / 2;
+
+// The account's open window when it is ours to extend, otherwise a fresh one.
+function usableWriteBucket(existing, current) {
+  const elapsed = existing ? current - existing.startedAt : Infinity;
+  const ahead = existing ? existing.startedAt - current : 0;
+  const usable = existing && elapsed < ADMIN_WRITE_WINDOW_MS && ahead <= CLOCK_SKEW_TOLERANCE_MS;
+  return usable ? existing : { startedAt: current, count: 0 };
+}
+
+// Keep the shared map from growing without end: only admins write, and a
+// window that is long gone is worth nothing.
+function pruneWriteBudgets(current) {
+  if (writeBudgets.size <= 64) return;
+  for (const [id, old] of writeBudgets) {
+    if (current - old.startedAt >= ADMIN_WRITE_WINDOW_MS) writeBudgets.delete(id);
+  }
+}
+
+function isClientBodyError(status) {
+  return status >= 400 && status < 500;
+}
 
 export function createAdminGuard({
   accountStore = null,
@@ -47,16 +66,27 @@ export function createAdminGuard({
   writeLimitMessage = 'Too many changes. Try again shortly.',
   now = () => Date.now(),
 } = {}) {
-  function requireAdmin(req, res, next) {
+  function sessionAccountFor(req) {
     const token = String(req.get?.('x-poorup-session-token') || '');
-    const account = accountResolver?.(req) || accountStore?.sessionAccount?.(token);
+    return accountResolver?.(req) || accountStore?.sessionAccount?.(token);
+  }
+
+  // The first refusal that applies to a signed-in account, or null when it may act as admin.
+  function accessRefusal(req, account) {
+    if (!isAdminAccount(account?.id, adminIds)) return { status: 403, error: 'Forbidden.' };
+    if (!sameOrigin(req, publicOrigin)) return { status: 403, error: 'Origin is not allowed.' };
+    return null;
+  }
+
+  function requireAdmin(req, res, next) {
+    const account = sessionAccountFor(req);
     if (!account?.id) return res.status(401).json({ success: false, error: 'Account session required.' });
     // A legacy bearer token was just traded for a cookie session (and revoked).
     // The cookie is handed over before every refusal: the operator must not be
     // left with neither the old token nor its replacement.
     if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);
-    if (!isAdminAccount(account?.id, adminIds)) return res.status(403).json({ success: false, error: 'Forbidden.' });
-    if (!sameOrigin(req, publicOrigin)) return res.status(403).json({ success: false, error: 'Origin is not allowed.' });
+    const refusal = accessRefusal(req, account);
+    if (refusal) return res.status(refusal.status).json({ success: false, error: refusal.error });
     req.adminAccountId = account.id;
     next();
   }
@@ -64,20 +94,10 @@ export function createAdminGuard({
   function writeGuard(req, res, next) {
     const current = now();
     const accountId = String(req.adminAccountId || '');
-    const existing = writeBudgets.get(accountId);
-    const elapsed = existing ? current - existing.startedAt : Infinity;
-    const ahead = existing ? existing.startedAt - current : 0;
-    const usable = existing && elapsed < ADMIN_WRITE_WINDOW_MS && ahead <= CLOCK_SKEW_TOLERANCE_MS;
-    const bucket = usable ? existing : { startedAt: current, count: 0 };
+    const bucket = usableWriteBucket(writeBudgets.get(accountId), current);
     bucket.count += 1;
     writeBudgets.set(accountId, bucket);
-    // Keep the shared map from growing without end: only admins write, and a
-    // window that is long gone is worth nothing.
-    if (writeBudgets.size > 64) {
-      for (const [id, old] of writeBudgets) {
-        if (current - old.startedAt >= ADMIN_WRITE_WINDOW_MS) writeBudgets.delete(id);
-      }
-    }
+    pruneWriteBudgets(current);
     if (bucket.count > ADMIN_WRITE_LIMIT) {
       res.setHeader('Retry-After', String(Math.ceil((bucket.startedAt + ADMIN_WRITE_WINDOW_MS - current) / 1000)));
       return res.status(429).json({ success: false, error: writeLimitMessage });

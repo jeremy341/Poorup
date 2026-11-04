@@ -1,18 +1,13 @@
-/* ============================================================
-   GAME MODAL SURFACES: the forced-buy choice card, the bot trade
-   offer inbox, the bankruptcy / voluntary-exit / round-over cards,
-   and the Chance/Chest card reveal + gallery (plus the ?preview=
-   design hook). emitServer, say, renderChat, renderAll, buyTile
-   and startGame are injected by the entry module; markup and
-   socket payloads are the exact old main.js templates.
-   ============================================================ */
+// GAME MODAL SURFACES: forced-buy choice, bot trade offers, bankruptcy and round-over cards,
+// and the Chance/Chest reveal, gallery and ?preview= hook. The entry module injects emitServer,
+// say, renderChat, renderAll, buyTile and startGame. Markup and socket payloads must match main.js.
 import { $, esc } from "./clientDom.js";
 import { closeButtonHTML } from "./clientCloseButton.js";
 import { state } from "./clientState.js";
 import { playerFinanceEnabled } from "./clientFinanceRules.js";
 import { TILES, CHANCE_EVENTS, CHEST_EVENTS } from "./clientBoardData.js";
 import { cardFaceHTML } from "./clientCardsRender.js";
-import { closeSurface, focusSurface, openSurface, syncSurfaceA11y } from "./clientSurfaces.js";
+import { closeSurface, focusSurface, openConfirmModal, openSurface, syncSurfaceA11y } from "./clientSurfaces.js";
 import { emitIntent } from "./clientRequestController.js";
 import { accentOf, kindLabel, popIconHTML, popRow } from "./clientPopupUi.js";
 import { startAuction } from "./clientAuctionUi.js";
@@ -65,6 +60,7 @@ function openChoiceModal(tile) {
           <div class="t-micro g400">${kindLabel(tile)}</div>
           <h3 class="t-section choice-title" id="choice-card-title">${tile.name}</h3>
         </div>
+        <button class="btn-dark choice-dismiss" id="choice-dismiss" type="button" aria-label="Close choice; the decision stays pending"><span class="t-label f11">X</span></button>
       </div>
       <p class="t-body ink-2 choice-copy">${auctionMode ? "You landed on an unowned lot. Buy it at the listed price, or send it to auction." : "You landed on an unowned lot. Buy it or pass."}</p>
       <div class="choice-rows">
@@ -72,10 +68,6 @@ function openChoiceModal(tile) {
         ${popRow("YOUR CASH", `$${me.cash.toLocaleString()}`, canAfford ? "green" : "red")}
       </div>
       <div class="choice-actions">
-        <button class="cta-red choice-btn choice-buy" id="choice-buy" ${canAfford ? "" : "disabled"}>
-          <span class="t-label">BUY</span>
-          <span class="t-micro">${auctionMode ? "BUY DEED" : `$${price}`}</span>
-        </button>
         ${auctionMode
           ? `<button class="btn-dark choice-btn" id="choice-auction">
               <span class="t-label">AUCTION</span>
@@ -86,6 +78,10 @@ function openChoiceModal(tile) {
               <span class="t-micro">DECLINE</span>
             </button>${tile.canSeekSponsorship && playerFinanceEnabled(state.settings) ? `<button class="btn-dark choice-btn" id="choice-sponsor"><span class="t-label">PURCHASE FUNDING</span><span class="t-micro">GIFT OR RENT SHARE</span></button>` : ""}`
         }
+        <button class="cta-red choice-btn choice-buy" id="choice-buy" ${canAfford ? "" : "disabled"}>
+          <span class="t-label">BUY</span>
+          <span class="t-micro">${auctionMode ? "BUY DEED" : `$${price}`}</span>
+        </button>
       </div>
       <p class="t-micro ink-3 choice-note">${auctionMode ? (canAfford ? "YOU MUST CHOOSE ONE TO CONTINUE" : "TOO POOR TO BUY · MUST AUCTION") : "Close this card to revisit the choice; PASS is the explicit decline."}</p>
     </div>`;
@@ -94,10 +90,11 @@ function openChoiceModal(tile) {
   const scrim = $("#choice-scrim");
   if (scrim) {
     scrim.classList.toggle("popup-scrim-locked", auctionMode);
-    // Even a locked auction choice can be intentionally dismissed after the
-    // shared controller confirms that the required decision remains pending.
+    // A locked auction choice can still be dismissed once the shared controller
+    // confirms the required decision is pending.
     scrim.onclick = closeChoiceModalWithoutAction;
   }
+  $("#choice-dismiss").addEventListener("click", closeChoiceModalWithoutAction);
   const buyBtn = $("#choice-buy");
   if (buyBtn) buyBtn.addEventListener("click", event => {
     const statusNode = host.captureActionStatusNode(event.currentTarget);
@@ -250,8 +247,8 @@ function closeChoiceModalAsPass() {
 }
 
 function closeChoiceModalWithoutAction() {
-  // Dismissal is intentionally neutral: leave the pending purchase in place
-  // so only the explicit PASS control can decline the deed.
+  // Dismissal is neutral: it leaves the pending purchase in place, so only
+  // the explicit PASS control can decline the deed.
   closeSurface("#choice-modal");
 }
 
@@ -377,6 +374,18 @@ function canStartRematch() {
   return Boolean(me.isHost) || Boolean(me.serverId && me.serverId === state.hostId);
 }
 
+// End-screen highlights from the live table: the item holder, the biggest rebate and the best cash trade.
+function gameOverRecap(players) {
+  const leader = key => players.reduce((best, player) => (Number(player[key]) || 0) > (Number(best?.[key]) || 0) ? player : best, null);
+  const rows = [
+    ["MOST ITEMS", leader("itemCount"), "itemCount", player => `${player.itemCount} HELD`],
+    ["BIGGEST REBATE", leader("matchRebate"), "matchRebate", player => `$${player.matchRebate.toLocaleString()}`],
+    ["BEST TRADE", leader("bestTradeNet"), "bestTradeNet", player => `+$${player.bestTradeNet.toLocaleString()}`],
+  ].filter(([, player, key]) => player && Number(player[key]) > 0);
+  if (!rows.length) return "";
+  return `<dl class="go-recap">${rows.map(([label, player, , format]) => `<div><dt class="t-micro ink-3">${label}</dt><dd class="t-label f12">${esc(player.name)} · ${format(player)}</dd></div>`).join("")}</dl>`;
+}
+
 function showGameOver(winnerName, winnerId, endReason = null) {
   state.gameOver = { winnerName, winnerId, endReason };
   const ranking = rankGameOverPlayers(state.players, state.finalPlacements, winnerId);
@@ -406,6 +415,7 @@ function showGameOver(winnerName, winnerId, endReason = null) {
         </div>
       </div>
       <div class="go-summary">${summary}</div>
+      ${gameOverRecap(state.players)}
       <details class="go-score-details"><summary>Final scores</summary><div class="go-score-heading t-micro ink-3">${endReason === 'round-limit' ? 'FINAL NET WORTH' : 'FINAL CASH'}</div><dl class="go-final-scores">${scoreRows}</dl></details>
       <div class="go-actions">
         <button class="cta-red bank-btn" id="go-rematch" ${canRematch ? '' : 'disabled aria-describedby="go-rematch-note"'}><span class="cta-text cta-text-sm">Rematch</span></button>
@@ -446,7 +456,7 @@ function openBankruptcyModal(idx, amount, creditorId, label) {
           <h3 class="t-section bank-title" id="bankruptcy-card-title">$<span class="numeric">${Number(amount || 0).toLocaleString()}</span> due</h3>
         </div>
       </div>
-      <button class="btn-dark bank-dismiss" id="bank-dismiss" type="button" aria-label="Return to the table">CLOSE</button>
+      <button class="btn-dark bank-dismiss" id="bank-dismiss" type="button" aria-label="CLOSE: return to the table">CLOSE</button>
       <p class="t-body ink-2 bank-copy">${bankCopy}</p>
       <div class="bank-actions">
         <button class="btn-dark bank-btn" id="bank-liquidate" type="button"><span class="t-label f12">Holdings</span></button>
@@ -476,6 +486,9 @@ function openBankruptcyModal(idx, amount, creditorId, label) {
     const actions = $("#bankruptcy-modal .bank-actions");
     if (actions && !actions.dataset.armed) {
       actions.dataset.armed = "1";
+      // Name the consequence before the irreversible confirm (sweepCashToCreditor, forfeitOrReleaseProperties, clearQuitObligations).
+      const copy = $("#bankruptcy-modal .bank-copy");
+      if (copy) copy.textContent = "Declaring ends your round now. Your cash and properties pass to the creditor or the bank, your items are sold, and open trades and contracts are cancelled. This cannot be undone.";
       actions.innerHTML = `<button class="cta-red bank-btn" id="bank-declare-confirm"><span class="cta-text cta-text-sm">Confirm Bankruptcy</span></button>
         <button class="btn-dark bank-btn" id="bank-declare-cancel"><span class="t-label f12">Keep Playing</span></button>`;
       // The focused Declare button was just replaced: move focus to the safe
@@ -518,10 +531,24 @@ export function openVoluntaryExitModal() {
     </div>`;
   openSurface("#bankruptcy-modal", "#bank-retire-cancel");
   $("#bank-retire-cancel").addEventListener("click", () => closeSurface("#bankruptcy-modal", { force: true }));
-  $("#bank-retire-confirm").addEventListener("click", event => {
+  const confirmRetire = event => {
     const statusNode = host.captureActionStatusNode(event.currentTarget);
     closeSurface("#bankruptcy-modal", { force: true });
     bankruptPlayer(0, null, statusNode);
+  };
+  $("#bank-retire-confirm").addEventListener("click", event => {
+    // Retiring is irreversible: the first tap arms it, the second confirms, as with bankruptcy.
+    const actions = $("#bankruptcy-modal .bank-actions");
+    if (actions && !actions.dataset.armed) {
+      actions.dataset.armed = "1";
+      actions.innerHTML = `<button class="cta-red bank-btn" id="bank-retire-confirm"><span class="cta-text cta-text-sm">Confirm Retire</span></button>
+        <button class="btn-dark bank-btn" id="bank-retire-cancel"><span class="t-label f12">Keep Playing</span></button>`;
+      focusSurface("#bankruptcy-modal", "#bank-retire-cancel");
+      $("#bank-retire-cancel").addEventListener("click", () => closeSurface("#bankruptcy-modal", { force: true }));
+      $("#bank-retire-confirm").addEventListener("click", confirmRetire);
+      return;
+    }
+    confirmRetire(event);
   });
 }
 
@@ -590,7 +617,16 @@ function isMyOwnDebt(debt) {
 
 function onRetireClick() {
   const me = state.players[0];
-  if (me?.spectating || me?.bankrupt) {
+  if (me?.spectating) {
+    openConfirmModal({
+      title: "Leave this table?",
+      message: "Leaving releases your spectator seat and returns you to the homescreen.",
+      confirmLabel: "LEAVE TABLE",
+      onConfirm: () => goHome(),
+    });
+    return;
+  }
+  if (me?.bankrupt) {
     goHome();
     return;
   }

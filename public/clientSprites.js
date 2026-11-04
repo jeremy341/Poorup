@@ -1,6 +1,4 @@
-/* ============================================================
-   PIXEL SPRITE ENGINE (shared by client renderers)
-   ============================================================ */
+// PIXEL SPRITE ENGINE (shared by client renderers)
 function sprite(rows, palette, size = 3) {
   const w = Math.max(...rows.map((r) => r.length));
   const h = rows.length;

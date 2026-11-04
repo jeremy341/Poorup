@@ -1,8 +1,9 @@
-// Deployment guard for the planned PostgreSQL migration. JSON stores are safe
-// for one process; horizontal mode must not be enabled until a transactional
-// authoritative adapter is configured.
+// Deployment guard for the planned PostgreSQL migration. JSON stores are safe for one process, so horizontal mode must not be
+// enabled until a transactional authoritative adapter is configured. Fail closed: only an explicit off value (or none) means one process.
+// "1", "yes", "on", " true" and anything unrecognised count as requested, so a typo cannot silently disable the guard.
+const HORIZONTAL_SCALE_OFF = new Set(['', 'false', '0', 'no', 'off']);
 function horizontalScaleRequested(env) {
-  return String(env?.POORUP_HORIZONTAL_SCALE || '').toLowerCase() === 'true';
+  return !HORIZONTAL_SCALE_OFF.has(String(env?.POORUP_HORIZONTAL_SCALE ?? '').trim().toLowerCase());
 }
 
 function postgresConfigured(env, adapter) {

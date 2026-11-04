@@ -55,7 +55,7 @@ let deedSaleAck = null;
 gameListeners.get('manage-property')({ tileIndex: 5, action: 'sell-deed', requestId: 'sale-wire-1' }, ack => { deedSaleAck = ack; });
 assert.deepEqual(managedPayload, { tileIndex: 5, action: 'sell-deed', requestId: 'sale-wire-1' }, 'deed-sale request id reaches authoritative property handler');
 assert.deepEqual(deedSaleAck, { success: true, error: undefined }, 'sale uses the standard management acknowledgement');
-// F-088: socket.emit(event, callback) delivers the ack as the first argument.
+// Socket.emit(event, callback) delivers the ack as the first argument.
 // The handler still gets an empty payload, and the ack must still be called.
 {
   const listeners = new Map();
@@ -74,3 +74,38 @@ assert.deepEqual(deedSaleAck, { success: true, error: undefined }, 'sale uses th
 }
 
 console.log('socket action history classification: focused checks passed');
+
+{
+  const listeners = new Map();
+  const socket = { id: 'presence-socket', on(event, listener) { listeners.set(event, listener); } };
+  const activity = [];
+  let allowed = true;
+  const on = socketHandlerSupport.createSafeEmitter(socket, {
+    allow: () => allowed,
+    onAccepted: (socketId, event) => activity.push([socketId, event]),
+  });
+  on('send-chat', (payload, callback) => callback({ success: payload.success }));
+  listeners.get('send-chat')({ success: true }, () => {});
+  listeners.get('send-chat')({ success: false }, () => {});
+  allowed = false;
+  listeners.get('send-chat')({}, () => {});
+  assert.deepEqual(activity, [['presence-socket', 'send-chat']], 'only successful, admitted registered input reaches presence tracking');
+}
+
+{
+  const listeners = new Map();
+  const fakeSocket = { id: 'game-socket', on(event, listener) { listeners.set(event, listener); } };
+  const activity = [];
+  const player = {};
+  const room = {
+    roomCode: 'PLAY1',
+    game: { presentation: {}, recordHumanAction() {} },
+    getPlayerBySocket: () => player,
+    purchaseProperty: () => ({ success: true }),
+  };
+  const gameRuntime = { getRoomForSocket: () => room, emitRoomState() {}, io: { in: () => ({ emit() {} }) } };
+  const on = socketHandlerSupport.createSafeEmitter(fakeSocket, { onAccepted: (_id, event) => activity.push(event) });
+  registerGameSocketHandlers(on, fakeSocket, gameRuntime);
+  listeners.get('purchase-property')({ tileIndex: 1 });
+  assert.deepEqual(activity, ['purchase-property'], 'a real gameplay handler records success without a client acknowledgement');
+}

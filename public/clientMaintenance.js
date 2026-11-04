@@ -91,7 +91,7 @@ export function operatorModeActive(snapshot) {
 }
 
 // The full-page panel covers the home view for every maintenance mode except an operator inside a
-// lockout. Draining and plain maintenance behave as before and offer no sign-in.
+// lockout. Draining and plain maintenance offer no sign-in.
 export function homePanelVisible(snapshot) {
   const current = normalizeMaintenanceSnapshot(snapshot);
   return maintenanceActive(current) && !(current.lockout && current.bypass);
@@ -156,7 +156,7 @@ export async function fetchOperatorAvailability({ fetcher: override } = {}) {
   }
 }
 
-// -> { kind: 'ok' | 'wrong' | 'limited' | 'unavailable' | 'error' | 'network', retryAfterSeconds? }
+// Result: { kind: 'ok' | 'wrong' | 'limited' | 'unavailable' | 'error' | 'network', retryAfterSeconds? }
 export async function postOperatorSignIn(password, { fetcher: override } = {}) {
   try {
     const response = await send(UNLOCK_URL, {

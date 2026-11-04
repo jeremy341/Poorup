@@ -1,11 +1,7 @@
-// Table-driven pin for the market order gates (F-047). MARKET_ORDER_GUARDS
-// checks six pending-flow fields in one predicate, but contracts-market and
-// marketExpansion only exercised pendingTrade and pendingPayment on the
-// expansion path, so deleting a term left every market suite green. Each case
-// below sets exactly one condition on an otherwise clean table and asserts the
-// exact guard error. The same six obligation fields are then pinned on the
-// margin/short/option entry points (marketExpansion tableObligationPending) and
-// on the casino (economyApi tableObligationPending).
+// Table-driven pin for the market order gates. MARKET_ORDER_GUARDS checks six pending-flow fields in one predicate, but
+// contracts-market and marketExpansion only exercised pendingTrade and pendingPayment, so deleting a term left every market suite green.
+// Each case sets one condition on an otherwise clean table and asserts the exact guard error. The same six obligation fields are then
+// pinned on the margin, short and option entry points (marketExpansion) and on the casino (economyApi).
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { MARKET_ORDER_GUARDS } from './marketLogic.js';
@@ -92,7 +88,7 @@ check('clean table accepts the same market buy the scenarios reject', () => {
 
 // A margin call must not lock the seat out of the risk-reducing side of the
 // book: selling raises the cash that repays the maintenance, so the gate may
-// only stop orders that add exposure (E1).
+// only stop orders that add exposure.
 check('a sell stays available while margin maintenance is due', () => {
   const room = tableRoom();
   const player = room.game.players[0];
@@ -109,17 +105,15 @@ check('a sell stays available while margin maintenance is due', () => {
 });
 
 // An unpaid short buy-in is a forced obligation to the house. The spot book
-// honours the same check the expansion ladder applies (E5).
+// honours the same check the expansion ladder applies.
 check('a spot order is refused while short buy-in debt is unpaid', () => {
   const room = tableRoom();
   room.game.players[0].shortDefaultDebt = 100;
   assert.deepEqual(room.game.tradeMarket('socket-a', 'brazil', 'buy', 1), { success: false, error: 'Settle your short buy-in debt before trading.' });
 });
 
-// The buy-in gate may only stop orders that add exposure. A sell raises the
-// cash that repays the debt, so refusing it traps the seat in the very
-// obligation it is asked to settle: the same rule the margin-maintenance gate
-// uses above (E1).
+// The buy-in gate may only stop orders that add exposure. A sell raises the cash that repays the debt, so refusing it would trap
+// the seat in the obligation it must settle, the same rule the margin-maintenance gate uses above.
 check('a sell stays available while short buy-in debt is unpaid', () => {
   const room = tableRoom();
   const player = room.game.players[0];

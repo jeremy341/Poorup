@@ -1,8 +1,6 @@
-// Contract safety for bots. A human could once offer a bot a $10 loan secured on
-// every deed it owned: the gate looked only at cash, the planner treated repaying
-// as net-worth neutral (so a due loan lost to "roll"), and a default seizes the
-// whole pledged basket. These checks pin the terms a bot will sign, the counters
-// it will make or take, and the rule that a debt it can cure is paid on time.
+// Contract safety for bots. A human once offered a bot a $10 loan secured on every deed it owned: the gate
+// looked only at cash, the planner treated repaying as net-worth neutral (so a due loan lost to "roll"), and a
+// default seizes the whole pledged basket. These checks pin the terms a bot signs, its counters, and on-time repayment of a curable debt.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { DeterministicAdvisor } from './botAdvisor.js';

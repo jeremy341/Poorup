@@ -1,6 +1,5 @@
-// Pending-counterpart resolution, debt-ladder candidates, and counteroffer
-// construction shared by deterministic and advisor-selected bots. Auction
-// willingness is also shared with the game API so provider choices cannot
+// Pending-counterpart resolution, debt-ladder candidates, and counteroffer construction, shared by deterministic
+// and advisor-selected bots. Auction willingness is shared with the game API, so provider choices cannot
 // bypass the server-enforced bid cap.
 import {
   sponsorshipShortfall,
@@ -177,11 +176,9 @@ const COUNTER_BLOCKING_STATES = Object.freeze([
   'auction', 'pendingPurchaseOffer', 'pendingSponsoredPurchase', 'pendingPlayerContract'
 ]);
 
-// Countering opens a replacement offer, which the table-obligation gate
-// forbids while an auction, purchase, sponsorship, or contract is pending.
-// A pending payment is NOT one of them: the engine settles a parked debt with
-// the money and keeps debt-rescue deals legal (tradeApi.js). Countering into
-// a blocked table restores the same offer.
+// Countering opens a replacement offer, which the table-obligation gate forbids while an auction, purchase,
+// sponsorship or contract is pending. A pending payment is not one of them: the engine settles a parked debt
+// with the money and keeps debt-rescue deals legal (tradeApi.js). Countering into a blocked table restores the offer.
 export function tradeCounterBlocked(game) {
   if (!game) return false;
   return COUNTER_BLOCKING_STATES.some(key => Boolean(game[key]));
@@ -230,11 +227,9 @@ function counterKeepsBotSets(game, bot, trade, body) {
   return !vetoTrade(game, asProposal, bot.id).vetoed;
 }
 
-// Why a counter could not be built, so the advisor can decide whether a
-// higher premium is worth trying: 'no-trade' (nothing to counter) never is,
-// 'unaffordable' is the cash the proposer or the bot does not have, and
-// 'set-veto' is a counter that breaks the bot's own set or underprices the
-// proposer's completion - which a bigger premium can clear.
+// Why a counter could not be built, so the advisor can judge whether a higher premium is worth trying:
+// 'no-trade' (nothing to counter) never is; 'unaffordable' means cash the proposer or bot lacks; 'set-veto' is a
+// counter that breaks the bot's own set or underprices the proposer's completion, which a bigger premium can clear.
 export function counterTradeOfferOutcome(game, bot, extraCash = null) {
   const trade = counterableTrade(game, bot);
   if (!trade) return { offer: null, reason: 'no-trade' };
@@ -248,10 +243,9 @@ export function counterTradeOffer(game, bot, extraCash = null) {
   return counterTradeOfferOutcome(game, bot, extraCash).offer;
 }
 
-// A counter is a proposal the other seat can simply accept, so it carries only
-// terms the bot would stand behind. As a borrower it asks for the terms its own
-// gate signs (interest-free, long enough to schedule); as a lender it asks for
-// a priced, short, bounded loan.
+// A counter is a proposal the other seat can simply accept, so it carries only terms the bot would stand behind.
+// As a borrower it asks for the terms its own gate signs (interest-free, long enough to schedule). As a lender it
+// asks for a priced, short, bounded loan.
 function counterContractPremium(contract, lenderResponding) {
   if (!lenderResponding) return BORROW_MAX_PREMIUM_PERCENT;
   const raised = Math.floor(Number(contract.premiumRate || 0) + 10);
@@ -297,10 +291,9 @@ function counterIsSound(game, bot, contract, counter, lenderResponding) {
   return borrowerAcceptsContract(terms, bot, { lender, game });
 }
 
-// A contract counter replaces the offer on the table, so the engine refuses it
-// while another obligation is open (contractLogic.js: 'Resolve the current
-// table obligation first.'). The contract being answered and a pending
-// payment are both allowed: a payment never blocks a deal.
+// A contract counter replaces the offer on the table, so the engine refuses it while another obligation is open
+// (contractLogic.js: 'Resolve the current table obligation first.'). The answered contract and a pending payment
+// are both allowed: a payment never blocks a deal.
 export function contractCounterBlocked(game) {
   return tableObligationOpen(game);
 }

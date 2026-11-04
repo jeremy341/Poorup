@@ -1,5 +1,5 @@
 /*
- * Document metadata stays deliberately small and policy-safe. The server can
+ * Document metadata stays small and policy-safe. The server can
  * use the same shape when it renders a route, while the client owns titles and
  * live announcements as views change.
  */

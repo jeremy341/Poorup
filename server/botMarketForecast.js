@@ -1,16 +1,12 @@
 import { MARKET_FEE_RATE } from './marketLogic.js';
 import { SHORT_BORROW_FEE_RATE } from './marketExpansion.js';
 
-// Bot-side pricing of the staged-complexity orders (margin long, short). These
-// are planner and candidate-gate constants, not market rules: the rules (fees,
-// collateral, borrow fee, forced buy-in) live in marketExpansion.js.
-// A short's loss is unbounded and ends in a forced buy-in at +50%; reserve a
-// slice of the notional for that tail.
+// Bot-side pricing of the staged-complexity orders (margin long, short). These are planner and candidate-gate constants,
+// not market rules: fees, collateral, borrow fee and forced buy-in live in marketExpansion.js. A short's loss is unbounded
+// and ends in a forced buy-in at +50%, so reserve a slice of the notional for that tail.
 export const SHORT_TAIL_RESERVE_RATE = 0.02;
-// An open short borrows from a pool shared by the whole table and pays no
-// yield, so holding one is charged this share of its notional until it is
-// covered. Without it a flat short is never worth the cover fee and the pool
-// drains.
+// An open short borrows from a pool shared by the whole table and pays no yield, so holding one is charged this share
+// of its notional until it is covered. Without that charge a flat short is never worth the cover fee and the pool drains.
 export const SHORT_HOLD_CHARGE_RATE = 0.04;
 // "Clearly positive": expected value after every cost must also clear this share
 // of the notional (and at least LEVERAGED_MIN_EDGE dollars) before a bot opens.
@@ -92,11 +88,9 @@ function orderFee(gross) {
   return Math.max(1, Math.ceil(gross * MARKET_FEE_RATE));
 }
 
-// Expected value of opening a margin long ('open-margin') or a short
-// ('open-short') and later closing it, after the opening fee, the closing fee,
-// a short's borrow fee and tail reserve, and the volatility reserve. clear is
-// true only when that value beats the hurdle, so a bot never opens a position
-// whose edge is the fee schedule's loss.
+// Expected value of opening a margin long ('open-margin') or short ('open-short') and later closing it, after the opening
+// and closing fees, a short's borrow fee and tail reserve, and the volatility reserve. clear is true only when that value
+// beats the hurdle, so a bot never opens a position whose edge is the fee schedule's loss.
 export function forecastLeveragedOpen({ kind, quote: rawQuote, quantity: rawQuantity = 1, ...rest } = {}) {
   const short = kind === 'open-short';
   if (!short && kind !== 'open-margin') return { supported: false, expectedValue: null, clear: false };

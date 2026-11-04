@@ -80,18 +80,36 @@ button.surface-close > svg { display: block; width: 16px; height: 16px; pointer-
   #view-home .parlor-desk-grid { padding-top: 10px; }
 }
 
+/* Landscape tablet to small desktop: the clock moves to the top-right so it cannot sit on the wordmark. */
+@media (min-width: 768px) and (max-width: 1279px) and (orientation: landscape) {
+  #view-home .home-local-time { left: auto; right: clamp(32px, 5vw, 88px); }
+}
+
+/* Lobby rules rail at the same widths: labels stack above their controls so selects stay inside the rail. */
+@media (min-width: 768px) and (max-width: 1279px) and (orientation: landscape) {
+  #right-rail-lobby .setting-row,
+  #right-rail-lobby .setting-row-num { flex-wrap: wrap; }
+  #right-rail-lobby .setting-row > .setting-label,
+  #right-rail-lobby .setting-row-num > .setting-label { flex: 1 1 150px; min-width: 0; }
+  #right-rail-lobby .setting-control-stack,
+  #right-rail-lobby .setting-row > .setting-select,
+  #right-rail-lobby .setting-row-num > .setting-select { max-width: 100%; }
+  /* Start Round stays on one line; the host's name keeps its full text and the HOST tag drops below it. */
+  #right-rail-lobby .lobby-start-btn .cta-text { font-size: 16px; white-space: nowrap; }
+  #view-game:has(#right-rail-lobby:not(.is-hidden)) .pr-nameline { flex-wrap: wrap; }
+  #view-game:has(#right-rail-lobby:not(.is-hidden)) .pr-name { flex: 0 1 auto; min-width: 0; }
+}
+
 @media (forced-colors: active) {
   #offer-card .offer-cash,
   #bank-loan-modal .bank-offer-head,
   #bank-loan-modal .bank-offer-terms > div { border-color: CanvasText; }
 }
 
-/* ============================================================
-   IN-GAME RANKINGS / SOCIAL (#rankings-modal, #social-modal): the same render
-   as #view-rankings / #view-social, framed as a fixed-size card with a pinned
-   "Back to table" bar. Only the inner regions scroll; leaving the room is never
-   implied and the game behind the card keeps running.
-   ============================================================ */
+/* IN-GAME RANKINGS / SOCIAL (#rankings-modal, #social-modal): the same render as #view-rankings
+ * and #view-social, framed as a fixed-size card with a pinned "Back to table" bar. Only the inner
+ * regions scroll. Leaving the room is never implied, and the game behind the card keeps running.
+ */
 #rankings-modal .social-surface-card,
 #social-modal .social-surface-card {
   display: flex;
@@ -107,13 +125,13 @@ button.surface-close > svg { display: block; width: 16px; height: 16px; pointer-
 .social-page-shell.is-modal { flex: 1; gap: 12px; min-height: 0; }
 
 .table-return-bar { display: flex; flex-shrink: 0; align-items: center; gap: 12px; min-width: 0; }
-.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px 0 10px; }
+button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px 0 10px; }
 .table-return-arrow { font-family: var(--font-pixel); font-size: 22px; line-height: 1; color: var(--gold-100); }
 .table-return-btn:hover .table-return-arrow,
 .table-return-btn:focus-visible .table-return-arrow { color: var(--gold-050); }
 .table-return-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* The close button no longer sits in the hero, so the hero keeps the page's three columns. */
+/* The close button sits outside the hero, so the hero keeps the page's three columns. */
 @media (min-width: 1101px) {
   .rankings-page-shell.is-modal .rankings-hero,
   .social-page-shell.is-modal .social-hero { grid-template-columns: auto minmax(0, 1fr) auto; }
@@ -159,3 +177,4 @@ button.surface-close > svg { display: block; width: 16px; height: 16px; pointer-
   .rankings-page-shell.is-modal .rankings-stage { min-height: 420px; }
   .social-page-shell.is-modal .social-network-grid { min-height: 360px; }
 }
+

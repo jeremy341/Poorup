@@ -140,10 +140,8 @@ console.log('room presence runtime seat cleanup: 3 passed');
   assert.equal(host.game.players.some(player => player.clientId === 'presence-guest-client'), true);
 }
 
-// F-091: a connected human who holds the turn (or must answer a pending trade
-// or contract) and sends no socket event for PLAYER_INACTIVITY_REMOVAL_MS is
-// idled by the server, even if its client never reports presence. The idle
-// seat then leaves through the existing inactivity-removal flow.
+// A connected human who holds the turn (or must answer a pending trade or contract) and sends no socket event for
+// PLAYER_INACTIVITY_REMOVAL_MS is idled by the server, even if its client never reports presence. The seat then leaves through inactivity removal.
 function createIdleHarness() {
   const clock = { now: 1_000_000 };
   const timerHandles = new Map();
@@ -182,7 +180,7 @@ function createIdleHarness() {
   const guest = room.game.getPlayerByClient('idle-guest-client');
   room.game.currentPlayerId = guest.id;
   const host = room.game.getPlayerByClient('idle-host-client');
-  return { clock, timerHandles, runtime, room, guest, host };
+  return { clock, timerHandles, runtime, room, guest, host, manager };
 }
 
 function fireDueTimers(harness) {
@@ -226,6 +224,37 @@ function fireDueTimers(harness) {
 }
 
 {
+  // A scripted client that only sends read-only requests is not "playing": they do not hold the table.
+  const harness = createIdleHarness();
+  const { clock, runtime, guest } = harness;
+  for (let step = 0; step < 10; step += 1) {
+    clock.now += 60_000;
+    runtime.noteSocketEvent('idle-guest', 'get-economy-snapshot');
+    runtime.noteSocketEvent('idle-guest', 'list-rooms');
+    runtime.noteSocketEvent('idle-guest', 'check-username');
+    runtime.noteSocketEvent('idle-guest', 'search-players');
+    runtime.noteSocketEvent('idle-guest', 'account-export');
+    runtime.sweepIdleSeats();
+  }
+  assert.equal(guest.presence.state, 'inactive', 'read-only events do not keep a silent turn holder active');
+  assert.equal(guest.presence.reason, 'idle');
+  console.log('room presence idle detection: read-only requests do not keep the turn holder active');
+}
+
+{
+  // A real input event with a name still counts.
+  const harness = createIdleHarness();
+  const { clock, runtime, guest } = harness;
+  for (let step = 0; step < 10; step += 1) {
+    clock.now += 60_000;
+    runtime.noteSocketEvent('idle-guest', 'send-chat');
+    runtime.sweepIdleSeats();
+  }
+  assert.equal(guest.presence.state, 'active', 'a named input event still counts as activity');
+  console.log('room presence idle detection: named input events still count');
+}
+
+{
   const harness = createIdleHarness();
   const { clock, runtime, room, guest, host } = harness;
   room.game.currentPlayerId = host.id;
@@ -239,8 +268,8 @@ function fireDueTimers(harness) {
 }
 
 {
-  // S02-F5: a seat the server idled that then resumes playing is returned to
-  // active, so its pending removal deadline no longer evicts a live player.
+  // A seat the server idled that then resumes playing is returned to
+  // active, so its pending removal deadline does not evict a live player.
   const harness = createIdleHarness();
   const { clock, runtime, room, guest } = harness;
   runtime.sweepIdleSeats();
@@ -271,7 +300,7 @@ function fireDueTimers(harness) {
 }
 
 {
-  // S17-04 / S02-F8: the idle-clock maps are keyed by seat id and must not keep
+  // The idle-clock maps are keyed by seat id and must not keep
   // seats that already left (a voluntary leave never reaches clearPlayer), nor the
   // seats of a destroyed room.
   function createTrackingHarness() {
@@ -324,7 +353,7 @@ function fireDueTimers(harness) {
   runtime.sweepIdleSeats();
   assert.equal(guest.presence.state, 'inactive');
   {
-  // X12: the idle watcher must watch the seat that has to answer a pending
+  // The idle watcher must watch the seat that has to answer a pending
   // contract. After a counter-offer that is the responder (the seat that made
   // the surviving offer), not the seat the contract was addressed to.
   const harness = createIdleHarness();
@@ -354,4 +383,57 @@ function fireDueTimers(harness) {
 }
 
 console.log('room presence idle detection: the clock starts when a silent seat begins to hold the turn');
+}
+
+// Exercise the same safe-handler/presence wiring over a real Socket.IO connection.
+{
+  const { createServer } = await import('node:http');
+  const { Server } = await import('socket.io');
+  const { io: connectClient } = await import('socket.io-client');
+  const { createSafeEmitter } = await import('./socketHandlerSupport.js');
+  const harness = createIdleHarness();
+  const { clock, runtime, room, guest, manager } = harness;
+  const httpServer = createServer();
+  const server = new Server(httpServer);
+  let admitted = true;
+  let succeeds = false;
+  server.on('connection', socket => {
+    room.addOrReconnectPlayer({ socketId: socket.id, clientId: 'idle-guest-client', nickname: 'Guest' });
+    manager.socketRoom.set(socket.id, room);
+    const on = createSafeEmitter(socket, {
+      allow: () => admitted,
+      onAccepted: (socketId, event) => runtime.noteSocketEvent(socketId, event),
+    });
+    on('send-chat', (_payload, ack) => ack({ success: succeeds }));
+    on('get-economy-snapshot', (_payload, ack) => ack({ success: true }));
+    on('restore-session', (_payload, ack) => ack({ success: true }));
+    socket.on('barrier', ack => ack());
+  });
+  await new Promise(resolve => httpServer.listen(0, '127.0.0.1', resolve));
+  const client = connectClient(`http://127.0.0.1:${httpServer.address().port}`);
+  try {
+    await new Promise((resolve, reject) => { client.once('connect', resolve); client.once('connect_error', reject); });
+    runtime.sweepIdleSeats();
+    for (let step = 0; step < 4; step += 1) {
+      clock.now += 60_000;
+      client.emit('unknown-event');
+      await client.emitWithAck('get-economy-snapshot', {});
+      await client.emitWithAck('restore-session', {});
+      await client.emitWithAck('send-chat', {});
+      admitted = false;
+      await client.emitWithAck('send-chat', {});
+      admitted = true;
+      await client.emitWithAck('barrier');
+      runtime.sweepIdleSeats();
+    }
+    assert.equal(guest.presence.state, 'inactive', 'unknown, non-interactive, rejected and rate-denied events do not keep the seat active');
+    succeeds = true;
+    client.emit('send-chat', {});
+    await client.emitWithAck('barrier');
+    assert.equal(guest.presence.state, 'active', 'successful input without a client acknowledgement restores a server-idled seat');
+    console.log('room presence Socket.IO: unknown, read-only and denied events do not count; admitted input restores activity');
+  } finally {
+    client.disconnect();
+    await new Promise(resolve => server.close(resolve));
+  }
 }

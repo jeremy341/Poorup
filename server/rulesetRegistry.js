@@ -1,9 +1,6 @@
-// Ruleset and board contracts live in one small registry so rooms, summaries,
-// bots, history, and the client all resolve the same immutable configuration.
-// This is deliberately pure: it has no socket, store, or GameState imports.
-// Room creation and the room-setting setter both decide what a legal value is.
-// The vocabularies live in roomSettings.js and are imported here so the two
-// doors cannot drift into disagreeing about the same payload.
+// Ruleset and board contracts live in one small registry, so rooms, summaries, bots, history and the client all resolve the same immutable configuration.
+// Pure: no socket, store or GameState imports. Room creation and the room-setting setter both decide what a legal value is, and
+// the vocabularies live in roomSettings.js, so the two doors cannot drift into disagreeing about the same payload.
 import {
   GLOBAL_EVENT_ON_VALUES,
   ROOM_FLAG_TRUE_VALUES,
@@ -146,17 +143,15 @@ function normalizedOverrideValue(key, value) {
   }
   if (BOOLEAN_OVERRIDE_KEYS.has(key)) {
     // Truthiness is the setter's vocabulary, not a second spelling list: the
-    // extended globalEvents spellings are the one place the two doors used to
+    // extended globalEvents spellings are the one place the two doors can
     // invert, turning 'rare' ON through the setter and OFF through creation.
     const truthyValues = key === 'globalEvents' ? GLOBAL_EVENT_ON_VALUES : ROOM_FLAG_TRUE_VALUES;
     return truthyValues.includes(value);
   }
   if (key === 'turnTimer') return boundedInteger(value, { min: 0, max: 3_600, fallback: null });
   if (key === 'bots') {
-    // The setter clamps bots against the room's live seat count, which a pure
-    // registry cannot see, so creation applies the same zero floor and lets
-    // effectiveSettingsFor clamp against the board's seat ceiling. A range
-    // check here rejected what the setter silently clamps.
+    // The setter clamps bots against the room's live seat count, which a pure registry cannot see. Creation therefore applies the same zero floor
+    // and lets effectiveSettingsFor clamp against the board's seat ceiling. A range check here would reject what the setter silently clamps.
     const floored = floorSettingAtZero(value);
     return floored === SETTING_REJECTED ? null : floored;
   }

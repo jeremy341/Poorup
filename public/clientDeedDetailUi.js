@@ -1,10 +1,6 @@
-/* ============================================================
-   DEED DETAIL / HOUSE MANAGER: the deed modal (renderDeedDetail +
-   open/close), the even-build/even-sell rule mirrors, and the
-   build/sell/mortgage emitters plus the MY DEEDS card click that
-   opens it. emitServer is injected by the entry module; markup and
-   payloads are the exact old main.js templates.
-   ============================================================ */
+// DEED DETAIL / HOUSE MANAGER: the deed modal (renderDeedDetail, open and close), the even-build
+// and even-sell rule mirrors, and the build, sell and mortgage emitters. The MY DEEDS card click
+// that opens it is here too. emitServer is injected; markup and payloads must match main.js.
 import { $, esc } from "./clientDom.js";
 import { closeButtonHTML } from "./clientCloseButton.js";
 import { state } from "./clientState.js";
@@ -135,7 +131,7 @@ function renderDeedDetail() {
     if (projectedActions?.buildHouse && !projectedActions.buildHouse.enabled) reason = projectedActions.buildHouse.reason;
     else if (isMortgaged) reason = "Unmortgage this deed before building on it.";
     else if (!hasSet) reason = `You need every ${tile.group.toUpperCase()} deed to build here.`;
-    else if (maxed) reason = "Fully developed — hotel already built.";
+    else if (maxed) reason = "Fully developed: hotel already built.";
     else if (!evenOk) reason = "Build evenly: raise the lower deeds in this set first.";
     else if (!canAfford) reason = `You need $${houseCost} to build here.`;
 

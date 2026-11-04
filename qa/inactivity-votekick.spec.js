@@ -111,7 +111,7 @@ test('vote panel discloses settlement and emits the approved room event payloads
     ];
     window.__voteUi.requestStart('seat-two', window.__votePlayers);
   });
-  await expect(page.locator('#room-votekick-host')).toContainText('seat and obligations');
+  await expect(page.locator('#room-votekick-host')).toContainText('assets and debts are settled');
   await page.locator('#room-votekick-host [data-votekick-action="start"]').evaluate(button => button.click());
   await expect.poll(() => page.evaluate(() => window.__voteEvents[0])).toEqual({
     event: 'room-votekick-start',

@@ -1,9 +1,6 @@
-// Seat identity across rooms (F-038..F-041). A clientId or account holds one
-// live seat at a time, disconnect grace timers belong to their own room, a
-// socket cannot release another room's seat, bot seats cannot be claimed, and
-// a private invite code whose humans are still in grace is not reclaimed.
-// Real RoomManager and runtime with a fake clock, the same harness shape as
-// host-election-repair.test.js.
+// Seat identity across rooms. A clientId or account holds one live seat at a time, disconnect grace timers belong to their own room,
+// a socket cannot release another room's seat, bot seats cannot be claimed, and a private invite code whose humans are still in grace is not reclaimed.
+// Real RoomManager and runtime with a fake clock, same harness shape as host-election-repair.test.js.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { createRuntime } from './socketRuntime.js';
@@ -149,7 +146,7 @@ function drop(world, socketId) {
 }
 
 // Fixture seat (bypasses the socket join guard) for the "two rooms share one clientId" state
-// that the join guard now refuses to create.
+// that the join guard refuses to create.
 function fixtureSeat(world, room, socketId, { clientId, nickname = 'Guest', accountId = null }) {
   const result = room.addOrReconnectPlayer({ socketId, clientId, nickname, accountId });
   assert.equal(result.success, true);
@@ -159,7 +156,7 @@ function fixtureSeat(world, room, socketId, { clientId, nickname = 'Guest', acco
 
 const seatOf = (room, clientId) => room.game.getPlayerByClient(clientId);
 
-check('F-038 a clientId already live in another room cannot join a second room', () => {
+check('a clientId already live in another room cannot join a second room', () => {
   const world = harness();
   const roomA = seatHost(world, 'ha', { clientId: 'ha-client', roomCode: 'ROOMA1' });
   const roomB = seatHost(world, 'hb', { clientId: 'hb-client', roomCode: 'ROOMB1' });
@@ -172,7 +169,7 @@ check('F-038 a clientId already live in another room cannot join a second room',
   assert.ok(seatOf(roomA, 'G'), 'room A keeps its live seat');
 });
 
-check('F-038 a disconnected seat in grace is not stolen by a join into another room', () => {
+check('a disconnected seat in grace is not stolen by a join into another room', () => {
   const world = harness();
   const roomA = seatHost(world, 'ha', { clientId: 'ha-client', roomCode: 'ROOMA1' });
   const roomB = seatHost(world, 'hb', { clientId: 'hb-client', roomCode: 'ROOMB1' });
@@ -197,9 +194,9 @@ check('F-038 a disconnected seat in grace is not stolen by a join into another r
   assert.equal(retry.success, true, 'once room A releases the seat the same clientId may join room B');
 });
 
-check('F-038 expiry of room A never removes a live seat in room B that shares its clientId', () => {
+check('expiry of room A never removes a live seat in room B that shares its clientId', () => {
   const world = harness();
-  // Room B is registered first, as in the V3 repro: a first-match clientId lookup then lands on B.
+  // Room B is registered first, so a first-match clientId lookup lands on B.
   const roomB = seatHost(world, 'hb', { clientId: 'hb-client', roomCode: 'ROOMB1' });
   const roomA = seatHost(world, 'ha', { clientId: 'ha-client', roomCode: 'ROOMA1' });
   fixtureSeat(world, roomA, 's1', { clientId: 'G' });
@@ -213,7 +210,7 @@ check('F-038 expiry of room A never removes a live seat in room B that shares it
   assert.equal(liveB.socketId, 's2');
 });
 
-check('F-038 two graced seats that share a clientId each expire on their own timer', () => {
+check('two graced seats that share a clientId each expire on their own timer', () => {
   const world = harness();
   const roomA = seatHost(world, 'ha', { clientId: 'ha-client', roomCode: 'ROOMA1' });
   const roomB = seatHost(world, 'hb', { clientId: 'hb-client', roomCode: 'ROOMB1' });
@@ -228,7 +225,7 @@ check('F-038 two graced seats that share a clientId each expire on their own tim
   assert.equal(seatOf(roomB, 'G'), undefined, 'B ghost must not outlive its grace window');
 });
 
-check('F-039 leave-room cannot release a seat in another room and orphan the socket live seat', () => {
+check('leave-room cannot release a seat in another room and orphan the socket live seat', () => {
   const world = harness();
   const accountU = { id: 'acct-u', displayName: 'V3User', color: '#286ea1', avatarGrid: null };
   const roomA = seatHost(world, 'ha', { clientId: 'ha-client', roomCode: 'ROOMA1' });
@@ -237,7 +234,7 @@ check('F-039 leave-room cannot release a seat in another room and orphan the soc
   assert.equal(call(s1, 'join-room', { roomCode: 'ROOMA1', clientId: 'cA', nickname: 'V3User' }).success, true);
   drop(world, 's1');
   assert.equal(seatOf(roomA, 'cA').disconnected, true);
-  const s2 = connect(world, 's2', accountU);
+  const s2 = connect(world, 's2', { ...accountU, id: 'acct-v' });
   assert.equal(call(s2, 'join-room', { roomCode: 'ROOMB1', clientId: 'cB', nickname: 'V3User' }).success, true);
   const ack = call(s2, 'leave-room', { clientId: 'cA' });
   assert.deepEqual(ack, { success: false, error: NO_SESSION });
@@ -248,7 +245,7 @@ check('F-039 leave-room cannot release a seat in another room and orphan the soc
   assert.equal(call(s2, 'leave-room', { clientId: 'cB' }).success, true, 'a socket may still release its own seat');
 });
 
-check('F-039 a socket releases its own seat even when it is mapped to that room', () => {
+check('a socket releases its own seat even when it is mapped to that room', () => {
   const world = harness();
   const roomA = seatHost(world, 'ha', { clientId: 'ha-client', roomCode: 'ROOMA1' });
   const s1 = connect(world, 's1');
@@ -258,7 +255,7 @@ check('F-039 a socket releases its own seat even when it is mapped to that room'
   assert.equal(world.manager.getRoomBySocket('s1'), null);
 });
 
-check('F-039 an account with a live seat in another room cannot join a second room from another socket', () => {
+check('an account with a live seat in another room cannot join a second room from another socket', () => {
   const world = harness();
   const accountU = { id: 'acct-u', displayName: 'V3User', color: '#286ea1', avatarGrid: null };
   const roomA = seatHost(world, 'ha', { clientId: 'ha-client', roomCode: 'ROOMA1' });
@@ -270,7 +267,44 @@ check('F-039 an account with a live seat in another room cannot join a second ro
   assert.ok(seatOf(roomA, 'cA'), 'room A seat is not disturbed');
 });
 
-check('A1 create-room cannot give an account a second seat while it is live in another room', () => {
+check('an account with a disconnected seat in grace cannot join another room', () => {
+  const world = harness();
+  const accountU = { id: 'acct-u', displayName: 'V3User', color: '#286ea1', avatarGrid: null };
+  const roomA = seatHost(world, 'ha', { clientId: 'ha-client', roomCode: 'ROOMA1' });
+  const roomB = seatHost(world, 'hb', { clientId: 'hb-client', roomCode: 'ROOMB1' });
+  const s1 = connect(world, 's1', accountU);
+  assert.equal(call(s1, 'join-room', { roomCode: 'ROOMA1', clientId: 'cA', nickname: 'V3User' }).success, true);
+  drop(world, 's1');
+  const gracedSeat = seatOf(roomA, 'cA');
+  assert.equal(gracedSeat.disconnected, true);
+
+  const s2 = connect(world, 's2', accountU);
+  // Even if a reconnecting socket reuses the old socket id, a disconnected
+  // seat does not qualify for the live same-socket room-move exception.
+  gracedSeat.socketId = s2.id;
+  assert.deepEqual(call(s2, 'join-room', { roomCode: 'ROOMB1', clientId: 'cB', nickname: 'V3User' }), {
+    success: false,
+    error: ACCOUNT_SEATED_ELSEWHERE
+  });
+  assert.equal(seatOf(roomB, 'cB'), undefined, 'the account gets no second seat during reconnect grace');
+  assert.equal(seatOf(roomA, 'cA'), gracedSeat, 'the original seat remains in its grace window');
+});
+
+check('a bankrupt account seat does not block joining another room', () => {
+  const world = harness();
+  const accountU = { id: 'acct-u', displayName: 'V3User', color: '#286ea1', avatarGrid: null };
+  const roomA = seatHost(world, 'ha', { clientId: 'ha-client', roomCode: 'ROOMA1' });
+  const roomB = seatHost(world, 'hb', { clientId: 'hb-client', roomCode: 'ROOMB1' });
+  const s1 = connect(world, 's1', accountU);
+  assert.equal(call(s1, 'join-room', { roomCode: 'ROOMA1', clientId: 'cA', nickname: 'V3User' }).success, true);
+  seatOf(roomA, 'cA').bankrupt = true;
+
+  const s2 = connect(world, 's2', accountU);
+  assert.equal(call(s2, 'join-room', { roomCode: 'ROOMB1', clientId: 'cB', nickname: 'V3User' }).success, true);
+  assert.ok(seatOf(roomB, 'cB'), 'a bankrupt seat does not hold the account at another table');
+});
+
+check('create-room cannot give an account a second seat while it is live in another room', () => {
   const world = harness();
   const accountU = { id: 'acct-u', displayName: 'V3User', color: '#286ea1', avatarGrid: null };
   const roomA = seatHost(world, 'ha', { clientId: 'ha-client', roomCode: 'ROOMA1' });
@@ -303,7 +337,7 @@ check('Scope 09 create-room leaves a held seat in grace instead of settling it a
   assert.equal(graced.disconnected, true, 'the held seat keeps its grace');
 });
 
-check('F-039 the same socket may still switch rooms, releasing its lobby seat', () => {
+check('the same socket may still switch rooms, releasing its lobby seat', () => {
   const world = harness();
   const accountU = { id: 'acct-u', displayName: 'V3User', color: '#286ea1', avatarGrid: null };
   const roomA = seatHost(world, 'ha', { clientId: 'ha-client', roomCode: 'ROOMA1' });
@@ -316,14 +350,14 @@ check('F-039 the same socket may still switch rooms, releasing its lobby seat', 
   assert.equal(world.manager.getRoomBySocket('s1'), roomB);
 });
 
-check('F-039 a socket disconnect puts every seat on that socket into grace, not only the mapped room', () => {
+check('a socket disconnect puts every seat on that socket into grace, not only the mapped room', () => {
   const world = harness();
   const roomA = seatHost(world, 'ha', { clientId: 'ha-client', roomCode: 'ROOMA1' });
   seatHost(world, 'hc', { clientId: 'hc-client', roomCode: 'ROOMC1' });
   const s1 = connect(world, 's1');
   call(s1, 'join-room', { roomCode: 'ROOMA1', clientId: 'G', nickname: 'GuestG' });
   // Re-map this socket by hand; the seat it left in room A stays on the socket. (create-room
-  // no longer strands a lobby seat this way: it releases it, covered in
+  // does not strand a lobby seat this way: it releases it, covered in
   // serverSocketRoomLifecycle.test.js, so the stranded state is built directly.)
   world.manager.socketRoom.set('s1', world.manager.getRoom('ROOMC1'));
   drop(world, 's1');
@@ -333,7 +367,7 @@ check('F-039 a socket disconnect puts every seat on that socket into grace, not 
   assert.equal(seatOf(roomA, 'G'), undefined, 'and expires instead of staying live forever');
 });
 
-check('E19-11 a voluntary leave announces the pending trade it cancels, as expiry does', () => {
+check('a voluntary leave announces the pending trade it cancels, as expiry does', () => {
   const world = harness();
   const room = seatHost(world, 'ha', { clientId: 'ha-client', roomCode: 'TRADEA' });
   const s1 = connect(world, 's1');
@@ -348,7 +382,7 @@ check('E19-11 a voluntary leave announces the pending trade it cancels, as expir
   );
 });
 
-check('E19-11 a voluntary leave auctions the purchase offer it passes, as expiry does', () => {
+check('a voluntary leave auctions the purchase offer it passes, as expiry does', () => {
   const world = harness();
   const room = seatHost(world, 'ha', { clientId: 'ha-client', roomCode: 'PURCHA' });
   const s1 = connect(world, 's1');
@@ -366,7 +400,7 @@ check('E19-11 a voluntary leave auctions the purchase offer it passes, as expiry
   );
 });
 
-check('E19-10 a peer that exhausts its failed-join budget is throttled, other peers are not', () => {
+check('a peer that exhausts its failed-join budget is throttled, other peers are not', () => {
   const world = harness();
   seatHost(world, 'ha', { clientId: 'ha-client', roomCode: 'THROTL' });
   const brute = connect(world, 'brute-peer');
@@ -384,7 +418,7 @@ check('E19-10 a peer that exhausts its failed-join budget is throttled, other pe
   assert.equal(call(honest, 'join-room', { roomCode: 'THROTL', clientId: 'honest-client', nickname: 'Honest' }).success, true);
 });
 
-check('F-040 a bot seat cannot be claimed through join-room with its clientId', () => {
+check('a bot seat cannot be claimed through join-room with its clientId', () => {
   const world = harness();
   const room = seatHost(world, 'host', { clientId: 'host-client', roomCode: 'BOTROM' });
   room.setRoomSetting('bots', 1);
@@ -401,7 +435,7 @@ check('F-040 a bot seat cannot be claimed through join-room with its clientId', 
   assert.equal(world.manager.getRoomBySocket('atk'), null, 'the attacker socket is not mapped to the bot seat');
 });
 
-check('F-040 the predictable legacy bot clientId joins as a new guest and is refused by the started game', () => {
+check('the predictable legacy bot clientId joins as a new guest and is refused by the started game', () => {
   const world = harness();
   const room = seatHost(world, 'host', { clientId: 'host-client', roomCode: 'BOTRM2' });
   room.setRoomSetting('bots', 1);
@@ -413,7 +447,7 @@ check('F-040 the predictable legacy bot clientId joins as a new guest and is ref
   assert.equal(room.game.players.some(player => player.nickname === 'Attacker'), false);
 });
 
-check('F-041 a private code whose humans are both in grace is not reclaimed', () => {
+check('a private code whose humans are both in grace is not reclaimed', () => {
   const world = harness();
   const room = seatHost(world, 'host', { clientId: 'host-client', roomCode: 'ZZ9Q11' });
   connect(world, 'guest');
@@ -431,7 +465,7 @@ check('F-041 a private code whose humans are both in grace is not reclaimed', ()
   assert.equal(call(back, 'restore-session', { clientId: 'host-client' }).success, true, 'the original host restores within grace');
 });
 
-check('F-041 a private code whose room holds only bots is reclaimable', () => {
+check('a private code whose room holds only bots is reclaimable', () => {
   const world = harness();
   const room = seatHost(world, 'host', { clientId: 'host-client', roomCode: 'BOTONL' });
   room.setRoomSetting('bots', 1);
@@ -443,7 +477,7 @@ check('F-041 a private code whose room holds only bots is reclaimable', () => {
   assert.equal(ack.success, true, 'a bots-only room no longer holds its code');
 });
 
-check('F-041 a kicked clientId cannot reclaim the private code of the room that kicked it', () => {
+check('a kicked clientId cannot reclaim the private code of the room that kicked it', () => {
   const world = harness();
   const room = seatHost(world, 'host', { clientId: 'host-client', roomCode: 'KICKD1' });
   room.setRoomSetting('bots', 1);

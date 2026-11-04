@@ -1,7 +1,5 @@
-// Unit tests for the shared deterministic trade valuation core.
-// Every assertion pins a Jev-guided parameter choice: quadratic progress
-// credit, 2x monopoly premium constant, flat traffic tiers, 1-house
-// build-readiness threshold.
+// Unit tests for the shared deterministic trade valuation core. Every assertion pins a Jev-guided parameter choice:
+// quadratic progress credit, the 2x monopoly premium, flat traffic tiers, and the one-house build-readiness threshold.
 import assert from 'node:assert/strict';
 import {
   MONOPOLY_PREMIUM_NUM,
@@ -128,7 +126,7 @@ check('vetoTrade fires on any uncompensated set completion, whatever the buyer h
   const vetoed = vetoTrade(fakeGame(1500), trade, 'BOT');
   assert.equal(vetoed.vetoed, true);
   assert.equal(vetoed.reasonCode, 'veto-monopoly-build-ready');
-  // Audit finding 5: the old rule needed cash >= one house, so a $0 buyer sailed through.
+  // A buyer needs cash of at least one house, so a $0 buyer must not sail through.
   assert.equal(vetoTrade(fakeGame(0), trade, 'BOT').vetoed, true, 'the buyer\'s cash is no longer a loophole');
   // Paying the 2x monopoly premium (2 x 57 = 114) lifts the veto; one dollar short does not.
   assert.equal(vetoTrade(fakeGame(0), { ...trade, giveCash: 113 }, 'BOT').vetoed, true);

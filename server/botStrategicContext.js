@@ -1,9 +1,8 @@
 import { playerFinanceEnabled } from './financeRules.js';
 import { rentShareConstructionAllowed } from './rentShareRules.js';
-// Versioned, provider-safe bot projection. This module only reshapes the
-// authoritative GameState; it never executes an action or exposes stable
-// account/socket identifiers. Keep it separate from bot execution so a future
-// simulator and the AI adapter can consume the same snapshot contract.
+// Versioned, provider-safe bot projection. It only reshapes the authoritative GameState and never executes an action
+// or exposes stable account or socket identifiers. It stays separate from bot execution so a simulator and the AI adapter
+// can consume the same snapshot contract.
 import { JAIL_FINE, JAIL_MAX_TURNS, START_TILE_INDEX } from './gameData.js';
 import { decksForVariant } from './boardRegistry.js';
 import { MARKET_FEE_RATE, marketQuoteHistorySnapshot } from './marketLogic.js';
@@ -32,11 +31,9 @@ function cashBand(cash, startingCash) {
   return 'strong';
 }
 
-// Canonical seat label: 'self' plus one 'opponent-N' per other seat in seating
-// order. The number counts opponents only, so it never depends on where the bot
-// itself sits. Every seat-keyed field (board[], opponents[], obligations,
-// events) resolves through this one function; a second numbering scheme would
-// make the planner's seat lookups (opponentIsJailed) miss every time.
+// Canonical seat label: 'self' plus one 'opponent-N' per other seat, in seating order. The number counts opponents only,
+// so it never depends on where the bot sits. Every seat-keyed field resolves through this one function; a second numbering
+// scheme would make the planner's seat lookups (opponentIsJailed) miss every time.
 export function seatOf(game, bot, playerId) {
   if (!playerId) return 'bank';
   if (playerId === bot.id) return 'self';
@@ -441,10 +438,9 @@ function rulesetMetadata(game) {
   };
 }
 
-// The borrowable pool is room-global state (game.marketShortInventory), not a
-// per-seat allowance: every seat shortens from the same units, and each open
-// short permanently consumes them. Report it as the live per-instrument map so
-// the bot never plans a short the table can no longer fill.
+// The borrowable pool is room-global (game.marketShortInventory), not a per-seat allowance: every seat shortens from the
+// same units, and each open short permanently consumes them. Report it as a live per-instrument map so the bot never plans
+// a short the table cannot fill.
 function shortInventoryView(game) {
   return Object.fromEntries(Object.entries(game?.marketShortInventory || {})
     .sort(([left], [right]) => left.localeCompare(right))
@@ -605,12 +601,9 @@ export function buildBotStrategicContext(game, bot, phase = 'pre-roll', decision
   };
 }
 
-// Anonymized whole-table brief for the advisor: standings, threats,
-// alliances, and the win path — seats only, never stable identifiers.
-// A seat that is bankrupt or disconnected is out of the game: it is not a
-// rival, so it never counts in the seats, the rank, the leader gap, the
-// threats, the alliances, or the endgame. Its liveness stays on the
-// opponent views, and the seats that left are reported apart from the table.
+// Anonymized whole-table brief for the advisor: standings, threats, alliances and the win path, seats only, never stable identifiers.
+// A bankrupt or disconnected seat is out of the game, so it is not a rival: it never counts in the seats, rank, leader gap,
+// threats, alliances or endgame. Its liveness stays on the opponent views, and departed seats are reported apart from the table.
 function tableSummaryView(game, bot, opponents) {
   const all = opponents || [];
   const live = all.filter(entry => !entry.bankrupt && !entry.disconnected);

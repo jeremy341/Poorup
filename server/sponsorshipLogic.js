@@ -1,11 +1,6 @@
-// Sponsorship domain policy: who may fund a pending sponsored purchase, when
-// a request is dead, which seat owns the reaction, and the room action each
-// seat takes. Pure decisions plus the injected room seam - botLogic.js owns the
-// phase state machine and candidate plumbing around it. Every gate here is a
-// verbatim move of the original inline chain (anti-farm rounds, one unreciprocated
-// human gift, bots-only immediate cancel), so bot balance is unchanged.
-// The one added gate is the loan-taint check in sponsorshipContributionAmount,
-// which every funder, actor-seat, and counterpart decision reads through.
+// Sponsorship domain policy: who may fund a pending sponsored purchase, when a request is dead, which seat owns the reaction, and the room action each seat takes.
+// Pure decisions plus the injected room seam; botLogic.js owns the phase state machine. Each gate keeps the logic of the original inline chain, so bot balance is unchanged.
+// The loan-taint check in sponsorshipContributionAmount is the one gate every funder decision reads.
 import { playerFinanceEnabled } from './financeRules.js';
 import { hasLoanBackedCash } from './loanLogic.js';
 
@@ -66,11 +61,9 @@ function sponsorshipFundingAmount(game, sponsorship, bot) {
   const buyer = typeof game.getPlayerById === 'function' ? game.getPlayerById(sponsorship.buyerId) : null;
   if (sponsorshipRoundGated(game, bot)) return 0;
   if (sponsorshipGiftGated(bot, buyer)) return 0;
-  // The server rejects loan-backed sponsorship cash (sponsorshipApi.js), so a
-  // loaned bot must never be sized as a funder: it would burn every turn on a
-  // guaranteed rejection, never advance lastSponsorRound, and be counted as a
-  // live funder that can keep a dead request alive forever. The casino,
-  // contract, and market collectors apply this same guard.
+  // The server rejects loan-backed sponsorship cash (sponsorshipApi.js), so a loaned bot must never be sized as a funder: it would
+  // burn every turn on a sure rejection, never advance lastSponsorRound, and keep a dead request alive as a live funder forever.
+  // The casino, contract and market collectors apply the same guard.
   if (hasLoanBackedCash(bot)) return 0;
   const needed = sponsorshipShortfall(game, sponsorship, sponsorshipBuyerCash(buyer, sponsorship));
   const available = Math.max(0, Math.floor(Number(bot.cash || 0) - SPONSORSHIP_RESERVE_CASH));
@@ -149,12 +142,9 @@ function botCanFundSponsorship(game, sponsorship, bot, live) {
   return live.some(player => player.id !== bot.id && sponsorshipFunderCandidate(game, sponsorship, player));
 }
 
-// Buyer-side cancel policy shared by dispatch, actor gating, and both
-// executors: covered requests accept; dead or unfundable ones are declined
-// so the purchase resolves. Humans with cash get a full round to fund first.
-// When nobody can contribute at all, the request is cancelled at once: the
-// round cannot advance while a request is open, so aging alone would park the
-// table forever (F-033).
+// Buyer-side cancel policy shared by dispatch, actor gating and both executors: covered requests accept; dead or unfundable ones are
+// declined so the purchase resolves. Humans with cash get a full round to fund first. When nobody can contribute at all, the request is
+// cancelled at once, since the round cannot advance while a request is open and aging alone would park the table forever.
 export function sponsorshipBuyerShouldCancel(game, bot, sponsorship, needed = null) {
   if (!sponsorship || sponsorship.buyerId !== bot?.id) return false;
   const shortfall = needed ?? sponsorshipShortfall(game, sponsorship, bot.cash);

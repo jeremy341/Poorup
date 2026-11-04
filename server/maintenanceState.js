@@ -77,12 +77,9 @@ export function canStartRound(snapshot, { bypass = false } = {}) {
   return canCreateRoom(snapshot, { bypass });
 }
 
-// Taking a new seat is refused by the lockout. A running drain is not a
-// lockout: it pauses new rooms and rounds (canCreateRoom), and the shutdown
-// waits for the seats that are still in a lobby before the process exits
-// (server.js waitForDrain), so a seat taken during a drain is not dropped on
-// the way out. A reconnect to a seat the client already holds is always
-// allowed, so seated players keep playing.
+// Taking a new seat is refused by the lockout. A running drain is not a lockout: it pauses new rooms and rounds (canCreateRoom),
+// and shutdown waits for seats still in a lobby (server.js waitForDrain), so a seat taken during a drain is not dropped.
+// A reconnect to a seat the client already holds is always allowed, so seated players keep playing.
 export function canJoinRoom(snapshot, { bypass = false, reconnecting = false } = {}) {
   if (!isLockout(snapshot)) return true;
   return bypass === true || reconnecting === true;

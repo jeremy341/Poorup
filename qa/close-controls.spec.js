@@ -39,7 +39,8 @@ async function prepare(page, context, code) {
   await guest.locator('#room-join').fill(code);
   await guest.locator('#join-nickname').fill('CLOSEGUEST');
   await guest.locator('#join-room-submit').click();
-  await guest.locator('#su-start').click();
+  await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
+  if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
   await expect(page.locator('#player-list .player-row')).toHaveCount(2);
   await page.locator('#lobby-start-btn').click();
   await expect(page.locator('#view-game')).toBeVisible();

@@ -78,7 +78,7 @@ assert.match(adminView, /data-rooms-totals/);
 assert.doesNotMatch(adminView, /admin-side|data-rooms-sidebar/);
 assert.doesNotMatch(adminView, /(?:displayName|username|accountId|roomCode|chat|hiddenCards|privateLoanTerms|sessionToken|rawPayload|rawEvent|ipAddress|rawIp|userAgent|rawUserAgent)\s*=/i);
 
-// Bots & AI: usage line, then the old provider layout inline (active aside + form + roster), and a change log.
+// Bots & AI: usage line, then the provider layout inline (active aside + form + roster), and a change log.
 assert.match(adminView, /data-bots-line/);
 assert.match(adminView, /class="admin-provider-layout"/);
 assert.match(adminView, /<aside class="admin-provider-active panel" aria-label="Active provider">/);

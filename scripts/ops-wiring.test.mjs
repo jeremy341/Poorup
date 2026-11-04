@@ -17,15 +17,13 @@ const read = relative => readFileSync(path.join(root, relative), 'utf8').replace
 const require = createRequire(import.meta.url);
 const { parseEnvText } = require(path.join(root, 'scripts', 'loadEnvFile.cjs'));
 
-// ---------------------------------------------------------------------------
-// Environment contract (F-068): .env.example is the template the host copies,
+// Environment contract: .env.example is the template the host copies,
 // so it must parse under the loader and name every runtime variable.
-// ---------------------------------------------------------------------------
 const templateValues = parseEnvText(read('.env.example'), { source: '.env.example' });
 assert.equal(templateValues.NODE_ENV, 'development', '.env.example parses with the bash-compatible loader');
 
 const documented = new Set(read('.env.example').match(/POORUP_[A-Z0-9_]+/g));
-// Variables read by server code that the template deliberately leaves out.
+// Variables read by server code that the template leaves out.
 const NOT_IN_TEMPLATE = new Map([
   ['POORUP_TEST_RECONNECT_GRACE_MS', 'test-only reconnect grace override (NODE_ENV=test)'],
   ['POORUP_TRANSACTIONAL_ADAPTER_READY', 'PostgreSQL migration seam, inert in the single-process runtime'],
@@ -55,11 +53,9 @@ for (const file of serverSourceFiles()) {
 const undocumented = [...runtimeNames].filter(name => !documented.has(name) && !NOT_IN_TEMPLATE.has(name)).sort();
 assert.deepEqual(undocumented, [], `server runtime variables missing from .env.example (F-068): ${undocumented.join(', ')}`);
 
-// ---------------------------------------------------------------------------
-// Deploy and drain scripts (F-067, E37-03, E37-04, E37-09, E37-12). They are
+// Deploy and drain scripts. They are
 // not executed here (no Nest host); the contracts below pin the behaviour the
 // reviewed text must keep. Syntax is checked by parsing only (bash -n).
-// ---------------------------------------------------------------------------
 const deploy = read('scripts/deploy-nest.sh');
 const rollback = read('scripts/rollback-nest.sh');
 const updater = read('scripts/nest-auto-update.sh');
@@ -67,34 +63,34 @@ const beginDrain = read('scripts/begin-drain.sh');
 const endDrain = read('scripts/end-drain.sh');
 const shellScripts = { 'deploy-nest.sh': deploy, 'rollback-nest.sh': rollback, 'nest-auto-update.sh': updater, 'begin-drain.sh': beginDrain, 'end-drain.sh': endDrain };
 
-// Health gate (F-067): a host with no backup directory reports backupFresh:null
+// Health gate: a host with no backup directory reports backupFresh:null
 // and must pass; a configured host must report backupFresh:true.
 assert.match(deploy, /backupConfigured":false/, 'the health gate accepts backupConfigured:false (F-067)');
 assert.match(deploy, /backups_ready "\$ready_body"/, 'the health gate uses the backup predicate, not a bare backupFresh:true match (F-067)');
 
-// Rollback restores the release id that the failed deploy overwrote (F-067).
+// Rollback restores the release id that the failed deploy overwrote.
 assert.match(rollback, /PREVIOUS_SHA="\$\(basename "\$PREVIOUS_DIR"\)"/, 'rollback derives the previous release id (F-067)');
 assert.match(rollback, /POORUP_RELEASE_ID=\$PREVIOUS_SHA/, 'rollback stamps the previous release id before reloading (F-067)');
 assert.ok(rollback.indexOf('POORUP_RELEASE_ID=$PREVIOUS_SHA') < rollback.indexOf('pm2 startOrReload'), 'the stamp lands before the reload that reads it (F-067)');
 
-// A failed SHA is recorded so the updater stops retrying it (F-067).
+// A failed SHA is recorded so the updater stops retrying it.
 assert.match(deploy, /failed-releases\/\$RELEASE_SHA/, 'a failed health gate records the SHA (F-067)');
 assert.ok(deploy.indexOf('failed-releases/$RELEASE_SHA') < deploy.indexOf('rollback-nest.sh"'), 'the failed SHA is recorded before the rollback runs (F-067)');
 assert.match(updater, /\$APP_ROOT\/shared\/failed-releases\/\$latest_sha/, 'the updater skips a recorded failed SHA (F-067)');
 
-// npm ci output is kept on the journal, so a failed install explains itself (F-067).
+// npm ci output is kept on the journal, so a failed install explains itself.
 assert.doesNotMatch(updater, /npm ci[^\n]*2>&1/, 'npm ci output is not discarded (F-067)');
 
-// The updater no longer deletes every CI-uploaded archive at the start of a tick (E37-12).
+// The updater does not delete every CI-uploaded archive at the start of a tick.
 assert.doesNotMatch(updater, /rm -f \/tmp\/poorup-\*/, 'the updater does not glob-delete fresh /tmp archives (E37-12)');
 
-// A drain that times out returns the parlor to normal before failing (E37-12).
+// A drain that times out returns the parlor to normal before failing.
 assert.match(deploy, /did not drain[\s\S]*?post_maintenance '\{"mode":"normal"\}'[\s\S]*?exit 1/, 'a drain timeout posts normal before exiting (E37-12)');
 
-// Waiting lobbies are reported when the reload drops them (E37-04).
+// Waiting lobbies are reported when the reload drops them.
 assert.match(deploy, /waitingRooms/, 'the deploy reads the waiting-lobby count (E37-04)');
 
-// The maintenance token never reaches curl through argv (E37-09, F-067). The
+// The maintenance token never reaches curl through argv. The
 // updater itself sends no token; it hands the token to deploy-nest.sh by env.
 for (const [name, source] of Object.entries(shellScripts).filter(([name]) => name !== 'nest-auto-update.sh')) {
   assert.doesNotMatch(source, /-H "x-poorup-maintenance-token: /, `${name} passes the maintenance token through argv (E37-09)`);
@@ -114,11 +110,9 @@ for (const [name] of Object.entries(shellScripts)) {
   assert.equal(parsed.status, 0, `bash -n scripts/${name}: ${parsed.stderr || parsed.error?.message || ''}`);
 }
 
-// ---------------------------------------------------------------------------
-// Workflow gates (G12-03, E37-12): a workflow_run deploy or undrain acts only
+// Workflow gates: a workflow_run deploy or undrain acts only
 // on a push to main from this repository, so a fork pull request whose branch
 // is named main cannot reach the production host.
-// ---------------------------------------------------------------------------
 const deployWorkflow = read('.github/workflows/deploy-nest.yml');
 const undrainWorkflow = read('.github/workflows/maintenance-undrain.yml');
 for (const [name, workflow] of [['deploy-nest.yml', deployWorkflow], ['maintenance-undrain.yml', undrainWorkflow]]) {
@@ -126,14 +120,12 @@ for (const [name, workflow] of [['deploy-nest.yml', deployWorkflow], ['maintenan
   assert.match(workflow, /workflow_run\.head_repository\.full_name == github\.repository/, `${name} requires the CI head repository to be this one (G12-03)`);
 }
 // Undrain returns to normal only when no newer CI run on main is still pending;
-// that run's own drain governs maintenance (E37-12).
+// that run's own drain governs maintenance.
 assert.match(undrainWorkflow, /status != \\"completed\\"/, 'undrain counts pending newer CI runs on main (E37-12)');
 assert.match(undrainWorkflow, /if: steps\.newer\.outputs\.skip != 'true'/, 'undrain skips the SSH step when a newer run is pending (E37-12)');
 assert.match(undrainWorkflow, /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/, 'undrain runs end-drain.sh from the default branch (G12-03)');
 
-// ---------------------------------------------------------------------------
-// CI tiers and gates (G12-04, G12-05, G12-08, G12-10, G12-11).
-// ---------------------------------------------------------------------------
+// CI tiers and gates.
 const ci = read('.github/workflows/ci.yml');
 // The text of one top-level job: from its header to the next job header.
 const jobBody = name => {
@@ -162,17 +154,15 @@ assert.deepEqual(lockRoot.devDependencies, pkg.devDependencies, 'the lockfile ro
 assert.equal(lock.packages['node_modules/@typesafe-ai/sdk'], undefined, 'the lockfile drops the unused SDK package (E37-15)');
 
 // The nightly 1,000-game campaign covers development as well as main, and it
-// leaves a summary and a log artifact behind (G12-14).
+// leaves a summary and a log artifact behind.
 const campaign = read('.github/workflows/bot-campaign.yml');
 assert.match(campaign, /ref: \[main, development\]/, 'the nightly campaign runs on main and development (G12-14)');
 assert.match(campaign, /GITHUB_STEP_SUMMARY/, 'the nightly campaign writes a step summary (G12-14)');
 assert.match(campaign, /uses: actions\/upload-artifact@v6[\s\S]*path: campaign\.log/, 'the nightly campaign uploads its log (G12-14)');
 
-// ---------------------------------------------------------------------------
-// Container (E37-06): the data volume is owned by the runtime user, one VOLUME,
+// Container: the data volume is owned by the runtime user, one VOLUME,
 // a .dockerignore keeps live data and secrets out of the image, and the health
 // check uses readiness so a draining container is not reported healthy.
-// ---------------------------------------------------------------------------
 const dockerfile = read('Dockerfile');
 assert.equal((dockerfile.match(/^VOLUME /gm) || []).length, 1, 'the Dockerfile declares one VOLUME (E37-06)');
 // Production refuses to boot without positive rate limits, so the image must
@@ -192,9 +182,7 @@ for (const entry of ['server/data', 'server/backups', '.env*', '.git', 'node_mod
   assert.ok(dockerignore.includes(entry), `.dockerignore excludes ${entry} (E37-06)`);
 }
 
-// ---------------------------------------------------------------------------
-// Licence and font credits (E37-16).
-// ---------------------------------------------------------------------------
+// Licence and font credits.
 const license = read('LICENSE');
 assert.match(license, /^MIT License/, 'the repository carries an MIT LICENSE file (E37-16)');
 assert.match(license, /Permission is hereby granted, free of charge/, 'the LICENSE file contains the MIT grant (E37-16)');

@@ -1,9 +1,6 @@
-// Rent ladders for every owned count on both boards (F-014). Metro-52 has six
-// airports and four utilities, so the airport table must reach six and the
-// utility dice multiplier must reach four. Standard-40 keeps its four airports
-// and two utilities. Each count is checked on three paths that must agree: the
-// live engine (GameState.getPropertyRent), the game-side forecast and the bot
-// snapshot forecast the bots plan with.
+// Rent ladders for every owned count on both boards. Metro-52 has six airports and four utilities, so the airport table must
+// reach six and the utility dice multiplier must reach four. Standard-40 keeps four airports and two utilities. Each count is
+// checked on three paths that must agree: the live engine (GameState.getPropertyRent), the game-side forecast, and the bot snapshot forecast.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { calculateRentFromFacts, rentFactsFromGame, rentFactsFromSnapshot } from './botRentForecast.js';

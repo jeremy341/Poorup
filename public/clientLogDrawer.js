@@ -1,6 +1,4 @@
-/* ============================================================
-   LOG DRAWER: the complete chronological event log.
-   ============================================================ */
+// LOG DRAWER: the complete chronological event log.
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { focusSurface, syncSurfaceA11y } from "./clientSurfaces.js";

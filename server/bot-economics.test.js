@@ -1,8 +1,6 @@
-// Behavioural gate for the October bot-engine audit, finding 1: planner bots held
-// $6-25k idle and never built, because a house was booked at 50 % resale and its rent
-// was credited over at most three dice turns (nothing at House). These checks pin the
-// behaviour, not the weights: a bot with a complete set and spare cash develops it, a
-// bot without a buffer does not, and the choice does not depend on the difficulty.
+// Behavioural gate: planner bots held $6-25k idle and never built, because a house was booked at 50%
+// resale and its rent was credited over at most three dice turns. These checks pin the behaviour, not the weights:
+// a bot with a complete set and spare cash develops it, a bot without a buffer does not, and difficulty does not matter.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { DeterministicAdvisor } from './botAdvisor.js';

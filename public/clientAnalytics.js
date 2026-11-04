@@ -198,27 +198,48 @@ function snapshotStatus(snapshot) {
   return { message: `SYNCED · ${clock}`, tone: 'green', title };
 }
 
-export function renderAnalyticsSnapshot(value, tab) {
-  const snapshot = normalizeAnalyticsSnapshot(value);
-  const active = Object.hasOwn(ANALYTICS_PANEL_DESCRIPTORS, tab) ? tab : sectionViewFor(snapshot.filters.tab);
-  // The six tiles sit above the views, so any view's response can refresh them; a response without
-  // tiles leaves the last ones in place rather than blanking the row.
+function showKpiTiles(grid, markup) {
+  if (grid) grid.innerHTML = markup;
+  query('[data-section="kpis"]')?.classList.remove('is-hidden');
+  setSectionState(query('[data-section="kpis"]'), 'ready');
+}
+
+function showNoFigures(grid) {
+  // No figures: say it once, under the views, not in a second bar above them.
+  if (grid) grid.innerHTML = '';
+  const kpis = query('[data-section="kpis"]');
+  setSectionState(kpis, 'empty', { message: 'NO VERIFIED OBSERVATIONS FOR THIS WINDOW' });
+  kpis?.classList.add('is-hidden');
+}
+
+// The six tiles sit above the views, so any view's response can refresh them; a response without
+// tiles leaves the last ones in place rather than blanking the row.
+function renderKpiTiles(snapshot, active) {
   const grid = query('#admin-analytics-grid');
   const markup = statusGridMarkup(snapshot);
-  if (markup) { if (grid) grid.innerHTML = markup; query('[data-section="kpis"]')?.classList.remove('is-hidden'); setSectionState(query('[data-section="kpis"]'), 'ready'); }
-  else if (active === 'status' || !grid?.innerHTML) {
-    // No figures: say it once, under the views, instead of in a second bar above them.
-    if (grid) grid.innerHTML = '';
-    const kpis = query('[data-section="kpis"]');
-    setSectionState(kpis, 'empty', { message: 'NO VERIFIED OBSERVATIONS FOR THIS WINDOW' });
-    kpis?.classList.add('is-hidden');
-  }
-  const section = query(`[data-section="report-${active}"]`);
+  if (markup) showKpiTiles(grid, markup);
+  else if (active === 'status' || !grid?.innerHTML) showNoFigures(grid);
+}
+
+function renderPanelChart(snapshot, active, section) {
   const noMatches = windowHasNoMatches(snapshot);
   if (renderTabChart(snapshot, active, { empty: noMatches })) setSectionState(section, 'ready');
   else setSectionState(section, 'empty', { message: noMatches ? NO_MATCHES_TEXT[active] : 'NO VERIFIED OBSERVATIONS FOR THIS PANEL' });
+}
+
+function renderPanelAssociation(snapshot, active) {
   const note = query(`[data-analytics-panel="${active}"] [data-analytics-association]`);
-  if (note) { note.textContent = associationText(snapshot.association); note.classList.toggle('is-hidden', !snapshot.association); }
+  if (!note) return;
+  note.textContent = associationText(snapshot.association);
+  note.classList.toggle('is-hidden', !snapshot.association);
+}
+
+export function renderAnalyticsSnapshot(value, tab) {
+  const snapshot = normalizeAnalyticsSnapshot(value);
+  const active = Object.hasOwn(ANALYTICS_PANEL_DESCRIPTORS, tab) ? tab : sectionViewFor(snapshot.filters.tab);
+  renderKpiTiles(snapshot, active);
+  renderPanelChart(snapshot, active, query(`[data-section="report-${active}"]`));
+  renderPanelAssociation(snapshot, active);
   const status = snapshotStatus(snapshot);
   renderStatus(status.message, status.tone, status.title);
   refreshScrollCues(typeof document === 'undefined' ? null : document);
@@ -252,7 +273,7 @@ function readUrlFilters() {
   if (!location || !isAnalyticsPath(location.pathname)) return {};
   const params = new URLSearchParams(location.search || '');
   const filters = Object.fromEntries(params.entries());
-  // The old "Bot provider" surface lived at ?admin=provider; it is now part of Bots & AI.
+  // ?admin=provider opens the Bots & AI tab.
   if (!filters.tab && !filters.view && filters.admin === 'provider') filters.tab = 'bots';
   return filters;
 }
@@ -358,6 +379,27 @@ export function createAnalyticsController({ fetcher = null, announce = defaultAn
     return { ...filters };
   }
 
+  // A balance request in flight is aborted while the tab is hidden and restarted when it shows again.
+  function pauseBalanceWhileHidden() {
+    if (request) { abortBalance(); interrupted = true; }
+  }
+
+  function resumeBalanceWhenShown() {
+    if (!interrupted) return;
+    interrupted = false;
+    if (isBalanceTab(filters.tab)) void load(filters);
+  }
+
+  function onVisibilityChange() {
+    if (document.visibilityState === 'hidden') pauseBalanceWhileHidden();
+    else resumeBalanceWhenShown();
+  }
+
+  function onWindowResize() {
+    if (resizeFrame) return;
+    resizeFrame = (globalThis.requestAnimationFrame || (callback => setTimeout(callback, 16)))(() => { resizeFrame = 0; refreshScrollCues(document); });
+  }
+
   function wireControls() {
     if (typeof document === 'undefined') return;
     const root = query('#admin-analytics-main');
@@ -373,14 +415,8 @@ export function createAnalyticsController({ fetcher = null, announce = defaultAn
     });
     document.querySelectorAll?.('[data-analytics-range]')?.forEach(button => listen(button, 'click', () => setRange(button.getAttribute('data-analytics-range'))));
     listen(query('[data-analytics-refresh]'), 'click', () => { void refresh(); });
-    listen(document, 'visibilitychange', () => {
-      if (document.visibilityState === 'hidden') { if (request) { abortBalance(); interrupted = true; } return; }
-      if (interrupted) { interrupted = false; if (isBalanceTab(filters.tab)) void load(filters); }
-    });
-    listen(globalThis.window, 'resize', () => {
-      if (resizeFrame) return;
-      resizeFrame = (globalThis.requestAnimationFrame || (callback => setTimeout(callback, 16)))(() => { resizeFrame = 0; refreshScrollCues(document); });
-    });
+    listen(document, 'visibilitychange', onVisibilityChange);
+    listen(globalThis.window, 'resize', onWindowResize);
     ops = createAdminOpsController({
       root: document,
       fetcher: customFetcher ? fetcher : undefined,

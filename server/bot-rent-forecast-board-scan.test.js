@@ -1,7 +1,6 @@
-// rentFactsFromSnapshot runs millions of times per expert match (the future
-// planner projects every candidate over every dice total). It must derive the
-// group and railroad/utility counts in ONE pass over the board, and must keep
-// answering exactly like the original multi-filter scan, which is the oracle below.
+// rentFactsFromSnapshot runs millions of times per expert match (the future planner projects every candidate
+// over every dice total), so it derives group and railroad/utility counts in ONE pass over the board.
+// It must keep answering exactly like the original multi-filter scan, which is the oracle below.
 import assert from 'node:assert/strict';
 import { calculateRentFromFacts, rentFactsFromSnapshot } from './botRentForecast.js';
 

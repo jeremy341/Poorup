@@ -1,11 +1,6 @@
-// Characterization suite for the trade negotiation and bot-candidate
-// generator regions of GameState (proposeTrade / respondToTrade /
-// getBotCandidates). Every assertion is pinned against the pre-refactor
-// implementation: exact rejection strings, escrow/settlement cash math,
-// ownership deltas, pendingTrade lifecycle, feed texts, and full deep-equal
-// candidate arrays (id/kind/score/risk and tie-order) per
-// cash level. getBotCandidates uses no RNG (market quotes and loan terms are
-// deterministic here), so no Math.random stubbing is required.
+// Characterization suite for the trade negotiation and bot-candidate generator regions of GameState (proposeTrade, respondToTrade,
+// getBotCandidates). Assertions are pinned against the pre-refactor implementation: exact rejection strings, escrow and settlement
+// cash math, ownership deltas, pendingTrade lifecycle, feed texts, and deep-equal candidate arrays (id, kind, score, risk, tie order) per cash level.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { vetoTrade } from './botTradeValuation.js';
@@ -24,7 +19,7 @@ function check(name, fn) {
   }
 }
 
-// --- Fixtures ---------------------------------------------------------------
+// Fixtures
 
 function makeRoom(roomCode, nicknames) {
   const manager = new RoomManager();
@@ -56,7 +51,7 @@ function own(room, player, indexes) {
   });
 }
 
-// --- proposeTrade: rejection matrix ------------------------------------------
+// proposeTrade: rejection matrix
 
 check('propose rejects unknown partner, self-trade, and unknown sender', () => {
   const room = tradeRoom();
@@ -178,7 +173,7 @@ check('propose rejects when the sender cannot cover the offered cash', () => {
   assert.equal(game.pendingTrade, null);
 });
 
-// --- proposeTrade: acceptance and normalization -------------------------------
+// proposeTrade: acceptance and normalization
 
 check('propose accepts a cash-only offer, stores normalized legs, and feeds', () => {
   const room = tradeRoom();
@@ -287,7 +282,7 @@ check('respond-trade accepts only a literal true', () => {
   }
 });
 
-// --- respondToTrade: lifecycle rejections --------------------------------------
+// respondToTrade: lifecycle rejections
 
 check('respond rejects unknown sockets, missing trades, and stale ids', () => {
   const room = tradeRoom();
@@ -333,7 +328,7 @@ check('declining feeds the receiver message, clears pending, and keeps counters'
   assert.equal(game.pendingTrade, null);
 });
 
-// --- respondToTrade: acceptance-time validation ---------------------------------
+// respondToTrade: acceptance-time validation
 
 check('accept clears the trade when a participant died or left', () => {
   const mutations = [
@@ -412,7 +407,7 @@ check('trade requires clearing every building across the owned color set', () =>
   assert.equal(game.proposeTrade('socket-a', { toPlayerId: b.id, givePropertyIndexes: [3] }).success, false);
 });
 
-// --- respondToTrade: settlement ------------------------------------------------
+// respondToTrade: settlement
 
 check('accepted trade moves cash and ownership exactly', () => {
   const room = tradeRoom();
@@ -611,7 +606,7 @@ check('a failed trade settlement moves no cash and no deed', () => {
   assert.equal(game.pendingTrade.id, trade.id, 'the offer stays open for a retry');
 });
 
-// --- getBotCandidates -----------------------------------------------------------
+// getBotCandidates
 function botRoom(legacyPersonality, cash) {
   const manager = new RoomManager();
   const room = manager.createRoom({ rulesProfile: 'advanced', socketId: 'socket-a', clientId: 'client-a', nickname: 'A', roomCode: 'BOTCAND', rulesetOverrides: { bankLoans: true } });
@@ -732,7 +727,7 @@ check('non-bots and missing players produce no candidates', () => {
 });
 
 check('candidate generation is consistent when a legacy personality value is sent', () => {
-  // Builds need the house cost plus a reserve (C14-05), so this fixture is funded
+  // Builds need the house cost plus a reserve, so this fixture is funded
   // above that floor; the $150 mortgage fixture below stays below the mortgage cap.
   const { game, bot } = botRoom('speculator', 1500);
   assert.equal('personality' in bot, false);
@@ -833,10 +828,8 @@ function game_getTrade(ctx) {
   return ctx.game.getBotCandidates(ctx.bot).find(candidate => candidate.kind === 'trade');
 }
 
-// Audit finding 4: same-group 1-for-1 swaps changed nothing for either seat, so the
-// group collector now only buys the missing deed of a set the bot is one short of
-// (cash alone or another group's deed) or concentrates a stake. Fixture: the bot
-// holds Brown 3 (and a full Light Blue set), A holds Brown 1.
+// Same-group 1-for-1 swaps change nothing for either seat, so the group collector only buys the missing deed of a set the bot
+// is one short of (cash alone or another group's deed) or concentrates a stake. Fixture: the bot holds Brown 3 and a full Light Blue set; A holds Brown 1.
 check('trade candidate buys the last deed of a set the bot is one short of', () => {
   const ctx = botRoom('diplomat', 500);
   const hasTrade = () => kindsOf(ctx).includes('trade');
@@ -848,7 +841,7 @@ check('trade candidate buys the last deed of a set the bot is one short of', () 
   assert.equal(offer.requestCash, 0);
   assert.equal(offer.giveCash, 114, 'the bot pays the 2x monopoly premium (2 x 57) rather than asking for cash');
   assert.equal(offer.score, 36, 'a set completer carries the +28 completion bonus on the base 8');
-  // The partner is not handed a set, so its cash is irrelevant (it used to veto the swap).
+  // The partner is not handed a set, so its cash is irrelevant (it must not veto the swap).
   ctx.a.cash = 0;
   assert.equal(hasTrade(), true);
   // A cash-poor bot cannot fund the premium above its reserve: no offer.
@@ -894,7 +887,7 @@ check('build candidates follow full-set and even-build rules; mortgages drop enc
   const ctx = botRoom('builder', 150);
   ctx.game.getTile(6).houseCount = 1;
   const candidates = ctx.game.getBotCandidates(ctx.bot);
-  // C14-05: at $150 no house leaves the reserve, so builds are withheld and the
+  // At $150 no house leaves the reserve, so builds are withheld and the
   // mortgage ladder (cash under $180) is what the bot may use.
   assert.deepEqual(candidates.filter(candidate => candidate.kind === 'build').map(candidate => candidate.tileIndex), []);
   assert.deepEqual(candidates.filter(candidate => candidate.kind === 'mortgage').map(candidate => candidate.tileIndex), [3]);
@@ -1034,7 +1027,7 @@ check('parity mode exposes bounded multi-leg trade candidates', () => {
   for (const tile of ctx.game.tiles) if (tile.group) tile.ownerId = null;
   // Loose deeds (Light Blue 6, Pink 11) for Brown 3 and Light Blue 9, which finishes
   // the bot's Brown pair. The old fixture swapped equal-priced deeds of the same
-  // groups, which is value-neutral and is no longer proposed (audit finding 9).
+  // groups, which is value-neutral and is not proposed.
   own(ctx.room, ctx.bot, [1, 6, 11]);
   own(ctx.room, ctx.a, [3, 8, 9]);
   const rich = ctx.game.getBotCandidates(ctx.bot, { parity: true }).filter(candidate => candidate.kind === 'trade' && candidate.rich);
@@ -1053,7 +1046,7 @@ check('parity mode exposes throttled table-talk for bot seats', () => {
   assert.equal(ctx.game.getBotCandidates(ctx.bot, { parity: true }).some(candidate => candidate.kind === 'chat'), false);
 });
 
-console.log(`\n${passed + failures.length} trade/candidate checks — ${passed} passed, ${failures.length} failed`);
+console.log(`\n${passed + failures.length} trade/candidate checks, ${passed} passed, ${failures.length} failed`);
 if (failures.length) {
   process.exitCode = 1;
 }

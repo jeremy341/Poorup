@@ -23,7 +23,7 @@ export function formatRate(value) {
 }
 
 export function formatDuration(seconds) {
-  if (seconds === null || seconds === undefined) return '—';
+  if (seconds === null || seconds === undefined) return '-';
   const total = Math.max(0, Math.floor(Number(seconds)));
   const days = Math.floor(total / 86400);
   const hours = Math.floor((total % 86400) / 3600);
@@ -47,13 +47,13 @@ export function formatCountdown(milliseconds) {
 
 export function formatClock(iso) {
   const time = Date.parse(iso || '');
-  if (Number.isNaN(time)) return '—';
+  if (Number.isNaN(time)) return '-';
   return `${new Date(time).toISOString().slice(11, 19)} UTC`;
 }
 
 export function formatStamp(iso) {
   const time = Date.parse(iso || '');
-  if (Number.isNaN(time)) return '—';
+  if (Number.isNaN(time)) return '-';
   return new Date(time).toISOString().slice(0, 16).replace('T', ' ');
 }
 
@@ -80,9 +80,9 @@ function reconnectsSpan(value) {
 
 export function roomsMarkup(model) {
   const totals = model.totals;
-  const rows = model.rooms.map(room => `<tr data-room-id="${escapeHtml(room.id)}"${room.stalled ? ' data-stalled="true"' : ''}><th scope="row" class="admin-mono">${escapeHtml(room.id)}</th><td>${escapeHtml(room.phase)}</td><td>${escapeHtml(room.visibility)}</td><td class="admin-num">${formatCount(room.humans)}</td><td class="admin-num">${formatCount(room.bots)}</td><td class="admin-num">${room.round === null ? '—' : formatCount(room.round)}</td><td class="admin-num">${escapeHtml(formatDuration(room.ageSeconds))}</td><td class="admin-num">${escapeHtml(formatDuration(room.idleSeconds))}</td><td>${room.stalled ? '<span class="admin-flag">STALLED</span>' : 'ok'}</td></tr>`).join('');
+  const rows = model.rooms.map(room => `<tr data-room-id="${escapeHtml(room.id)}"${room.stalled ? ' data-stalled="true"' : ''}><th scope="row" class="admin-mono">${escapeHtml(room.id)}</th><td>${escapeHtml(room.phase)}</td><td>${escapeHtml(room.visibility)}</td><td class="admin-num">${formatCount(room.humans)}</td><td class="admin-num">${formatCount(room.bots)}</td><td class="admin-num">${room.round === null ? '-' : formatCount(room.round)}</td><td class="admin-num">${escapeHtml(formatDuration(room.ageSeconds))}</td><td class="admin-num">${escapeHtml(formatDuration(room.idleSeconds))}</td><td>${room.stalled ? '<span class="admin-flag">STALLED</span>' : 'ok'}</td></tr>`).join('');
   return {
-    // One line instead of a sidebar of five tiles.
+    // One line, not a sidebar of five tiles.
     totals: `<p class="t-label f12 admin-totals-line">${[['rooms', totals.rooms], ['lobby', totals.lobby], ['playing', totals.playing], ['humans', totals.humans], ['bots', totals.bots]].map(([name, value]) => `<span><b>${formatCount(value)}</b> ${name}</span>`).join('')}${reconnectsSpan(model.sinceStart?.reconnects)}</p>`,
     table: `<table class="admin-table"><caption class="sr-only">Live rooms, newest first. Room ids are one-way hashes, not invite codes.</caption><thead><tr>${ROOM_COLUMNS.map(column => `<th scope="col">${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`,
     count: model.rooms.length,
@@ -99,6 +99,12 @@ export function botsMarkup(model) {
 }
 
 export const AUDIT_LIMIT = 10;
+
+// Shown above the audit list whenever the server reports a corrupt or unreadable audit file.
+export function auditHealthMarkup(health) {
+  if (!health || health.state === 'ok' || !health.message) return '';
+  return `<p class="t-body admin-log-warning" role="status">${escapeHtml(health.message)}</p>`;
+}
 
 export function auditMarkup(entries) {
   return `<ol class="admin-log">${entries.slice(0, AUDIT_LIMIT).map(entry => `<li class="admin-log-entry" data-outcome="${escapeHtml(entry.outcome)}"><span class="t-label f12 admin-log-what">${escapeHtml(entry.action.toUpperCase())}${entry.target ? ` · ${escapeHtml(entry.target)}` : ''}</span><span class="t-label f11 admin-log-result">${entry.outcome === 'failed' ? 'FAILED' : 'OK'}</span><span class="t-micro ink-3 admin-log-meta"><time datetime="${escapeHtml(entry.at)}">${escapeHtml(formatStamp(entry.at))} UTC</time> · ${escapeHtml(entry.actor)}</span></li>`).join('')}</ol>`;

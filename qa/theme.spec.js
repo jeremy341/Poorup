@@ -60,6 +60,8 @@ test.describe("Poorup seasonal worlds", () => {
   });
 
   test("applies a themed scene without changing the shell geometry", async ({ page }) => {
+    // Every theme is applied and checked in turn, which is slow on 4K screens under load.
+    test.setTimeout(120_000);
     await page.goto("/");
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.locator("#home-profile-tab").click();

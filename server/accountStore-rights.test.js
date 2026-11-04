@@ -41,7 +41,7 @@ try {
   fs.rmSync(cookieFilePath, { force: true });
 }
 
-// S11-02: reserved labels cannot be registered or worn through the username fallback.
+// Reserved labels cannot be registered or worn through the username fallback.
 {
   const reservedPath = path.join(os.tmpdir(), `poorup-reserved-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
   const reservedStore = new AccountStore(reservedPath);
@@ -63,7 +63,7 @@ try {
   }
 }
 
-// S11-04 / S17-06 / S17-03: password reset lifts the login lock; purge and
+// Password reset lifts the login lock; purge and
 // revocation leave no per-account or per-token bookkeeping behind.
 {
   const lockPath = path.join(os.tmpdir(), `poorup-lock-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);

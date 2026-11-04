@@ -1,8 +1,6 @@
-// Credential-bearing JSON stores (accounts, sessions, recovery tokens, AI
-// provider profiles) and their backups must not be readable by other local
-// users: directories are created 0700 and files 0600 (E37-09). Windows ignores
-// POSIX mode bits, so the mode assertions only run on POSIX. The same write,
-// quarantine, backup and restore code paths still run everywhere.
+// Credential-bearing JSON stores (accounts, sessions, recovery tokens, AI provider profiles) and their backups must not be readable
+// by other local users: directories are created 0700 and files 0600. Windows ignores POSIX mode bits, so mode assertions run only on
+// POSIX. The same write, quarantine, backup and restore paths still run everywhere.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';

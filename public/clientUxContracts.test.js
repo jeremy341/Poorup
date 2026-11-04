@@ -69,7 +69,7 @@ check("board variant is selected only after entering the lobby", () => {
   assert.equal(roomsUi.includes('id === "rc-board-variant"'), false);
   assert.equal(roomsUi.includes("#rc-board-variant"), false);
   assert.match(lobby, /settingRow\("Board Variant"/);
-  assert.match(lobby, /Standard is the classic 40-space board/);
+  assert.match(lobby, /Standard: 40 spaces/);
   assert.match(lobby, /\[\["standard-40", "STANDARD · 40"\], \["metro-52", "METRO · 52 \/ 6 SEATS"\]\]/);
 });
 
@@ -92,7 +92,7 @@ check("bot brain exposes only AI/no-AI and a global exhausted notice", () => {
   assert.doesNotMatch(lobby, /Bot Personality|botPersonality|personality/);
   assert.doesNotMatch(state, /botPersonality/);
   assert.doesNotMatch(main, /botPersonality|p\.personality/);
-  // F789-11: the visible banner is not a live region; the polite #status-announcer speaks the notice once.
+  // The visible banner is not a live region; the polite #status-announcer speaks the notice once.
   assert.match(index, /id="bot-provider-banner"[^>]*aria-hidden="true" hidden/);
   assert.doesNotMatch(index, /id="bot-provider-banner"[^>]*role="alert"/);
   assert.match(index, /id="status-announcer" role="status" aria-live="polite"/);

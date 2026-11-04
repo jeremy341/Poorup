@@ -1,5 +1,5 @@
 // Static board data and the pure helpers that only reshape it. Every value
-// here is the verbatim table that used to live at the top of gameLogic.js;
+// here is the verbatim board table;
 // server/gameLogic.test.js and the room suites pin the tile and deck texts.
 import { randomInt } from './random.js';
 
@@ -27,7 +27,7 @@ const JAIL_FINE = 50;
 const JAIL_MAX_TURNS = 3;
 const START_TILE_INDEX = 0;
 // A table still running after this many rounds ends with the richest solvent
-// seat as the winner (F-081). Warnings are fed at ROUND_LIMIT - 50 and - 10.
+// seat as the winner. Warnings are fed at ROUND_LIMIT - 50 and - 10.
 const ROUND_LIMIT = 300;
 
 const DEFAULT_TILES = [
@@ -81,34 +81,34 @@ const SURPRISE_DECK = [
   { text: 'Advance to the next Airport and pay double rent if owned', action: 'nearestRailroad', multiplier: 2 },
   { text: 'Advance to the next Airport and pay double rent if owned', action: 'nearestRailroad', multiplier: 2 },
   { text: 'Advance to the next Utility and pay ten times the dice roll if owned', action: 'nearestUtility', multiplier: 10 },
-  { text: 'Bank dividend — collect $50', action: 'collect', amount: 50 },
+  { text: 'Bank dividend: collect $50', action: 'collect', amount: 50 },
   { text: 'Keep this card until needed: Get Out of Prison', action: 'jailFree' },
   { text: 'Move back three spaces', action: 'moveBack', steps: 3 },
   { text: 'Go directly to Prison', action: 'goToJail' },
-  { text: 'Building repairs — pay $25 per house and $100 per hotel', action: 'repairs', houseCost: 25, hotelCost: 100 },
-  { text: 'Speeding fine — pay $15', action: 'pay', amount: 15 },
+  { text: 'Building repairs: pay $25 per house and $100 per hotel', action: 'repairs', houseCost: 25, hotelCost: 100 },
+  { text: 'Speeding fine: pay $15', action: 'pay', amount: 15 },
   { text: 'Advance to ACC Airport', action: 'moveTo', tileIndex: 5 },
-  { text: 'Elected chairperson — pay each player $50', action: 'payEach', amount: 50 },
-  { text: 'Building loan matures — collect $150', action: 'collect', amount: 150 }
+  { text: 'Elected chairperson: pay each player $50', action: 'payEach', amount: 50 },
+  { text: 'Building loan matures: collect $150', action: 'collect', amount: 150 }
 ];
 
 const TREASURE_DECK = [
   { text: 'Advance to Start and collect $200', action: 'collectStart', amount: 200 },
-  { text: 'Bank error — collect $200', action: 'collect', amount: 200 },
-  { text: "Doctor's fee — pay $50", action: 'pay', amount: 50 },
-  { text: 'Investment sale — collect $50', action: 'collect', amount: 50 },
+  { text: 'Bank error: collect $200', action: 'collect', amount: 200 },
+  { text: "Doctor's fee: pay $50", action: 'pay', amount: 50 },
+  { text: 'Investment sale: collect $50', action: 'collect', amount: 50 },
   { text: 'Keep this card until needed: Get Out of Prison', action: 'jailFree' },
   { text: 'Go directly to Prison', action: 'goToJail' },
-  { text: 'Parlor show — collect $50 from each player', action: 'collectFromEach', amount: 50 },
-  { text: 'Tax refund — collect $20', action: 'collect', amount: 20 },
-  { text: 'Insurance matures — collect $100', action: 'collect', amount: 100 },
-  { text: 'Hospital fee — pay $100', action: 'pay', amount: 100 },
-  { text: 'School tax — pay $150', action: 'pay', amount: 150 },
-  { text: 'Consulting fee — collect $25', action: 'collect', amount: 25 },
-  { text: 'Street repairs — pay $40 per house and $115 per hotel', action: 'repairs', houseCost: 40, hotelCost: 115 },
-  { text: 'Holiday fund matures — collect $100', action: 'collect', amount: 100 },
-  { text: 'Beauty contest — collect $10', action: 'collect', amount: 10 },
-  { text: 'Inheritance — collect $100', action: 'collect', amount: 100 }
+  { text: 'Parlor show: collect $50 from each player', action: 'collectFromEach', amount: 50 },
+  { text: 'Tax refund: collect $20', action: 'collect', amount: 20 },
+  { text: 'Insurance matures: collect $100', action: 'collect', amount: 100 },
+  { text: 'Hospital fee: pay $100', action: 'pay', amount: 100 },
+  { text: 'School tax: pay $150', action: 'pay', amount: 150 },
+  { text: 'Consulting fee: collect $25', action: 'collect', amount: 25 },
+  { text: 'Street repairs: pay $40 per house and $115 per hotel', action: 'repairs', houseCost: 40, hotelCost: 115 },
+  { text: 'Holiday fund matures: collect $100', action: 'collect', amount: 100 },
+  { text: 'Beauty contest: collect $10', action: 'collect', amount: 10 },
+  { text: 'Inheritance: collect $100', action: 'collect', amount: 100 }
 ];
 
 function rollDice() {

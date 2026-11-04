@@ -19,7 +19,7 @@ const ID_LIST_ITEM_RE = /^[a-z0-9]+(?:[-:_][a-z0-9]+)*$/;
 const PAYLOAD_ALLOWLISTS = Object.freeze({
   'match-start': new Set([...COMMON_PAYLOAD_KEYS]),
   'match-stalled': new Set([...COMMON_PAYLOAD_KEYS, 'reasonCode']),
-  // Player collections are intentionally not an analytics payload. Even a
+  // Player collections are not an analytics payload. Even a
   // primitive fallback can carry a name, so reject the key rather than trying
   // to sanitize an open-ended identity-bearing shape.
   'match-complete': new Set([...COMMON_PAYLOAD_KEYS, 'playerCount', 'roundCount']),
@@ -157,8 +157,11 @@ export class TelemetryStore {
     this.pendingQueueLimit = Math.max(this.maxPending, Math.min(MAX_EVENTS, this.maxPending * 4));
     this.flushIntervalMs = Math.max(0, Math.min(60000, Math.floor(Number(flushIntervalMs) || 1000)));
     this.pendingEvents = [];
+    this.persistenceDirty = false;
+    this.persistenceRevision = 0;
     this.flushTimer = null;
     this.persistInFlight = null;
+    this.closing = false;
     this.events = [];
     this.load();
   }
@@ -169,10 +172,11 @@ export class TelemetryStore {
   }
 
   persist() {
-    if (!this.pendingEvents.length) return this.flushRollup();
+    if (!this.pendingEvents.length && !this.persistenceDirty) return this.flushRollup();
     if (this.persistInFlight) return this.persistInFlight;
     const pendingBatch = this.pendingEvents.slice();
     const snapshot = this.events.slice(-MAX_EVENTS);
+    const revision = this.persistenceRevision;
     let result;
     try {
       result = this.persistWriter ? this.persistWriter(snapshot) : writeJson(this.filePath, snapshot);
@@ -183,11 +187,13 @@ export class TelemetryStore {
     if (result && typeof result.then === 'function') {
       this.persistInFlight = Promise.resolve(result).then(() => {
         this.removePendingBatch(pendingBatch);
+        if (this.persistenceRevision === revision) this.persistenceDirty = false;
         return this.flushRollup();
-      }).finally(() => { this.persistInFlight = null; if (this.pendingEvents.length) this.scheduleFlush(); });
+      }).finally(() => { this.persistInFlight = null; if (this.pendingEvents.length || this.persistenceDirty) this.scheduleFlush(); });
       return this.persistInFlight;
     }
     this.removePendingBatch(pendingBatch);
+    if (this.persistenceRevision === revision) this.persistenceDirty = false;
     return this.flushRollup();
   }
 
@@ -207,10 +213,19 @@ export class TelemetryStore {
     });
     const removed = before - this.events.length;
     if (removed > 0) {
+      this.persistenceDirty = true;
+      this.persistenceRevision += 1;
+    }
+    if (this.persistenceDirty) {
       try {
-        if (this.persistWriter) this.persistWriter(this.events.slice(-MAX_EVENTS));
-        else writeJson(this.filePath, this.events.slice(-MAX_EVENTS));
-      } catch { /* retention persist is best effort; memory is already trimmed */ }
+        const result = this.flush();
+        if (result && typeof result.then === 'function') {
+          return result.then(() => removed, error => { this.scheduleFlush(); throw error; });
+        }
+      } catch (error) {
+        this.scheduleFlush();
+        throw error;
+      }
     }
     return removed;
   }
@@ -223,9 +238,9 @@ export class TelemetryStore {
     if (!this.rollupStore?.flush) return null;
     try {
       const result = this.rollupStore.flush();
-      if (result && typeof result.then === 'function') return result.catch(() => null);
+      if (result && typeof result.then === 'function') return result.catch(error => { this.scheduleFlush(); throw error; });
       return result;
-    } catch { return null; }
+    } catch (error) { this.scheduleFlush(); throw error; }
   }
 
   record(kind, payload = {}, versions = {}) {
@@ -256,41 +271,47 @@ export class TelemetryStore {
   }
 
   scheduleFlush() {
-    if (this.flushTimer || !this.flushIntervalMs) return;
+    if (this.closing || this.flushTimer || !this.flushIntervalMs) return;
     this.flushTimer = setTimeout(() => { this.flushTimer = null; try { const result = this.persist(); result?.catch?.(() => this.scheduleFlush()); } catch { this.scheduleFlush(); } }, this.flushIntervalMs);
     this.flushTimer.unref?.();
   }
 
   flush() {
-    if (this.persistInFlight) return this.persistInFlight.then(() => this.pendingEvents.length ? this.flush() : ({ flushed: true, pending: 0 }));
+    if (this.persistInFlight) return this.persistInFlight.then(() => this.pendingEvents.length || this.persistenceDirty ? this.flush() : ({ flushed: true, pending: 0 }));
     const result = this.persist();
-    if (result && typeof result.then === 'function') return result.then(() => ({ flushed: true, pending: this.pendingEvents.length }));
+    if (result && typeof result.then === 'function') return result.then(() => this.pendingEvents.length || this.persistenceDirty ? this.flush() : ({ flushed: true, pending: 0 }));
     return { flushed: true, pending: this.pendingEvents.length };
   }
 
   close() {
+    this.closing = true;
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
     // Bounded drain: a persist path that never settles must not spin the
     // shutdown path forever. After the cap, close the rollup and walk away;
     // the events already landed in the capped in-memory log.
     const finish = (attempts = 0) => {
-      if (attempts > 3) {
+      const closeRollup = () => {
+        if (this.flushTimer) clearTimeout(this.flushTimer);
+        this.flushTimer = null;
         try { return this.rollupStore?.close?.(); } catch { return null; }
+      };
+      if (attempts > 3) {
+        return closeRollup();
       }
       let result;
       try {
         result = this.flush();
       } catch {
-        try { return this.rollupStore?.close?.(); } catch { return null; }
+        return closeRollup();
       }
       if (result && typeof result.then === 'function') {
         return result.then(
-          () => (this.pendingEvents.length ? finish(attempts + 1) : this.rollupStore?.close?.()),
-          () => { try { return this.rollupStore?.close?.(); } catch { return null; } }
+          () => (this.pendingEvents.length || this.persistenceDirty ? finish(attempts + 1) : closeRollup()),
+          () => closeRollup()
         );
       }
-      return this.pendingEvents.length ? finish(attempts + 1) : this.rollupStore?.close?.();
+      return this.pendingEvents.length || this.persistenceDirty ? finish(attempts + 1) : closeRollup();
     };
     return finish();
   }

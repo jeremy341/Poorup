@@ -1,14 +1,6 @@
-// Planner accounting for the staged-complexity market positions (margin longs
-// and shorts). The planner scores an action by the mark-to-market net worth it
-// changes, so each position is carried exactly as the engine carries it
-// (marketExpansion.js): a short keeps its collateral, owes its units at the
-// quote and owes the borrow fee; a margin long keeps its units, its collateral
-// and its loan. Opening either one therefore moves net worth only by the fees
-// it pays, instead of booking the short's sale proceeds as profit (the old
-// +48 an open-short scored at a $100 quote, whose real value is about -5).
-//
-// Everything here is pure over the planner's cloned state; the market rules
-// themselves (rates, guards, forced liquidation) are owned by marketExpansion.js.
+// Planner accounting for staged-complexity market positions (margin longs and shorts). The planner scores an action by the mark-to-market
+// net worth it changes, so each position is carried as the engine carries it (marketExpansion.js): a short keeps its collateral and owes its units
+// at the quote plus the borrow fee; a margin long keeps its units, collateral and loan. Opening either moves net worth only by the fees paid.
 import { MARKET_FEE_RATE } from './marketLogic.js';
 import {
   MARGIN_COLLATERAL_RATE,
@@ -62,10 +54,8 @@ export function applyOpenMargin(state, candidate, context) {
   context.margin.collateral = number(context.margin.collateral) + collateral;
   const position = context.margin.positions[candidate.instrumentId] || { quantity: 0, averageCost: 0 };
   const oldQuantity = nonNegative(position.quantity);
-  // The engine capitalises the opening fee into the basis (marketExpansion.js
-  // openMargin), so a sale or a forced liquidation reports it as realized P&L.
-  // The projection has to carry the same basis, or it values the position
-  // higher than the engine holds it.
+  // The engine capitalises the opening fee into the basis (marketExpansion.js openMargin), so a sale or forced
+  // liquidation reports it as realized P&L. The projection must carry the same basis or it overvalues the position.
   position.averageCost = ((number(position.averageCost) * oldQuantity) + gross + number(context.fee)) / Math.max(1, oldQuantity + context.quantity);
   position.quantity = oldQuantity + context.quantity;
   context.margin.positions[candidate.instrumentId] = position;
@@ -156,22 +146,28 @@ export function applySettleShortDefault(state, candidate) {
   return true;
 }
 
-// Net worth carried by margin and short books at the projected quotes:
-// margin units + held collateral - the loan; short collateral - units owed at
-// the quote (plus the cover fee a forced or voluntary exit must pay) - the
-// borrow fee still to be charged.
+// Net worth carried by margin and short books at projected quotes: margin units + collateral - loan; short collateral
+// - units owed at the quote (plus the cover fee an exit must pay) - the borrow fee still to be charged.
+// Margin units at the projected quote (average cost when the quote is missing).
+function marginUnitsValue(quotes, margin) {
+  return Object.entries(margin.positions || {}).reduce((sum, [id, position]) => (
+    sum + nonNegative(position?.quantity) * quoteOf(quotes, id, position?.averageCost)
+  ), 0);
+}
+
+// One short's equity: its collateral, less the units owed at the quote plus the cover fee, less the borrow fee still to be charged.
+function shortPositionEquity(quotes, id, position) {
+  const owed = nonNegative(position?.quantity) * quoteOf(quotes, id, position?.entryQuote);
+  return nonNegative(position?.collateral) - Math.ceil(owed * (1 + MARKET_FEE_RATE)) - nonNegative(position?.borrowFee);
+}
+
 export function leveragedNetWorth(state) {
   const expansion = state.marketExpansion || {};
   const quotes = state.marketQuotes;
   const margin = expansion.margin || {};
-  const units = Object.entries(margin.positions || {}).reduce((sum, [id, position]) => (
-    sum + nonNegative(position?.quantity) * quoteOf(quotes, id, position?.averageCost)
-  ), 0);
-  const marginEquity = units + nonNegative(margin.collateral) - nonNegative(margin.balance);
-  const shortBook = Object.entries(expansion.shorts?.positions || {}).reduce((sum, [id, position]) => {
-    const owed = nonNegative(position?.quantity) * quoteOf(quotes, id, position?.entryQuote);
-    return sum + nonNegative(position?.collateral) - Math.ceil(owed * (1 + MARKET_FEE_RATE)) - nonNegative(position?.borrowFee);
-  }, 0);
+  const marginEquity = marginUnitsValue(quotes, margin) + nonNegative(margin.collateral) - nonNegative(margin.balance);
+  const shortBook = Object.entries(expansion.shorts?.positions || {})
+    .reduce((sum, [id, position]) => sum + shortPositionEquity(quotes, id, position), 0);
   return marginEquity + shortBook;
 }
 
@@ -193,31 +189,35 @@ function marginHoldingCost(state, reserveFor) {
   return cost;
 }
 
+// Adds one open short's holding cost to the running total. Every charge is added to `cost` in the original order, so the sum is unchanged.
+function shortPositionCost(state, reserveFor, id, position, quantity) {
+  const entry = number(position.entryQuote);
+  const quote = quoteOf(state.marketQuotes, id, entry);
+  const notional = quote * quantity;
+  let total = reserveFor(id, quantity);
+  total += notional * (SHORT_TAIL_RESERVE_RATE + SHORT_HOLD_CHARGE_RATE);
+  if (entry > 0 && quote > entry) total += (quote - entry) * quantity * UNDERWATER_CHARGE_RATE;
+  if (entry > 0 && quote >= entry * NEAR_FORCED_RATIO) total += notional * 0.5;
+  // A forced buy-in that the seat cannot fund becomes shortDefaultDebt.
+  const needed = Math.ceil(entry * FORCED_BUY_IN_RATIO * quantity * (1 + MARKET_FEE_RATE)) + nonNegative(position.borrowFee);
+  const funded = nonNegative(state.cash) + nonNegative(position.collateral);
+  if (needed > funded) total += (needed - funded) * 0.5;
+  return total;
+}
+
 function shortHoldingCost(state, reserveFor) {
   const book = state.marketExpansion?.shorts?.positions || {};
   let cost = 0;
   Object.entries(book).forEach(([id, position]) => {
     const quantity = nonNegative(position?.quantity);
     if (!quantity) return;
-    const entry = number(position.entryQuote);
-    const quote = quoteOf(state.marketQuotes, id, entry);
-    const notional = quote * quantity;
-    cost += reserveFor(id, quantity);
-    cost += notional * (SHORT_TAIL_RESERVE_RATE + SHORT_HOLD_CHARGE_RATE);
-    if (entry > 0 && quote > entry) cost += (quote - entry) * quantity * UNDERWATER_CHARGE_RATE;
-    if (entry > 0 && quote >= entry * NEAR_FORCED_RATIO) cost += notional * 0.5;
-    // A forced buy-in that the seat cannot fund becomes shortDefaultDebt.
-    const needed = Math.ceil(entry * FORCED_BUY_IN_RATIO * quantity * (1 + MARKET_FEE_RATE)) + nonNegative(position.borrowFee);
-    const funded = nonNegative(state.cash) + nonNegative(position.collateral);
-    if (needed > funded) cost += (needed - funded) * 0.5;
+    cost += shortPositionCost(state, reserveFor, id, position, quantity);
   });
   return cost;
 }
 
-// Exposure the projected margin and short books carry: the volatility reserve of
-// every unit held, a short's tail, hold charge, unrealised loss and buy-in risk,
-// and a margin loan's liquidation risk. Charged to the baseline too, so exiting a
-// position (cover, repay) earns exactly the cost it removes.
+// Exposure carried by the projected margin and short books: the volatility reserve of every unit held, a short's tail,
+// hold charge and buy-in risk, and a margin loan's liquidation risk. Charged to the baseline too, so exiting earns exactly the cost it removes.
 export function leveragedHoldingCost(state, reserveFor) {
   return marginHoldingCost(state, reserveFor) + shortHoldingCost(state, reserveFor);
 }

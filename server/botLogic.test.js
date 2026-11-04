@@ -1,8 +1,6 @@
-// Characterization suite for botLogic.js: every decision table, threshold,
-// and phase ordering extracted from the original scheduleBotTurn inline chain
-// is pinned here with boundary values. Each assertion is checked against the
-// pre-refactor expression it replaces (trade factor 1.1/0.8, contract 1.25/0.8,
-// auction step/reserve/comfort, purchase reserve 120, build buffer 200).
+// Characterization suite for botLogic.js: every decision table, threshold and phase ordering extracted from the original
+// scheduleBotTurn inline chain is pinned with boundary values. Each assertion is checked against the pre-refactor
+// expression it replaces (trade factor 1.1/0.8, contract 1.25/0.8, auction step/reserve/comfort, purchase reserve 120, build buffer 200).
 import fs from 'node:fs';
 import assert from 'assert';
 import { RoomManager } from './gameLogic.js';
@@ -409,6 +407,30 @@ check('table-talk candidate always advances the bot phase', async () => {
   assert.equal(result.botChat, 'Nice move.');
 });
 
+check('an advisor that throws falls back to the deterministic choice instead of freezing the turn', async () => {
+  const room = fakeRoom([]);
+  room.game.getBotCandidates = () => [{ id: 'roll', kind: 'roll', score: 0 }];
+  room.rollDice = () => ({ name: 'rolled-after-advisor-error', success: true });
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const result = await runBotTurn(room, bot1, { chooseAction: async () => { throw new Error('adapter exploded'); } });
+    assert.equal(result.name, 'rolled-after-advisor-error', 'the bot still takes its turn');
+  } finally {
+    console.error = originalError;
+  }
+});
+
+check('a stale-decision abort from the advisor is not swallowed by the fallback', async () => {
+  const room = fakeRoom([]);
+  room.game.getBotCandidates = () => [{ id: 'roll', kind: 'roll', score: 0 }];
+  let rolled = false;
+  room.rollDice = () => { rolled = true; return { name: 'rolled', success: true }; };
+  const stale = Object.assign(new Error('stale'), { stale: true });
+  await assert.rejects(() => runBotTurn(room, bot1, { chooseAction: async () => { throw stale; } }), error => error === stale);
+  assert.equal(rolled, false, 'an abandoned decision never acts');
+});
+
 check('post-roll table-talk closes the finance window instead of stalling', async () => {
   const room = fakeRoom([]);
   room.game.hasRolled = true;
@@ -588,7 +610,7 @@ check('NO-AI trade capability enables local choice routing', async () => {
   room.game.settings = { rulesProfile: 'advanced', playerFinance: true, botBrain: 'no-ai', botDifficulty: 'table' };
   room.game.pendingTrade = { id: 'local-trade', toPlayerId: 'b1', fromPlayerId: 'lender', giveCash: 250, requestCash: 0, givePropertyIndexes: [], requestPropertyIndexes: [7], counterDepth: 0 };
   const result = await runBotTurn(room, { ...bot1, properties: [7] }, new DeterministicAdvisor());
-  // A near-miss offer is now answered with a premium counter instead of a flat decline.
+  // A near-miss offer is answered with a premium counter, not a flat decline.
   assert.equal(result.name, 'counter');
   assert.equal(result.botDecision.phase, 'trade');
   assert.equal(result.botDecision.provider, 'deterministic');
@@ -1056,8 +1078,8 @@ check('resolvePurchaseOffer applies one offer or passes through', () => {
 
 check('monopoly veto declines an underpriced completer despite face-value win', () => {
   // Human H owns Brown-1 and offers $100 for the bot's Brown-3 (face 60): a
-  // face-value win the old bar would accept, but it completes H's Brown monopoly
-  // for less than the 2x monopoly premium (114). H's cash no longer matters.
+  // face-value win a plain price bar would accept, but it completes H's Brown monopoly
+  // for less than the 2x monopoly premium (114). H's cash does not matter.
   const tiles = {
     1: { index: 1, price: 60, group: 'Brown', ownerId: 'H' },
     3: { index: 3, price: 60, group: 'Brown', ownerId: 'BOT' },
@@ -1077,7 +1099,7 @@ check('monopoly veto declines an underpriced completer despite face-value win', 
   };
   assert.strictEqual(shouldAcceptTrade(giveaway, getTile), true);
   assert.strictEqual(shouldAcceptTrade(giveaway, getTile, game(1500)), false);
-  // Audit finding 5: the veto no longer depends on the proposer's cash. H now
+  // The veto does not depend on the proposer's cash. H
   // holds exactly the $100 it offers so the veto, not the cash preflight, is
   // what declines (an unfunded give leg is void in the engine; tested below).
   assert.strictEqual(shouldAcceptTrade(giveaway, getTile, game(100)), false);
@@ -1169,10 +1191,8 @@ check('near-miss rejections counter with premium instead of declining', async ()
 });
 
 check('blocked-table counters fall back to decline instead of looping', async () => {
-  // Exact regression: near-miss offer plus an open auction. Countering into a
-  // blocked table would restore the identical offer forever, so the bot must
-  // decline. (A parked debt is not a blocker any more: the engine keeps
-  // debt-rescue deals legal, so it is the auction that holds the counter.)
+  // A near-miss offer plus an open auction: countering into a blocked table would restore the identical offer forever,
+  // so the bot must decline. A parked debt is not a blocker; the auction is what holds the counter.
   const log = [];
   const room = fakeRoom(log);
   room.game.pendingTrade = { id: 't-loop', fromPlayerId: 'h', toPlayerId: 'b1', giveCash: 250, givePropertyIndexes: [], requestCash: 0, requestPropertyIndexes: [7], counterDepth: 0 };
@@ -1254,7 +1274,7 @@ check('auction cap stops bid-traps but stretches for completers', () => {
   ];
   const game = { getGroupTiles: group => tiles.filter(tile => tile.group === group) };
   const bot = { id: 'b1', cash: 5000 };
-  // Bid-trap: pumped to 500 on a 60 deed with no completion -> pass.
+  // Bid-trap: pumped to 500 on a 60 deed with no completion, so pass.
   assert.deepEqual(
     auctionBidDecision({ highestBid: 500, propertyTile: { group: 'Brown', price: 60 } }, bot, 1500, game),
     { shouldBid: false, minimum: 501, maximum: 142 }
@@ -1401,7 +1421,7 @@ check('a bot trade proposal is tracked, and a lapsed one becomes a grudge agains
     cancelTrade: () => { game.pendingTrade = null; return { success: true, canceled: true }; }
   };
   CANDIDATE_RUNNERS.trade(room, bot, { id: 'trade:human', toPlayerId: 'human', givePropertyIndexes: [3], requestPropertyIndexes: [1] });
-  // pairKey (partner|give|ask) is the per-offer cool-off key added by the trade rework.
+  // pairKey (partner|give|ask) is the per-offer cool-off key.
   assert.deepEqual(bot.lastTradeProposal, { id: 'offer-9', toPlayerId: 'human', pairKey: 'human|3|1', completedBefore: 2 });
   // Still open at the bot's next turn: nothing has been declined yet.
   assert.equal(recordDeclinedProposal(bot, game), false);
@@ -1492,7 +1512,7 @@ check('trade acceptance preflights the settlement the engine will run', () => {
   // The deed the bot would hand over is not its own.
   const undeliverable = { ...offer, requestPropertyIndexes: [5] };
   assert.strictEqual(shouldAcceptTrade(undeliverable, getTile, game), false, 'a leg the bot cannot deliver is refused');
-  // The deed it would receive is no longer tradable.
+  // The deed it would receive is not tradable.
   tiles[16].blocked = true;
   assert.strictEqual(shouldAcceptTrade(offer, getTile, game), false, 'an encumbered deed is refused');
   tiles[16].blocked = false;

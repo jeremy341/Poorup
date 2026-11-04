@@ -242,7 +242,6 @@ test('the right password opens the site with an Operator mode chip, and sign-out
   await page.reload();
   await expect(chip).toBeVisible();
   await expect(panel(page)).toBeHidden();
-  // Sign out.
   await chip.getByRole('button', { name: 'Sign out of operator mode' }).click();
   await expect(panel(page)).toBeVisible();
   await expect(chip).toBeHidden();

@@ -1,15 +1,8 @@
-// Candidate generation for the staged-complexity market orders (margin, short,
-// options) and the short buy-in debt. The engine's own advert list
-// (marketExpansion.expansionCandidates) is a menu of what is legal in principle;
-// this layer decides what a bot should actually offer the planner and the AI:
-//   - an order the server will refuse right now (debt freeze, quota, pending
-//     obligation, loan-backed cash, empty borrow pool, unaffordable) is not offered;
-//   - a margin long or short is offered only on the instrument whose expected value
-//     after fees, borrow fee and risk reserve clearly beats the hurdle, so no
-//     position is opened for the fee schedule's loss;
-//   - a held short is always covered with the quantity the seat can fund, and a
-//     margin loan is repaid in full when cash allows;
-//   - forced buy-in debt gets a settle path, which no bot had before.
+// Candidate generation for staged-complexity market orders (margin, short, options) and short buy-in debt.
+// The engine's advert list (marketExpansion.expansionCandidates) is what is legal in principle; this layer decides what a bot offers:
+//   - no order the server would refuse right now (debt freeze, quota, pending obligation, loan-backed cash, empty borrow pool);
+//   - a margin long or short only where expected value after fees, borrow fee and reserve clears the hurdle;
+//   - a held short covered with what the seat can fund, a margin loan repaid in full when cash allows, and forced buy-in debt settled.
 import { MARKET_FEE_RATE } from './marketLogic.js';
 import {
   MARGIN_COLLATERAL_RATE,
@@ -102,14 +95,20 @@ function worstShort(game, player) {
   let worst = null;
   Object.entries(player.shortPositions || {}).forEach(([id, position]) => {
     if (!(Number(position?.quantity) > 0)) return;
-    const entry = Number(position.entryQuote) || 0;
-    const quote = Math.max(10, Number(game.marketQuotes?.[id]) || entry || 100);
-    const ratio = entry > 0 ? quote / entry : 1;
-    const quantity = affordableCover(player, { position, quote });
-    if (!quantity) return;
-    if (!worst || ratio > worst.ratio) worst = { id, position, quote, ratio, quantity };
+    const candidate = coverableShort(game, player, id, position);
+    if (candidate && (!worst || candidate.ratio > worst.ratio)) worst = candidate;
   });
   return worst;
+}
+
+// One held short the seat can fund to cover: its quote, ratio to entry and affordable quantity. Null when none is affordable.
+function coverableShort(game, player, id, position) {
+  const entry = Number(position.entryQuote) || 0;
+  const quote = Math.max(10, Number(game.marketQuotes?.[id]) || entry || 100);
+  const ratio = entry > 0 ? quote / entry : 1;
+  const quantity = affordableCover(player, { position, quote });
+  if (!quantity) return null;
+  return { id, position, quote, ratio, quantity };
 }
 
 // Largest quantity of the short the seat can fund (marketExpansion.coverShort's own check).
@@ -161,11 +160,16 @@ function enrich(game, player, candidate) {
 
 // Pay forced buy-in debt down to the reserve. The server's shortDefaultRejection
 // has no turn gate (the debt must never be unreachable), so neither does this.
+// The seat must be live at a started table, with the short market open and no payment or loan-backed cash pending.
+function settleBlocked(game, player) {
+  if (!game.started || player.bankrupt || player.disconnected) return true;
+  if (!game.settings.market || !complexityAllows(game, 'shorting')) return true;
+  return Boolean(game.pendingPayment || game.hasLoanBackedCash?.(player));
+}
+
 function settleCandidate(game, player) {
   const debt = wholeNumber(player.shortDefaultDebt);
-  if (debt <= 0 || !game.started || player.bankrupt || player.disconnected) return null;
-  if (!game.settings.market || !complexityAllows(game, 'shorting') || game.pendingPayment) return null;
-  if (game.hasLoanBackedCash?.(player)) return null;
+  if (debt <= 0 || settleBlocked(game, player)) return null;
   const amount = Math.min(debt, wholeNumber(player.cash) - SETTLE_RESERVE);
   if (amount < 1) return null;
   return { id: 'market:settle-short-default', kind: 'settle-short-default', amount, risk: 0, score: 12 };

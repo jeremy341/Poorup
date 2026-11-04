@@ -55,7 +55,7 @@ for (const node of [page, modal]) {
   const before = calls.length;
   change(node, "market");
   assert.equal(calls.length, before + 1, "one change emits one request");
-  assert.equal((node.innerHTML.match(/<option value=/g) || []).length, 14, "all metrics are directly selectable");
+  assert.equal((node.innerHTML.match(/<option value=/g) || []).length, 15, "all metrics are directly selectable");
   assert.match(node.innerHTML, /<label class="ranking-metric-picker"><span class="t-micro ink-3">RANKING METRIC<\/span><select/);
   assert.match(node.innerHTML, /<option value="market" selected>MARKET PROFIT<\/option>/);
   assert.equal(calls.at(-1).event, "get-leaderboard-snapshot");
@@ -69,16 +69,22 @@ for (const node of [page, modal]) {
   flush();
   assert.equal(document.activeElement, node.picker, "server rerender retains keyboard focus");
   assert.equal(node.picker.value, "market");
-  for (const invalid of ["__proto__", "toString", "patrol", "", "unknown", "market "]) change(node, invalid);
+  assert.match(node.innerHTML, /<option value="patrol">PATROL BEST<\/option>/);
+  for (const invalid of ["__proto__", "toString", "", "unknown", "market "]) change(node, invalid);
   assert.equal(calls.length, before + 1, "invalid metrics do not emit requests");
   assert.equal(state.leaderboard.metric, "market");
   change(node, "market");
   assert.equal(calls.length, before + 1, "unchanged selection does not refetch");
+  change(node, "patrol");
+  assert.equal(calls.length, before + 2, "selecting Patrol emits one request");
+  assert.deepEqual(calls.at(-1).payload, { metric: "patrol", scope: "month" });
+  assert.equal(state.leaderboard.metric, "patrol");
+  assert.match(node.innerHTML, /<option value="patrol" selected>PATROL BEST<\/option>/);
   let prevented = false;
   node.listeners.keydown({ currentTarget: node, target: node.picker, key: "Home", preventDefault() { prevented = true; } });
   assert.equal(prevented, false, "native picker owns its keyboard navigation");
   const stage = { matches: () => false, closest: selector => selector === "[data-ranking-stage]" ? {} : null };
-  for (const [key, expected] of [["Home", "wins"], ["End", "loans"], ["ArrowRight", "wins"], ["ArrowLeft", "loans"]]) {
+  for (const [key, expected] of [["Home", "wins"], ["End", "patrol"], ["ArrowRight", "wins"], ["ArrowLeft", "patrol"]]) {
     const count = calls.length;
     node.listeners.keydown({ currentTarget: node, target: stage, key, preventDefault() {} });
     flush();

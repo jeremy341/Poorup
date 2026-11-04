@@ -1,7 +1,5 @@
-// The consecutive-doubles streak belongs to the seated roller. A turn that
-// ends on doubles without an extra roll (Go to Prison, Vacation, a jail card,
-// a disconnect skip) must not hand its count to the next seat, which would
-// jail that seat one roll early.
+// The consecutive-doubles streak belongs to the seated roller. A turn ending on doubles without an extra roll (Go to Prison, Vacation,
+// a jail card, a disconnect skip) must not hand its count to the next seat, which would jail that seat one roll early.
 import assert from 'node:assert/strict';
 import nodeCrypto from 'crypto';
 import { RoomManager } from './gameLogic.js';
@@ -27,8 +25,8 @@ function primeSuccessorDoubles(room, successor) {
 
 let passed = 0;
 
-// 1. A doubles onto Go to Prison (tile 30) and ends the turn. B must start at
-//    zero, so B's third doubles (not second) sends B to jail.
+// A doubles roll onto Go to Prison (tile 30) ends the turn. B must start at
+// zero, so B's third doubles (not second) sends B to jail.
 {
   const room = fixture();
   const game = room.game;
@@ -62,8 +60,8 @@ let passed = 0;
   passed += 1;
 }
 
-// 2. Same carry-over when a go-to-jail card ends the doubles turn: the card
-//    path resolves the turn without an extra roll.
+// The same carry-over applies when a go-to-jail card ends the doubles turn: the card
+// path resolves the turn without an extra roll.
 {
   const room = fixture();
   const game = room.game;
@@ -80,8 +78,8 @@ let passed = 0;
   passed += 1;
 }
 
-// 3. Control: doubles that keep the turn (extra roll) and then a non-double
-//    on a plain tile must leave the count at zero for the successor.
+// Control: doubles that keep the turn (extra roll), then a non-double
+// on a plain tile, must leave the count at zero for the successor.
 {
   const room = fixture();
   const game = room.game;
@@ -101,8 +99,8 @@ let passed = 0;
   passed += 1;
 }
 
-// 4. Disconnect skip: the roller disconnects with an extra roll pending; the
-//    skip hands the turn on and the successor must start at zero.
+// Disconnect skip: the roller disconnects with an extra roll pending; the
+// skip hands the turn on and the successor must start at zero.
 {
   const room = fixture(3);
   const game = room.game;

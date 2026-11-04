@@ -1,8 +1,7 @@
-/* ============================================================
-   CASINO DESK: a focused, server-settled wager surface. The Activity rail
-   keeps only odds and the last result; this modal owns the bet form.
-   ============================================================ */
+// CASINO DESK: a focused, server-settled wager surface. The Activity rail
+// keeps only odds and the last result; this modal owns the bet form.
 import { $, esc } from "./clientDom.js";
+import { formatMoney } from "./clientMoney.js";
 import { state } from "./clientState.js";
 import { closeSurface, openSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";
 import { emitWithTimeout } from "./clientRequestController.js";
@@ -57,7 +56,7 @@ export function casinoResultCopy(last) {
   const color = String(last.resultColor || "").toUpperCase();
   const pocket = Number(last.pocket || 0);
   const net = Number(last.net || 0);
-  return `LAST SPIN · ${color} ${pocket} · ${net >= 0 ? "+" : ""}$${net.toLocaleString()}`;
+  return `LAST SPIN · ${color} ${pocket} · ${net >= 0 ? "+" : ""}${formatMoney(net)}`;
 }
 
 function captureCasinoDraft(card) {

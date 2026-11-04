@@ -452,10 +452,9 @@ for (const { snapshot: candidateSnapshot, candidate } of generatedCandidates) {
   }
 }
 
-// Marginal scoring: standing still is the zero baseline. A build that only
-// loses value on a monopoly (nwDelta -50 at resale) and a market buy that
-// loses its expected move must both rank below the neutral end-turn; before,
-// absolute group and liquidity terms made them look positive against 0.
+// Marginal scoring: standing still is the zero baseline. A build that only loses value on a monopoly (nwDelta -50 at resale)
+// and a market buy that loses its expected move must both rank below the neutral end-turn. Absolute group and liquidity terms
+// made them look positive against 0 before.
 const orangeBoard = Array.from({ length: 40 }, (_, index) => ({ index, type: 'other', ownerSeat: 'bank', rent: 0, group: null, price: 0, houseCount: 0, mortgaged: false }));
 for (const index of [11, 13, 14]) orangeBoard[index] = { index, type: 'property', group: 'Orange', price: 180, rent: 18, ownerSeat: 'self', houseCount: 0, mortgaged: false };
 const orangeSnapshot = { ...snapshot, board: orangeBoard, botState: { ...snapshot.botState, cash: 1000 } };
@@ -477,7 +476,7 @@ assert.equal(evaluateCandidate(snapshot, { id: 'mystery', kind: 'future-kind' })
 assert.equal(evaluateCandidate(snapshot, { id: 'mystery', kind: 'future-kind' }).score, 0);
 assert.equal(evaluateCandidate(snapshot, { id: 'market:invent', kind: 'market', instrumentId: 'brazil', side: 'invent', quantity: 1 }).projectionStatus, 'unsupported');
 
-// --- portfolio accounting: held options, equity contracts, event houses ---
+// portfolio accounting: held options, equity contracts, event houses
 
 // A held option is an asset: the planner has to carry it at its intrinsic
 // value, or exercising one looks like money out of nowhere.
@@ -551,7 +550,7 @@ const bubbleSnapshot = {
 const bubbleBuild = evaluateCandidate(bubbleSnapshot, { id: 'build:1', kind: 'build', tileIndex: 1, cost: 100 }, { difficulty: 'table' });
 assert.equal(bubbleBuild.estimatedNetWorthDelta, -60, 'the house is worth floor(50 x 2 x 0.4) = 40 at resale');
 
-// --- live seats: bankrupt and disconnected seats are out of the game ---
+// live seats: bankrupt and disconnected seats are out of the game
 
 const rentOpponentBoard = Array.from({ length: 40 }, (_, index) => ({ index, type: 'other', ownerSeat: 'bank', rent: 0 }));
 rentOpponentBoard[10] = { index: 10, type: 'property', group: 'Brown', ownerSeat: 'self', rent: 10, houseCount: 0, mortgaged: false };
@@ -569,7 +568,7 @@ assert.equal(
   'a disconnected seat is not part of the table'
 );
 
-// --- the jail fine: a cash cost, due on the limit turn, only if it can be paid ---
+// the jail fine: a cash cost, due on the limit turn, only if it can be paid
 
 const jailFineSnapshot = {
   ...snapshot,
@@ -584,7 +583,7 @@ assert.equal(jailFineTurn.expectedRisk, 0, 'the jail fine is a cash cost, not re
 const brokeJailSnapshot = { ...jailFineSnapshot, botState: { ...jailFineSnapshot.botState, cash: 10 } };
 assert.equal(evaluateCandidate(brokeJailSnapshot, rollCandidate, { difficulty: 'table' }).expectedFine, 0, 'a seat that cannot pay the fine stays in jail');
 
-// --- auction escrow: the leading bid is reserved cash ---
+// auction escrow: the leading bid is reserved cash
 
 const escrowSnapshot = {
   ...snapshot,
@@ -595,7 +594,7 @@ const settleCandidate = { id: 'settle-short-default', kind: 'settle-short-defaul
 assert.equal(evaluateCandidate(escrowSnapshot, settleCandidate, { difficulty: 'table' }).liquidity, 400, 'only the cash outside the reserved bid can pay the buy-in debt');
 assert.equal(evaluateCandidate({ ...escrowSnapshot, obligations: {} }, settleCandidate, { difficulty: 'table' }).liquidity, 300, 'without a reserved bid the whole debt can be paid');
 
-// --- the liquidity target covers the rent the engine would actually charge ---
+// the liquidity target covers the rent the engine would actually charge
 
 const uncappedHitSnapshot = { ...snapshot, board: hitBoard, rulesDigest: { ...snapshot.rulesDigest, globalEvents: { activeEffects: {} } } };
 assert.equal(currentReserve(uncappedHitSnapshot), 775, 'without a modifier the full $675 hit is covered');

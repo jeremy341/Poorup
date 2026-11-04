@@ -1,7 +1,6 @@
-// The bot-decision trace is ~93% of a bot match record. Telemetry reads the
-// in-memory record at settlement, so the persisted copy only keeps a short
-// recent window; otherwise matches.json grows to ~115 MB at 500 bot matches
-// and every match end rewrites all of it on the event loop.
+// The bot-decision trace is ~93% of a bot match record. Telemetry reads the in-memory record at settlement, so the persisted copy
+// keeps only a short recent window; otherwise matches.json grows to ~115 MB at 500 bot matches and every match end rewrites it all
+// on the event loop.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';

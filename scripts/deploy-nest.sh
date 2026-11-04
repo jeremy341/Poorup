@@ -109,7 +109,7 @@ pm2 startOrReload "$CURRENT_LINK/ecosystem.config.cjs" --update-env
 pm2 save
 
 # The fresh process boots into the persisted draining mode, so /readyz answers
-# 503 here by design. Gate on the body instead: stores loaded, backups fresh (or
+# 503 here. Gate on the body instead: stores loaded, backups fresh (or
 # not configured), still draining, and reporting this release. Only then return
 # to normal.
 healthy=false
@@ -139,7 +139,7 @@ done
 post_maintenance "{\"mode\":\"normal\",\"releaseId\":\"$RELEASE_SHA\"}"
 
 # Keep the pull-timer entrypoint in sync with the deployed release so updater
-# improvements ship automatically with the code. This MUST NOT use plain `cp`:
+# improvements ship automatically with the code. Do not use plain `cp` here:
 # the running updater is this very file family, and truncating it in place
 # tears the interpreter's reads mid-run (observed live as a syntax error
 # after an otherwise successful deploy). Skip when identical; otherwise write

@@ -232,7 +232,7 @@ assert.deepEqual(diceRollTotals, [12, 9], "a new sequence announces once and a r
 assert.equal(state.debtRescueDismissed, false, "settlement clears the previous debt dismissal");
 assert.equal(retireLabel.textContent, "RETIRE");
 
-// F-007: the client auction view is truthful about being live, so the close
+// The client auction view is truthful about being live, so the close
 // confirmation and the beforeunload guard (which read `.active`) work.
 const liveAuction = (startedAt, endsAt) => ({
   ...auctionSnapshot,
@@ -244,19 +244,19 @@ assert.equal(typeof state.auction.id, "string", "the client auction view carries
 applyServerState({ ...auctionSnapshot, game: { ...auctionSnapshot.game, auction: { ...auctionSnapshot.game.auction, active: false } } }, host);
 assert.equal(state.auction.active, false, "a finished auction is not reported as live");
 
-// F2345-07: the dismissal snooze is keyed to the auction id, not a timer.
+// The dismissal snooze is keyed to the auction id, not a timer.
 applyServerState(liveAuction(1000, Date.now() + 5000), host);
 snoozeAuctionSurface();
 const opensAtSnooze = auctionSurfaceOpens;
 const realNow = Date.now;
-Date.now = () => realNow() + 20_000; // bidding keeps going well past the old 8 s window
+Date.now = () => realNow() + 20_000; // bidding keeps going well past the 8 s window
 applyServerState(liveAuction(1000, Date.now() + 5000), host);
 assert.equal(auctionSurfaceOpens, opensAtSnooze, "a dismissed auction is not reopened (no focus steal) while it is still the same auction");
 applyServerState(liveAuction(2000, Date.now() + 5000), host);
 assert.equal(auctionSurfaceOpens, opensAtSnooze + 1, "a new auction on the same tile breaks through the snooze");
 Date.now = realNow;
 
-// F-089: an offer created by a bot sends no socket event, so the snapshot must
+// An offer created by a bot sends no socket event, so the snapshot must
 // raise one polite notice (and only one) for a contract waiting on the local seat.
 {
   const contractNotices = [];

@@ -1,8 +1,6 @@
-// A turn that ends while the only other seat is inside its reconnect grace used to
-// leave the clock on the seat that had just finished: it had already rolled, the
-// returning seat was "not on turn", and nothing re-advanced the clock on return, so
-// the table was wedged for good. With a bot at the table the bot also re-decided
-// every 300 ms (one provider call each for an AI bot) until the room was destroyed.
+// A turn ending while the only other seat is inside its reconnect grace must not leave the clock on the seat that just finished:
+// it had already rolled, the returning seat was "not on turn", and nothing re-advanced the clock, so the table wedged for good.
+// With a bot at the table, the bot also re-decided every 300 ms (an AI provider call each) until the room was destroyed.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { selectBotTurnTarget } from './botLogic.js';

@@ -1,8 +1,6 @@
-// Property auctions as a prototype mixin: the open-outcome flow that starts
-// when a deed is declined (or unaffordable), the bid mini-game, and the
-// timed close. gameLogic.js assigns this object onto GameState.prototype and
-// re-exports AUCTION_DURATION_MS for server.js; server/gameLogic.test.js pins
-// every rejection string and precedence.
+// Property auctions as a prototype mixin: the open-outcome flow that starts when a deed is declined
+// (or unaffordable), the bid mini-game, and the timed close. gameLogic.js assigns this object onto
+// GameState.prototype and re-exports AUCTION_DURATION_MS for server.js. server/gameLogic.test.js pins every rejection string.
 import { auctionWillingness, isAuctionRaise, AUCTION_BID_INCREMENTS } from './botAuctionPolicy.js';
 
 const AUCTION_DURATION_MS = 5000;
@@ -15,6 +13,7 @@ class AuctionState {
     this.active = true;
     this.highestBid = 0;
     this.highestBidderId = null;
+    this.bids = [];
     this.participants = [];
     this.startingPlayerId = startingPlayerId;
     this.startedAt = Date.now();
@@ -43,7 +42,7 @@ const auctionApi = {
   },
 
   // The active global event blocks NEW auctions. An auction that is already
-  // running keeps its clock and finishes normally (T13): freezing a live
+  // running keeps its clock and finishes normally: freezing a live
   // auction would strand the bids that are already on the table.
   auctionPausedByEvent() {
     if (this.globalEventActive('bank-run')) return true;
@@ -138,6 +137,7 @@ const auctionApi = {
     const auction = this.auction;
     auction.highestBid = amount;
     auction.highestBidderId = player.id;
+    (auction.bids ||= []).push({ playerId: player.id, amount });
     auction.lastBidAt = now;
     auction.cooldownUntil = now + AUCTION_BID_COOLDOWN_MS;
     auction.endsAt = now + AUCTION_DURATION_MS;
@@ -162,6 +162,7 @@ const auctionApi = {
       this.closeAuctionWithoutBids(auction);
       return;
     }
+    auction.highestBidderId = this.auctionWinnerId(auction);
     const winner = this.getPlayerById(auction.highestBidderId);
     if (!this.auctionWinnerEligible(winner, auction.highestBid)) {
       this.feedMessage('Auction ended without a valid winner.');
@@ -170,6 +171,21 @@ const auctionApi = {
       return;
     }
     this.completeAuctionSale(auction, winner);
+  },
+
+  // The seat that wins the close. Bids must strictly rise, so equal top bids are rare, but a bid list
+  // can still hold them. With bank accounts on, the higher bank tier takes an exact tie (Parlor Black
+  // over Parlor Premium over Standard). Among equal tiers, and with the rule off, the earliest bid keeps
+  // the win, as before.
+  auctionWinnerId(auction) {
+    const top = Number(auction.highestBid) || 0;
+    const tied = (auction.bids || []).filter(bid => bid.amount === top && this.getPlayerById(bid.playerId));
+    if (tied.length < 2 || !this.bankAccountsEnabled()) return auction.highestBidderId;
+    let best = tied[0];
+    for (const bid of tied.slice(1)) {
+      if (this.bankAccountOf(this.getPlayerById(bid.playerId)).tier > this.bankAccountOf(this.getPlayerById(best.playerId)).tier) best = bid;
+    }
+    return best.playerId;
   },
 
   closeAuctionWhilePaused(auction) {
@@ -252,11 +268,9 @@ const auctionApi = {
     auction.propertyTile.houseCount = 0;
     auction.propertyTile.equityShares = [];
     if (!winner.properties.includes(auction.propertyTile.index)) winner.properties.push(auction.propertyTile.index);
-    // Auctions are another acquisition path. Keep the same completed-group
-    // facts as direct purchases and trades so rent rules and achievements do
-    // not lag behind the visible ownership state.
-    // The housing-bubble purchase fact belongs to the acquisition, not to the
-    // payment route: winning a deed during the bubble buys during the bubble.
+    // Auctions are another acquisition path: keep the same completed-group facts as direct purchases
+    // and trades, or rent rules and achievements lag the visible ownership state.
+    // The housing-bubble purchase fact belongs to the acquisition, not the payment route.
     if (this.globalEventActive('housing-bubble')) winner.boughtDuringHousingBubble = true;
     this.refreshPlayerGroups(winner);
   },

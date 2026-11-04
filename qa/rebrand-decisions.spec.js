@@ -33,7 +33,32 @@ test('rankings page uses ten readable rows and rules and settings omit removed c
   await expect(page.locator('#rules-book-page-scroll')).toBeVisible();
 });
 
-test('bank-sale confirmation uses authoritative purchase cost and returns the deed unowned', async ({ page }) => {
+// The bank deed buyback (the #dd-bank-sale control and the server `sell-deed` payout) is
+// removed: the server rejects it with BANK_DEED_BUYBACK_UNAVAILABLE. A cleared
+// deed leaves through a negotiated player trade (#dd-trade-deed, labelled SELL DEED). This
+// spec pins that contract.
+// Runs in the page: opens the owned deed with a deed-detail harness that forwards sales to the server.
+async function openSaleDeed(summary) {
+  await window.__installIpadModalCapture();
+  const f = window.__ipadModalCapture;
+  f.state.serverTiles = summary.tiles;
+  f.state.houses = {};
+  f.deed.configureDeedDetail({
+    async emitServer(event, payload, ack) {
+      const result = await window.__manageBankSale(event, payload);
+      if (result.response.success) {
+        delete f.state.owners[5];
+        f.state.players[0].cash = result.cash;
+        f.state.serverTiles = result.summary.tiles;
+      }
+      ack(result.response);
+    },
+    renderAll() { f.deed.renderDeedDetail(); },
+  });
+  f.openDeed(5);
+}
+
+test('owned deed offers a player trade, not a bank sale, and the server refuses the bank buyback', async ({ page }) => {
   const manager = new RoomManager();
   const room = manager.createRoom({ socketId: 'sale-host', clientId: 'sale-host-client', nickname: 'HOST' });
   room.addOrReconnectPlayer({ socketId: 'sale-guest', clientId: 'sale-guest-client', nickname: 'GUEST' });
@@ -62,37 +87,18 @@ test('bank-sale confirmation uses authoritative purchase cost and returns the de
   const fixture = await readFile(new URL('./visual-capture/ipad-modal-fixture.browser.js', import.meta.url), 'utf8');
   await page.route('**/qa/sale-fixture.js', route => route.fulfill({ status: 200, contentType: 'text/javascript', body: fixture }));
   await page.addScriptTag({ url: new URL('/qa/sale-fixture.js', page.url()).href, type: 'module' });
-  await page.evaluate(async summary => {
-    await window.__installIpadModalCapture();
-    const f = window.__ipadModalCapture;
-    f.state.serverTiles = summary.tiles;
-    f.state.houses = {};
-    f.deed.configureDeedDetail({
-      async emitServer(event, payload, ack) {
-        const result = await window.__manageBankSale(event, payload);
-        if (result.response.success) {
-          delete f.state.owners[5];
-          f.state.players[0].cash = result.cash;
-          f.state.serverTiles = result.summary.tiles;
-        }
-        ack(result.response);
-      },
-      renderAll() { f.deed.renderDeedDetail(); },
-    });
-    f.openDeed(5);
-  }, game.getGameSummary(owner.id));
+  await page.evaluate(openSaleDeed, game.getGameSummary(owner.id));
   await expect(page.locator('#deed-card-detail').getByText('YOUR CASH', { exact: true })).toHaveCount(0);
-  await expect(page.locator('#dd-bank-sale')).toBeEnabled();
-  await expect(page.locator('#dd-bank-sale')).toContainText('$90');
-  await page.locator('#dd-bank-sale').click();
-  expect(requests).toHaveLength(0);
-  await expect(page.locator('#dd-bank-sale')).toContainText('CONFIRM BANK SALE');
-  await expect(page.locator('#dd-bank-sale')).toBeFocused();
-  await page.locator('#dd-bank-sale').click();
-  await expect.poll(() => requests.length).toBe(1);
-  expect(requests[0]).toMatchObject({ event: 'manage-property', payload: { tileIndex: 5, action: 'sell-deed' } });
-  expect(owner.cash).toBe(startingCash + 90);
-  expect(airport.ownerId).toBeNull();
-  expect(owner.properties).not.toContain(5);
   await expect(page.locator('#dd-bank-sale')).toHaveCount(0);
+  await expect(page.locator('#dd-trade-deed')).toBeEnabled();
+  await expect(page.locator('#dd-trade-deed')).toContainText('SELL DEED');
+  await expect(page.locator('#deed-card-detail')).toContainText(/agree on the price/i);
+  await expect(page.locator('#deed-card-detail')).not.toContainText(/50%|CONFIRM BANK SALE/);
+  await expect(page.locator('#dd-trade-deed')).not.toContainText(/\+\$/);
+  const refused = game.manageProperty('sale-host', { tileIndex: 5, action: 'sell-deed', requestId: 'bank-buyback-refused' });
+  expect(refused).toMatchObject({ success: false, error: expect.stringMatching(/Bank deed buyback is unavailable/) });
+  expect(owner.cash).toBe(startingCash);
+  expect(airport.ownerId).toBe(owner.id);
+  expect(owner.properties).toContain(5);
+  expect(requests).toHaveLength(0);
 });

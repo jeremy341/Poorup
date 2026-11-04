@@ -1,7 +1,6 @@
-// Bounded, side-effect-free future evaluation for bot candidates. The planner
-// consumes the provider-safe strategic snapshot and never receives or mutates
-// a live GameState. It is deliberately small: a deterministic horizon is a
-// better first step than an unbounded tree in a real-time table.
+// Bounded, side-effect-free future evaluation for bot candidates. The planner consumes the provider-safe
+// strategic snapshot and never receives or mutates a live GameState. A small deterministic horizon beats an unbounded
+// tree in a real-time table.
 import { MARKET_FEE_RATE } from './marketLogic.js';
 import { PROPERTY_HOUSE_COST_BY_GROUP } from './gameData.js';
 import { forecastMarketOrder } from './botMarketForecast.js';
@@ -42,17 +41,9 @@ export const NO_AI_OUTCOME_WEIGHTS = Object.freeze({
   jailFine: -1
 });
 const MAX_HORIZON = 3;
-// A deed, house or unmortgage is an investment: its rent keeps arriving long after
-// the 0-3 turn dice horizon. The extra rent per round it adds is credited over this
-// many rounds, discounted for the game ending, bankruptcies and the table's rent
-// being shared. Every level values income; the levels differ in how far ahead they
-// look: the dice horizon above and this investment horizon. House is short-sighted
-// (a build must pay back within 8 rounds, so it under-invests), Table credits 16 and
-// Expert 32 rounds, so Expert commits to deeds and houses earlier. Measured, not
-// assumed: on seeds not used for tuning (2001-2100) Expert won 44.3 % of 300 mixed
-// three-seat games against 32.7 % (Table) and 23.0 % (House); with one horizon for
-// all three the shares were 36.0 / 32.7 / 31.3 % (docs/BOT-ENGINE-AUDIT-2026-10.md,
-// finding 1).
+// A deed, house or unmortgage keeps paying long after the 0-3 turn dice horizon, so its extra rent is credited over an
+// investment horizon: House 8 rounds (it under-invests), Table 16, Expert 32. Measured on unseen seeds (2001-2100),
+// Expert won 44.3% of 300 mixed three-seat games (House 23.0%, Table 32.7%). With one shared horizon: 36.0 / 32.7 / 31.3%.
 export const INVESTMENT_ROUNDS_BY_DIFFICULTY = Object.freeze({ house: 8, table: 16, expert: 32 });
 export const INVESTMENT_ROUNDS = INVESTMENT_ROUNDS_BY_DIFFICULTY.table;
 export const INVESTMENT_DISCOUNT = 0.6;
@@ -132,11 +123,9 @@ function completeGroupCount(snapshot, state) {
   return [...groups].filter(group => propertyGroupCount(state, group) >= groupTarget(snapshot, group)).length;
 }
 
-// Liquidity target: the static purchase floor or the dynamic reserve (live
-// opponent hit plus one house), whichever is higher. The dynamic reserve
-// follows board development as hotels go up; half a hit capped at $400 did not.
-// The snapshot travels with the board so the reserve covers the rent the
-// engine would actually charge (event modifiers and the rent cap included).
+// Liquidity target: the static purchase floor or the dynamic reserve (live opponent hit plus one house), whichever is higher.
+// The dynamic reserve follows development as hotels go up; half a hit capped at $400 did not. The snapshot travels with the
+// board so the reserve covers rent as the engine would charge it, event modifiers included.
 export function currentReserve(snapshot) {
   const staticReserve = Math.max(120, number(snapshot.rulesDigest?.purchaseReserve, 120));
   return Math.max(staticReserve, dynamicReserve(snapshot.board, 100, snapshot));
@@ -823,10 +812,8 @@ function jailedNoMoveOutcome(actorState, moveProbability) {
   };
 }
 
-// The engine charges the fine on the turn that reaches the jail limit
-// (JAIL_MAX_TURNS) and only when the seat can pay it: a seat that cannot
-// stays in jail. The digest carries both numbers, so the forecast reads them
-// instead of assuming them.
+// The engine charges the fine on the turn that reaches the jail limit (JAIL_MAX_TURNS), and only when the seat can pay it.
+// A seat that cannot pay stays in jail. The digest carries both numbers, so the forecast reads them rather than assuming.
 function jailMaxTurns(snapshot) {
   const turns = nonNegative(snapshot?.rulesDigest?.jailMaxTurns);
   return turns > 0 ? turns : 3;
@@ -893,7 +880,7 @@ function mergeLandingPositions(outcomes) {
 
 // The dice projection reads only the board, the pawn and the jail state. Candidates
 // that leave those alone (market orders, loans, repayments, proposals, standing
-// still) share one enumeration per snapshot instead of paying for it each.
+// still) share one enumeration per snapshot, so no caller pays for its own copy.
 const LANDING_CACHE = new WeakMap();
 
 function landingCacheKey(state, horizon, options) {
@@ -1062,10 +1049,8 @@ function houseSaleRate(snapshot) {
   return Number.isFinite(rate) && rate >= 0 ? rate : 0.5;
 }
 
-// The engine builds at getPropertyHouseCost: the base cost of the group
-// times the event's buildingCostMultiplier. A house bought while a cost
-// raising event runs is worth that much more when it is sold back, so the
-// static table alone under-values it.
+// The engine builds at getPropertyHouseCost: the group's base cost times the event's buildingCostMultiplier.
+// A house bought while a cost-raising event runs is worth more when sold back, so the static table alone under-values it.
 function houseCostFor(snapshot, tile) {
   const base = number(PROPERTY_HOUSE_COST_BY_GROUP[tile?.group]);
   const multiplier = Number(snapshot?.rulesDigest?.globalEvents?.activeEffects?.buildingCostMultiplier);
@@ -1112,23 +1097,15 @@ function optionNetWorth(state, snapshot) {
 
 function bankDebtNetWorth(state) {
   if (!state.bankLoan) return 0;
-  // A defaulted bank loan keeps its balance until the bank is actually paid
-  // (loanLogic.defaultUnsecuredBankLoan), so only a paid loan leaves the
-  // books. The canonical net worth (netWorth.bankLoanDebt) reads it the
-  // same way.
+  // A defaulted bank loan keeps its balance until the bank is actually paid (loanLogic.defaultUnsecuredBankLoan),
+  // so only a paid loan leaves the books. The canonical net worth (netWorth.bankLoanDebt) reads it the same way.
   if (state.bankLoan.status === 'paid') return 0;
   return -nonNegative(state.bankLoan.remaining);
 }
 
-// A defaulted contract leaves contractNetWorth (its status is terminal), but
-// the principal it still owes does not disappear with it. The canonical net
-// worth counts it through the claim ledger (netWorth.defaultClaimValue); the
-// provider snapshot does not ship the claims yet, so the planner reads the
-// defaulted contract itself, and only for the seat that owes. A lender's
-// claim is only collectable while the borrower is solvent, which the
-// snapshot cannot say, so it stays out. When the snapshot does carry the
-// claims, the ledger wins and the contract is left out, so the principal is
-// never counted twice.
+// A defaulted contract leaves contractNetWorth (its status is terminal), but the principal it still owes does not vanish.
+// The canonical net worth counts it through the claim ledger (netWorth.defaultClaimValue). Until the snapshot ships claims,
+// the planner reads the defaulted contract for the owing seat only. When claims are shipped, the ledger wins so nothing is counted twice.
 function defaultedContractDebt(state, snapshot) {
   if (Array.isArray(snapshot?.botState?.defaultClaims)) return 0;
   return state.contracts.reduce((sum, contract) => {
@@ -1137,11 +1114,9 @@ function defaultedContractDebt(state, snapshot) {
   }, 0);
 }
 
-// The planner's own net worth, kept in step with the canonical server
-// definition (netWorth.js): deeds at face value, houses at resale, market
-// positions at the quote, held options at intrinsic value, loan and hybrid
-// contracts as receivables or debts, and the bank loan and short-default
-// debt owed.
+// The planner's own net worth, kept in step with the canonical server definition (netWorth.js): deeds at face value,
+// houses at resale, market positions at quote, held options at intrinsic value, loan and hybrid contracts as
+// receivables or debts, and the bank loan and short-default debt owed.
 export function estimatedNetWorth(state, saleRate = 0.5, snapshot = null) {
   const deedValue = state.board.reduce((sum, tile) => sum + deedNetWorth(snapshot, tile, saleRate), 0);
   const marketValue = Object.entries(state.marketPositions || {}).reduce((sum, [instrumentId, position]) => {
@@ -1171,10 +1146,9 @@ function boardSignature(state) {
   return state.board.map(tile => tile.ownerSeat + ':' + nonNegative(tile.houseCount) + ':' + (tile.mortgaged ? 1 : 0)).join('|');
 }
 
-// Long-run rent per round: each opponent lands on a given tile about once in
-// boardLength turns, scaled by the group's traffic tier (botTradeValuation). A
-// single-turn dice projection misses every tile out of reach this turn, which
-// would make a deed or house look worthless depending on where the pawns stand.
+// Long-run rent per round: each opponent lands on a given tile about once every boardLength turns, scaled by the group's
+// traffic tier (botTradeValuation). A single-turn dice projection misses every tile out of reach this turn, which would
+// make a deed or house look worthless depending on where the pawns stand.
 function stationaryRentPerRound(snapshot, state) {
   const opponents = liveOpponents(snapshot).length;
   if (!opponents) return 0;
@@ -1195,9 +1169,8 @@ function rentPerRound(snapshot, state) {
   return value;
 }
 
-// Rent is convex in houses (x1, x5, x15, x45): the first house of a plan pays little
-// and the third pays most. A build is credited with the average rent gain per step of
-// the way up to three houses on that deed, so a bot does not stall at the cheap,
+// Rent is convex in houses (x1, x5, x15, x45): the first house of a plan pays little and the third pays most.
+// A build is credited with the average rent gain per step up to three houses, so a bot does not stall at the cheap,
 // low-yield first step of a plan that pays back well.
 const PATH_HOUSES = 3;
 
@@ -1352,10 +1325,9 @@ function projectOutcome(snapshot, candidate, options) {
   return { projectionStatus, strategic, state, afterGroups, estimatedNetWorthDelta, expectedMarketEdge };
 }
 
-// Scores a candidate by its marginal value against the stand-still baseline (a
-// roll that changes nothing, projected under the same seed and dice). Anything
-// that leaves the position as it is, such as the neutral end-turn, scores 0, so
-// an action must add value over doing nothing to be preferred to it.
+// Scores a candidate by its marginal value against the stand-still baseline (a roll that changes nothing, projected
+// under the same seed and dice). Anything leaving the position as it is, such as the neutral end-turn, scores 0,
+// so an action must add value over doing nothing to be preferred.
 export function evaluateCandidate(snapshot, candidate, { difficulty = 'table', seed = 'poorup', rolloutBudget = 0 } = {}, standStill = null) {
   const horizon = clamp(planningHorizon(difficulty), 0, MAX_HORIZON);
   const safeRolloutBudget = normalizeRolloutBudget(rolloutBudget);

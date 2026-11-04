@@ -1,8 +1,6 @@
-/* ============================================================
-   BOARD FEED: the table events as a scrollable list in the
-   board centre, newest first. The log drawer (top bar) keeps the
-   filterable view of the same state.log.
-   ============================================================ */
+// BOARD FEED: the table events as a scrollable list in the
+// board centre, newest first. The log drawer (top bar) keeps the
+// filterable view of the same state.log.
 import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
 

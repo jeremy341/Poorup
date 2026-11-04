@@ -1,8 +1,6 @@
-/* ============================================================
-   BOARD TILE ACCESSIBLE NAMES (F-052)
-   Pure so it can be unit-tested; clientBoardRender re-applies it on
-   every render so ownership, buildings and mortgages are never visual-only.
-   ============================================================ */
+// BOARD TILE ACCESSIBLE NAMES
+// Pure so it can be unit-tested; clientBoardRender re-applies it on
+// every render so ownership, buildings and mortgages are never visual-only.
 
 /**
  * @param {{ name?: string, price?: number|null }} tile

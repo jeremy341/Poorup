@@ -23,13 +23,13 @@ function check(name, assertion) {
 }
 
 check("rankingArrowNavigationPreservesExistingMetricSnapshots", () => {
-  assert.equal(surfaces.RANKING_ORDER.length, 14);
-  assert.ok(!surfaces.RANKING_ORDER.includes("patrol"), "Parlor Patrol is switched off, so patrol is not a ranking metric");
+  assert.equal(surfaces.RANKING_ORDER.length, 15);
+  assert.ok(surfaces.RANKING_ORDER.includes("patrol"), "Parlor Patrol is a ranking metric");
   for (const metric of surfaces.RANKING_ORDER) assert.ok(surfaces.RANKING_LABELS[metric]);
   const html = surfaces.rankingMetricNavigationHTML("market");
   assert.match(html, /class="btn-dark ranking-step" type="button" data-ranking-step="-1" aria-label="Previous ranking category"/);
   assert.match(html, /class="btn-dark ranking-step" type="button" data-ranking-step="1" aria-label="Next ranking category"/);
-  assert.match(html, /<strong class="t-label f12 g100">11 \/ 14<\/strong>/);
+  assert.match(html, /<strong class="t-label f12 g100">11 \/ 15<\/strong>/);
   assert.doesNotMatch(source, /RANKING_METRIC_FAMILIES|ranking-family-control/);
 });
 
@@ -177,4 +177,13 @@ check("inGameReturnBarIsPinnedInsideAFixedCardWithInternalScroll", () => {
   assert.match(ux, /\.table-return-bar\s*\{[^}]*flex-shrink:\s*0/);
   assert.match(ux, /\.table-return-btn\s*\{[^}]*min-height:\s*44px/);
   assert.match(ux, /position:\s*sticky/);
+});
+
+check("computerProfilesOpenFromSearchOutsideTheRoomAndNotFromTheCard", () => {
+  assert.doesNotMatch(source, /data-player-action="computer-profile"/, "the in-room card no longer offers a computer profile");
+  assert.match(bindings, /id\?\.startsWith\("computer:"\)[\s\S]*host\.openComputerProfile\(id\.slice/);
+  assert.match(source, /player\.computer/, "search rows mark computer players");
+  const page = readFileSync(new URL("./clientComputerProfile.js", import.meta.url), "utf8");
+  assert.match(page, /get-computer-profile/);
+  assert.match(page, /showProfile/, "the page is the normal profile page, not a separate view");
 });

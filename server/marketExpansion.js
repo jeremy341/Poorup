@@ -3,20 +3,13 @@
 // introduces real securities, cash withdrawal, or naked exposure.
 const COMPLEXITY_RANK = Object.freeze({ basic: 0, margin: 1, shorting: 2, derivatives: 3 });
 const MARGIN_MAINTENANCE_RATE = 0.25;
-// Initial margin is the same disclosed cash percentage as the maintenance
-// requirement. It is held separately from free cash until the position is
-// reduced or liquidated, so opening margin cannot create uncollateralized
-// exposure.
+// Initial margin is the same disclosed cash percentage as the maintenance requirement. It is held apart from free cash until the
+// position is reduced or liquidated, so opening margin cannot create uncollateralized exposure.
 const MARGIN_COLLATERAL_RATE = MARGIN_MAINTENANCE_RATE;
 const SHORT_COLLATERAL_RATE = 0.5;
-// Financing carries zero time cost (F-037, owner-approved: no economics
-// change). Margin debt is not interest-bearing: marginBalance stays at its
-// opening value until it is repaid, liquidated or closed, and maintenance moves
-// only with the quote. A short's borrow fee is a single charge at open
-// (SHORT_BORROW_FEE_RATE of the opening notional), held on the position and
-// collected, prorated, when the short is covered. Round steps never accrue
-// either. server/margin-carry-rule.test.js pins this; a per-round charge is a
-// rule change, not a fix.
+// Financing carries zero time cost (owner-approved): margin debt is not interest-bearing, and maintenance moves only with the quote.
+// A short's borrow fee is one charge at open (SHORT_BORROW_FEE_RATE of the notional), collected prorated when the short is covered.
+// No round step accrues either. server/margin-carry-rule.test.js pins this; a per-round charge is a rule change, not a fix.
 const SHORT_BORROW_FEE_RATE = 0.01;
 const OPTION_EXPIRY_MAX = 20;
 const OPTION_RESERVE_INITIAL = 100_000;
@@ -105,10 +98,8 @@ function positionOrderRejection(player, operation) {
 }
 
 function positionDebtRejection(player, operation) {
-  // The unpaid buy-in debt blocks new exposure only. Covering a short,
-  // reducing margin and closing a position are how a levered seat raises the
-  // cash that repays the debt, so the 'manage' ladder stays open; refusing
-  // them would trap the seat inside the obligation it is asked to settle.
+  // The unpaid buy-in debt blocks new exposure only. Covering a short, reducing margin and closing a position are how a levered seat
+  // raises the cash that repays the debt, so the 'manage' ladder stays open. Refusing them would trap the seat inside the obligation.
   if (operation === 'open' && Number(player.shortDefaultDebt) > 0) return 'Settle your short buy-in debt before opening another market position.';
   return null;
 }
@@ -135,12 +126,9 @@ function expansionPositionRejection(game, player, operation) {
 }
 
 function expansionGuard(game, player, required, operation = 'open') {
-  // loanLogic.hasLoanBackedCash documents its scope as "casino, contract,
-  // and market guards" — the expansion ladder routes through this one guard,
-  // so a loan-backed borrower cannot fund margin, short, or option exposure.
-  // The taint is on new exposure only: reducing, covering, exercising or
-  // closing a position is risk-reducing and is often the very act that funds
-  // the repayment, so those operations stay open to a borrower.
+  // loanLogic.hasLoanBackedCash documents its scope as "casino, contract, and market guards". The expansion ladder routes through this
+  // one guard, so a loan-backed borrower cannot fund margin, short or option exposure. The taint applies to new exposure only: reducing,
+  // covering, exercising or closing is risk-reducing and often funds the repayment, so those stay open to a borrower.
   if (operation === 'open' && player && game.hasLoanBackedCash?.(player)) {
     return 'Loan-backed cash cannot fund margin, short, or option positions.';
   }
@@ -448,7 +436,7 @@ function canOpenShort(game, player, canOpen) {
 
 function canOpenOption(game, player, canOpen) {
   // Without a server pricing policy every option order fails closed
-  // (OPTION_TERMS_SERVER_REQUIRED) — never advertise a candidate that
+  // (OPTION_TERMS_SERVER_REQUIRED): never advertise a candidate that
   // cannot succeed.
   return canOpen && complexityAllows(game, 'derivatives') && Boolean(game.optionPricingPolicy) && player.cash > 100;
 }
@@ -552,10 +540,8 @@ function settleMarginPositions(game, player) {
   const repayment = Math.min(debt, available);
   player.cash = Math.max(0, Number(player.cash) || 0) + Math.max(0, available - repayment);
   const unpaid = Math.max(0, debt - repayment);
-  // The liquidation closes the position, so no margin debt may survive it.
-  // Whatever the collateral and the sale could not cover stays owed to the
-  // house as an explicit obligation: dropping it would hand the seat money
-  // it never earned.
+  // The liquidation closes the position, so no margin debt may survive it. Whatever the collateral and sale could not cover stays owed
+  // to the house as an explicit obligation; dropping it would hand the seat money it never earned.
   player.shortDefaultDebt = nonNegativeNumber(player.shortDefaultDebt) + unpaid;
   player.marginBalance = 0;
   player.marginMaintenance = 0;

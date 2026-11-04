@@ -77,16 +77,23 @@ export function registerAiProviderRoutes(app, {
       return res.status(201).json({ success: true, profile, ...note });
     } catch (error) {
       audit(req, 'create', requestedLabel(req), 'failed');
+      if (error instanceof ProviderConfigError && error.code === 'PROFILE_EXISTS') return res.status(409).json(errorPayload(error));
       return res.status(error instanceof ProviderConfigError ? 400 : 500).json(errorPayload(error));
     }
   });
 
-  router.patch('/providers/:id', writeGuard, (req, res) => {
+  router.patch('/providers/:id', writeGuard, async (req, res) => {
     try {
-      const profile = manager.upsert({ ...(req.body || {}), id: req.params.id });
-      const note = audit(req, 'update', profile.label, 'ok');
+      // Editing the live connection of the active provider runs the connection test first; a failing edit is
+      // not stored or applied, so the previous working config stays active.
+      const outcome = await manager.update({ ...(req.body || {}), id: req.params.id });
       setAnalyticsNoStoreHeaders(res);
-      return res.json({ success: true, profile, ...note });
+      if (outcome.rejected) {
+        const note = audit(req, 'update', labelFor(req.params.id), 'failed');
+        return res.status(422).json({ success: false, code: 'PROVIDER_TEST_FAILED', error: 'The edited provider failed its connection test. The previous configuration stays active.', test: outcome.test, active: outcome.active, ...note });
+      }
+      const note = audit(req, 'update', outcome.profile.label, 'ok');
+      return res.json({ success: true, profile: outcome.profile, ...(outcome.test ? { test: outcome.test } : {}), ...note });
     } catch (error) {
       audit(req, 'update', labelFor(req.params.id), 'failed');
       return res.status(error instanceof ProviderConfigError ? 400 : 500).json(errorPayload(error));

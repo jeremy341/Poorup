@@ -1,7 +1,5 @@
-// Index market: the quote drift ladder (advanceMarket), the order-validation
-// gate chain, and the buy/sell legs that move cash and update positions. Pure
-// module: the order legs receive a context object and mutate only the GameState
-// and player they are handed.
+// Index market: the quote drift ladder (advanceMarket), the order-validation gate chain, and the buy and sell legs that move cash.
+// Pure: the order legs receive a context object and mutate only the GameState and player they are handed.
 import { randomFloat } from './random.js';
 
 export const MARKET_FEE_RATE = 0.02;
@@ -25,11 +23,9 @@ export const MARKET_ORDER_GUARDS = [
   // repayment it is being asked for, so the maintenance gate may only stop
   // orders that add risk. The side travels in the order context.
   { test: (game, player, ctx) => ctx?.direction !== 'sell' && game.marginMaintenanceDue?.(player), error: 'Settle your margin maintenance before trading.' },
-  // An unpaid short buy-in is a forced obligation to the house. The spot book
-  // honours the same check the expansion ladder applies
-  // (marketExpansion.positionDebtRejection). Like the maintenance gate above,
-  // it stops new exposure only: a sell raises the cash that repays the debt,
-  // so refusing it would trap the seat in the obligation it is asked to settle.
+  // An unpaid short buy-in is a forced obligation to the house. The spot book honours the same check the expansion ladder applies
+  // (marketExpansion.positionDebtRejection). Like the maintenance gate above, it stops new exposure only: a sell raises the cash
+  // that repays the debt, so refusing it would trap the seat in the obligation it must settle.
   { test: (game, player, ctx) => ctx?.direction !== 'sell' && Number(player.shortDefaultDebt) > 0, error: 'Settle your short buy-in debt before trading.' },
   { test: game => game.activeEventEffects().tradingEnabled === false, error: 'Market trading is paused by the active global event.' }
 ];

@@ -75,7 +75,7 @@ export function createRoomPresenceRuntime({
   removeSeatForReason,
 }) {
   const timers = new Map();
-  // Server-side idle clock (F-091), independent of client presence reports:
+  // Server-side idle clock, independent of client presence reports:
   // when each seat last sent a socket event, and when it began to block the table.
   const lastEventAt = new Map();
   const blockingSince = new Map();
@@ -168,10 +168,8 @@ export function createRoomPresenceRuntime({
     return { success: true, presence: player.presence };
   }
 
-  // The seats a table is waiting on: the turn holder, and a recipient who still
-  // has to answer a pending trade or player contract. The contract's responder
-  // is not always its addressee: after a counter-offer the seat that made the
-  // surviving offer is the one that has to decide.
+  // The seats a table is waiting on: the turn holder, and a recipient still to answer a pending trade or player contract.
+  // The responder is not always the addressee: after a counter-offer, the seat that made the surviving offer decides.
   function blockingSeatIds(room) {
     if (!room.game?.started) return new Set();
     return new Set([
@@ -205,10 +203,26 @@ export function createRoomPresenceRuntime({
     return idled;
   }
 
-  // Any socket event from a seated human counts as input for the idle clock. A
-  // seat the server idled that is plainly still playing goes back to active, or
-  // its removal deadline would evict a live player.
-  function noteSocketEvent(socketId) {
+  // Successful interactive events from a seated human count as input for the idle clock. A seat the server idled that is plainly
+  // still playing goes back to active, or its removal deadline would evict a live player. Keep this list to table interactions and
+  // client presence changes. Callers that pass no event name keep the internal legacy behavior.
+  const ACTIVITY_EVENTS = new Set([
+    'player-presence', 'send-chat', 'set-setting', 'set-player-appearance', 'start-game',
+    'roll-dice', 'purchase-property', 'upgrade-bank-account', 'fly-to-airport', 'set-airport-fees',
+    'decline-property', 'auction-bid', 'end-turn', 'manage-property', 'propose-trade',
+    'counter-trade', 'adjust-trade', 'cancel-trade', 'respond-trade', 'propose-player-contract',
+    'counter-player-contract', 'adjust-player-contract', 'respond-player-contract', 'cancel-player-contract',
+    'repay-player-contract', 'pay-jail-fine', 'use-jail-free', 'use-item', 'sell-item',
+    'take-bank-loan', 'repay-bank-loan', 'market-order', 'open-margin', 'reduce-margin',
+    'open-short', 'cover-short', 'settle-short-default', 'open-option', 'exercise-option',
+    'close-position', 'vote-global-event', 'declare-bankruptcy', 'place-casino-bet',
+    'room-votekick-start', 'room-votekick-cast', 'propose-equity-share-transfer',
+    'request-sponsored-purchase', 'contribute-sponsored-purchase', 'withdraw-sponsored-purchase',
+    'accept-sponsored-purchase', 'decline-sponsored-purchase',
+  ]);
+
+  function noteSocketEvent(socketId, eventName) {
+    if (typeof eventName === 'string' && !ACTIVITY_EVENTS.has(eventName)) return;
     const room = roomManager.getRoomBySocket(socketId);
     const player = room?.getPlayerBySocket(socketId);
     if (!player) return;
@@ -230,7 +244,7 @@ export function createRoomPresenceRuntime({
   }
 
   // A voluntary leave never reaches clearPlayer, so the sweep drops the idle
-  // bookkeeping of any seat id that is no longer seated in a live room.
+  // bookkeeping of any seat id that is not seated in a live room.
   function forgetUnseatedPlayers() {
     const seated = new Set();
     for (const room of roomManager.rooms.values()) room.game.players.forEach(player => seated.add(player.id));

@@ -80,7 +80,7 @@ assert.equal(store.revokeAccountSessionsExcept('acct-5', caller.sessionId), 1, '
 assert.equal(store.resolve(caller.cookieValue).accountId, 'acct-5');
 assert.equal(store.resolve(otherDevice.cookieValue), null);
 
-// E37-14: expired cookie sessions do not accumulate. They are swept when the
+// Expired cookie sessions do not accumulate. They are swept when the
 // store loads and by a timer, so they are not rewritten to disk indefinitely.
 {
   const sweepFile = path.join(root, 'sweep-sessions.json');
@@ -110,7 +110,7 @@ assert.equal(store.resolve(otherDevice.cookieValue), null);
 }
 
 // A failed write while resolving must not throw: resolve() is a read, called
-// from the socket handshake, where an escaped throw ends the process (o01 F1).
+// from the socket handshake, where an escaped throw ends the process.
 {
   let failing = false;
   let writes = 0;
@@ -136,7 +136,7 @@ assert.equal(store.resolve(otherDevice.cookieValue), null);
   flaky.close();
 }
 
-// F5: a revocation that cannot be written must not stay revoked in memory
+// A revocation that cannot be written must not stay revoked in memory
 // only. The record would still be on disk and would come back after a
 // restart, so the two views of the session must agree.
 {
@@ -158,7 +158,7 @@ assert.equal(store.resolve(otherDevice.cookieValue), null);
   flaky.close();
 }
 
-// F6: a failed issue write must roll back both indexes and permit a later issue.
+// A failed issue write must roll back both indexes and permit a later issue.
 {
   let failing = true;
   const flaky = createSessionStore({ persist: () => { if (failing) throw new Error('disk busy'); } });
@@ -171,7 +171,7 @@ assert.equal(store.resolve(otherDevice.cookieValue), null);
   flaky.close();
 }
 
-// F5: the same holds for a single session and for the other sessions of an
+// The same holds for a single session and for the other sessions of an
 // account.
 {
   let failing = false;

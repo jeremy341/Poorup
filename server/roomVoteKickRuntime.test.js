@@ -105,7 +105,7 @@ function makeHarness() {
   const cooledDown = await host.ask('room-votekick-start', { targetPlayerId: targetId, requestId: 'timeout-start-2' });
   assert.equal(cooledDown.success, false, 'the initiator cooldown outlasts an early timeout');
   harness.setTime(70_000);
-  // The expired vote also put its target on the per-target cooldown (D2b-09),
+  // The expired vote also put its target on the per-target cooldown,
   // so the post-cooldown restart is aimed at the other human seat.
   const voterId = host.room.game.players.find(player => player.clientId === 'timeout-voter-client').id;
   const afterCooldown = await host.ask('room-votekick-start', { targetPlayerId: voterId, requestId: 'timeout-start-3' });
@@ -113,7 +113,7 @@ function makeHarness() {
 }
 
 {
-  // D2b-09: a failed vote puts its target on a per-target cooldown, so another
+  // A failed vote puts its target on a per-target cooldown, so another
   // human cannot re-open the same target straight away. The injected clock
   // drives the cooldown end.
   const harness = makeHarness();
@@ -143,10 +143,8 @@ function makeHarness() {
 }
 
 {
-  // F-070: a seat that goes bankrupt mid-vote was in the electorate when the
-  // vote opened, and its earlier yes must stop counting once it is eliminated.
-  // Five humans: electorate of four, threshold of three. The classic board
-  // seats four, so the table moves to metro-52 (six seats) first.
+  // A seat that goes bankrupt mid-vote was in the electorate when the vote opened, so its earlier yes must stop counting once eliminated.
+  // Five humans make an electorate of four with a threshold of three. The classic board seats four, so the table moves to metro-52 first.
   const harness = makeHarness();
   const host = harness.addSocket('bankrupt-host', 'bankrupt-host-client', 'Host');
   host.room.setRoomSetting('boardVariant', 'metro-52');
@@ -194,7 +192,7 @@ function makeHarness() {
 }
 
 {
-  // F-071: endGame clears a vote opened in the finished match, so the rematch
+  // endGame clears a vote opened in the finished match, so the rematch
   // starts with no vote and the old ballot cannot decide it.
   const harness = makeHarness();
   const host = harness.addSocket('end-host', 'end-host-client', 'Host');
@@ -215,7 +213,7 @@ function makeHarness() {
 }
 
 {
-  // F-071: a vote opened in the lobby does not survive into the first match.
+  // A vote opened in the lobby does not survive into the first match.
   const harness = makeHarness();
   const host = harness.addSocket('lobby-host', 'lobby-host-client', 'Host');
   harness.addSocket('lobby-target', 'lobby-target-client', 'Target', host.room);
@@ -229,7 +227,7 @@ function makeHarness() {
 }
 
 {
-  // D2b-11: a target who leaves mid-vote closes the vote with a notice. It is
+  // A target who leaves mid-vote closes the vote with a notice. It is
   // never reported as passed, and nothing is removed for it.
   const harness = makeHarness();
   const host = harness.addSocket('left-host', 'left-host-client', 'Host');
@@ -252,7 +250,7 @@ function makeHarness() {
 }
 
 {
-  // E19-07: the start replay cache keeps a short digest of the request's
+  // The start replay cache keeps a short digest of the request's
   // fields, never the payload, and an oversized vote-kick payload is refused
   // before it can be cached.
   const harness = makeHarness();
@@ -283,10 +281,8 @@ function makeHarness() {
 }
 
 {
-  // D2b-10, documented limit: a vote-kick blocks the removed seat's clientId
-  // and accountId only. A guest who comes back with a fresh clientId takes a
-  // new seat at once. The room keeps no client address to block, so this pins
-  // the current behaviour and is not a guarantee.
+  // Documented limit: a vote-kick blocks the removed seat's clientId and accountId only. A guest who returns with a fresh clientId takes a new seat at once.
+  // The room keeps no client address to block, so this pins the current behaviour and is not a guarantee.
   const harness = makeHarness();
   const host = harness.addSocket('rejoin-host', 'rejoin-host-client', 'Host');
   harness.addSocket('rejoin-target', 'rejoin-target-client', 'Target', host.room);
@@ -300,7 +296,7 @@ function makeHarness() {
 }
 
 {
-  // F-031 / D2b-04: a kick removes a started-game seat through the same exit
+  // A kick removes a started-game seat through the same exit
   // settlement as a leave, so the kicked seat's cash goes to the bank with a
   // feed line instead of stranding on the removed seat.
   const harness = makeHarness();
@@ -321,10 +317,8 @@ function makeHarness() {
 }
 
 {
-  // S02-F3: every accepted ballot replaces room.voteKick with a new object, so the
-  // expiry timer must act on the live vote, not the one captured at start. A vote
-  // that got one non-deciding ballot used to stay open forever and block every
-  // later vote in the room.
+  // Every accepted ballot replaces room.voteKick with a new object, so the expiry timer must act on the live vote, not the one captured at start.
+  // Otherwise a vote that got one non-deciding ballot would stay open forever and block every later vote in the room.
   const harness = makeHarness();
   const host = harness.addSocket('ballot-host', 'ballot-host-client', 'Host');
   harness.addSocket('ballot-target', 'ballot-target-client', 'Target', host.room);
@@ -348,10 +342,8 @@ function makeHarness() {
 }
 
 {
-  // X13: the replay cache and the cooldowns belong to the match they were
-  // opened in. A request id from the finished match is not answered from the
-  // cache in the rematch (it answered with a stale {status:'open'}), and a
-  // cooldown does not bleed into the next match.
+  // The replay cache and cooldowns belong to the match they were opened in. A request id from the finished match is not answered from the
+  // cache in the rematch (it answered a stale {status:'open'}), and a cooldown does not bleed into the next match.
   const harness = makeHarness();
   const host = harness.addSocket('x13-host', 'x13-host-client', 'Host');
   harness.addSocket('x13-target', 'x13-target-client', 'Target', host.room);
@@ -376,7 +368,7 @@ function makeHarness() {
 }
 
 {
-  // D7: a finished match is not mutable. The vote-kick cannot be opened and no
+  // A finished match is not mutable. The vote-kick cannot be opened and no
   // seat is removed once the match is over. A lobby that never played keeps
   // the vote (the room-management vote is a lobby action).
   const harness = makeHarness();
@@ -394,4 +386,31 @@ function makeHarness() {
   assert.equal(restarted.success, true, 'the rematch accepts a vote-kick again');
 }
 
-console.log('room vote-kick runtime: 12 scenarios passed');
+{
+  // A passed vote whose seat removal keeps failing gives up after a bounded number of retries, so the room
+  // is not locked out of new votes for as long as the failure lasts.
+  const harness = makeHarness();
+  const host = harness.addSocket('stuck-host', 'stuck-host-client', 'Host');
+  harness.addSocket('stuck-target', 'stuck-target-client', 'Target', host.room);
+  const voter = harness.addSocket('stuck-voter', 'stuck-voter-client', 'Voter', host.room);
+  harness.addSocket('stuck-fourth', 'stuck-fourth-client', 'Fourth', host.room);
+  const targetId = host.room.game.players.find(player => player.clientId === 'stuck-target-client').id;
+  host.room.game.prepareCollateralForExit = () => ({ success: false, retryable: true, error: 'collateral cannot settle' });
+  const started = await host.ask('room-votekick-start', { targetPlayerId: targetId, requestId: 'stuck-start' });
+  assert.equal(started.success, true);
+  const passed = await voter.ask('room-votekick-cast', { voteId: started.vote.voteId, choice: 'yes', requestId: 'stuck-cast' });
+  assert.equal(passed.vote.status, 'passed');
+  assert.equal(host.room.voteKick.removalPending, true, 'the removal is pending after the first failure');
+  const blocked = await host.ask('room-votekick-start', { targetPlayerId: host.room.game.players.find(player => player.clientId === 'stuck-fourth-client').id, requestId: 'stuck-start-2' });
+  assert.equal(blocked.success, false, 'new votes wait while the removal is retrying');
+  for (let step = 0; step < 40; step += 1) {
+    harness.setTime(10_000 + (step + 1) * 1_000);
+    harness.runTimers();
+  }
+  assert.equal(host.room.voteKick?.removalPending === true, false, 'the lock clears once the retries are exhausted');
+  assert.equal(host.room.game.players.some(player => player.id === targetId), true, 'the target keeps its seat');
+  assert.equal(harness.timers.size <= 1, true, 'no retry loop is left running');
+  assert.equal(harness.broadcasts.some(entry => entry.event === 'system-message' && /could not be removed/.test(entry.payload?.text || '')), true, 'the room is told');
+}
+
+console.log('room vote-kick runtime: 13 scenarios passed');

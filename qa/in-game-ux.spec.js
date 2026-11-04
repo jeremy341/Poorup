@@ -26,7 +26,8 @@ async function createTwoPlayerGame(page, context, code) {
   await guest.locator('#room-join').fill(code);
   await guest.locator('#join-nickname').fill('UXGUEST');
   await guest.locator('#join-room-submit').click();
-  await guest.locator('#su-start').click();
+  await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
+  if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
   await expect(page.locator('#player-list')).toContainText('UXGUEST');
   await page.locator('#lobby-start-btn').click();
   await expect(page.locator('#view-game')).toBeVisible();
@@ -50,6 +51,8 @@ async function installUxFixture(page) {
       openManager(tileIndex) { state.owners[tileIndex] = 'p1'; deeds.openDeedDetail(tileIndex); },
       closeManager() { deeds.closeDeedDetail(); },
       openBank() {
+        // Bank loans are an opt-in room setting, so the emergency offer only opens when it is on.
+        state.settings = { ...state.settings, bankLoans: true };
         bank.configureBankLoanUi({
           getOffer: () => ({ available: true, principal: 300, premium: 45, totalDue: 345, dueRound: 2, cureRound: 3, collateralName: 'NONE', severity: 'standard' }),
           openSurface: (...args) => surfaces.openSurface(...args),

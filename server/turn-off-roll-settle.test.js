@@ -1,7 +1,6 @@
-// A parked debt settles the roll only for the seat that landed on it. An
-// off-turn debtor (a bank-loan default parked during round processing) or a
-// seat that has not rolled yet must not mark the current player's roll as
-// resolved: the current player could otherwise end a turn it never rolled.
+// A parked debt settles the roll only for the seat that landed on it. An off-turn debtor (a bank-loan default parked during round
+// processing) or a seat that has not rolled yet must not mark the current player's roll as resolved: the current player could
+// otherwise end a turn it never rolled.
 import assert from 'node:assert/strict';
 import nodeCrypto from 'crypto';
 import { RoomManager } from './gameLogic.js';
@@ -21,7 +20,7 @@ function trioRoom() {
 
 let passed = 0;
 
-// 1. Off-turn bank default settles while A (current) has not rolled.
+// Off-turn bank default settles while A (current) has not rolled.
 {
   const room = trioRoom();
   const game = room.game;
@@ -41,8 +40,8 @@ let passed = 0;
   passed += 1;
 }
 
-// 2. Control: the roll owner's own debt settles after landing, and the turn
-//    resolves as before (awaiting an explicit end).
+// Control: the roll owner's own debt settles after landing, and the turn
+// resolves as before (awaiting an explicit end).
 {
   const room = trioRoom();
   const game = room.game;
@@ -61,9 +60,8 @@ let passed = 0;
   passed += 1;
 }
 
-// 3. The debtor is the current seat but has not rolled yet (a round-processing
-//    debt that matured before its owner's turn began). Settling it must not
-//    end the roll either.
+// The debtor is the current seat but has not rolled yet (a round-processing
+// debt that matured before its owner's turn began). Settling it must not end the roll either.
 {
   const room = trioRoom();
   const game = room.game;

@@ -133,18 +133,21 @@ state.clientId = 'self';
 state.players = [{ clientId: 'self', serverId: 'p1' }];
 state.settings.playerFinance = true;
 const legacy = { id: 'legacy', kind: 'hybrid', rulesVersion: 1, fromPlayerId: 'p2', toPlayerId: 'p1', amount: 200 };
+const actionOrder = html => [...html.matchAll(/data-deal-action="([^"]+)"/g)].map(match => match[1]);
 const legacyHTML = deal.contractDetailHTML(legacy);
 assert.match(legacyHTML, /DECLINE/);
-assert.match(legacyHTML, /data-deal-action="back"/);
+assert.doesNotMatch(legacyHTML, /data-deal-action="back"/);
 assert.match(legacyHTML, /earlier rules/i);
 assert.doesNotMatch(legacyHTML, />ACCEPT<|>NEGOTIATE<|Enable Player Finance/i);
 const oldLoan = { ...legacy, kind: 'loan', counterDepth: 0 };
 const oldLoanRecipientHTML = deal.contractDetailHTML(oldLoan);
+assert.deepEqual(actionOrder(oldLoanRecipientHTML), ['decline', 'negotiate']);
 assert.match(oldLoanRecipientHTML, /class="cta-red"[^>]*data-deal-action="negotiate"/);
 assert.match(oldLoanRecipientHTML, /update the terms before sending/i);
 assert.doesNotMatch(oldLoanRecipientHTML, /data-deal-action="accept"/);
 assert.match(oldLoanRecipientHTML, /data-deal-action="decline"/);
 const oldLoanSenderHTML = deal.contractDetailHTML({ ...oldLoan, lastProposerId: 'p1', counterDepth: 1 });
+assert.deepEqual(actionOrder(oldLoanSenderHTML), ['cancel', 'adjust']);
 assert.match(oldLoanSenderHTML, /class="cta-red"[^>]*data-deal-action="adjust"/);
 assert.match(oldLoanSenderHTML, /data-deal-action="cancel"/);
 const limitedHTML = deal.contractDetailHTML({ ...oldLoan, counterDepth: 2 });
@@ -154,13 +157,42 @@ for (const kind of ['equity', 'equity-transfer', 'hybrid']) {
   assert.doesNotMatch(deal.contractDetailHTML({ ...oldLoan, kind }), /data-deal-action="negotiate"|data-deal-action="adjust"/);
 }
 const validHTML = deal.contractDetailHTML({ ...legacy, kind: 'loan', rulesVersion: 2 });
+assert.deepEqual(actionOrder(validHTML), ['decline', 'negotiate', 'accept']);
+assert.deepEqual(actionOrder(deal.contractDetailHTML({ ...legacy, kind: 'loan', rulesVersion: 2, lastProposerId: 'p1' })), ['cancel', 'adjust']);
 assert.match(validHTML, />ACCEPT</);
 assert.match(validHTML, />NEGOTIATE</);
 assert.match(validHTML, />DECLINE</);
+assert.match(validHTML, /class="cta-red"[^>]*data-deal-action="accept"/);
+const currentLimitHTML = deal.contractDetailHTML({ ...legacy, kind: 'loan', rulesVersion: 2, counterDepth: 2 });
+assert.deepEqual(actionOrder(currentLimitHTML), ['decline', 'negotiate', 'accept']);
+assert.match(currentLimitHTML, /data-deal-action="negotiate"[^>]*disabled/);
+assert.match(currentLimitHTML, /class="cta-red"[^>]*data-deal-action="accept"/);
+assert.match(currentLimitHTML, /negotiation limit/i);
+const currentLimitSenderHTML = deal.contractDetailHTML({ ...legacy, kind: 'loan', rulesVersion: 2, counterDepth: 2, lastProposerId: 'p1' });
+assert.match(currentLimitSenderHTML, /data-deal-action="adjust"[^>]*disabled/);
+assert.match(currentLimitSenderHTML, /class="cta-red"[^>]*data-deal-action="cancel"/);
+for (const identity of ['outsider', null]) {
+  state.players = identity ? [{ clientId: 'self', serverId: identity }] : [];
+  for (const offer of [oldLoan, { ...legacy, kind: 'loan', rulesVersion: 2 }, legacy]) {
+    const html = deal.contractDetailHTML(offer);
+    assert.deepEqual(actionOrder(html), []);
+    assert.match(html, /id="deal-detail-close"/);
+  }
+}
+state.players = [{ clientId: 'self', serverId: 'p1' }];
 state.settings.playerFinance = false;
 const disabledFinanceHTML = deal.contractDetailHTML({ ...legacy, kind: 'loan', rulesVersion: 2 });
 assert.match(disabledFinanceHTML, /Player Finance is off\. Decline or cancel this offer\./);
-assert.match(disabledFinanceHTML, /data-deal-action="back"/);
+assert.deepEqual(actionOrder(disabledFinanceHTML), ['accept', 'negotiate', 'decline']);
+assert.doesNotMatch(disabledFinanceHTML, /data-deal-action="back"/);
+for (const action of ['accept', 'negotiate']) {
+  assert.match(disabledFinanceHTML, new RegExp(`data-deal-action="${action}"[^>]*disabled[^>]*aria-describedby="deal-unavailable-reason"[^>]*title="Player Finance is off`));
+}
+assert.match(disabledFinanceHTML, /class="cta-red"[^>]*data-deal-action="decline"/);
+const disabledSenderHTML = deal.contractDetailHTML({ ...legacy, kind: 'loan', rulesVersion: 2, lastProposerId: 'p1' });
+assert.deepEqual(actionOrder(disabledSenderHTML), ['adjust', 'cancel']);
+assert.match(disabledSenderHTML, /data-deal-action="adjust"[^>]*disabled/);
+assert.match(disabledSenderHTML, /class="cta-red"[^>]*data-deal-action="cancel"/);
 assert.doesNotMatch(disabledFinanceHTML, /ask the host to enable/i);
 console.log('real item rows, lifecycle, eligibility, replay retry and unavailable offer checks passed');
 
@@ -176,14 +208,15 @@ for (const rulesProfile of ['standard', 'advanced']) {
   state.settings.itemRewards = true;
   renderLobbyRail();
   assert.match(lobbyBody.innerHTML, /data-setting="itemRewards"[^>]*aria-pressed="true"/);
-  assert.match(lobbyBody.innerHTML, /item rewards on/);
+  assert.match(lobbyBody.innerHTML, /Advanced Systems/);
+  assert.doesNotMatch(lobbyBody.innerHTML, /<details class="lobby-advanced"/);
 }
 const { renderRulesSurface } = await import('./clientSocialSurfaces.js');
 const rulesRoot = { innerHTML: '', querySelectorAll: () => [] };
 globalThis.document = { querySelector: () => rulesRoot };
 state.rulesSection = 'wallet-items';
 renderRulesSurface();
-for (const term of ['PRISON KEY', 'PARLOR BOND', 'SILVER KEEPSAKE', 'SELL $25', 'SELL $50', 'SELL $75', 'two rounds', 'debt rescue', 'reconnects restore']) assert.ok(rulesRoot.innerHTML.includes(term), term);
+for (const term of ['PRISON KEY', 'PARLOR BOND', 'SILVER KEEPSAKE', 'SELL $25', 'SELL $400', 'SELL $600', 'two rounds', 'debt rescue', 'come back if you reconnect']) assert.ok(rulesRoot.innerHTML.includes(term), term);
 state.rulesSection = 'rulesets-market';
 renderRulesSurface();
 assert.match(rulesRoot.innerHTML, /Both presets allow every optional economy system/);

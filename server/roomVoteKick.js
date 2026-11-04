@@ -138,12 +138,9 @@ export function startRoomVoteKick({ players, initiatorId, targetPlayerId, now, a
   };
 }
 
-// A seat that leaves or is eliminated mid-vote drops out of the electorate and
-// takes its ballot with it. The threshold stays at the majority of the
-// electorate that opened the vote, so losing voters can only make a pass
-// harder. A target that left or was eliminated closes the vote as 'closed':
-// it is never passed against a seat that is no longer there. Returns the same
-// object when nothing changed.
+// A seat that leaves or is eliminated mid-vote drops out of the electorate and takes its ballot with it. The threshold stays at the
+// majority of the electorate that opened the vote, so losing voters can only make a pass harder. A target that left or was eliminated
+// closes the vote as 'closed': it is never passed against a seat that is not there. Returns the same object when nothing changed.
 export function pruneRoomVoteKick({ vote, players } = {}) {
   if (vote?.status !== 'open' || !Array.isArray(players)) return vote;
   const target = players.find(player => player.id === vote.targetPlayerId);

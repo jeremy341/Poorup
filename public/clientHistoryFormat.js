@@ -1,8 +1,6 @@
-/* ============================================================
-   HISTORY FORMAT: pure display formatters shared by the profile's
-   completed-rounds list and the shared player-record modal, so both
-   surfaces word dates and money the same way.
-   ============================================================ */
+// HISTORY FORMAT: pure display formatters shared by the profile's
+// completed-rounds list and the shared player-record modal, so both
+// surfaces word dates and money the same way.
 
 function validDate(value) {
   if (!value) return null;

@@ -43,7 +43,7 @@ export function parseRunnerOptions(args, timingsFallback = null) {
     shard: shardParts(optionValue(args, 'shard')),
     timings: optionValue(args, 'timings', timingsFallback),
     // Without this flag an empty selection (for example a shard index past the
-    // suite count) is an error, so CI cannot pass by running nothing (G12-07).
+    // suite count) is an error, so CI cannot pass by running nothing.
     allowEmpty: args.includes('--allow-empty'),
   };
 }

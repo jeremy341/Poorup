@@ -174,3 +174,30 @@ openFinancingContract("hidden");
 assert.match(card.innerHTML, /data-financing-pick="current-rent"><span[^>]*>RENT SHARE/);
 assert.match(card.innerHTML, /data-financing-pick="legacy-equity"><span[^>]*>LEGACY EQUITY/);
 console.log("PASS projected locks and current versus legacy picker labels agree with contract rules");
+
+openFinancingModal("loan");
+enterAmount(100);
+for (const [id, invalidValues, validValue] of [["finance-loan-duration", ["", "0", "21", "2.5"], "5"], ["finance-loan-rate", ["", "-1", "101", "12.5"], "15"]]) {
+  const input = nodes.get(`#${id}`);
+  for (const value of invalidValues) {
+    const before = offers.length;
+    input.value = value;
+    card.dispatch("input", input);
+    assert.equal(input.value, value, `${id} preserves the editable value`);
+    assert.equal(nodes.get("#financing-send").disabled, true);
+    assert.equal(input.getAttribute("aria-invalid"), "true");
+    send();
+    assert.equal(offers.length, before, "invalid terms cannot be sent");
+  }
+  input.value = validValue;
+  card.dispatch("input", input);
+  assert.equal(nodes.get("#financing-send").disabled, false);
+  send();
+  assert.equal(offers.at(-1).payload[id === "finance-loan-duration" ? "durationRounds" : "premiumRate"], Number(validValue));
+  assert.match(nodes.get("#financing-preview").innerHTML, id === "finance-loan-duration" ? /5 ROUNDS/ : /15%/);
+}
+state.serverTiles = [{ index: 1, equityShares: [{ holderId: 'p1', share: 25, contractId: 'due-share' }] }];
+state.playerContracts = { active: [{ id: 'due-share', kind: 'equity', status: 'due', propertyIndex: 1, equityShare: 25, fromPlayerId: 'p1', toPlayerId: 'borrower' }] };
+openFinancingContract('due-share');
+assert.match(card.innerHTML, /BASE RENT/);
+assert.doesNotMatch(card.innerHTML, /\$\d+ \/ TURN/, 'base rent is charged on a landing, not every turn');

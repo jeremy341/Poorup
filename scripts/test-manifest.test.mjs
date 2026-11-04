@@ -13,6 +13,8 @@ const SELF = 'scripts/test-manifest.test.mjs';
 // new entry needs a reason and must not also be listed in a group.
 const UNREGISTERED_ALLOW_LIST = new Map([
   [SELF, 'this contract test is run directly by the CI lint job (.github/workflows/ci.yml), not by a group'],
+  ['server/bot-runtime-b8.test.js', 'not yet run in CI: its F-026 test expects the dev-branch provider re-apply rule, which main does not have yet'],
+  ['server/socialSocketAudit.test.js', 'not yet run in CI: its warm-snapshot test expects dev-branch social snapshot behaviour, which main does not have yet'],
 ]);
 
 function discoverSuites() {
@@ -94,12 +96,13 @@ assert.deepEqual(parseRunnerOptions(['--group', 'account', '--suite=server/accou
 });
 assert.equal(parseRunnerOptions(['--group=core', '--allow-empty']).allowEmpty, true);
 
-// G12-07: a selection that runs nothing is a configuration error, not a pass.
-// Shard 200/200 selects no suites from the 173-suite manifest.
-const emptySelection = spawnSync(process.execPath, ['scripts/run-test-manifest.mjs', '--group=core', '--shard=200/200'], { encoding: 'utf8' });
+// A selection that runs nothing is a configuration error, not a pass.
+// A shard past the end of the group selects no suites, so it must fail.
+const pastEnd = testSuites('core').length + 1;
+const emptySelection = spawnSync(process.execPath, ['scripts/run-test-manifest.mjs', '--group=core', '--shard=' + pastEnd + '/' + pastEnd], { encoding: 'utf8' });
 assert.notEqual(emptySelection.status, 0, 'an empty shard selection fails instead of reporting success');
 assert.match(emptySelection.stderr, /No suites selected/, 'the empty selection failure names the cause');
 const allowedEmpty = spawnSync(process.execPath, ['scripts/run-test-manifest.mjs', '--group=core', '--shard=200/200', '--allow-empty'], { encoding: 'utf8' });
 assert.equal(allowedEmpty.status, 0, 'an intentionally empty selection passes with --allow-empty');
 
-console.log(`test manifest: ${totalGroupRuns} prior invocations → ${allSuites.length} unique suites, time-balanced shards (fallback round-robin)`);
+console.log(`test manifest: ${totalGroupRuns} prior invocations, ${allSuites.length} unique suites, time-balanced shards (fallback round-robin)`);

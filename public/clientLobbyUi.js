@@ -1,10 +1,6 @@
-/* ============================================================
-   LOBBY UI: the setup-overlay appearance chooser, the lobby
-   settings rail and the parlor navigation (enter a room, go home).
-   emitServer, updateServerSetting, showView, renderAll, say,
-   renderChat, clearSave, renderPlayers and closeRoomsModal are
-   injected by the entry module.
-   ============================================================ */
+// LOBBY UI: the setup-overlay appearance chooser, the lobby settings rail and
+// parlor navigation. emitServer, updateServerSetting, showView, renderAll, say,
+// renderChat, clearSave, renderPlayers and closeRoomsModal are injected by the entry module.
 import { $, esc, clamp } from "./clientDom.js";
 import {
   state,
@@ -19,6 +15,7 @@ import {
   MAX_PROFILES,
   profileDesignName,
   saveActiveDesignId,
+  hasSavedActiveDesign,
 } from "./clientSanitize.js";
 import { avatarHTML } from "./clientSprites.js";
 import { accountAppearancePayload, saveFaceToAccount } from "./clientAccountAppearance.js";
@@ -156,10 +153,8 @@ export function reconcileParlorEntrySnapshot(snapshot) {
 }
 
 /**
- * Pick open public tables deterministically so Quick Table can fill an
- * existing lobby before creating another one. The server remains
- * authoritative: this is only a preference list and every join is still
- * checked atomically by join-room.
+ * Pick open public tables so Quick Table fills an existing lobby first. This is
+ * only a preference: join-room still checks every join on the server.
  */
 export function chooseQuickTableRoom(rooms = []) {
   return (Array.isArray(rooms) ? rooms : [])
@@ -298,8 +293,8 @@ function tableAppearanceIsDifferent() {
 }
 
 function paintSetupIdentity(choice, meta) {
-  // The active design is the default. The chooser is deliberately opt-in so
-  // joining a table never asks the player to make the same identity decision twice.
+  // The active design is the default. The chooser is opt-in, so joining a table
+  // never asks the player to make the same identity decision twice.
   const selectedName = selectedDesignName(choice, meta);
   const sourceLabel = state.tableAppearanceOverride == null ? "ACTIVE DESIGN" : "THIS TABLE ONLY";
   const activeName = activeDesignName();
@@ -453,53 +448,19 @@ function lobbySetupNotice(locked, hostLocked) {
   return "";
 }
 
-function lobbyRulesSnapshot(settings) {
-  const board = String(settings.boardVariant || state.boardVariant || "standard-40").toUpperCase();
-  const players = `${settings.maxPlayers} players · $${Number(settings.startingCash).toLocaleString()} start`;
-  return `<div class="settings-rule">
-      <strong style="color:var(--gold-300)">Active rules snapshot</strong><br>
-      ${board}<br>
-      ${String(settings.rulesProfile || "standard").toUpperCase()} · ${players} · ${toggleCopy(settings.vacationPool, "pool on", "no pool")} ·
-      ${toggleCopy(settings.trading, "trading on", "no trades")} ·
-      ${toggleCopy(settings.auction, "auction on", "no auction")} ·
-      ${toggleCopy(settings.playerFinance, "player finance on", "player finance off")} · ${bankLoanCopy(settings)} ·
-      ${toggleCopy(settings.globalEvents, "global events on", "global events off")} ·
-      ${toggleCopy(settings.casino, "casino on", "casino off")} ·
-      ${toggleCopy(settings.market, "market on", "market off")} ·
-      ${toggleCopy(settings.flights, "flights on", "flights off")} ·
-      ${toggleCopy(settings.bankAccountUpgrades, "bank accounts on", "bank accounts off")} ·
-      ${toggleCopy(settings.itemRewards, "item rewards on", "item rewards off")} ·
-      ${botCopy(settings)} ·
-      eliminate busted players when no legal rescue remains
-    </div>`;
-}
-
-function toggleCopy(enabled, on, off) {
-  return enabled ? on : off;
-}
-
-function bankLoanCopy(settings) {
-  return settings.bankLoans ? `${String(settings.bankLoanSeverity).toLowerCase()} bank loans` : "bank loans off";
-}
-
-function botCopy(settings) {
-  if (!settings.bots) return "no bots";
-  return `bot ${String(settings.botBrain || "ai").toLowerCase()} · ${String(settings.botDifficulty || "table").toLowerCase()}`;
-}
-
 function botBrainControl(settings) {
   const exhausted = state.botProviderStatus?.state === "quota-exhausted";
   const selected = String(settings.botBrain || "ai").toLowerCase() === "no-ai" ? "no-ai" : "ai";
-  const aiLabel = exhausted ? "AI BOT · CREDITS EXHAUSTED" : "AI BOT";
+  const aiLabel = exhausted ? "AI COMPUTER · CREDITS EXHAUSTED" : "AI COMPUTER";
   const aiDisabled = exhausted ? "disabled" : "";
   const status = exhausted ? '<span class="setting-status setting-status-error" data-bot-provider-copy>AI CREDITS EXHAUSTED</span>' : "";
-  const help = exhausted ? "AI BOT is unavailable. Select NO-AI BOT to use the offline house brain." : "AI BOT uses the provider and falls back automatically when unavailable.";
-  return `<span class="setting-control-stack"><select class="setting-select${exhausted ? " is-error" : ""}" data-setting="botBrain" aria-describedby="bot-brain-help"><option value="ai" ${selected === "ai" ? "selected" : ""} ${aiDisabled}>${aiLabel}</option><option value="no-ai" ${selected === "no-ai" ? "selected" : ""}>NO-AI BOT</option></select><span id="bot-brain-help" class="sr-only">${help}</span>${status}</span>`;
+  const help = exhausted ? "AI COMPUTER is unavailable. Select NO-AI COMPUTER to use the offline house brain." : "AI COMPUTER uses the provider and falls back automatically when unavailable.";
+  return `<span class="setting-control-stack"><select class="setting-select${exhausted ? " is-error" : ""}" data-setting="botBrain" aria-describedby="bot-brain-help"><option value="ai" ${selected === "ai" ? "selected" : ""} ${aiDisabled}>${aiLabel}</option><option value="no-ai" ${selected === "no-ai" ? "selected" : ""}>NO-AI COMPUTER</option></select><span id="bot-brain-help" class="sr-only">${help}</span>${status}</span>`;
 }
 
 function renderLobbyRail() {
   // the settings rail owns the right column for both "setup" (choosing
-  // appearance) and "lobby" (configuring rules) — the in-game Holdings
+  // appearance) and "lobby" (configuring rules); the in-game Holdings
   // rail should only ever appear once a round is actually live.
   const preGame = state.phase === "setup" || state.phase === "lobby";
   $("#right-rail-game").classList.toggle("is-hidden", preGame);
@@ -515,11 +476,11 @@ function renderLobbyRail() {
 function lobbyTableRules(s) {
   return lobbySection("Table Rules", [
     settingRow("Starting Preset", "Choose a starting point, then customize every rule below.", sel("rulesProfile", s.rulesProfile || "standard", [["standard", "STANDARD"], ["advanced", "ADVANCED"]])),
-    settingRow("Board Variant", "Standard is the classic 40-space board. Metro adds 12 spaces and supports up to six seats.", sel("boardVariant", s.boardVariant || "standard-40", [["standard-40", "STANDARD · 40"], ["metro-52", "METRO · 52 / 6 SEATS"]])),
+    settingRow("Board Variant", "Standard: 40 spaces. Metro: 52 spaces, up to 6 players.", sel("boardVariant", s.boardVariant || "standard-40", [["standard-40", "STANDARD · 40"], ["metro-52", "METRO · 52 / 6 SEATS"]])),
     settingRowNum("Max Players", "Seats at the table.", stepper("maxPlayers", s.maxPlayers, 2, s.boardVariant === "metro-52" ? 6 : 4)),
-    settingRowNum("Bots", "Reserve CPU seats for Solo Dev Mode.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
-    settingRow("Bot Brain", "Choose AI or the offline house brain. AI falls back automatically when credits or service are unavailable.", botBrainControl(s)),
-    settingRow("Bot Difficulty", "Change search depth and reserve tolerance, never the legal rules.", sel("botDifficulty", s.botDifficulty, [["house","HOUSE"],["table","TABLE"],["expert","EXPERT"]])),
+    settingRowNum("Computer players", "Add computer players to fill empty seats.", stepper("bots", s.bots, 0, Math.max(0, s.maxPlayers - 1))),
+    settingRow("Computer Brain", "AI when available, offline otherwise.", botBrainControl(s)),
+    settingRow("Computer Difficulty", "How hard computer players think.", sel("botDifficulty", s.botDifficulty, [["house","HOUSE"],["table","TABLE"],["expert","EXPERT"]])),
     settingRowNum("Starting Cash", "Bank hands this to each player at start.", sel("startingCash", s.startingCash, [["500","$500"],["1000","$1,000"],["1500","$1,500"],["2000","$2,000"],["2500","$2,500"],["3000","$3,000"]])),
     settingRow("Vacation Pool", "Taxes fill free parking. First to land claims it.", tog("vacationPool", s.vacationPool)),
     settingRow("Double GO", "Landing exactly on GO pays $400 instead of $200.", tog("doubleGo", s.doubleGo)),
@@ -531,22 +492,24 @@ function lobbyEconomy(s) {
     settingRow("Trading", "Players may propose trades.", tog("trading", s.trading)),
     settingRow("Auction", "Unowned deeds go to auction if buyer passes.", tog("auction", s.auction)),
     settingRow("No Rent In Jail", "Owner in jail can't collect rent that turn.", tog("noRentInJail", s.noRentInJail)),
-    settingRow("Player Finance", "Player loans, temporary rent shares, and purchase funding.", tog("playerFinance", s.playerFinance)),
-    settingRow("Bank Loans", "Emergency credit with collateral and a hard maturity.", tog("bankLoans", s.bankLoans)),
-    settingRow("Loan Severity", "Premium applied to emergency bank credit.", sel("bankLoanSeverity", s.bankLoanSeverity, [["fair","FAIR"],["predatory","PREDATORY"],["extreme","EXTREME"]])),
-    settingRow("Casino Access", "Virtual-money European roulette. No cash-out or loan-funded bets.", tog("casino", s.casino)),
-    settingRow("Airport Flights", "Fly airport to airport. Airport owners set the departure and arrival fees.", tog("flights", s.flights)),
-    settingRow("Bank Accounts", "Buy a tier in the wallet. Higher tiers rebate fees on market orders and flights.", tog("bankAccountUpgrades", s.bankAccountUpgrades)),
-    settingRow("Item Rewards", "Surprise and Treasure can award bonds and keepsakes. Manage them in Wallet & Items.", tog("itemRewards", s.itemRewards)),
-    settingRow("Market Access", "Fictional indexes with visible prices and a small trading fee.", tog("market", s.market)),
-    settingRow("Market Complexity", "Unlock margin, shorting, or derivatives in staged order.", sel("marketComplexity", s.marketComplexity || "basic", [["basic", "BASIC"], ["margin", "MARGIN"], ["shorting", "SHORTING"], ["derivatives", "DERIVATIVES"]])),
   ]);
 }
 
-function lobbyOptionalSections(s) {
-  return [
-    lobbySection("Global Events", [settingRow("Global Events", "Rare, escalating headlines. Timing and severity scale with the round.", tog("globalEvents", Boolean(s.globalEvents)))]),
+// Optional systems start off. They always show as their own section below the core rules.
+function lobbyAdvancedSystems(s) {
+  const rows = [
+  settingRow("Player Finance", "Player loans, temporary rent shares, and purchase funding.", tog("playerFinance", s.playerFinance)),
+  settingRow("Bank Loans", "Emergency credit with collateral and a hard maturity.", tog("bankLoans", s.bankLoans)),
+  settingRow("Loan Severity", "Premium applied to emergency bank credit.", sel("bankLoanSeverity", s.bankLoanSeverity, [["fair","FAIR"],["predatory","PREDATORY"],["extreme","EXTREME"]])),
+  settingRow("Casino Access", "Virtual-money European roulette. No cash-out or loan-funded bets.", tog("casino", s.casino)),
+  settingRow("Airport Flights", "Fly airport to airport. Airport owners set the departure and arrival fees.", tog("flights", s.flights)),
+  settingRow("Bank Accounts", "Buy a tier in the wallet. Higher tiers rebate fees on market orders and flights.", tog("bankAccountUpgrades", s.bankAccountUpgrades)),
+  settingRow("Item Rewards", "Surprise and Treasure can award bonds and keepsakes. Manage them in Wallet & Items.", tog("itemRewards", s.itemRewards)),
+  settingRow("Market Access", "Fictional indexes with visible prices and a small trading fee.", tog("market", s.market)),
+  settingRow("Market Complexity", "Unlock margin, shorting, or derivatives in staged order.", sel("marketComplexity", s.marketComplexity || "basic", [["basic", "BASIC"], ["margin", "MARGIN"], ["shorting", "SHORTING"], ["derivatives", "DERIVATIVES"]])),
+  settingRow("Global Events", "Rare, escalating headlines. Timing and severity scale with the round.", tog("globalEvents", Boolean(s.globalEvents))),
   ];
+  return lobbySection("Advanced Systems", rows);
 }
 
 function lobbySectionsMarkup(s, locked, hostLocked) {
@@ -554,8 +517,7 @@ function lobbySectionsMarkup(s, locked, hostLocked) {
     lobbySetupNotice(locked, hostLocked),
     lobbyTableRules(s),
     lobbyEconomy(s),
-    ...lobbyOptionalSections(s),
-    lobbyRulesSnapshot(s),
+    lobbyAdvancedSystems(s),
   ].join("");
 }
 
@@ -572,6 +534,23 @@ function applyLobbyLockState(locked, hostLocked) {
 function renderLobbyRailContent(s, locked, hostLocked) {
   $("#lobby-settings-body").innerHTML = lobbySectionsMarkup(s, locked, hostLocked);
   applyLobbyLockState(locked, hostLocked);
+}
+
+// Removes one computer seat through the same server setting the Bots stepper uses.
+export function removeComputerPlayer() {
+  if ((Number(state.settings.bots) || 0) <= 0) return;
+  state.settings.bots = Math.max(0, (Number(state.settings.bots) || 0) - 1);
+  host.updateServerSetting("bots", state.settings.bots);
+  renderLobbyRail();
+}
+
+// Adds one computer seat through the same server setting the Bots stepper uses.
+export function addComputerPlayer() {
+  const [, max] = stepperLimits("bots");
+  if ((Number(state.settings.bots) || 0) >= max) return;
+  state.settings.bots = clamp((Number(state.settings.bots) || 0) + 1, 0, max);
+  host.updateServerSetting("bots", state.settings.bots);
+  renderLobbyRail();
 }
 
 function syncServerAppearance() {
@@ -605,16 +584,13 @@ function resetTableForEntry(requestedCode, requestId = "") {
   state.ruleset = null;
   setBoardVariant("standard-40");
   host.rebuildBoard?.();
-  state.phase = "setup";
+  state.phase = appearanceStepSkipped() ? "lobby" : "setup";
   state.tableAppearanceOverride = null;
   state.setupTab = typeof state.appearance === "string" ? "custom" : "preset";
-  // always start the setup/lobby screens from a clean board — otherwise a
-  // finished game's deed ownership, houses and token positions would still
-  // be visible behind the setup overlay after going home and rejoining.
-  // The setup/lobby view must represent only seats acknowledged by the
-  // server. The local buildPlayers helper includes demo CPU seats for the
-  // home preview, so keep just the human placeholder until startGame creates
-  // any configured bots authoritatively.
+  // Start setup and lobby from a clean board. Otherwise a finished game's deeds,
+  // houses and tokens stay visible behind the overlay after going home and rejoining.
+  // Show only server-acknowledged seats. buildPlayers adds demo CPU seats for the
+  // home preview, so keep just the human until startGame creates bots.
   state.players = buildPlayers(activeAppearance(), state.alias).slice(0, 1);
   state.owners = {};
   state.houses = {};
@@ -640,7 +616,7 @@ function resetTableForEntry(requestedCode, requestId = "") {
   stopAuctionTimer();
   host.clearSave();
   closeAllSurfaces();
-  state.log = ["ACTIVE DESIGN READY — ENTER THE PARLOR."];
+  state.log = ["ACTIVE DESIGN READY. ENTER THE PARLOR."];
   host.showView("game");
   host.renderAll();
   focusSurface("#setup-wrap", "#su-start");
@@ -660,8 +636,8 @@ function quickTableFallbackCreate() {
     visibility: "public",
     boardVariant: "standard-40"
   };
-  state.pendingRoomSettings = { vacationPool: true, trading: true, auction: false };
-  parlorNotice("QUICK TABLE", "NO OPEN TABLES — HOSTING A NEW PUBLIC TABLE.");
+  state.pendingRoomSettings = { vacationPool: false, trading: true, auction: true };
+  parlorNotice("QUICK TABLE", "NO OPEN TABLES. HOSTING A NEW PUBLIC TABLE WITH CLASSIC RULES.");
   enterParlor();
 }
 
@@ -674,7 +650,7 @@ function quickTableDirectoryAck(response, requestId) {
   }
   const candidate = chooseQuickTableRoom(response?.rooms)[0];
   if (candidate) {
-    parlorNotice("QUICK TABLE", "OPEN TABLE FOUND — JOINING NOW.");
+    parlorNotice("QUICK TABLE", "OPEN TABLE FOUND. JOINING NOW.");
     enterParlor({ roomId: candidate.roomId });
     return;
   }
@@ -684,7 +660,6 @@ function quickTableDirectoryAck(response, requestId) {
 function requestQuickTableDirectory() {
   const requestId = ++quickTableRequestId;
   clearQuickTableDirectoryTimer();
-  parlorNotice("QUICK TABLE", "LOOKING FOR AN OPEN PUBLIC TABLE…");
   quickTableDirectoryTimer = setTimeout(() => {
     quickTableDirectoryAck({ success: false, error: "Directory request timed out." }, requestId);
   }, QUICK_TABLE_DIRECTORY_TIMEOUT_MS);
@@ -710,7 +685,7 @@ function retryQuickTableJoin(response) {
   clearQuickTableDirectoryTimer();
   host.showView("home");
   host.renderAll();
-  parlorNotice("QUICK TABLE", `${response.error} Looking for another open table…`);
+  parlorNotice("QUICK TABLE", `${response.error} Looking for another open table…`, "warning");
   requestQuickTableDirectory();
 }
 
@@ -759,12 +734,15 @@ function applyParlorEntryAck(response) {
   state.roomEntryRequestId = "";
   applyCreatedEntryIdentity(response);
   applyEntryVisibility(response);
-  state.phase = "setup";
+  state.phase = appearanceStepSkipped() ? "lobby" : "setup";
   host.renderAll();
   renderTopNav();
+  renderSetup();
+  renderLobbyRail();
   syncServerAppearance();
   applyPendingRoomSettings();
   state.pendingRoomMeta = null;
+  if (state.phase === "lobby") requestAnimationFrame(() => placePieces());
 }
 
 function applyPendingRoomSettings() {
@@ -783,6 +761,16 @@ function onParlorEntryResponse(response, event) {
     return;
   }
   applyParlorEntryAck(response);
+}
+
+// Solo entry: a table with one computer player. The host still starts the round.
+export function playVsComputer() {
+  if (!requireGuestAlias()) return;
+  if (quickTableFlow || state.roomEntryPending) return;
+  state.quickJoin = false;
+  state.pendingRoomMeta = { roomName: "COMPUTER TABLE", visibility: "public", boardVariant: "standard-40" };
+  state.pendingRoomSettings = { vacationPool: false, trading: true, auction: true, bots: 1 };
+  enterParlor();
 }
 
 export function enterParlor(code) {
@@ -815,6 +803,8 @@ function enterLobby() {
   // called from the setup overlay "Enter Parlor" button
   if (!requireGuestAlias()) return;
   if (state.roomEntryPending) return;
+  // Confirming a look saves it as the active design, so later tables skip this step.
+  if (!hasSavedActiveDesign(state.profiles)) saveActiveDesignId(state.appearance);
   syncServerAppearance();
     state.phase = "lobby";
     host.renderAll();
@@ -824,7 +814,7 @@ function enterLobby() {
 
 export function goHome() {
   // Release the seat on the server so the room can GC and peers stop
-  // counting a home-screen player as online (A4-F3: ghost seats).
+  // counting a home-screen player as online.
   if (state.phase !== "home") host.emitServer("leave-room", {}, () => {});
   stopAuctionTimer();
   state.busy = false;
@@ -845,7 +835,7 @@ export function goHome() {
   state.botStatus = null;
   state.economySnapshotStatus = "unknown";
   state.globalEventVotePending = false;
-  // Audit #16: home must not keep the previous room's transcript or activity
+  // Home must not keep the previous room's transcript or activity
   // log. Rejoining a room re-seeds both from the server's next snapshot, so
   // emptying here never leaves stale content behind.
   state.messages = [];
@@ -862,15 +852,14 @@ export function goHome() {
   closeAllSurfaces();
   $("#log-drawer").classList.remove("is-open");
   host.closeRoomsModal();
-  // reset right rail visibility to game mode
   $("#right-rail-game").classList.remove("is-hidden");
   $("#right-rail-lobby").classList.add("is-hidden");
   host.showView("home");
 }
 
-// Audit 7.5: one door back to the homescreen. goHome() releases the room
-// seat; a raw showView("home") from a page/rail handler used to leave the
-// seat (and the room's stale transcript) behind when the user was mid-room.
+// One door back to the homescreen. goHome() releases the room
+// seat; a raw showView("home") from a page/rail handler would leave the
+// seat (and the room's stale transcript) behind when the user is mid-room.
 export function leaveRoomForHome() {
   if (state.phase === "playing") {
     host.openConfirmModal({
@@ -1019,6 +1008,12 @@ const applySettingField = (e) => {
   renderLobbyRail();
 };
 
+// Joining a table skips the appearance step once a design is saved. The lobby seat card
+// then carries the same choice and reopens the chooser on request.
+function appearanceStepSkipped() {
+  return hasSavedActiveDesign(state.profiles);
+}
+
 export function bindLobbyUi() {
   $("#su-tabs")?.addEventListener("click", (e) => {
     const tabBtn = e.target.closest("[data-su-tab]");
@@ -1058,19 +1053,18 @@ export function bindLobbyUi() {
 
   // Quick Table prefers an existing open public room and hosts a new public
   // Standard-40 room only when no compatible seat is available. The join is
-  // deliberately raced against the authoritative server, with two bounded
-  // retries for rooms that fill between list-rooms and join-room.
+  // checked by the authoritative server, with two bounded retries for rooms
+  // that fill between list-rooms and join-room.
+  $("#play-vs-computer-btn")?.addEventListener("click", playVsComputer);
   $("#quick-table-btn")?.addEventListener("click", () => {
     if (!requireGuestAlias()) return;
     if (quickTableFlow || state.roomEntryPending) return;
     quickTableFlow = true;
     quickTableRetryCount = 0;
     state.quickJoin = true;
-    state.settings.vacationPool = true;
+    state.settings.vacationPool = false;
     state.settings.trading = true;
-    state.settings.auction = false;
-    // Quick Table rewrites the rules silently otherwise: say so up front.
-    parlorNotice("QUICK TABLE", "NO AUCTIONS · VACATION POOL ON · TRADING ON.");
+    state.settings.auction = true;
     requestQuickTableDirectory();
   });
 

@@ -1,7 +1,5 @@
-// The maintenance lockout at the socket seam: the real runtime, the real
-// account/room and in-game handlers, the real drain controller and the real
-// operator-cookie module. Only the transport (io, sockets) and the stores are
-// stand-ins.
+// The maintenance lockout at the socket seam: the real runtime, account, room and in-game handlers, the real drain controller
+// and the real operator-cookie module. Only the transport (io, sockets) and the stores are stand-ins.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { createRuntime } from './socketRuntime.js';

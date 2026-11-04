@@ -1,15 +1,14 @@
-// The social socket domain: chat, friends/blocks, invites, notifications,
-// player cards, search, match history, leaderboards, and Parlor Patrol.
-// Every ack payload, error string, and emit order is wire-identical to the
-// original server.js handlers; the high-cc handlers (friend-request privacy,
-// player-card visibility, search, history, invites) became guard chains in
-// the propertyApi.js style.
+// The social socket domain: chat, friends and blocks, invites, notifications, player cards, search, match history, leaderboards and Parlor Patrol.
+// Every ack payload, error string and emit order is wire-identical to the original server.js handlers. The high-cc handlers
+// (friend-request privacy, player-card visibility, search, history, invites) became guard chains in the propertyApi.js style.
 import crypto from 'crypto';
 import { listMatchRecordsForAccount } from './matchHistoryAdapter.js';
 import { PARLOR_PATROL_ENABLED, PARLOR_PATROL_OFF_MESSAGE } from './accountStore.js';
 import { reply } from './socketHandlerSupport.js';
 import { authAttemptKey } from './serverSocketAccount.js';
 import { normalizeChatText, matchHistoryPrivacyError, summarizeMatchHistoryRecordForViewer } from './roomSetup.js';
+import { BOT_PERSONAS } from './botPersonas.js';
+import { botPersonaStore } from './botPersonaStore.js';
 
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 const LEADERBOARD_METRICS = Object.freeze([
@@ -30,9 +29,8 @@ const leaderboardCaches = new WeakMap();
 const PLAYER_NOT_FOUND ={ success: false, error: 'Player not found.' };
 const ACCOUNT_DELETION_PENDING = { success: false, code: 'ACCOUNT_DELETION_PENDING', error: 'Account deletion is pending.' };
 
-// Public social references use the already-public username rather than the
-// internal account UUID. Keep the existing wire field names while ensuring
-// accountStore IDs stay server-side.
+// Public social references use the already-public username, not the internal account UUID. Keep the existing wire field names
+// while accountStore IDs stay server-side.
 export function publicSearchProfile(account) {
   return { id: account.username, username: account.username, displayName: account.displayName, color: account.color, avatarGrid: account.avatarGrid };
 }
@@ -56,7 +54,7 @@ export function projectPlayerCardAccess({ card, canSeePrivateMatches, canSeeRece
 
 function registerSocialSocketHandlers(on, socket, runtime) {
   const { accountStore, socialStore, matchStore } = runtime;
-  const { accountForSocket, allowAnonymousAction, allowSocialAction, chatBlockedInRoom, chatRateLimited, emitSocialUpdate, maxPlausiblePatrolScore, notifyAccount, patrolAchievementCandidates, patrolRunError, patrolRunPlausible, prunePatrolRuns, patrolRuns, publicPlayerCard, recentPlayers, recordVerifiedAchievement, socialSummary } = runtime.social;
+  const { accountForSocket, allowAnonymousAction, allowSocialAction, chatBlockedInRoom, chatRateLimited, completedPatrolResult, emitSocialUpdate, notifyAccount, patrolAchievementCandidates, patrolRunError, prunePatrolRuns, patrolRuns, publicPlayerCard, recentPlayers, recordVerifiedAchievement, rememberCompletedPatrolResult, socialSummary } = runtime.social;
 
   function restricted(account) {
     return account?.accountDeactivated === true;
@@ -201,6 +199,21 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     reply(callback, result);
   });
 
+  // A computer player's public page: its own record and its most recent matches. Computer players have no privacy settings to honour.
+  on('get-computer-profile', (payload = {}, callback) => {
+    const persona = BOT_PERSONAS.find(entry => entry.id === payload.personaId);
+    if (!persona) return reply(callback, { success: false, error: 'Computer player not found.' });
+    const stats = botPersonaStore.profileFor(persona.id);
+    const matches = matchStore.listAll()
+      .filter(record => (record.participants || []).some(entry => entry.personaId === persona.id))
+      .slice(0, 10)
+      .map(record => {
+        const row = record.participants.find(entry => entry.personaId === persona.id);
+        return { completedAt: record.completedAt || null, placement: row?.finalPlacement ?? null, players: record.participants.length, events: (record.globalEvents || []).length };
+      });
+    reply(callback, { success: true, profile: { id: persona.id, name: persona.name, difficulty: persona.difficulty, ...stats }, matches });
+  });
+
   on('get-public-player-card', (payload = {}, callback) => {
     const viewer = accountForSocket(socket, payload);
     if (restricted(viewer)) return reply(callback, ACCOUNT_DELETION_PENDING);
@@ -220,7 +233,9 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     if (!searchRateAllowed(viewer)) return reply(callback, { success: false, error: 'Too many searches. Try again in a minute.' });
     const query = normalizeSearchQuery(payload.query);
     if (query.length < 3) return reply(callback, { success: true, players: [] });
-    reply(callback, { success: true, players: searchMatches(query, payload.exact === true, viewer) });
+    const exact = payload.exact === true;
+    const players = [...searchMatches(query, exact, viewer), ...(exact ? [] : computerMatches(query))].slice(0, 20);
+    reply(callback, { success: true, players });
   });
 
   on('get-match-history', (payload = {}, callback) => {
@@ -228,6 +243,8 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     if (restricted(viewer)) return reply(callback, ACCOUNT_DELETION_PENDING);
     const target = lookupAccountTarget(payload.accountId, viewer);
     if (!target || (target.accountDeactivated === true && target.id !== viewer?.id)) return reply(callback, PLAYER_NOT_FOUND);
+    // A block hides the blocker everywhere else (card, search): the history follows the same gate.
+    if (blockedCardView(viewer, target)) return reply(callback, PLAYER_NOT_FOUND);
     const friendship = viewer ? socialStore.friendshipBetween(viewer.id, target.id) : null;
     const { canSeePrivateHistory, error: privacyError } = matchHistoryPrivacyError(viewer, target, friendship);
     if (privacyError) return reply(callback, { success: false, error: privacyError });
@@ -293,54 +310,370 @@ function registerSocialSocketHandlers(on, socket, runtime) {
     reply(callback, result);
   });
 
+  // The server owns the schedule and each target's one-time outcome. Client
+  // messages identify an observed target; they never supply score or misses.
+  const PATROL_GRACE_MS = 250;
+  const PATROL_EARLY_GRACE_MS = 150;
+  const patrolActionTimes = [];
+
+  function patrolRateAllowed(callback) {
+    const now = Date.now();
+    while (patrolActionTimes.length && now - patrolActionTimes[0] >= 10_000) patrolActionTimes.shift();
+    if (patrolActionTimes.length >= 80) { reply(callback, { success: false, error: 'Too many patrol actions. Try again shortly.' }); return false; }
+    patrolActionTimes.push(now);
+    return true;
+  }
+  const PATROL_PAUSE_LIMIT_MS = 5 * 60_000;
+  const PATROL_END_RETENTION_MS = 5 * 60_000;
+
+  socket.on?.('disconnect', () => {
+    for (const [token, run] of patrolRuns) {
+      if (run.socketId !== socket.id || run.settlementPending) continue;
+      clearTimeout(run.timer);
+      patrolRuns.delete(token);
+    }
+  });
+
+  function patrolSnapshot(run) {
+    return { runToken: run.token, revision: ++run.revision, serverTime: Date.now(),
+      wave: run.wave, endsAt: run.waveEndsAt, score: run.score, hearts: run.hearts,
+      misses: run.misses, targets: [...run.targets.values()], ended: run.ended, endReason: run.endReason || null, paused: run.pausedAt !== null };
+  }
+
+  function patrolPush(run) {
+    if (patrolRuns.get(run.token) === run) socket.emit('patrol-state', patrolSnapshot(run));
+  }
+
+  function patrolTarget(run, at) {
+    const roll = Math.random();
+    let kind = 'helicopter';
+    if (run.wave >= 4 && roll < 0.12) kind = 'airplane';
+    else if (run.wave >= 3 && roll < 0.24) kind = 'beacon';
+    else if ((run.wave >= 2 && roll < 0.44) || (run.wave === 1 && run.spawnIndex === 2)) kind = 'drone';
+    const duration = kind === 'airplane' ? Math.max(2800, 5000 - run.wave * 180)
+      : kind === 'drone' ? Math.max(3400, 5900 - run.wave * 220)
+        : Math.max(4200, 7600 - run.wave * 260);
+    const id = crypto.randomBytes(12).toString('base64url');
+    const target = { id, kind, direction: run.sequence++ % 2 === 0 ? 'left' : 'right',
+      lane: [18, 25, 32, 39, 46, 53, 60][Math.floor(Math.random() * 7)],
+      duration, wave: run.wave, deliveryPending: true, offeredAt: at, readyBy: at + 10_000, spawnedAt: null, actionableAt: null, expiresAt: null };
+    run.targets.set(id, target);
+    const outcome = run.waveOutcomes.get(run.wave) || { pending: 0, missed: false };
+    outcome.pending += 1;
+    run.waveOutcomes.set(run.wave, outcome);
+  }
+
+  function patrolCloseWaves(run) {
+    for (const [wave, outcome] of run.waveOutcomes) {
+      if (wave >= run.wave || outcome.pending > 0) continue;
+      if (!outcome.missed) run.clearedCleanWave = true;
+      run.waveOutcomes.delete(wave);
+    }
+  }
+
+  function patrolResolveTarget(run, target, missed) {
+    const outcome = run.waveOutcomes.get(target.wave);
+    if (!outcome) return;
+    outcome.pending -= 1;
+    if (missed) outcome.missed = true;
+    patrolCloseWaves(run);
+  }
+
+  function patrolNextSpawn(run) {
+    const count = Math.min(6 + run.wave * 2, 24);
+    if (run.spawnIndex >= count) return Infinity;
+    const interval = run.wave === 1 ? 3000 : Math.max(850, 5000 - run.wave * 220);
+    return run.waveStartedAt + run.spawnIndex * interval;
+  }
+
+  // The moment a target next needs attention: its delivery deadline while
+  // pending, otherwise its expiry plus the grace window.
+  function patrolTargetDeadline(target) {
+    return target.deliveryPending ? target.readyBy : target.expiresAt + PATROL_GRACE_MS;
+  }
+
+  function patrolNextExpiry(run) {
+    let nextExpiry = Infinity;
+    for (const target of run.targets.values()) nextExpiry = Math.min(nextExpiry, patrolTargetDeadline(target));
+    return nextExpiry;
+  }
+
+  function endPatrolRun(run, at, reason) {
+    run.ended = true;
+    run.endedAt = at;
+    run.endReason = reason;
+  }
+
+  function patrolAdvanceWave(run) {
+    run.wave += 1;
+    patrolCloseWaves(run);
+    run.waveStartedAt = run.waveEndsAt;
+    run.waveEndsAt += 60_000;
+    run.spawnIndex = 0;
+  }
+
+  // Ends the run on the first undelivered target past its deadline, or resolves
+  // each expired target as a miss and ends the run once hearts run out.
+  function patrolExpireTargets(run, at) {
+    for (const [id, target] of run.targets) {
+      if (target.deliveryPending) {
+        if (target.readyBy > at) continue;
+        endPatrolRun(run, at, 'delivery-timeout');
+        break;
+      }
+      if (target.expiresAt + PATROL_GRACE_MS > at) continue;
+      run.targets.delete(id);
+      patrolResolveTarget(run, target, true);
+      if (target.kind !== 'beacon') { run.misses += 1; run.hearts -= 1; }
+      if (run.hearts <= 0) {
+        run.hearts = 0;
+        endPatrolRun(run, at, 'no-hearts');
+        break;
+      }
+    }
+  }
+
+  function patrolAdvance(run, now = Date.now()) {
+    if (run.ended || run.pausedAt !== null) return false;
+    let changed = false;
+    while (!run.ended) {
+      const nextSpawn = patrolNextSpawn(run);
+      const nextExpiry = patrolNextExpiry(run);
+      const next = Math.min(nextSpawn, nextExpiry, run.waveEndsAt);
+      if (next > now) break;
+      changed = true;
+      if (next === nextExpiry) patrolExpireTargets(run, next);
+      else if (next === run.waveEndsAt) patrolAdvanceWave(run);
+      else {
+        patrolTarget(run, nextSpawn);
+        run.spawnIndex += 1;
+      }
+    }
+    return changed;
+  }
+
+  function patrolArm(run) {
+    clearTimeout(run.timer);
+    if (patrolRuns.get(run.token) !== run) return;
+    let due;
+    if (run.ended) due = run.endedAt + PATROL_END_RETENTION_MS;
+    else if (run.pausedAt !== null) due = run.pausedAt + PATROL_PAUSE_LIMIT_MS - (run.initialWaiting ? 0 : run.pausedTotal);
+    else {
+      due = Math.min(run.waveEndsAt, patrolNextSpawn(run));
+      for (const target of run.targets.values()) due = Math.min(due, target.deliveryPending ? target.readyBy : target.expiresAt + PATROL_GRACE_MS);
+    }
+    run.timer = setTimeout(() => {
+      if (patrolRuns.get(run.token) !== run) return;
+      if (run.ended || run.pausedAt !== null) { patrolRuns.delete(run.token); return; }
+      if (patrolAdvance(run)) patrolPush(run);
+      patrolArm(run);
+    }, Math.max(1, due - Date.now()));
+    run.timer.unref?.();
+  }
+
+  // A pause that would push the run past its total allowance has expired.
+  function patrolPauseExhausted(run, delta) {
+    return (run.initialWaiting ? 0 : run.pausedTotal) + delta >= PATROL_PAUSE_LIMIT_MS;
+  }
+
+  // Moves every run clock forward by the paused interval so the run resumes where it stopped.
+  function shiftPatrolClocks(run, delta) {
+    run.waveStartedAt += delta;
+    run.waveEndsAt += delta;
+    for (const target of run.targets.values()) {
+      target.offeredAt += delta;
+      if (target.deliveryPending) target.readyBy += delta;
+      else { target.spawnedAt += delta; target.actionableAt += delta; target.expiresAt += delta; }
+    }
+  }
+
+  function patrolGet(payload, callback) {
+    const account = accountForSocket(socket, payload);
+    const token = String(payload.runToken || '').trim();
+    const invalid = patrolRunError(socket.id, account, token);
+    if (invalid) { reply(callback, { success: false, error: invalid }); return null; }
+    // An account with a pending deletion takes no writes, and a patrol run ends in one (score, achievements).
+    if (restricted(account)) { reply(callback, ACCOUNT_DELETION_PENDING); return null; }
+    const run = patrolRuns.get(token);
+    const now = Date.now();
+    const expiredPause = run.pausedAt !== null && (run.initialWaiting ? 0 : run.pausedTotal) + now - run.pausedAt >= PATROL_PAUSE_LIMIT_MS;
+    const expiredEnd = run.ended && now - run.endedAt >= PATROL_END_RETENTION_MS;
+    if (expiredPause || expiredEnd) {
+      clearTimeout(run.timer);
+      patrolRuns.delete(token);
+      reply(callback, { success: false, error: 'That patrol run expired.' });
+      return null;
+    }
+    return { account, run };
+  }
+
   on('start-patrol-run', (payload = {}, callback) => {
     if (!PARLOR_PATROL_ENABLED) return reply(callback, { success: false, error: PARLOR_PATROL_OFF_MESSAGE });
     const account = accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, error: 'Sign in to sync Parlor Patrol achievements.' });
+    if (restricted(account)) return reply(callback, ACCOUNT_DELETION_PENDING);
     if (!allowSocialAction(account.id, 'patrol-run')) return reply(callback, { success: false, error: 'Too many patrol runs. Try again in a minute.' });
     prunePatrolRuns();
-    const runToken = crypto.randomBytes(24).toString('base64url');
-    patrolRuns.set(runToken, { accountId: account.id, socketId: socket.id, startedAt: Date.now(), submitted: false });
-    reply(callback, { success: true, runToken });
+    for (const [token, previous] of patrolRuns) {
+      if (previous.socketId === socket.id && !previous.settlementPending) { clearTimeout(previous.timer); patrolRuns.delete(token); }
+    }
+    if ([...patrolRuns.values()].some(run => run.accountId === account.id)) return reply(callback, { success: false, error: 'A patrol is already active on another connection.' });
+    if (patrolRuns.size >= 2000) return reply(callback, { success: false, error: 'Patrol is busy. Try again shortly.' });
+    const token = crypto.randomBytes(24).toString('base64url');
+    const now = Date.now();
+    const run = { token, accountId: account.id, socketId: socket.id, startedAt: now, revision: 0,
+      wave: 1, waveStartedAt: now, waveEndsAt: now + 60_000, spawnIndex: 0, sequence: 0,
+      targets: new Map(), waveOutcomes: new Map(), clearedCleanWave: false, score: 0, hearts: 3, misses: 0, pausedAt: now, pausedTotal: 0, initialWaiting: true, ended: false };
+    patrolRuns.set(token, run);
+    patrolArm(run);
+    return reply(callback, { success: true, ...patrolSnapshot(run) });
+  });
+
+  on('ready-patrol-target', (payload = {}, callback) => {
+    if (!PARLOR_PATROL_ENABLED) return reply(callback, { success: false, error: PARLOR_PATROL_OFF_MESSAGE });
+    if (!patrolRateAllowed(callback)) return;
+    const context = patrolGet(payload, callback);
+    if (!context) return;
+    const { run } = context;
+    if (patrolAdvance(run)) patrolPush(run);
+    const target = run.targets.get(String(payload.targetId || ''));
+    const now = Date.now();
+    if (run.ended || run.pausedAt !== null || !target) {
+      patrolArm(run);
+      return reply(callback, { success: false, error: 'That target is no longer available.' });
+    }
+    if (target.deliveryPending) {
+      const visibleAt = target.offeredAt + Math.round(target.duration * 0.16);
+      if (now < visibleAt - PATROL_EARLY_GRACE_MS) return reply(callback, { success: false, error: 'That target is not ready yet.' });
+      target.deliveryPending = false;
+      target.spawnedAt = now - Math.round(target.duration * 0.16);
+      target.actionableAt = now;
+      target.expiresAt = target.spawnedAt + target.duration;
+      target.readyBy = null;
+    }
+    patrolArm(run);
+    return reply(callback, { success: true, ...patrolSnapshot(run) });
+  });
+
+  on('hit-patrol-target', (payload = {}, callback) => {
+    if (!PARLOR_PATROL_ENABLED) return reply(callback, { success: false, error: PARLOR_PATROL_OFF_MESSAGE });
+    if (!patrolRateAllowed(callback)) return;
+    const context = patrolGet(payload, callback);
+    if (!context) return;
+    const { run } = context;
+    if (patrolAdvance(run)) patrolPush(run);
+    const target = run.targets.get(String(payload.targetId || ''));
+    if (run.ended || run.pausedAt !== null || !target || target.deliveryPending || Date.now() < target.actionableAt - PATROL_EARLY_GRACE_MS || Date.now() > target.expiresAt + PATROL_GRACE_MS) {
+      patrolArm(run);
+      return reply(callback, { success: false, error: 'That target is no longer available.' });
+    }
+    run.targets.delete(target.id);
+    patrolResolveTarget(run, target, false);
+    const points = target.kind === 'helicopter' ? 100 + target.wave * 25
+      : target.kind === 'drone' ? 75 + target.wave * 10
+        : target.kind === 'airplane' ? 180 + target.wave * 20 : 50 + target.wave * 5;
+    run.score = Math.min(Number.MAX_SAFE_INTEGER, run.score + points);
+    const snapshot = patrolSnapshot(run);
+    patrolArm(run);
+    return reply(callback, { success: true, ...snapshot, targetId: target.id, outcome: 'hit', remainingHP: 0, points });
+  });
+
+  on('pause-patrol-run', (payload = {}, callback) => {
+    if (!PARLOR_PATROL_ENABLED) return reply(callback, { success: false, error: PARLOR_PATROL_OFF_MESSAGE });
+    if (!patrolRateAllowed(callback)) return;
+    const context = patrolGet(payload, callback);
+    if (!context) return;
+    const { run } = context;
+    patrolAdvance(run);
+    if (!run.ended && run.pausedAt === null) {
+      if (run.pausedTotal >= PATROL_PAUSE_LIMIT_MS) return reply(callback, { success: false, error: 'This patrol has used its pause time.' });
+      run.pausedAt = Date.now();
+    }
+    patrolArm(run);
+    return reply(callback, { success: true, ...patrolSnapshot(run) });
+  });
+
+  on('resume-patrol-run', (payload = {}, callback) => {
+    if (!PARLOR_PATROL_ENABLED) return reply(callback, { success: false, error: PARLOR_PATROL_OFF_MESSAGE });
+    if (!patrolRateAllowed(callback)) return;
+    const context = patrolGet(payload, callback);
+    if (!context) return;
+    const { run } = context;
+    if (run.pausedAt !== null) {
+      const delta = Date.now() - run.pausedAt;
+      if (patrolPauseExhausted(run, delta)) {
+        clearTimeout(run.timer);
+        patrolRuns.delete(run.token);
+        return reply(callback, { success: false, error: 'That paused patrol run expired.' });
+      }
+      if (!run.initialWaiting) run.pausedTotal += delta;
+      run.initialWaiting = false;
+      shiftPatrolClocks(run, delta);
+      run.pausedAt = null;
+      patrolAdvance(run);
+    }
+    patrolArm(run);
+    return reply(callback, { success: true, ...patrolSnapshot(run) });
   });
 
   on('finish-patrol-run', (payload = {}, callback) => {
     if (!PARLOR_PATROL_ENABLED) return reply(callback, { success: false, error: PARLOR_PATROL_OFF_MESSAGE });
-    const account = accountForSocket(socket, payload);
-    const runToken = String(payload.runToken || '').trim();
-    const invalid = patrolRunError(socket.id, account, runToken);
-    if (invalid) return reply(callback, { success: false, error: invalid });
-    const run = patrolRuns.get(runToken);
-    const elapsed = Date.now() - run.startedAt;
-    if (!patrolRunPlausible(elapsed)) {
-      patrolRuns.delete(runToken);
-      return reply(callback, { success: false, error: 'That patrol run expired before it could be verified.' });
+    const retryAccount = accountForSocket(socket, payload);
+    const retryToken = String(payload.runToken || '').trim();
+    const completed = retryAccount && completedPatrolResult(retryAccount.id, retryToken);
+    if (completed) return reply(callback, completed);
+    const context = patrolGet(payload, callback);
+    if (!context) return;
+    const { account, run } = context;
+    patrolAdvance(run);
+    if (!run.ended) {
+      run.ended = true;
+      run.endedAt = Date.now();
+      run.endReason = 'finished';
     }
-    finishPatrolRun({ account, run, runToken, elapsed }, payload, callback);
-  });
-
-  function finishPatrolRun(runContext, payload, callback) {
-    const account = runContext.account;
-    const submittedScore = Math.max(0, Math.min(100000, Math.floor(Number(payload.score) || 0)));
-    const score = Math.min(submittedScore, maxPlausiblePatrolScore(runContext.elapsed));
-    const misses = Math.max(0, Math.min(999, Math.floor(Number(payload.misses) || 0)));
-    runContext.run.submitted = true;
-    patrolRuns.delete(runContext.runToken);
-    const result = accountStore.recordPatrolResult(account.id, { score, misses });
-    if (!result.success) return reply(callback, result);
-    const candidates = patrolAchievementCandidates(account, score, result);
-    // One candidate that fails must not cost the others their unlocks.
-    candidates.forEach(candidate => {
-      try {
-        recordVerifiedAchievement(candidate, `patrol_${runContext.runToken}`);
-      } catch (error) {
-        console.error('Patrol achievement settlement failed:', error?.message || 'unknown error');
+    run.pausedAt = null;
+    run.settlementPending = true;
+    patrolArm(run);
+    const cleanRun = run.hearts === 0 && run.clearedCleanWave;
+    let result;
+    try {
+      result = accountStore.recordPatrolResult(account.id, {
+        score: run.score,
+        misses: run.misses,
+        settlementId: run.token,
+        cleanRun
+      });
+    } catch (error) {
+      console.error('Patrol score settlement failed:', error?.message || 'unknown error');
+      run.endedAt = Date.now();
+      patrolArm(run);
+      return reply(callback, { success: false, retryable: true, error: 'Could not save this patrol. Please try again.' });
+    }
+    if (!result.success) {
+      if (result.retryable) {
+        run.endedAt = Date.now();
+        patrolArm(run);
+        return reply(callback, result);
       }
+      clearTimeout(run.timer);
+      patrolRuns.delete(run.token);
+      return reply(callback, result);
+    }
+    clearTimeout(run.timer);
+    patrolRuns.delete(run.token);
+    const candidates = patrolAchievementCandidates(account, run.score, { ...result, cleanRun });
+    candidates.forEach(candidate => {
+      try { recordVerifiedAchievement(candidate, `patrol_${run.token}`); }
+      catch (error) { console.error('Patrol achievement settlement failed:', error?.message || 'unknown error'); }
     });
+    try { runtime.social.reconcilePendingPatrolAchievementSettlements?.(account.id); }
+    catch (error) { console.error('Patrol achievement journal reconciliation failed:', error?.message || 'unknown error'); }
+    const response = { success: true, score: run.score, misses: run.misses, best: result.best, aceRuns: result.aceRuns };
+    rememberCompletedPatrolResult(account.id, run.token, response);
     const snapshot = accountStore.getAccountSnapshot(account.id);
     if (snapshot) socket.emit('account-sync', { account: snapshot });
-    reply(callback, { success: true, score, misses, best: result.best, aceRuns: result.aceRuns });
-  }
+    return reply(callback, response);
+  });
 
   function lookupTarget(accountId, username) {
     if (accountId) {
@@ -475,6 +808,13 @@ function registerSocialSocketHandlers(on, socket, runtime) {
       .map(publicSearchProfile);
   }
 
+  // Computer players are findable by name in player search, but never in the exact-match rankings lookup.
+  function computerMatches(query) {
+    return BOT_PERSONAS
+      .filter(persona => persona.name.toLowerCase().includes(query))
+      .map(persona => ({ id: `computer:${persona.id}`, personaId: persona.id, computer: true, displayName: persona.name, username: null, difficulty: persona.difficulty, mutualFriends: null }));
+  }
+
   function searchNameMatches(candidate, query, exact) {
     if (exact) return candidate.username === query;
     return candidate.username.includes(query);
@@ -552,14 +892,23 @@ function leaderboardScope(rawScope) {
     return compute.serve(ack);
   }
 
-  // An account that keeps its achievements private is not ranked by them, and
-  // its achievement figures are not published on any other board.
-  function withAchievementPrivacy(metric, rows) {
+  // An account that keeps its achievements private (or friends-only) is not
+  // ranked by them, and its achievement figures are not published on any other
+  // board, unless the viewer is the owner or (friends-only) an accepted friend.
+  function withAchievementPrivacy(metric, rows, viewer = null) {
     const ranksAchievements = metric === 'achievements' || metric === 'mythical';
+    const graph = viewer && typeof socialStore.friendshipIndex === 'function' ? socialStore.friendshipIndex() : socialStore;
+    const mayRead = owner => {
+      const level = owner?.privacy?.achievements;
+      if (level !== 'private' && level !== 'friends') return true;
+      if (!viewer) return false;
+      if (viewer.id === owner.id) return true;
+      return level === 'friends' && graph.friendshipBetween(viewer.id, owner.id)?.status === 'accepted';
+    };
     return rows.flatMap(row => {
       const owner = accountStore.getAccountById(row?.accountId);
       if (!owner || accountDeactivated(row.accountId)) return [];
-      if (owner?.privacy?.achievements !== 'private') return [row];
+      if (mayRead(owner)) return [row];
       if (ranksAchievements) return [];
       const rest = { ...row };
       ['achievements', 'achievementScore', 'mythical'].forEach(field => delete rest[field]);
@@ -569,7 +918,7 @@ function leaderboardScope(rawScope) {
 
   function leaderboardAck(callback, metric, scope, options, viewer) {
     const compute = () => ({ success: true, metric, scope, rows: accountStore.getLeaderboard(metric, options) });
-    compute.serve = ack => ({ ...ack, rows: withAchievementPrivacy(metric, ack.rows || []).map(publicLeaderboardRow) });
+    compute.serve = ack => ({ ...ack, rows: withAchievementPrivacy(metric, ack.rows || [], viewer).map(publicLeaderboardRow) });
     if (scope === 'friends') {
       // A friends board is per viewer and never cached, so every recompute
       // costs the caller's budget.
@@ -590,7 +939,7 @@ function leaderboardScope(rawScope) {
         metrics: snapshot.metrics || {}
       };
     };
-    compute.serve = ack => ({ ...ack, metrics: Object.fromEntries(Object.entries(ack.metrics || {}).map(([name, rows]) => [name, withAchievementPrivacy(name, rows).map(publicLeaderboardRow)])) });
+    compute.serve = ack => ({ ...ack, metrics: Object.fromEntries(Object.entries(ack.metrics || {}).map(([name, rows]) => [name, withAchievementPrivacy(name, rows, viewer).map(publicLeaderboardRow)])) });
     if (scope === 'friends') {
       if (!viewer || !allowSocialAction(viewer.id, 'leaderboard')) return reply(callback, LEADERBOARD_BUSY);
       return reply(callback, compute.serve(compute()));

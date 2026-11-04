@@ -1,87 +1,42 @@
+// Account store: the persisted account registry, sessions, and the public
+// entry points used by the server. Helpers live in the account* modules beside it.
+import { PENDING_PATROL_ACHIEVEMENT_LIMIT, USERNAME_RE, clampInt, equityLikeContract, loanLikeContract, nonNegative, num } from './accountShared.js';
+import { applyProfilePatch, cloneJson, loadableAccount, normalizeColor, normalizeDisplayName, normalizeLoadedAccount, normalizeUsername, profileAccountId, publicAccount, publicAchievements, publicPlayerStats, sanitizeAvatarGrid, sanitizePrivacy, sanitizeStats } from './accountRecords.js';
+import { createSessionToken, hasCredentialShape, hashPassword, hashSessionToken, revokeLiveSessions, revokePersistedSessionHashes, validPasswordShape, writeNewPassword } from './accountSecurity.js';
+import { accountAlreadyRecordedMatch, accountHoldsMatch, anonymizeAccountInMatchRecord, applyMatchResult, buildMatchRecord, countContracts, findParticipant, leaderboardRow, realizedMarketPnl, replaceOwnMatchRecord, windowRecords } from './accountMatches.js';
+import { applyPatrolSettlement, normalizedSettlementId, patrolEarnsJournal, patrolReplayResult, projectedPatrolAceRuns, sanitizePendingPatrolAchievementSettlements } from './accountPatrol.js';
 import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { participantFromPlayer } from './participantFields.js';
-import { cleanPlayerName, isReservedName } from './nicknamePolicy.js';
+import { isReservedName } from './nicknamePolicy.js';
 import { sanitizeMatch } from './matchStore.js';
 import { loadJson, writeJson } from './storeIO.js';
 import { computePlacementById } from './gamePlacement.js';
 
 const __filename = fileURLToPath(import.meta.url);
+
 const __dirname = path.dirname(__filename);
+
 const DEFAULT_FILE = path.join(__dirname, 'data', 'accounts.json');
+
 // Absolute lifetime for legacy (non-cookie) session tokens, mirroring the
-// cookie store's absolute window. Cutover: no sliding refresh, no rehydrate.
+// cookie store's absolute window. There is no sliding refresh and no rehydrate.
 const LEGACY_SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+
 // Per-account password failure budget. It follows the account rather than the
 // address, so rotating peers cannot keep guessing one username. A successful
 // password check (login or confirmation) clears only that account's count.
 const PASSWORD_FAILURE_LIMIT = 10;
+
 const PASSWORD_FAILURE_WINDOW_MS = 15 * 60_000;
+
 const ACCOUNT_LOCKED_ERROR = 'Too many failed sign-in attempts. Try again later.';
-const USERNAME_RE = /^[a-z0-9_]{3,16}$/;
-const COLOR_RE = /^#[0-9a-f]{6}$/i;
-const FACE_SIZE = 8;
-const MYTHICAL_ACHIEVEMENT_IDS = new Set(['41st-tile', 'null-player', 'black-ledger']);
-const ACHIEVEMENT_POINTS = { common: 10, uncommon: 25, rare: 50, epic: 100, legendary: 250, mythical: 1000 };
-const ACHIEVEMENT_RARITY_BY_ID = new Map([
-  ...['first-deed', 'last-wallet-standing', 'one-dollar-hedge', 'first-index', 'patrol-rookie'].map(id => [id, 'common']),
-  ...['full-street', 'even-builder', 'clean-exit', 'debt-free', 'council-member', 'generous-lender', 'patrol-regular', 'airport-hopper', 'group-therapy'].map(id => [id, 'uncommon']),
-  ...['auction-ghost', 'collateral-damage', 'bad-idea-good-timing', 'prison-break', 'no-refunds', 'rent-reaper', 'fire-sale', 'tax-evasion', 'underdog', 'hostile-bidder', 'event-tourist', 'silent-partner', 'roulette-regular', 'market-maker', 'grounded-tourist', 'coalition-builder', 'patrol-ace', 'crisis-manager', 'unanimous', 'public-works'].map(id => [id, 'rare']),
-  ...['empty-streets', 'liquidity-king', 'short-the-street', 'moral-hazard', 'treasure-map', 'all-in', 'crisis-investor', 'clean-run', 'bubble-survivor', 'stagflation-trader', 'one-more-turn'].map(id => [id, 'epic']),
-  ...['double-headline', 'no-floor', 'compromised-council', 'public-enemy'].map(id => [id, 'legendary']),
-  ...['41st-tile', 'null-player', 'black-ledger'].map(id => [id, 'mythical'])
-]);
 
-function achievementPoints(entry, since = null) {
-  if (isBeforeWindow(entry?.unlockedAt, since)) return 0;
-  const rarity = ACHIEVEMENT_RARITY_BY_ID.get(entry?.id) || 'common';
-  return ACHIEVEMENT_POINTS[rarity] || ACHIEVEMENT_POINTS.common;
-}
+// One resolver per leaderboard metric. Adding a rank type is one row here. Unknown metrics fall back to wins.
+// Keep the server feature flag aligned with the client. New Patrol scores use verified fields; prior records remain available separately.
+export const PARLOR_PATROL_ENABLED = true;
 
-// An unlock timestamp is "before the window" only when a window was given
-// and the parseable timestamp falls outside it (unparseable = outside too).
-function isBeforeWindow(unlockedAt, since) {
-  return Boolean(since) && Date.parse(unlockedAt || '') < since;
-}
-
-function loadableAccount(handle, account, accounts) {
-  return Boolean(account) && USERNAME_RE.test(handle) && !accounts.has(handle);
-}
-
-function validPasswordShape(password) {
-  return typeof password === 'string' && password.length >= 8 && password.length <= 72;
-}
-
-function profileAccountId(accountOrId) {
-  if (typeof accountOrId === 'string') return accountOrId;
-  return accountOrId?.id;
-}
-
-function applyProfilePatch(account, patch) {
-  if (patch.displayName != null) account.displayName = normalizeDisplayName(patch.displayName, account.username);
-  if (patch.color != null) account.color = normalizeColor(patch.color, account.color);
-  if (patch.avatarGrid != null) account.avatarGrid = sanitizeAvatarGrid(patch.avatarGrid);
-  if (patch.privacy && typeof patch.privacy === 'object') account.privacy = sanitizePrivacy({ ...account.privacy, ...patch.privacy });
-}
-
-function hasCredentialShape(account, password) {
-  return Boolean(account)
-    && typeof password === 'string'
-    && typeof account.passwordHash === 'string'
-    && typeof account.passwordSalt === 'string';
-}
-
-const num = (value) => Number(value) || 0;
-
-// One resolver per leaderboard metric: reads the (windowed) stats object and
-// the two achievement-derived figures. Replaces a 15-deep nested ternary chain
-// so adding a rank type is one row here, not another ternary arm. The default
-// (unknown metric) is wins, matching the previous final `: Number(wins) || 0`.
-// Parlor Patrol / Night Shift is switched off (audit F-059): the code stays so
-// it can return, but no run starts, no score is recorded and 'patrol' is not a
-// ranked metric. Stored patrolBest / achievements stay readable.
-export const PARLOR_PATROL_ENABLED = false;
 export const PARLOR_PATROL_OFF_MESSAGE = 'Parlor Patrol is resting for now. Your saved scores are safe.';
 
 const RANKED_LEADERBOARD_METRICS = Object.freeze([
@@ -89,85 +44,6 @@ const RANKED_LEADERBOARD_METRICS = Object.freeze([
   'auctions', 'rent', 'casino', 'market', 'playerloans', 'equity', 'loans',
   ...(PARLOR_PATROL_ENABLED ? ['patrol'] : [])
 ]);
-
-const METRIC_RESOLVERS = {
-  wins: (stats) => num(stats.wins),
-  games: (stats) => num(stats.gamesPlayed),
-  rate: (stats) => (num(stats.gamesPlayed) ? Math.round((num(stats.wins) / num(stats.gamesPlayed)) * 100) : 0),
-  achievements: (stats, derived) => derived.achievementScore,
-  mythical: (stats, derived) => derived.mythicalCount,
-  bankruptcies: (stats) => num(stats.bankruptcies),
-  events: (stats) => num(stats.eventSurvival),
-  auctions: (stats) => num(stats.auctionWins),
-  rent: (stats) => num(stats.rentCollected),
-  casino: (stats) => num(stats.casinoNet),
-  market: (stats) => num(stats.marketProfit),
-  playerloans: (stats) => num(stats.playerLoansGiven),
-  equity: (stats) => num(stats.equityDeals),
-  loans: (stats) => Math.max(0, num(stats.bankLoanRepayments) * 2 - num(stats.bankLoanDefaults) * 3),
-  patrol: (stats) => num(stats.patrolBest)
-};
-
-function resolveMetricValue(metric, stats, derived) {
-  const resolve = METRIC_RESOLVERS[metric] || METRIC_RESOLVERS.wins;
-  return resolve(stats, derived);
-}
-
-// A player-contract ledger count for one account, parameterized by a predicate
-// so the repayment/default/given/equity tallies stay single-line.
-function countContracts(record, accountId, include) {
-  return (record.playerContracts || []).filter((contract) => include(contract, accountId)).length;
-}
-
-// A hybrid is a loan only while its debt leg is active/due/settled; once it
-// converts, the remaining live instrument is equity and must not inflate the
-// player-loan leaderboard counters.
-const loanLikeContract = contract => contract?.kind === 'loan'
-  || (contract?.kind === 'hybrid' && contract.status !== 'converted');
-const equityLikeContract = contract => contract?.kind === 'equity' || (contract?.kind === 'hybrid' && contract?.status === 'converted');
-
-function realizedMarketPnl(record, accountId) {
-  const market = (record.market || []).find((entry) => entry.accountId === accountId);
-  return Object.values(market?.positions || {}).reduce((sum, position) => sum + (num(position.realizedPnl)), 0);
-}
-
-function normalizeUsername(value) {
-  return typeof value === 'string' ? value.trim().toLowerCase() : '';
-}
-
-function normalizeDisplayName(value, fallback = 'PLAYER') {
-  const name = cleanPlayerName(value, 18);
-  if (name && !isReservedName(name)) return name;
-  // The fallback is the username, which grandfathered accounts may have chosen
-  // as a reserved label; it must not become the worn name either.
-  return isReservedName(String(fallback)) ? `${fallback}_1` : fallback;
-}
-
-function normalizeColor(value, fallback = '#d74438') {
-  return COLOR_RE.test(String(value || '')) ? String(value).toLowerCase() : fallback;
-}
-
-// Issuance stamps share the lifetime of the session entry they describe, so a
-// revoked bearer token does not linger as a map key.
-function revokeLiveSessions(store, username) {
-  for (const [token, owner] of store.sessions) {
-    if (owner !== username) continue;
-    store.sessions.delete(token);
-    store.sessionIssuedAt.delete(token);
-  }
-}
-
-function revokePersistedSessionHashes(store, username) {
-  for (const [tokenHash, owner] of store.sessionHashes) {
-    if (owner !== username) continue;
-    store.sessionHashes.delete(tokenHash);
-    store.sessionIssuedAt.delete(tokenHash);
-  }
-}
-
-function cloneJson(value) {
-  return JSON.parse(JSON.stringify(value));
-}
 
 function quarantineStamp() {
   return `${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomUUID().slice(0, 8)}`;
@@ -213,218 +89,8 @@ function commitMutation(store, mutate, persistOptions = {}) {
   }
 }
 
-function sanitizeAvatarGrid(value) {
-  if (!Array.isArray(value)) return null;
-  return Array.from({ length: FACE_SIZE }, (_, y) =>
-    Array.from({ length: FACE_SIZE }, (_, x) => {
-      const cell = value[y]?.[x];
-      return typeof cell === 'string' && COLOR_RE.test(cell) ? cell.toLowerCase() : null;
-    }),
-  );
-}
-
-const stringOrNull = (value) => (typeof value === 'string' ? value : null);
-const clampInt = (value, max) => Math.max(0, Math.min(max, Math.floor(Number(value) || 0)));
-
-function historyEntryView(entry) {
-  return {
-    matchId: stringOrNull(entry.matchId),
-    playedAt: stringOrNull(entry.playedAt),
-    result: entry.result === 'WIN' ? 'WIN' : 'ROUND',
-    won: entry.won === true || entry.result === 'WIN',
-    endingCash: nonNegative(entry.endingCash),
-    properties: nonNegative(entry.properties),
-  };
-}
-
-function sanitizeHistory(value) {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((entry) => entry && typeof entry === 'object')
-    .slice(0, 50)
-    .map(historyEntryView);
-}
-
-// Match history is intentionally capped for profile payloads, but settlement
-// idempotency cannot share that display window: an old match may be replayed
-// long after it falls out of the visible list. Keep a durable, private ledger
-// of recent match ids that have already contributed account stats.
-const RECORDED_MATCH_ID_LIMIT = 500;
-function sanitizeRecordedMatchIds(value, legacyHistory = []) {
-  const source = Array.isArray(value) ? value : legacyHistory.map(entry => entry?.matchId);
-  // The ledger is copied into every accounts.json rewrite, so it keeps only the
-  // newest ids (E37-14). A replay older than that window is not recognised.
-  return [...new Set(source
-    .filter(entry => typeof entry === 'string' && entry.trim())
-    .map(entry => entry.trim().slice(0, 80)))].slice(-RECORDED_MATCH_ID_LIMIT);
-}
-
-const nonNegative = (value) => Math.max(0, Number(value) || 0);
-
-const clippedList = (value, cap) => (Array.isArray(value) ? value.slice(0, cap) : []);
-
-// Placement has to follow the seat the game crowned, not the richest seat on
-// the table. A disconnected ghost seat keeps its cash after the game ends, and
-// ranking by cash alone handed that seat 1st place (and the winner's season
-// points) while `stats.wins` credited the win to the seat order the game ended
-// on -- the store contradicting itself inside one record. Ghost seats therefore
-// compete for no placement at all and sort behind every contested seat; inside
-// the contested seats the legacy ladder (bankrupt last, then cash) is unchanged.
-// The seat the game crowned owns 1st place even when the round limit was
-// decided on net worth and another seat still holds more cash, so the crown
-// outranks the cash ladder; the ghost/bankrupt tiers keep their own order.
-function matchDetailFields(matchMeta, participants) {
-  if (!matchMeta.includeMatchDetails) return {};
-  const fields = {
-    playerCount: Math.max(0, Math.floor(Number(matchMeta.playerCount) || participants.length)),
-    botDecisions: clippedList(matchMeta.botDecisions, 200),
-    netWorthTimeline: clippedList(matchMeta.netWorthTimeline, 40),
-    botOnly: matchMeta.botOnly === true
-  };
-  if (matchMeta.afkOnly === true) fields.afkOnly = true;
-  return fields;
-}
-
-function rulesetFieldValue(value) {
-  return typeof value === 'string' ? value.slice(0, 200) : Math.max(0, Number(value) || 0);
-}
-
-function rulesetFields(matchMeta) {
-  const fields = {};
-  ['boardVariant', 'rulesetRevision', 'balanceRevision', 'rulesetDigest'].forEach(key => {
-    if (Object.prototype.hasOwnProperty.call(matchMeta, key)) fields[key] = rulesetFieldValue(matchMeta[key]);
-  });
-  if (Object.prototype.hasOwnProperty.call(matchMeta, 'rulesetOverrides')) {
-    fields.rulesetOverrides = clippedList(matchMeta.rulesetOverrides, 32)
-      .filter(entry => entry && typeof entry.key === 'string')
-      .map(entry => ({ key: entry.key.slice(0, 60), value: entry.value }));
-  }
-  return fields;
-}
-
-function buildMatchRecord(matchId, matchMeta, participants) {
-  return {
-    matchId,
-    completedAt: matchMeta.completedAt || new Date().toISOString(),
-    durationSeconds: nonNegative(matchMeta.durationSeconds),
-    roundCount: nonNegative(matchMeta.roundCount),
-    roomVisibility: matchMeta.roomVisibility === 'private' ? 'private' : 'public',
-    participants,
-    globalEvents: clippedList(matchMeta.globalEvents, 20),
-    eventCombinations: clippedList(matchMeta.eventCombinations, 10),
-    tradesCompleted: nonNegative(matchMeta.tradesCompleted),
-    auctionsCompleted: nonNegative(matchMeta.auctionsCompleted),
-    casino: clippedList(matchMeta.casino, 8),
-    market: clippedList(matchMeta.market, 8),
-    playerContracts: clippedList(matchMeta.playerContracts, 20),
-    ...matchDetailFields(matchMeta, participants),
-    ...rulesetFields(matchMeta)
-  };
-}
-
-// One delta function per stat key, applied to the live player object of a
-// just-finished match. server/game-results.test.js pins every output.
-const RESULT_STAT_UPDATES = {
-  gamesPlayed: () => 1,
-  wins: (player, ctx) => (player.id === ctx.winnerId ? 1 : 0),
-  bankruptcies: player => (player.bankrupt ? 1 : 0),
-  auctionWins: player => nonNegative(player.auctionWins),
-  rentCollected: player => nonNegative(player.rentCollected),
-  eventSurvival: player => nonNegative(player.globalEventsSurvived),
-  bankLoansTaken: player => nonNegative(player.bankLoanCount),
-  bankLoanRepayments: player => (player.bankLoan?.status === 'paid' ? 1 : 0),
-  bankLoanDefaults: player => (player.bankLoan?.status === 'defaulted' ? 1 : 0),
-  casinoNet: (player, ctx) => num(ctx.casino.find(entry => entry.accountId === player.accountId)?.net) || 0,
-  marketProfit: (player, ctx) => Object.values(ctx.market.find(entry => entry.accountId === player.accountId)?.positions || {})
-    .reduce((sum, position) => sum + (Number(position.realizedPnl) || 0), 0),
-  playerLoansGiven: (player, ctx) => ctx.contracts.filter(c => c.fromAccountId === player.accountId && loanLikeContract(c)).length,
-  playerLoansRepaid: (player, ctx) => ctx.contracts.filter(c => c.toAccountId === player.accountId && loanLikeContract(c) && c.status === 'paid').length,
-  playerLoanDefaults: (player, ctx) => ctx.contracts.filter(c => c.toAccountId === player.accountId && loanLikeContract(c) && c.status === 'defaulted').length,
-  equityDeals: (player, ctx) => ctx.contracts.filter(c => equityLikeContract(c) && (c.fromAccountId === player.accountId || c.toAccountId === player.accountId)).length
-};
-
-function matchHistoryEntry(player, matchId, winnerId) {
-  const won = player.id === winnerId;
-  return {
-    matchId,
-    playedAt: new Date().toISOString(),
-    result: won ? 'WIN' : 'ROUND',
-    won,
-    endingCash: nonNegative(player.cash),
-    properties: Array.isArray(player.properties) ? player.properties.length : 0
-  };
-}
-
-// account: the stored profile, player: the live participant, result: match
-// record + raw meta + winner, bundled so this seam takes three arguments.
-function applyMatchResult(account, player, result) {
-  const ctx = {
-    winnerId: result.winnerId,
-    casino: result.matchMeta.casino || [],
-    market: result.matchMeta.market || [],
-    contracts: Array.isArray(result.matchMeta.playerContracts) ? result.matchMeta.playerContracts : []
-  };
-  Object.entries(RESULT_STAT_UPDATES).forEach(([key, delta]) => {
-    account.stats[key] += delta(player, ctx);
-  });
-  account.history = [matchHistoryEntry(player, result.matchRecord.matchId, result.winnerId), ...sanitizeHistory(account.history)].slice(0, 50);
-  account.matchHistory = [ownerMatchRecord(result.matchRecord), ...(account.matchHistory || []).filter(entry => entry.matchId !== result.matchRecord.matchId)].slice(0, 50);
-  account.recordedMatchIds = sanitizeRecordedMatchIds([...sanitizeRecordedMatchIds(account.recordedMatchIds), result.matchRecord.matchId]);
-}
-
-function ownerMatchRecord(matchRecord) {
-  if (!matchRecord || !Object.prototype.hasOwnProperty.call(matchRecord, 'botDecisions')) return matchRecord;
-  const ownerProjection = { ...matchRecord };
-  delete ownerProjection.botDecisions;
-  return ownerProjection;
-}
-
-function anonymizeAccountInMatchRecord(record, accountId) {
-  if (!record || typeof record !== 'object') return { record, changed: false };
-  let changed = false;
-  const next = { ...record };
-  if (Array.isArray(record.participants)) {
-    let participantsChanged = false;
-    next.participants = record.participants.map((participant) => {
-      if (participant?.accountId !== accountId) return participant;
-      participantsChanged = true;
-      return { ...participant, accountId: null, displayNameAtMatch: 'ACCOUNT DEACTIVATED' };
-    });
-    changed ||= participantsChanged;
-  }
-  for (const key of ['casino', 'market']) {
-    if (!Array.isArray(record[key])) continue;
-    let rowsChanged = false;
-    next[key] = record[key].map((row) => {
-      if (row?.accountId !== accountId) return row;
-      rowsChanged = true;
-      return { ...row, accountId: null };
-    });
-    changed ||= rowsChanged;
-  }
-  if (Array.isArray(record.playerContracts)) {
-    let contractsChanged = false;
-    next.playerContracts = record.playerContracts.map((contract) => {
-      if (contract?.fromAccountId !== accountId && contract?.toAccountId !== accountId) return contract;
-      contractsChanged = true;
-      return {
-        ...contract,
-        ...(contract.fromAccountId === accountId ? { fromAccountId: null } : {}),
-        ...(contract.toAccountId === accountId ? { toAccountId: null } : {})
-      };
-    });
-    changed ||= contractsChanged;
-  }
-  return { record: changed ? next : record, changed };
-}
-
-function accountAlreadyRecordedMatch(account, matchId) {
-  if (sanitizeRecordedMatchIds(account.recordedMatchIds).includes(matchId)) return true;
-  return (account.matchHistory || []).some(entry => entry?.matchId === matchId);
-}
-
 // The same fifteen deltas recomputed from stored match records, for
-// time-windowed views. Wins intentionally differ from the live ladder:
+// time-windowed views. Wins differ from the live ladder:
 // history replays use the recorded final placement, not winnerId.
 const WINDOW_STAT_UPDATES = {
   gamesPlayed: () => 1,
@@ -444,200 +110,13 @@ const WINDOW_STAT_UPDATES = {
   equityDeals: (participant, record, account) => countContracts(record, account.id, (contract, id) => equityLikeContract(contract) && (contract.fromAccountId === id || contract.toAccountId === id))
 };
 
-function windowRecords(account, since) {
-  if (!since) return Array.isArray(account.matchHistory) ? account.matchHistory : [];
-  return (account.matchHistory || []).filter(record => Date.parse(record.completedAt || '') >= since);
-}
-
-function findParticipant(record, accountId) {
-  return (record.participants || []).find(entry => entry.accountId === accountId) || null;
-}
-
-function achievementTallies(account, since) {
-  const achievements = Array.isArray(account.achievements) ? account.achievements : [];
-  const withinWindow = (entry) => !since || Date.parse(entry.unlockedAt || '') >= since;
-  return {
-    count: (since ? achievements.filter(withinWindow) : achievements).length,
-    score: achievements.reduce((sum, entry) => sum + achievementPoints(entry, since || null), 0),
-    mythical: achievements.filter(entry => MYTHICAL_ACHIEVEMENT_IDS.has(entry.id) && withinWindow(entry)).length
-  };
-}
-
-function leaderboardTrend(account, since) {
-  const records = windowRecords(account, since);
-  const winsIn = (entries) => entries.reduce((sum, record) => {
-    const participant = findParticipant(record, account.id);
-    return sum + (participant?.finalPlacement === 1 ? 1 : 0);
-  }, 0);
-  const recent = records.slice(0, 5);
-  const previous = records.slice(5, 10);
-  const delta = winsIn(recent) - winsIn(previous);
-  return { direction: delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat', delta };
-}
-
-function leaderboardRow(store, account, metric, options) {
-  const stats = store.getWindowStats(account, options.since || null);
-  const tallies = achievementTallies(account, options.since);
-  if (metric !== 'patrol' && num(stats.gamesPlayed) < 1) return null;
-  if (metric === 'rate' && num(stats.gamesPlayed) < 5) return null;
-  return {
-    accountId: account.id, displayName: account.displayName, username: account.username,
-    color: account.color, avatarGrid: account.avatarGrid,
-    value: resolveMetricValue(metric, stats, { achievementScore: tallies.score, mythicalCount: tallies.mythical }),
-    games: num(stats.gamesPlayed), wins: num(stats.wins), achievements: tallies.count,
-    achievementScore: tallies.score, mythical: tallies.mythical,
-    bankLoanRepayments: num(stats.bankLoanRepayments), bankLoanDefaults: num(stats.bankLoanDefaults),
-    trend: leaderboardTrend(account, options.since)
-  };
-}
-
-const PUBLIC_HISTORY_KEYS = ['matchId', 'playedAt', 'result', 'won', 'properties'];
-
-function publicHistory(history, includePrivateHistory) {
-  const sanitized = sanitizeHistory(history);
-  if (includePrivateHistory) return sanitized;
-  return sanitized.map(entry => Object.fromEntries(PUBLIC_HISTORY_KEYS.map(key => [key, entry[key]])));
-}
-
-function publicAchievements(account, includePrivateHistory) {
-  if (!includePrivateHistory && ['private', 'friends'].includes(account.privacy?.achievements)) return [];
-  const entries = Array.isArray(account.achievements) ? account.achievements : [];
-  return entries.map(entry => ({ id: entry.id, unlockedAt: entry.unlockedAt || null })).slice(0, 100);
-}
-
-function publicPlayerStats(stats = {}) {
-  const gamesPlayed = num(stats.gamesPlayed);
-  const wins = num(stats.wins);
-  return {
-    gamesPlayed,
-    wins,
-    winRate: gamesPlayed ? Math.round((wins / gamesPlayed) * 100) : 0,
-    eventSurvival: num(stats.eventSurvival)
-  };
-}
-
-function buildPublicAccountBase(account, includePrivateHistory) {
-  return {
-    id: account.id,
-    username: account.username,
-    displayName: account.displayName,
-    color: account.color,
-    avatarGrid: account.avatarGrid,
-    stats: { ...account.stats },
-    history: publicHistory(account.history, includePrivateHistory),
-    achievements: publicAchievements(account, includePrivateHistory),
-    achievementsPrivate: account.privacy?.achievements === 'private',
-    privacy: sanitizePrivacy(account.privacy),
-    recentClearedAt: account.recentClearedAt || null,
-    accountDeactivated: account.accountDeactivated === true,
-    createdAt: account.createdAt,
-  };
-}
-
-function applyPrivateAccountFields(target, account, includePrivateHistory) {
-  if (includePrivateHistory) {
-    target.matchHistory = clippedList(account.matchHistory, 50);
-    target.deletionRequestedAt = account.deletionRequestedAt || null;
-    target.deletionDueAt = account.deletionDueAt || null;
-    target.deletionRequestId = account.deletionRequestId || null;
-    target.recoveryEmail = account.recoveryEmail || null;
-    target.recoveryEmailVerified = account.recoveryEmailVerified === true;
-  } else {
-    target.deletionRequestedAt = null;
-    target.deletionDueAt = null;
-    target.deletionRequestId = null;
-    target.recoveryEmail = null;
-    target.recoveryEmailVerified = false;
-  }
-}
-
-function publicAccount(account, includePrivateHistory = true) {
-  if (!account) return null;
-  const base = buildPublicAccountBase(account, includePrivateHistory);
-  applyPrivateAccountFields(base, account, includePrivateHistory);
-  return base;
-}
-
-function hashPassword(password, salt) {
-  return crypto.scryptSync(password, salt, 64).toString('hex');
-}
-
 // Salt for the scrypt that stands in for an unknown username's verifier. It
 // is never stored or matched against anything.
 const DUMMY_PASSWORD_SALT = crypto.randomBytes(16).toString('hex');
 
-function createSessionToken() {
-  return crypto.randomBytes(32).toString('base64url');
-}
+const isValidResetGeneration = generation => Number.isSafeInteger(generation) && generation >= 1;
 
-function hashSessionToken(token) {
-  return crypto.createHash('sha256').update(token).digest('hex');
-}
-
-// The one authoritative list of per-account stat counters, in the shape
-// order the on-disk format has always used. Loaded records, fresh
-// registrations and any future store all funnel through this table.
-const STATS_KEYS = [
-  'gamesPlayed', 'wins', 'bankruptcies', 'auctionWins', 'rentCollected',
-  'eventSurvival', 'casinoNet', 'marketProfit', 'playerLoansGiven',
-  'playerLoansRepaid', 'playerLoanDefaults', 'equityDeals', 'bankLoansTaken',
-  'bankLoanRepayments', 'bankLoanDefaults', 'patrolBest', 'patrolAceRuns'
-];
-
-function sanitizeStats(stats) {
-  const clean = {};
-  STATS_KEYS.forEach((key) => {
-    clean[key] = Number(stats?.[key]) || 0;
-  });
-  return clean;
-}
-
-function applyDeletionFields(normalized, account) {
-  if (Object.prototype.hasOwnProperty.call(account, 'accountDeactivated')) {
-    normalized.accountDeactivated = account.accountDeactivated === true;
-  }
-  if (typeof account.deletionRequestedAt === 'string') normalized.deletionRequestedAt = account.deletionRequestedAt;
-  if (typeof account.deletionDueAt === 'string') normalized.deletionDueAt = account.deletionDueAt;
-  if (typeof account.deletionRequestId === 'string') normalized.deletionRequestId = account.deletionRequestId.slice(0, 100);
-}
-
-function applyRecoveryFields(normalized, account) {
-  if (typeof account.recoveryEmail === 'string') normalized.recoveryEmail = account.recoveryEmail.trim().toLowerCase().slice(0, 254);
-  if (Object.prototype.hasOwnProperty.call(account, 'recoveryEmailVerified')) normalized.recoveryEmailVerified = account.recoveryEmailVerified === true;
-  if (typeof account.pendingRecoveryEmail === 'string') normalized.pendingRecoveryEmail = account.pendingRecoveryEmail.trim().toLowerCase().slice(0, 254);
-  if (typeof account.pendingRecoveryEmailTokenHash === 'string') normalized.pendingRecoveryEmailTokenHash = account.pendingRecoveryEmailTokenHash.slice(0, 128);
-  if (typeof account.pendingRecoveryEmailExpiresAt === 'string') normalized.pendingRecoveryEmailExpiresAt = account.pendingRecoveryEmailExpiresAt;
-  const consumedGeneration = Number(account.consumedPasswordResetGeneration);
-  normalized.consumedPasswordResetGeneration = Number.isSafeInteger(consumedGeneration) && consumedGeneration >= 0 ? consumedGeneration : 0;
-}
-
-function applyOptionalAccountFields(normalized, account) {
-  applyDeletionFields(normalized, account);
-  applyRecoveryFields(normalized, account);
-}
-
-function buildBaseNormalizedAccount(handle, account) {
-  return {
-    ...account,
-    username: handle,
-    displayName: normalizeDisplayName(account.displayName, account.username),
-    color: normalizeColor(account.color),
-    avatarGrid: sanitizeAvatarGrid(account.avatarGrid),
-    stats: sanitizeStats(account.stats),
-    history: sanitizeHistory(account.history),
-    achievements: Array.isArray(account.achievements) ? account.achievements.filter(entry => entry && typeof entry.id === 'string').slice(0, 100) : [],
-    matchHistory: Array.isArray(account.matchHistory) ? account.matchHistory.filter(entry => entry && typeof entry === 'object').slice(0, 50).map(sanitizeMatch) : [],
-    recordedMatchIds: sanitizeRecordedMatchIds(account.recordedMatchIds, account.matchHistory),
-    privacy: sanitizePrivacy(account.privacy),
-    recentClearedAt: typeof account.recentClearedAt === 'string' ? account.recentClearedAt : null
-  };
-}
-
-function normalizeLoadedAccount(handle, account) {
-  const normalized = buildBaseNormalizedAccount(handle, account);
-  applyOptionalAccountFields(normalized, account);
-  return normalized;
-}
+const canRecoverPassword = (password, generation) => validPasswordShape(password) && isValidResetGeneration(generation);
 
 export class AccountStore {
   constructor(filePath = DEFAULT_FILE) {
@@ -646,10 +125,10 @@ export class AccountStore {
     this.idIndex = new Map();
     this.sessions = new Map();
     this.sessionHashes = new Map();
-    // Legacy token issuance timestamps (token and hash -> ms). Memory-only
+    // Legacy token issuance timestamps (token and hash to ms). Memory-only
     // like sessions itself; absolute TTL enforced in sessionAccount.
     this.sessionIssuedAt = new Map();
-    // Account id -> { startedAt, count }. Bounded by the account count.
+    // Account id: { startedAt, count }. Bounded by the account count.
     this.passwordFailures = new Map();
     // Record accounting for persist(): records on disk at load, records that
     // failed validation and are not yet moved aside, and the count of records
@@ -676,7 +155,7 @@ export class AccountStore {
         return;
       }
       this.accounts.set(handle, normalizeLoadedAccount(handle, account));
-      // Cutover: persisted session hashes are no longer rehydrated. Cookie
+      // Persisted session hashes are not rehydrated. Cookie
       // sessions (sessionStore records) survive restarts with their own
       // expiry; legacy tokens require a fresh login after a restart.
     });
@@ -687,7 +166,7 @@ export class AccountStore {
   }
 
   // The rejected records are moved aside before the store is rewritten, so the
-  // rewrite cannot erase them (E37-07). A rewrite that would drop records other
+  // rewrite cannot erase them. A rewrite that would drop records other
   // than the rejected ones and the purged accounts is refused.
   persist({ removed = 0 } = {}) {
     if (this.rejectedAtLoad.length) {
@@ -773,10 +252,9 @@ export class AccountStore {
 
   issueSession(account) {
     revokeLiveSessions(this, account.username);
-    // Remove every persisted hash for this account, not only the latest field
-    // on the record. This also cleans hashes written by older builds so a
-    // rotated or logged-out token can never be reanimated from the fallback
-    // index.
+    // Remove every persisted hash for the account, not just the latest field on the record.
+    // This also clears hashes from older builds, so a rotated or logged-out token cannot
+    // come back through the fallback index.
     revokePersistedSessionHashes(this, account.username);
     const token = createSessionToken();
     const tokenHash = hashSessionToken(token);
@@ -965,9 +443,7 @@ export class AccountStore {
     const account = this.getAccountById(accountId);
     if (!account || !validPasswordShape(password)) return false;
     const updated = commitMutation(this, () => {
-      const salt = crypto.randomBytes(16).toString('hex');
-      account.passwordSalt = salt;
-      account.passwordHash = hashPassword(password, salt);
+      writeNewPassword(account, password);
       this.revokeSessionsForAccount(account.id, false);
       return true;
     });
@@ -982,11 +458,9 @@ export class AccountStore {
   updatePasswordForRecovery(accountId, password, consumedGeneration) {
     const account = this.getAccountById(accountId);
     const generation = Number(consumedGeneration);
-    if (!account || !validPasswordShape(password) || !Number.isSafeInteger(generation) || generation < 1) return false;
+    if (!account || !canRecoverPassword(password, generation)) return false;
     const updated = commitMutation(this, () => {
-      const salt = crypto.randomBytes(16).toString('hex');
-      account.passwordSalt = salt;
-      account.passwordHash = hashPassword(password, salt);
+      writeNewPassword(account, password);
       account.consumedPasswordResetGeneration = Math.max(Number(account.consumedPasswordResetGeneration) || 0, generation);
       this.revokeSessionsForAccount(account.id, false);
       return true;
@@ -1096,12 +570,9 @@ export class AccountStore {
       includeMatchDetails: matchMeta.includeMatchDetails === true
     }));
     const matchRecord = buildMatchRecord(matchId, matchMeta, participants);
-    // The stats, the history and the settlement ledger are written to memory
-    // first and to disk second. A failed write must not leave the memory
-    // believing the match was settled: the ledger would refuse the retry and
-    // the durable state would never catch up. Snapshot first, restore on
-    // failure -- the same invariant commitMutation enforces for the other
-    // mutating entry points.
+    // Memory is written before disk here. A failed write must not leave memory believing the match
+    // was settled, or the ledger would refuse the retry. Snapshot first and restore on failure,
+    // the same invariant commitMutation enforces for the other mutating entry points.
     const pending = activePlayers.some((player) => {
       if (!player.accountId) return false;
       const account = this.getAccountById(player.accountId);
@@ -1139,23 +610,14 @@ export class AccountStore {
     // Same invariant as recordGameResults: the replaced record only counts as
     // applied once it reached the disk.
     const owners = [...this.accounts.values()].filter(account => (
-      participantAccountIds.has(account.id)
-      && (account.matchHistory || []).some(entry => entry?.matchId === sanitized.matchId)
+      participantAccountIds.has(account.id) && accountHoldsMatch(account, sanitized.matchId)
     ));
     if (!owners.length) return { updated: false, match: sanitized };
     const snapshot = snapshotStore(this);
     try {
       let updated = false;
       this.accounts.forEach(account => {
-        if (!participantAccountIds.has(account.id)) return;
-        const entries = Array.isArray(account.matchHistory) ? account.matchHistory : [];
-        const index = entries.findIndex(entry => entry?.matchId === sanitized.matchId);
-        if (index < 0) return;
-        const projected = ownerMatchRecord(sanitized);
-        if (JSON.stringify(entries[index]) === JSON.stringify(projected)) return;
-        account.matchHistory = [...entries];
-        account.matchHistory[index] = projected;
-        updated = true;
+        if (participantAccountIds.has(account.id) && replaceOwnMatchRecord(account, sanitized)) updated = true;
       });
       if (updated) this.persist();
       return { updated, match: sanitized };
@@ -1174,9 +636,10 @@ export class AccountStore {
       return { success: true, created: false, achievement: entries.find((entry) => entry.id === achievementId) };
     }
     const entry = { id: achievementId, unlockedAt: typeof achievement.unlockedAt === 'string' ? achievement.unlockedAt : new Date().toISOString() };
-    account.achievements = [entry, ...entries].slice(0, 100);
-    this.persist();
-    return { success: true, created: true, achievement: entry };
+    return commitMutation(this, () => {
+      account.achievements = [entry, ...entries].slice(0, 100);
+      return { success: true, created: true, achievement: entry };
+    });
   }
 
   removeAchievement(accountId, achievementId) {
@@ -1185,24 +648,43 @@ export class AccountStore {
     const entries = Array.isArray(account.achievements) ? account.achievements : [];
     const next = entries.filter(entry => entry?.id !== achievementId);
     if (next.length === entries.length) return false;
-    account.achievements = next;
-    this.persist();
-    return true;
+    return commitMutation(this, () => {
+      account.achievements = next;
+      return true;
+    });
   }
 
-  recordPatrolResult(accountId, { score = 0, misses = 0 } = {}) {
+  recordPatrolResult(accountId, { score = 0, misses = 0, settlementId = null, cleanRun = false } = {}) {
     if (!PARLOR_PATROL_ENABLED) return { success: false, error: PARLOR_PATROL_OFF_MESSAGE };
     const account = this.getAccountById(accountId);
     if (!account) return { success: false, error: 'Account not found.' };
-    const safeScore = clampInt(score, 100000);
+    const safeScore = clampInt(score, Number.MAX_SAFE_INTEGER);
     const safeMisses = clampInt(misses, 999);
-    const stats = account.stats || (account.stats = {});
-    const previousBest = Math.max(0, Number(stats.patrolBest) || 0);
-    const beatBest = safeScore > previousBest;
-    stats.patrolBest = Math.max(previousBest, safeScore);
-    stats.patrolAceRuns = Math.max(0, Number(stats.patrolAceRuns) || 0) + (beatBest && previousBest > 0 ? 1 : 0);
-    this.persist();
-    return { success: true, score: safeScore, misses: safeMisses, best: stats.patrolBest, aceRuns: stats.patrolAceRuns };
+    const safeSettlementId = normalizedSettlementId(settlementId);
+    const pendingSettlements = sanitizePendingPatrolAchievementSettlements(account.pendingPatrolAchievementSettlements);
+    const prior = safeSettlementId && pendingSettlements.find(entry => entry.id === safeSettlementId);
+    if (prior) return patrolReplayResult(account, prior, safeMisses, safeSettlementId);
+    const needsJournal = Boolean(safeSettlementId) && patrolEarnsJournal(safeScore, cleanRun, projectedPatrolAceRuns(account, safeScore));
+    if (needsJournal && pendingSettlements.length >= PENDING_PATROL_ACHIEVEMENT_LIMIT) {
+      return { success: false, retryable: true, error: 'Patrol achievement recovery is busy. Please retry this finish.' };
+    }
+    return commitMutation(this, () => applyPatrolSettlement(account, { safeScore, safeMisses, safeSettlementId, cleanRun }));
+  }
+
+  getPendingPatrolAchievementSettlements(accountId) {
+    return sanitizePendingPatrolAchievementSettlements(this.getAccountById(accountId)?.pendingPatrolAchievementSettlements);
+  }
+
+  completePatrolAchievementSettlement(accountId, settlementId) {
+    const account = this.getAccountById(accountId);
+    const id = normalizedSettlementId(settlementId);
+    if (!account || !id) return { success: false, completed: false };
+    const pending = sanitizePendingPatrolAchievementSettlements(account.pendingPatrolAchievementSettlements);
+    if (!pending.some(entry => entry.id === id)) return { success: true, completed: false };
+    return commitMutation(this, () => {
+      account.pendingPatrolAchievementSettlements = pending.filter(entry => entry.id !== id);
+      return { success: true, completed: true };
+    });
   }
 
   getPublicAccountById(accountId) {
@@ -1220,9 +702,13 @@ export class AccountStore {
     return this.accounts.get(handle) || null;
   }
 
-  getPublicPlayerCard(accountId, { includeAchievements = false } = {}) {
+  // includeAchievements is the friend-level reveal (friends-only accounts); a
+  // private account reveals its achievements to its owner alone (owner: true).
+  getPublicPlayerCard(accountId, { includeAchievements = false, owner = false } = {}) {
     const account = this.getAccountById(accountId);
     if (!account) return null;
+    const achievementsPrivate = account.privacy?.achievements === 'private';
+    const revealAchievements = Boolean(includeAchievements) && (owner || !achievementsPrivate);
     const publicView = publicAccount(account, false);
     return {
       id: publicView.id,
@@ -1231,9 +717,9 @@ export class AccountStore {
       color: publicView.color,
       avatarGrid: publicView.avatarGrid,
       stats: publicPlayerStats(account.stats),
-      achievements: includeAchievements ? publicAchievements(account, true) : publicView.achievements,
-      achievementsPrivate: account.privacy?.achievements === 'private',
-      achievementsFriendsOnly: account.privacy?.achievements === 'friends' && !includeAchievements,
+      achievements: revealAchievements ? publicAchievements(account, true) : publicView.achievements,
+      achievementsPrivate,
+      achievementsFriendsOnly: account.privacy?.achievements === 'friends' && !revealAchievements,
       historyPrivate: account.privacy?.history === 'private',
       historyFriendsOnly: account.privacy?.history === 'friends',
       // Match history is served through the authorized history endpoint so
@@ -1243,9 +729,9 @@ export class AccountStore {
     };
   }
 
-  // id -> live account. Every hit is re-checked against the map, so a purge,
+  // id maps to a live account. Every hit is re-checked against the map, so a purge,
   // rollback or replaced record can never be served from a stale entry; a miss
-  // rebuilds the index in one pass, which is what the old scan cost per call.
+  // rebuilds the index in one pass, so a lookup does not scan every account.
   getAccountById(accountId) {
     const hit = this.idIndex.get(accountId);
     if (hit && hit.id === accountId && this.accounts.get(hit.username) === hit) return hit;
@@ -1306,7 +792,9 @@ export class AccountStore {
     const stats = {
       ...sanitizeStats({}),
       patrolBest: num(account.stats?.patrolBest),
-      patrolAceRuns: num(account.stats?.patrolAceRuns)
+      patrolAceRuns: num(account.stats?.patrolAceRuns),
+      patrolVerifiedBest: num(account.stats?.patrolVerifiedBest),
+      patrolVerifiedAceRuns: num(account.stats?.patrolVerifiedAceRuns)
     };
     windowRecords(account, since).forEach((record) => {
       const participant = findParticipant(record, account.id);
@@ -1336,18 +824,4 @@ export class AccountStore {
       metrics: Object.fromEntries(selected.map(metric => [metric, this.getLeaderboard(metric, { ...options, limit: options.primaryMetric === metric ? 100 : 3 })])),
     };
   }
-}
-
-const PRIVACY_RULES = {
-  history: { allowed: ['public', 'friends', 'private'], fallback: 'friends' },
-  achievements: { allowed: ['private'], fallback: 'friends' },
-  friendRequests: { allowed: ['everyone', 'friends', 'nobody'], fallback: 'everyone' },
-  roomInvites: { allowed: ['friends', 'nobody'], fallback: 'friends' }
-};
-
-function sanitizePrivacy(value) {
-  return Object.fromEntries(Object.entries(PRIVACY_RULES).map(([key, rule]) => [
-    key,
-    rule.allowed.includes(value?.[key]) ? value[key] : rule.fallback
-  ]));
 }

@@ -1,8 +1,6 @@
-// Player-contract lifecycle rules: proposal guards, term drafting, the
-// accept/decline settlement, repayments, and the round-by-round due/expiry
-// ladder. Pure module: it only mutates the GameState it is handed, so the
-// rules stay testable in isolation and the strings stay pinned by
-// server/contracts-market.test.js.
+// Player-contract lifecycle rules: proposal guards, term drafting, accept and decline settlement, repayments, and the
+// round-by-round due and expiry ladder. Pure: it only mutates the GameState it is handed, so the rules stay testable.
+// The strings stay pinned by server/contracts-market.test.js.
 import crypto from 'crypto';
 import { playerFinanceEnabled } from './financeRules.js';
 import { collateralQuoteFor, stampCollateralAgreement, usesCollateralCredit } from './collateralSettlement.js';
@@ -21,11 +19,9 @@ import { AUCTION_COMMITTED_CASH_ERROR } from './auctionApi.js';
 export const CONTRACT_KINDS = new Set(['loan', 'equity']);
 export const EQUITY_CONTROL_MODES = new Set(['passive']);
 const ACTIVE_CONTRACT_STATUSES = ['active', 'due'];
-// A finished match owns no contracts: endGame closes the table, clears the
-// pending offers, and leaves the contracts and equity shares behind. Every
-// contract verb therefore refuses once the game is not running, the same way
-// the trade surface refuses, and it refuses before the replay cache so a
-// retried request cannot resurrect a closed table.
+// A finished match owns no contracts: endGame closes the table, clears pending offers, and leaves contracts and equity shares behind.
+// Every contract verb refuses once the game is not running, before the replay cache, so a retried request cannot
+// resurrect a closed table.
 const GAME_NOT_RUNNING_ERROR = 'The game is not running.';
 // A funded contract that cannot be committed leaves the table exactly as it
 // was: no cash moved, no contract booked, the offer still open.
@@ -65,20 +61,16 @@ function lenderCanFund(lender, amount) {
   return lender.cash >= amount;
 }
 
-// A match that is not running owns no contracts. Every contract verb returns
-// the same rejection before it looks at the request, so a closed table cannot
-// be reopened by a proposal, a transfer, a negotiation, an answer or a
-// repayment - and a retried request cannot replay its way past the guard.
+// A match that is not running owns no contracts. Every contract verb returns the same rejection before reading the request,
+// so a closed table cannot be reopened, and a retried request cannot replay its way past the guard.
 function contractVerbRejection(game) {
   if (game?.started) return null;
   return { success: false, error: GAME_NOT_RUNNING_ERROR };
 }
 
-// A cash inflow can be the missing piece of the recipient's own parked debt:
-// the seat was gated on a claim it could not cover, and the incoming cash may
-// cover it now. Every contract cash inflow (the transfer price, a loan
-// repayment, an equity rent share) retries that claim here, the same way the
-// rent, trade and bankruptcy paths retry it.
+// A cash inflow can be the missing piece of the recipient's own parked debt: the seat was gated on a claim it could not cover,
+// and the incoming cash may cover it now. Every contract cash inflow (transfer price, loan repayment, equity rent share)
+// retries that claim here, as the rent, trade and bankruptcy paths do.
 function settleRecipientParkedDebt(game, recipient) {
   if (!recipient) return;
   if (game.pendingPayment?.playerId !== recipient.id) return;
@@ -289,12 +281,9 @@ function validateTransferBuyerCash(context) {
   return null;
 }
 
-// Equity transfers are player contracts in every other sense (kind
-// 'equity-transfer', pendingPlayerContract obligation, settlement guards) —
-// the documented loan-taint scope "casino, contract, and market guards"
-// covers them, so loan-backed cash must not fund the purchase. Checked at
-// proposal, counters, and acceptance because settleEquityTransfer re-runs
-// this validator list.
+// Equity transfers are player contracts in every other sense (kind 'equity-transfer', pendingPlayerContract obligation, settlement guards).
+// The documented loan-taint scope "casino, contract, and market guards" covers them, so loan-backed cash must not fund the purchase.
+// Checked at proposal, counters and acceptance, because settleEquityTransfer re-runs this validator list.
 function validateTransferBuyerTaint(context) {
   if (context.game.hasLoanBackedCash?.(context.buyer)) {
     return { error: 'Loan-backed cash cannot fund equity transfers.' };
@@ -410,10 +399,9 @@ function negotiatedContractTerms({ game, current, offer, actor, negotiationType 
   }
   if (terms) return terms;
   contract.counterDepth = Math.min(2, (Number(current.counterDepth) || 0) + 1);
-  // Whoever authored the surviving terms is the last proposer, so the decision
-  // hands to the other seat. Without this the responder falls back to
-  // counterDepth parity, which points back at the editor when the same seat
-  // negotiates twice in a row - the author could then accept their own terms.
+  // Whoever authored the surviving terms is the last proposer, so the decision passes to the other seat. Without this the
+  // responder falls back to counterDepth parity, which points back at the editor when one seat negotiates twice in a row,
+  // and the author could accept their own terms.
   contract.lastProposerId = actor.id;
   game.pendingPlayerContract = contract;
   game.feedMessage(actor.nickname + (negotiationType === 'counter' ? ' negotiated the ' : ' adjusted the ')
@@ -563,14 +551,9 @@ function loanDraftTerms(game, contract, offer, borrower) {
   return null;
 }
 
-// A deed pledged as live bank-loan or player-contract collateral is not
-// "unencumbered" even though its raw fields say so; both encumbrance checks
-// are shared with the trade/mortgage surface via propertyRules.tileEncumbered.
-// ignoredContractId excludes a contract's pledge of its own conversion
-// target — a due hybrid by definition encumbers the tile it converts into.
-// An active hybrid has not converted yet, so its conversion target stays
-// open for further equity proposals and is only bounded by the 100%
-// capacity rule (pinned by the hybrid-capacity invariant test).
+// A deed pledged as live bank-loan or contract collateral is encumbered, whatever its raw fields say. Both checks share
+// propertyRules.tileEncumbered with the trade and mortgage surface. ignoredContractId excludes a contract's pledge of its own conversion target:
+// a due hybrid encumbers the tile it converts into, while an active one stays open to equity proposals until the 100% capacity rule applies.
 function pledgeBlocksEquityEligibility(contract, owner, property) {
   if (!contractPledgesTile(contract, owner, property)) return false;
   if (contract.kind === 'hybrid' && contract.status === 'active' && Number(contract.propertyIndex) === Number(property.index)) {
@@ -683,10 +666,8 @@ export function proposeContract(game, socketId, offer = {}) {
   return memoizeSuccess(game, key, { success: true, contract });
 }
 
-// A negotiation keeps the original lender and borrower, replaces only the
-// unaccepted terms, and never transfers cash until the lender accepts. It is
-// intentionally off-turn for the borrower because it is a response to an
-// already-open table obligation; the normal lender-funding guards still run.
+// A negotiation keeps the original lender and borrower, replaces only unaccepted terms, and transfers no cash until the lender accepts.
+// It is off-turn for the borrower because it answers an already-open table obligation; the lender-funding guards still run.
 export function counterContract(game, socketId, offer = {}) {
   const startedRejection = contractVerbRejection(game);
   if (startedRejection) return startedRejection;
@@ -789,10 +770,8 @@ function anchorTermsToAcceptance(game, contract) {
   if (contract.kind === 'equity' && contract.expiresRound != null) contract.expiresRound = game.roundNumber + duration;
 }
 
-// Funding a contract moves cash, books a contract, records the equity share
-// and clears the pending offer. A throw in any of those steps used to leave
-// the table half-committed (cash moved, contract not booked), so the state
-// the activation touches is captured first and restored on failure.
+// Funding a contract moves cash, books the contract, records the equity share and clears the pending offer. A throw in any of
+// those steps must not leave the table half-committed, so the touched state is captured first and restored on failure.
 function fundedContractSnapshot(game, contract, lender, player) {
   const property = contract.kind === 'equity' ? game.getTile(contract.propertyIndex) : null;
   return {
@@ -899,13 +878,9 @@ function contractResponseKey(playerId, requestId) {
   return transactionKey('contract-response', playerId, requestId ? normalizeRequestId(requestId) : null);
 }
 
-// A response memo records the contract it settled, because a bare requestId
-// is not an identity: reusing one against a different contract replayed the
-// earlier result, reported success for a table obligation that was still
-// open, and stranded it ("Resolve the current table obligation first.").
-// A memo replays only for the contract it settled - either named by the
-// request or the one pending now - and for a request that names no contract
-// while none is pending, where it is the only answer available.
+// A response memo records the contract it settled. A bare requestId is not an identity: reusing one against a different contract
+// replayed the earlier result, reported success for an obligation still open, and stranded it ("Resolve the current table obligation first.").
+// A memo replays only for the contract it settled (named by the request or pending now), or for a request naming no contract while none is pending.
 function contractResponseMemo(game, playerId, requestId, contractId, requireCurrentRules = false) {
   const key = contractResponseKey(playerId, requestId);
   if (!key) return null;
@@ -1047,10 +1022,8 @@ function defaultPlayerLoanWithBasket(game, contract, options = {}) {
     handlePlayerLoanDefault(game, contract, options);
     return;
   }
-  // A default without a recovery claim would seize collateral and close the
-  // loan with nothing for the lender to collect. When the claim ledger is full
-  // of open claims, change nothing and leave the contract due: the next round
-  // retries once a slot frees up.
+  // A default without a recovery claim would seize collateral and close the loan with nothing for the lender to collect. When the
+  // claim ledger is full, change nothing and leave the contract due; the next round retries once a slot frees up.
   if (!canRecordDefaultClaim(game, contract)) return;
   const borrower = game.getPlayerById(contract.toPlayerId);
   const lender = game.getPlayerById(contract.fromPlayerId);
@@ -1134,10 +1107,8 @@ function recordHybridConversion(game, contract, lender) {
   }];
 }
 
-// A hybrid note converts instead of seizing: past the cure turn the lender
-// takes the agreed equity share and interest stops. When the conversion
-// target is gone (sold, mortgaged, built on, or full), the note falls back
-// to the plain loan-default path.
+// A hybrid note converts instead of seizing: past the cure turn the lender takes the agreed equity share and interest stops.
+// If the conversion target is gone (sold, mortgaged, built on, or full), the note falls back to the plain loan-default path.
 function convertHybridContract(game, contract) {
   if (!hybridConversionEligible(game, contract)) {
     defaultPlayerLoanWithBasket(game, contract, { reason: 'conversion-unavailable' });
@@ -1190,10 +1161,8 @@ export function settleEquityShares(game, tile, owner, amountPaid, payer = null) 
   if (!owner) return;
   if (owner.bankrupt) return;
   if (amountPaid <= 0) return;
-  // The shares of one deed can never add up to more than 100% of its rent: a
-  // stale or hand-edited tile would otherwise pay out more than the rent that
-  // was collected. Each entry is paid on the part of the rent that is still
-  // unallocated, so the payouts of one deed never exceed the rent.
+  // The shares of one deed can never add up to more than 100% of its rent: a stale or hand-edited tile would otherwise pay out
+  // more than was collected. Each entry is paid from the rent still unallocated, so one deed's payouts never exceed its rent.
   let unallocated = 100;
   const paid = [];
   tile.equityShares.forEach(share => {
@@ -1211,19 +1180,12 @@ export function settleEquityShares(game, tile, owner, amountPaid, payer = null) 
   paid.forEach(holder => settleRecipientParkedDebt(game, holder));
 }
 
-// The owner's cash is the only source of a share payout, so the owner can be
-// short of the share they owe. The unpaid part is carried on the contract as
-// unpaidRentShare and paid out of the next rent that same tile collects,
-// instead of silently voiding rent the holder already earned. The payout
-// stays clamped to the owner's cash, so no cash is ever minted, and the
-// carry is an integer like every other balance in this module.
+// The owner's cash is the only source of a share payout, so the owner can be short. The unpaid part is carried on the contract
+// as unpaidRentShare and paid from the next rent that tile collects, rather than voiding rent the holder already earned. The payout
+// stays clamped to the owner's cash, so no cash is minted, and the carry is an integer like every other balance.
 //
-// Rent is scored to whoever keeps the money. The owner was already credited the
-// full rent through creditRentTo before this settled, and the holder was only
-// handed raw cash, so a part-sold deed scored its holder at zero rent while
-// scoring the owner for income they gave away - and the holder could never
-// reach the rent-reaper achievement (maxRentPayersInRound, written only by
-// creditRentTo). Both sides now go through the player-level rent facts.
+// Rent is scored to whoever keeps the money: the owner had already been credited the full rent, so a part-sold deed scored the
+// holder zero. Both sides go through the player-level rent facts, so the holder can reach maxRentPayersInRound.
 function settleEquityPayout(game, owner, share, amountPaid, payer, effectiveSharePct = null) {
   const payable = equitySharePayable(game, share);
   if (!payable) return null;

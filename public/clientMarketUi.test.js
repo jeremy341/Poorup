@@ -53,6 +53,7 @@ test('missingHistoryQuotesAreGapsRatherThanFabricatedZeroPrices', () => {
     { round: 0, quotes: { brazil: 100 } },
     { round: 1, quotes: { brazil: null } },
     { round: 2, quotes: { brazil: '' } },
+    { round: 2.5, quotes: { brazil: '   ' } },
     { round: 3, quotes: { brazil: 0 } },
   ] }, 'brazil'), [
     { round: 0, value: 100, eventId: null },
@@ -214,6 +215,12 @@ test('marketDeskHasOneEntryAndViewerScopedRefresh', () => {
   assert.ok(!/data-market-order/.test(railRender));
   assert.ok(/openMarketDesk/.test(railEvents));
   assert.ok(/const market = incoming\.market/.test(stateSync));
+});
+
+
+test('empty and whitespace current quotes are unavailable', () => {
+  for (const quote of ['', '   ', null, undefined]) assert.equal(marketQuoteSummary({ quotes: { brazil: quote } }, 'brazil').quote, null);
+  assert.equal(marketQuoteSummary({ quotes: { brazil: 0 } }, 'brazil').quote, 0);
 });
 
 if (process.exitCode) process.exit(process.exitCode);

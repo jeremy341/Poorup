@@ -18,8 +18,8 @@ crontab, systemd timer, webhook, or deploy script existed.
    origin `https://poorup.jeremy-d.hackclub.app`, data/backup dirs,
    `POORUP_TRUST_PROXY_HOPS=1` (single Caddy hop), generated
    `POORUP_MAINTENANCE_TOKEN`, `POORUP_AI_CONFIG_KEY`,
-   `POORUP_ANALYTICS_PSEUDONYM_KEY`. No dotenv loader exists by design;
-   `ecosystem.config.cjs` merges this file so bare-shell `pm2 startOrReload`
+   `POORUP_ANALYTICS_PSEUDONYM_KEY`. No dotenv loader exists;
+   `ecosystem.config.cjs` merges the shared env file so bare-shell `pm2 startOrReload`
    cannot boot without it.
 4. Seeded valid empty stores (arrays for accounts/matches/achievements/
    telemetry, objects for social/cosmetics/analytics-rollup, versioned object
@@ -58,7 +58,7 @@ and rejects newly provisioned keys, so Actions cannot SSH in. If the gateway
 authorizes a deploy key later, set the repository variable
 `NEST_DEPLOY_ENABLED=true` plus the `nest-production` secrets (`NEST_HOST`,
 `NEST_USER`, `NEST_DEPLOY_KEY`, `NEST_KNOWN_HOSTS`, `POORUP_MAINTENANCE_TOKEN`)
-and the SSH path activates. Until then those workflows intentionally skip.
+and the SSH path activates. Until then those workflows skip.
 
 ## Custom-domain migration: `poorup.tech`
 
@@ -125,8 +125,8 @@ Changing the shared environment requires reloading the app. Room state is held
 in memory, so do not restart while games are active. Use the existing drain
 flow and wait until there are no started games or waiting rooms before reload.
 `/readyz` reports started games only (`activeRounds`), not waiting lobbies, so
-`activeRounds: 0` by itself is not enough to guarantee every in-memory room is
-preserved. Confirm the active-room count through the operator surface or choose
+`activeRounds: 0` by itself does not show that every in-memory room will be kept
+through the reload. Confirm the active-room count through the operator surface or choose
 a quiet window and verify no rooms remain. Then reload PM2 with the updated
 environment and verify `/healthz`, `/readyz`, and Socket.IO before returning
 maintenance mode to normal. Do not move, overwrite, or reseed the existing data

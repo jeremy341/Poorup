@@ -1,10 +1,6 @@
-/* ============================================================
-   SHORTCUT PREFERENCE: WCAG 2.1.4 (Character Key Shortcuts). The
-   single-key shortcuts (B C P J L R Space) stay ON by default, and
-   this per-viewer switch turns them off. Persisted in localStorage;
-   every storage access is guarded so a blocked or private-mode
-   browser still works for the session.
-   ============================================================ */
+// SHORTCUT PREFERENCE: WCAG 2.1.4 (Character Key Shortcuts). The single-key shortcuts
+// (B C P J L R Space) are on by default, and this per-viewer switch turns them off. Persisted in
+// localStorage. Every storage access is guarded, so a blocked or private-mode browser still works.
 import { $ } from "./clientDom.js";
 
 export const SHORTCUTS_STORAGE_KEY = "poorup.shortcuts.v1";

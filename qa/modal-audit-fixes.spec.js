@@ -182,7 +182,7 @@ test('F06 direct metric picker retains scope cache and keyboard navigation',asyn
     s.leaderboard.scope='month';s.leaderboard.metric='wins';s.leaderboard.snapshots.wins=[{accountId:'cached',value:2}];
     f.social.renderRankingsSurface('#rankings-card');f.surfaces.openSurface('#rankings-modal','#rankings-close');
   });
-  const picker=page.locator('#rankings-card [data-ranking-metric]');await expect(picker.locator('option')).toHaveCount(14);
+  const picker=page.locator('#rankings-card [data-ranking-metric]');await expect(picker.locator('option')).toHaveCount(15);
   const next=await picker.locator('option').nth(2).getAttribute('value');await picker.selectOption(next);
   await expect(picker).toHaveValue(next);await expect(picker).toBeFocused();
   const state=await page.evaluate(()=>({metric:window.__ipadModalCapture.state.leaderboard.metric,scope:window.__ipadModalCapture.state.leaderboard.scope,cache:window.__ipadModalCapture.state.leaderboard.snapshots.wins,requests:window.__fixRankingRequests}));

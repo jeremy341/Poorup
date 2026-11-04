@@ -1,7 +1,5 @@
-/* ============================================================
-   BOARD TOKEN STACKING: where pieces sit on a shared tile.
-   Pure geometry so it can be unit-tested without a DOM.
-   ============================================================ */
+// BOARD TOKEN STACKING: where pieces sit on a shared tile.
+// Pure geometry so it can be unit-tested without a DOM.
 
 export const DEFAULT_STACK_OFFSETS = Object.freeze([
   Object.freeze({ x: 0, y: 0 }),
@@ -18,11 +16,9 @@ export function defaultStackOffset(count, idx) {
 }
 
 /**
- * F-080: on the Start corner the tokens must stay clear of the COLLECT / $200
- * caption. They are packed into the band between the tile's top edge and the
- * caption, overlapping each other (not the caption) when the band is short.
- * All numbers are px relative to the tile centre. `captionTop` is the caption's
- * top edge relative to the tile centre.
+ * On the Start corner the tokens stay clear of the COLLECT / $200 caption. They are packed
+ * into the band above it, overlapping each other (not the caption) when the band is short.
+ * Numbers are px relative to the tile centre. `captionTop` is the caption's top edge.
  */
 export function startTileStackOffset({ count, idx, tileWidth, tileHeight, captionTop, pieceSize }) {
   const n = Math.max(1, Math.floor(count) || 1);

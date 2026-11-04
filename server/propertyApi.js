@@ -229,10 +229,9 @@ const propertyApi = {
     this.trySettlePendingPayment();
   },
 
-  // The shared gates of management actions, in the historical order: existence
-  // and ownership first. Building follows the turn window; selling buildings
-  // remains legal off-turn for classic liquidity and debt rescue. Mortgage legs
-  // also skip the turn window; live-seat and property-offer gates still apply.
+  // The shared gates of management actions, in historical order: existence and ownership first. Building follows the turn window;
+  // selling buildings stays legal off-turn for classic liquidity and debt rescue. Mortgage legs also skip the turn window;
+  // live-seat and property-offer gates still apply.
   propertyActionRejection(player, tile, action) {
     // A finished match owns no property: build, sell, mortgage and unmortgage
     // are refused before any gate below can touch the table.
@@ -369,13 +368,24 @@ const propertyApi = {
     if (!this.canSellFromTile(player, tile)) {
       return { success: false, error: 'You cannot sell a house from this property right now.' };
     }
-    const cost = this.getPropertyHouseCost(tile);
+    const saleValue = this.houseResaleValue(tile);
     const wasHotel = (tile.houseCount || 0) >= 5;
     tile.houseCount = Math.max(0, (tile.houseCount || 0) - 1);
-    player.cash += Math.floor(cost * this.buildingSaleMultiplier());
+    player.cash += saleValue;
     if (this.globalEventActive('housing-bubble')) player.soldBuildingsDuringHousingBubble = (player.soldBuildingsDuringHousingBubble || 0) + 1;
     this.feedMessage(`${player.nickname} sold a ${buildingLabel(wasHotel ? 5 : 0)} from ${tile.name}.`);
     return { success: true };
+  },
+
+  // A house sells back for half its cost. The basis is the printed group house cost, capped at the current build cost, so a
+  // cost-raising event cannot let a house built earlier (or during a cost-cutting event) sell for more than was paid for it.
+  houseResaleBasis(tile) {
+    const printed = PROPERTY_HOUSE_COST_BY_GROUP[tile?.group] || 0;
+    return Math.min(printed, this.getPropertyHouseCost(tile));
+  },
+
+  houseResaleValue(tile) {
+    return Math.max(0, Math.floor(this.houseResaleBasis(tile) * this.buildingSaleMultiplier()));
   },
 
   buildingSaleMultiplier() {
@@ -388,7 +398,7 @@ const propertyApi = {
   propertyActionProjection(player, tile) {
     if (!ownsProperty(player, tile)) return null;
     const houseCost = this.getPropertyHouseCost(tile);
-    const saleValue = Math.floor(houseCost * this.buildingSaleMultiplier());
+    const saleValue = this.houseResaleValue(tile);
     const mortgageValue = Math.floor((tile.price || 0) / 2 * this.propertyValueMultiplier());
     const unmortgageCost = unmortgageCostFor(tile.price, this.propertyValueMultiplier());
     const costs = { houseCost, unmortgageCost };

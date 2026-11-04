@@ -1,5 +1,5 @@
-// Cleanup round w9: o01 F3 (restore picks the seat the user last held) and
-// s02 F6 (an absent lobby seat does not hold capacity forever).
+// Cleanup round: restore picks the seat the user last held, and
+// an absent lobby seat does not hold capacity forever.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 
@@ -11,7 +11,7 @@ function dropSeat(manager, player, droppedAt, deadline) {
   player.disconnectedAt = droppedAt;
 }
 
-// o01 F3: one clientId holds a graced seat in started room A (left earlier) and
+// One clientId holds a graced seat in started room A (left earlier) and
 // a graced seat in lobby B (left later). Restore returns the later one.
 {
   const manager = new RoomManager();
@@ -31,7 +31,7 @@ function dropSeat(manager, player, droppedAt, deadline) {
   assert.equal(manager.getRoomBySocket('p-new'), roomB);
 }
 
-// o01 F3: a socket already mapped to a room holding the clientId restores into
+// A socket already mapped to a room holding the clientId restores into
 // that room even when another room's seat has the later deadline.
 {
   const manager = new RoomManager();
@@ -59,7 +59,7 @@ function lobbyWithGhost(droppedAgoMs) {
   return { manager, room };
 }
 
-// s02 F6: a lobby seat absent longer than the grace window is reclaimed.
+// A lobby seat absent longer than the grace window is reclaimed.
 {
   const { room } = lobbyWithGhost(121_000);
   const joined = room.addOrReconnectPlayer({ socketId: 'n', clientId: 'nc', nickname: 'Newcomer' });
@@ -68,7 +68,7 @@ function lobbyWithGhost(droppedAgoMs) {
   assert.equal(room.game.getPlayerByClient('nc')?.nickname, 'Newcomer');
 }
 
-// s02 F6 control: inside the window the seat still holds capacity.
+// control: inside the window the seat still holds capacity.
 {
   const { room } = lobbyWithGhost(60_000);
   const joined = room.addOrReconnectPlayer({ socketId: 'n', clientId: 'nc', nickname: 'Newcomer' });
@@ -77,17 +77,15 @@ function lobbyWithGhost(droppedAgoMs) {
   assert.ok(room.game.getPlayerByClient('gc'), 'a seat inside the grace window is kept');
 }
 
-// s02 F6 control: a seat with no recorded drop time (disconnectedAt 0) is never reclaimed.
+// control: a seat with no recorded drop time (disconnectedAt 0) is never reclaimed.
 {
   const { room } = lobbyWithGhost(0);
   room.game.getPlayerByClient('gc').disconnectedAt = 0;
   assert.equal(room.addOrReconnectPlayer({ socketId: 'n', clientId: 'nc', nickname: 'Newcomer' }).success, false);
 }
 
-// X12: the account-seat reclaim must not take the oldest disconnected seat.
-// The seat the account dropped last is the one it comes back to, and the
-// ordering key is the actual first drop (a lobby seat's grace restarts for
-// ever, so its deadline cannot tell a fresh drop from a ghost).
+// The account-seat reclaim must not take the oldest disconnected seat. It returns to the seat the account dropped last, ordered by the
+// actual first drop: a lobby seat's grace restarts forever, so its deadline cannot tell a fresh drop from a ghost.
 {
   const manager = new RoomManager();
   const roomA = manager.createRoom({ socketId: 'qa0', clientId: 'qa0c', nickname: 'A0' });

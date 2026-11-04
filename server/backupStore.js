@@ -131,7 +131,22 @@ function retainedCopies(copies, retention, now) {
   return keep;
 }
 
+// A crash during a backup write leaves `<store>.json.<stamp>.<pid>.<id>.tmp` behind: a whole store copy that
+// no rotation or age pass looks at. Anything older than a backup cycle's write window is a leftover.
+const STALE_BACKUP_TEMP_MS = 10 * 60 * 1000;
+function sweepStaleBackupTemps(directory, prefix, now) {
+  let names;
+  try { names = fs.readdirSync(directory); } catch { return; }
+  names.filter(name => name.startsWith(prefix) && name.endsWith('.tmp')).forEach(name => {
+    const target = path.join(directory, name);
+    try {
+      if (now - fs.statSync(target).mtimeMs > STALE_BACKUP_TEMP_MS) fs.unlinkSync(target);
+    } catch { /* the file is gone or busy; the next pass retries */ }
+  });
+}
+
 function rotate(directory, prefix, retention, now) {
+  sweepStaleBackupTemps(directory, prefix, now);
   const copies = verifiedCopies(directory, prefix);
   const keep = retainedCopies(copies, retention, now);
   copies.filter(copy => !keep.has(copy.file)).forEach(copy => {
@@ -154,13 +169,13 @@ export function backupJsonFile(sourcePath, backupDirectory, { retention = DEFAUL
   const source = safePath(sourcePath);
   const directory = safePath(backupDirectory);
   if (!source || !directory) return { success: false, error: 'Backup paths are required.' };
-  if (!fs.existsSync(source)) return { success: false, error: 'Source store does not exist.' };
   if (isQuarantinedStore(source)) {
-    // The live file is an empty stand-in for corrupt bytes. Copying it would
-    // rotate the last good copies out within the retention window.
+    // The live file may be an empty stand-in or absent after the corrupt bytes
+    // were moved aside. Either way, do not rotate on an incomplete store.
     console.error(`Backup skipped for ${path.basename(source)}: the store was quarantined as corrupt at load and will not be copied until the server restarts.`);
     return { success: false, skipped: true, reason: 'quarantined-at-load', path: null, checksum: null, createdAt: null };
   }
+  if (!fs.existsSync(source)) return { success: false, error: 'Source store does not exist.' };
   fs.mkdirSync(directory, { recursive: true, mode: STORE_DIRECTORY_MODE });
   const stamp = new Date(now).toISOString().replace(/[:.]/g, '-');
   const name = backupName(source, stamp);
@@ -198,6 +213,13 @@ export function backupJsonStores(storePaths = {}, backupDirectory, options = {})
     });
   if (!results.length) return { success: false, error: 'No source stores are configured for backup.', results };
   return { success: results.every(result => result.success), results };
+}
+
+// A quarantined store may have been moved aside when preserving its corrupt
+// bytes failed. Keep it in the cycle even when the live pathname is absent so
+// readiness cannot mistake the missing store for a fresh, empty installation.
+export function isBackupStoreCandidate(filePath) {
+  return typeof filePath === 'string' && (isQuarantinedStore(filePath) || fs.existsSync(filePath));
 }
 
 // The store a copy belongs to (its file name without the time stamp).
@@ -247,10 +269,9 @@ export function pruneBackupsByAge(backupDirectory, { olderThan = Date.now() - 30
   return removed;
 }
 
-// The credential fields of an account record. A hash of a password, of a
-// session token or of a recovery token is as good as the secret itself, so it
-// never survives an erasure. The names are the ones the stores actually
-// write: 'sessionToken' alone was never persisted ('sessionTokenHash' is).
+// The credential fields of an account record. A hash of a password, session token or recovery token
+// is as good as the secret, so it never survives an erasure. The names are the ones the stores
+// actually write: 'sessionToken' alone was never persisted ('sessionTokenHash' is).
 const CREDENTIAL_KEYS = new Set([
   'passwordHash',
   'passwordSalt',
@@ -260,19 +281,26 @@ const CREDENTIAL_KEYS = new Set([
   'tokenHash'
 ]);
 
-function scrubAccount(value, accountId) {
+const RELATION_KEYS = ['requesterId', 'addresseeId', 'blockerId', 'blockedId', 'senderId', 'recipientId', 'reporterId', 'reportedId', 'fromId', 'toId'];
+
+function scrubAccount(value, accountId, inheritedOwnership = false) {
   // Only an element that scrubbed to null (the erased record) is dropped;
   // genuine nulls keep their position.
-  if (Array.isArray(value)) return value.map(item => scrubAccount(item, accountId)).filter((item, index) => !(item === null && value[index] !== null));
+  if (Array.isArray(value)) return value.map(item => scrubAccount(item, accountId, inheritedOwnership)).filter((item, index) => !(item === null && value[index] !== null));
   if (!value || typeof value !== 'object') return value;
   if (value.id === accountId && typeof value.username === 'string') return null;
+  // A relationship row (friendship, block, invite, report, cooldown) that names the erased account on either
+  // side is dropped, as socialStore.purgeAccount drops it from the live file. Without this the id survives
+  // the scrub and the whole backup copy, with every other player's rows, is deleted instead.
+  if (RELATION_KEYS.some(key => value[key] === accountId)) return null;
   // A record that belongs to the erased account keeps neither its id, nor its
   // name, nor its credentials. It is rebuilt field by field, so the same
   // credential rules apply to it as to any other record.
-  const owned = value.accountId === accountId;
+  const hasExplicitOwner = typeof value.accountId === 'string' && value.accountId.length > 0;
+  const owned = value.accountId === accountId || (inheritedOwnership && !hasExplicitOwner);
   const output = {};
   Object.entries(value).forEach(([key, child]) => {
-    if (CREDENTIAL_KEYS.has(key)) return;
+    if (owned && CREDENTIAL_KEYS.has(key)) return;
     if (key === accountId) return;
     if (owned && key === 'accountId') { output.accountId = null; return; }
     if (owned && key === 'username') { output.username = null; return; }
@@ -282,7 +310,7 @@ function scrubAccount(value, accountId) {
       output[key] = null;
       return;
     }
-    output[key] = scrubAccount(child, accountId);
+    output[key] = scrubAccount(child, accountId, owned);
   });
   return output;
 }
@@ -342,10 +370,9 @@ function storeCopies(storeFiles) {
   return directories.flatMap(directory => storeSidecars(directory).map(file => path.join(directory, file)));
 }
 
-// Erases one account from every backup copy this module can reach: the
-// backup set, its quarantine/ folder, and the .corrupt-* copies written next
-// to the given live store files. Copies that cannot be reached are counted in
-// `skipped`, so the caller can keep the purge pending (E37-08, E24-11).
+// Erases one account from every reachable backup copy: the backup set, its quarantine/ folder,
+// and the .corrupt-* copies beside the given live files. Unreachable copies are counted in
+// `skipped` so the caller can keep the purge pending.
 export function eraseAccountFromBackups(backupDirectory, accountId, { storeFiles = [] } = {}) {
   const counts = { scrubbed: 0, deleted: 0, skipped: 0 };
   const directory = safePath(backupDirectory);
@@ -419,9 +446,18 @@ export function restoreJsonBackup(backupPath, destinationPath, { allowDirs = [] 
   if (path.dirname(destination) !== path.dirname(backup) && path.basename(destination).includes('..')) return { success: false, error: 'Restore destination is invalid.' };
   fs.mkdirSync(path.dirname(destination), { recursive: true, mode: STORE_DIRECTORY_MODE });
   const temp = `${destination}.${process.pid}.${crypto.randomUUID()}.restore.tmp`;
-  fs.copyFileSync(backup, temp);
-  fs.chmodSync(temp, STORE_FILE_MODE);
-  fs.renameSync(temp, destination);
+  try {
+    fs.copyFileSync(backup, temp);
+    fs.chmodSync(temp, STORE_FILE_MODE);
+    // Flush the copy before it replaces the live store, as writeJson does: a power loss right after the
+    // rename must not leave a truncated store that the next load quarantines.
+    const handle = fs.openSync(temp, 'r+');
+    try { fs.fsyncSync(handle); } finally { fs.closeSync(handle); }
+    fs.renameSync(temp, destination);
+  } catch (error) {
+    try { fs.unlinkSync(temp); } catch { /* the temp file may not exist */ }
+    throw error;
+  }
   return { success: true, checksum: verified.checksum, path: destination };
 }
 

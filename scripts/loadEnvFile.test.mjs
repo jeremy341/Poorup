@@ -96,7 +96,7 @@ try {
 }
 
 // The PM2 ecosystem must hand the app the same values the deploy scripts see.
-// Before this module, quotes reached the app verbatim (CORS assert crash loop),
+// Before the loader existed, quotes reached the app verbatim (CORS assert crash loop),
 // an inline comment turned TRUST_PROXY_HOPS into NaN and `export` lines were
 // dropped (maintenance endpoint 404).
 const ecosystemScratch = mkdtempSync(path.join(os.tmpdir(), 'poorup-ecosystem-env-'));

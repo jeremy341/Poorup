@@ -100,7 +100,10 @@ test("financing composer reserves a footer while terms and preview scroll intern
   assert.match(economyStyles, /\.financing-card:has\(\.financing-builder\) > \.financing-body\s*\{[^}]*max-height:[^}]*display:\s*flex;[^}]*flex-direction:\s*column/);
   assert.match(economyStyles, /\.financing-form\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto/);
   assert.match(economyStyles, /\.financing-preview\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto/);
-  assert.match(functionSource("financingBuilderHTML"), /class="financing-form" tabindex="0" role="region" aria-label="Financing terms"/);
+  const builder = functionSource("financingBuilderHTML");
+  assert.match(builder, /id="financing-tab-loan" aria-controls="financing-mode-panel"/);
+  assert.match(builder, /id="financing-tab-equity" aria-controls="financing-mode-panel"/);
+  assert.match(builder, /class="financing-form" id="financing-mode-panel" tabindex="0" role="tabpanel" aria-labelledby="financing-tab-\$\{financingPreviewMode\}"/);
 });
 
 test("active loan details expose actual terms and an honestly empty payment track", () => {

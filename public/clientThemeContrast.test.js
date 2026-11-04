@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { THEME_IDS, getTheme } from "./clientThemeData.js";
 
-// F-049 / F-050 / F-051 / F-085 / F-087: contrast regression guard computed from
+// Contrast guard computed from
 // the per-theme token maps (original = the :root block in styles.css).
 const root = dirname(fileURLToPath(import.meta.url));
 const css = readFileSync(join(root, "styles.css"), "utf8");
@@ -61,6 +61,24 @@ for (const id of THEME_IDS) {
     assert.ok(disabled >= 4.5, `${id} disabled CTA label = ${disabled.toFixed(2)}`);
   });
 
+  check(`${id}: dark-button labels reach 4.5:1 on the dark button surface`, () => {
+    const t = tokensFor(id);
+    const label = getTheme(id).tokens["--button-dark-label"] ? "--button-dark-label" : "--gold-300";
+    assert.ok(contrast(t(label), t("--surface-button-dark")) >= 4.5, `${id} ${label} on --surface-button-dark = ${contrast(t(label), t("--surface-button-dark")).toFixed(2)}`);
+  });
+  check(`${id}: neutral auction bid labels reach 4.5:1 on their button states`, () => {
+    const t = tokensFor(id);
+    for (const [label, surface] of [
+      ["--text-primary", "--surface-button-dark"],
+      ["--text-primary", "--surface-button-hover"],
+      ["--text-primary", "--surface-button-pressed"],
+      ["--text-primary", "--surface-disabled"],
+    ]) {
+      const ratio = contrast(t(label), t(surface));
+      assert.ok(ratio >= 4.5, `${id} ${label} on ${surface} = ${ratio.toFixed(2)}`);
+    }
+  });
+
   check(`${id}: control borders reach 3:1 against input, button and panel surfaces`, () => {
     const t = tokensFor(id);
     for (const surface of ["--surface-input", "--surface-button-dark", "--surface-panel", "--surface-panel-raised", "--surface-panel-deep", "--surface-button-hover"]) {
@@ -71,7 +89,7 @@ for (const id of THEME_IDS) {
 }
 
 for (const id of THEME_IDS) {
-  check(`${id}: home hero text and wordmark contrast with the scene's base colour (F-087)`, () => {
+  check(`${id}: home hero text and wordmark contrast with the scene's base colour`, () => {
     const t = tokensFor(id);
     assert.ok(contrast(t("--text-primary"), t("--surface-board-center")) >= 7, `${id} body text on scene base`);
     assert.ok(contrast(t("--wordmark-color"), t("--surface-board-center")) >= 4.5, `${id} wordmark ${contrast(t("--wordmark-color"), t("--surface-board-center")).toFixed(2)}`);
@@ -85,12 +103,18 @@ check("home hero uses theme text tokens instead of fixed dark-on-scene colours",
 check("CTA labels and sublabels come from opaque tokens, not translucent literals", () => {
   assert.match(rule(".cta-red"), /color:\s*var\(--cta-label\)/);
   assert.match(rule(".cta-red:disabled"), /color:\s*var\(--cta-label-disabled\)/);
-  for (const selector of [".choice-buy .t-micro", ".auction-bid-btn .t-micro", ".dd-build-btn .t-micro"]) {
+  for (const selector of [".choice-buy .t-micro", ".dd-build-btn .t-micro"]) {
     const body = rule(selector);
     assert.match(body, /color:\s*var\(--cta-label-muted\)/, `${selector} must use --cta-label-muted`);
     assert.doesNotMatch(body, /\/\s*\d+%/, `${selector} must not use alpha`);
   }
-  assert.match(rule(".auction-bid-btn .t-label"), /color:\s*var\(--cta-label\)/);
+  assert.match(rule(".btn-dark"), /color:\s*var\(--button-dark-label, var\(--gold-300\)\)/);
+  assert.match(rule(".auction-bid-btn"), /color:\s*var\(--text-primary\)/);
+  assert.match(rule(".auction-bid-btn:hover:not(:disabled)"), /color:\s*var\(--text-primary\)/);
+  assert.match(rule('.auction-bid-btn[aria-disabled="true"]'), /color:\s*var\(--text-primary\)/);
+  for (const selector of [".auction-bid-btn .t-label", ".auction-bid-btn .t-micro"]) {
+    assert.match(rule(selector), /color:\s*inherit/, `${selector} must inherit the neutral button color`);
+  }
 });
 
 check("fields and dark buttons draw their border from --line-control", () => {

@@ -135,10 +135,8 @@ assert.equal(defaultContract.status, 'defaulted');
 assert.equal(defaulted.game.getTile(1).ownerId, defaulted.lender.id);
 assert.equal(defaulted.game.getTile(3).ownerId, defaulted.lender.id);
 
-// A full ledger of open claims cannot take a new one. The round processor must
-// then leave the due loan untouched (no seizure, no default flag, no claim) so a
-// later round retries it once a slot frees up, instead of defaulting the loan
-// with no recovery record.
+// A full ledger of open claims cannot take a new one, so the round processor leaves the due loan untouched
+// (no seizure, default flag or claim). A later round retries it once a slot frees up, rather than defaulting with no recovery record.
 function fullLedger(game, lender, borrower) {
   game.defaultClaims = Array.from({ length: 200 }, (_, index) => ({
     id: `open_${index}`,
@@ -233,7 +231,7 @@ assert.equal(bankruptHybrid.game.defaultClaims[0].status, 'open');
 
 // Bankruptcy has no later round to retry, so a borrower leaving with a full
 // ledger still defaults the loan and the lender still seizes the collateral;
-// the lost recovery record is flagged and announced instead of silent.
+// the lost recovery record is flagged and announced, never silent.
 for (const kind of ['loan', 'hybrid']) {
   const ctx = startedRoom();
   ownDeeds(ctx.game, ctx.borrower, [1, 3]);

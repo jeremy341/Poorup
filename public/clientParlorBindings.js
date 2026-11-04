@@ -1,13 +1,11 @@
-/* ============================================================
-   PARLOR SURFACE BINDINGS: the click/submit dispatch handlers for
-   the rankings, social and player-card surfaces (both the in-game
-   modal and the full-page variants) plus the profile player-list.
-   Selector order inside each dispatch chain matches the old
-   if-chain exactly. emitServer and leaveRoomForHome are injected.
-   ============================================================ */
+// PARLOR SURFACE BINDINGS: the click/submit dispatch handlers for
+// the rankings, social and player-card surfaces (both the in-game
+// modal and the full-page variants) plus the profile player-list.
+// Selector order inside each dispatch chain must match the main.js
+// if-chain exactly. emitServer and leaveRoomForHome are injected.
 import { $ } from "./clientDom.js";
 import { state } from "./clientState.js";
-import { closeSurface } from "./clientSurfaces.js";
+import { closeSurface, openConfirmModal } from "./clientSurfaces.js";
 import { openAccountModal } from "./clientAccountIdentity.js";
 import { createVoteKickUi } from "./clientVoteKickUi.js";
 import {
@@ -24,7 +22,7 @@ import {
   finishFriendRequestAction,
 } from "./clientSocialSurfaces.js";
 
-let host = { emitServer: noop, leaveRoomForHome: noop };
+let host = { emitServer: noop, leaveRoomForHome: noop, removeComputerPlayer: noop, openComputerProfile: noop };
 let roomVoteKickUi = null;
 const SOCIAL_ACTION_TIMEOUT_MS = 8000;
 let rankingSearchRequestId = 0;
@@ -249,7 +247,12 @@ function onSocialAccount(event) {
 }
 
 function onSocialPlayer(player) {
-  openPlayerSurface(player.dataset.socialPlayer);
+  const id = player.dataset.socialPlayer;
+  if (id?.startsWith("computer:")) {
+    host.openComputerProfile(id.slice("computer:".length));
+    return;
+  }
+  openPlayerSurface(id);
 }
 
 function onSocialRequest(request) {
@@ -519,6 +522,17 @@ function handlePlayerCardClick(event) {
   const action = event.target.closest("[data-player-action]");
   if (!playerActionEnabled(action)) return;
   const handler = PLAYER_ACTIONS[action.dataset.playerAction];
+  if (action.dataset.playerAction === "remove-computer") {
+    closeSurface("#player-modal");
+    openConfirmModal({
+      title: "Remove computer player?",
+      message: "This takes the computer seat off the table. You can add one again from the player list.",
+      confirmLabel: "REMOVE",
+      confirmTone: "red",
+      onConfirm: () => host.removeComputerPlayer(),
+    });
+    return;
+  }
   if (action.dataset.playerAction === "vote-kick") {
     const targetId = state.selectedPlayer?.serverId || state.selectedPlayer?.roomPlayerId || state.selectedPlayer?.id;
     if (targetId && roomVoteKickUi) roomVoteKickUi.requestStart(targetId, state.players);

@@ -21,7 +21,7 @@ ENV POORUP_SOCKET_RATE_LIMIT=120
 ENV POORUP_SOCKET_RATE_WINDOW_MS=60000
 # Durable defaults: JSON stores, sessions, and backups live under
 # /var/lib/poorup. Mount a volume there or set POORUP_DATA_DIR /
-# POORUP_BACKUP_DIR explicitly — otherwise restarts wipe state.
+# POORUP_BACKUP_DIR explicitly. Otherwise restarts wipe state.
 ENV POORUP_DATA_DIR=/var/lib/poorup/data
 ENV POORUP_BACKUP_DIR=/var/lib/poorup/backups
 # Create the data and backup directories owned by the runtime user before the

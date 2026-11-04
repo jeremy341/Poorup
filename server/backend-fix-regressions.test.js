@@ -1,7 +1,6 @@
-// Regression suite for the backend audit fixes: every check pins one defect
-// that was found, classified (bug vs intended feature), and repaired. The
-// classification notes live in the audit campaign report; this file only
-// encodes the corrected behavior so none of it can silently regress.
+// Regression checks for backend defects. Each check pins one defect,
+// classified as a bug or an intended feature, then repaired.
+// The checks encode only the corrected behavior, so none of it can silently regress.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { contractSettlementRejection } from './bankruptcyLogic.js';
@@ -205,7 +204,7 @@ check('a departed seat\'s ballot is not tallied (T11)', () => {
   };
   game.players.forEach((player, index) => { event.votes[player.id] = index === 0 ? 'enforce' : 'dismiss'; });
   game.globalEvent = event;
-  // Two seats split 1-1 is no strict majority of the active seats (A8-06).
+  // Two seats split 1-1 is no strict majority of the active seats.
   assert.equal(game.globalEventVoteChoice(event), null);
   game.players[0].disconnected = true;
   assert.equal(game.globalEventVoteChoice(event), 'dismiss');

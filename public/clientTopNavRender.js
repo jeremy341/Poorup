@@ -1,7 +1,5 @@
-/* ============================================================
-   TOP NAV + CONNECTION STATUS RENDERING: the browser chrome that
-   mirrors state.connectionStatus / room identity. Pure DOM output.
-   ============================================================ */
+// TOP NAV + CONNECTION STATUS RENDERING: the browser chrome that
+// mirrors state.connectionStatus / room identity. Pure DOM output.
 import { $, setText } from "./clientDom.js";
 import { state } from "./clientState.js";
 

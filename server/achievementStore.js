@@ -7,10 +7,16 @@ const __dirname = path.dirname(__filename);
 const DEFAULT_FILE = path.join(__dirname, 'data', 'achievements.json');
 
 const loanLikeContract = contract => ['loan', 'hybrid'].includes(contract?.kind);
-// Match records intentionally store human-readable event titles, while older
-// records and test fixtures may contain stable event ids. Keep both forms in
-// one predicate so the crisis achievement cannot silently disappear after a
-// title projection.
+// Computer personas are matched by persona id. Their accountId is null, so an account comparison would match every empty field.
+const isLenderOf = (contract, participant) => (participant.personaId
+  ? contract.fromPersonaId === participant.personaId
+  : Boolean(participant.accountId) && contract.fromAccountId === participant.accountId);
+const isBorrowerOf = (contract, participant) => (participant.personaId
+  ? contract.toPersonaId === participant.personaId
+  : Boolean(participant.accountId) && contract.toAccountId === participant.accountId);
+// Match records store human-readable event titles, while older records and fixtures may hold
+// stable event ids. Keep both forms in one predicate so the crisis achievement cannot vanish
+// after a title projection.
 const NEGATIVE_GLOBAL_EVENTS = new Set([
   'housing-bubble', 'HOUSING BUBBLE POP', 'credit-freeze', 'CREDIT FREEZE',
   'inflation-spiral', 'INFLATION SPIRAL', 'anti-monopoly', 'ANTI-MONOPOLY INVESTIGATION',
@@ -54,10 +60,9 @@ function sanitize(record = {}) {
   };
 }
 
-// One descriptor per achievement rule, in evaluation order (the order is
-// observable: candidates are pushed in this sequence). Tests read a per-player
-// context assembled once in evaluateMatch; strings must stay verbatim because
-// accountStore's rarity/points maps and client copy depend on them.
+// One descriptor per achievement rule, in evaluation order, since candidates are pushed in
+// that sequence. Strings must stay verbatim: accountStore's rarity and points maps and the
+// client copy depend on them.
 const ACHIEVEMENT_RULES = [
   { achievementId: 'first-deed', title: 'FIRST DEED', rarity: 'COMMON', body: 'You bought your first property.', test: ({ participant }) => participant.propertyCount > 0 },
   { achievementId: 'last-wallet-standing', title: 'LAST WALLET STANDING', rarity: 'COMMON', body: 'You were the last wallet standing.', test: ({ isWinner }) => isWinner },
@@ -98,16 +103,17 @@ const ACHIEVEMENT_RULES = [
   { achievementId: '41st-tile', title: 'THE 41ST TILE', rarity: 'MYTHICAL', body: 'There are forty tiles. You stepped on one more.', test: ({ participant, isWinner }) => isWinner && participant.hiddenMovementSequence },
   { achievementId: 'null-player', title: 'THE NULL PLAYER', rarity: 'MYTHICAL', body: 'Your wallet was empty. The turn continued.', test: ({ participant, isWinner }) => isWinner && participant.zeroCashReached && !participant.bankrupt },
   { achievementId: 'black-ledger', title: 'THE BLACK LEDGER', rarity: 'MYTHICAL', body: 'The bank closed the book. Something inside kept counting.', test: ({ participant, isWinner }) => isWinner && participant.comboExperienced && participant.collateralLost },
-  { achievementId: 'generous-lender', title: 'GENEROUS LENDER', rarity: 'UNCOMMON', body: 'You funded a player loan that was fully repaid.', test: ({ participant, contracts }) => contracts.some(contract => loanLikeContract(contract) && contract.status === 'paid' && contract.fromAccountId === participant.accountId) },
-  { achievementId: 'silent-partner', title: 'SILENT PARTNER', rarity: 'RARE', body: 'You completed a player loan without collateral.', test: ({ participant, contracts }) => contracts.some(contract => loanLikeContract(contract) && contract.status === 'paid' && contract.fromAccountId === participant.accountId && contract.collateralTileIndex == null) },
-  { achievementId: 'collateral-damage', title: 'COLLATERAL DAMAGE', rarity: 'RARE', body: 'A loan default cost the collateral deed.', test: ({ participant, contracts }) => (participant.collateralLost && participant.bankLoanDefaulted) || contracts.some(contract => loanLikeContract(contract) && contract.status === 'defaulted' && contract.fromAccountId === participant.accountId && contract.collateralTileIndex != null) },
+  { achievementId: 'generous-lender', title: 'GENEROUS LENDER', rarity: 'UNCOMMON', body: 'You funded a player loan that was fully repaid.', test: ({ participant, contracts }) => contracts.some(contract => loanLikeContract(contract) && contract.status === 'paid' && isLenderOf(contract, participant)) },
+  { achievementId: 'silent-partner', title: 'SILENT PARTNER', rarity: 'RARE', body: 'You completed a player loan without collateral.', test: ({ participant, contracts }) => contracts.some(contract => loanLikeContract(contract) && contract.status === 'paid' && isLenderOf(contract, participant) && contract.collateralTileIndex == null) },
+  { achievementId: 'collateral-damage', title: 'COLLATERAL DAMAGE', rarity: 'RARE', body: 'A loan default cost the collateral deed.', test: ({ participant, contracts }) => (participant.collateralLost && participant.bankLoanDefaulted) || contracts.some(contract => loanLikeContract(contract) && contract.status === 'defaulted' && isLenderOf(contract, participant) && contract.collateralTileIndex != null) },
   { achievementId: 'crisis-manager', title: 'CRISIS MANAGER', rarity: 'RARE', body: 'You stayed solvent through a negative global headline.', test: ({ participant, globalEvents }) => participant.globalEventsExperienced > 0 && globalEvents.some(isNegativeGlobalEvent) && !participant.bankrupt },
   { achievementId: 'double-headline', title: 'DOUBLE HEADLINE', rarity: 'LEGENDARY', body: 'You survived two global headlines in one game.', test: ({ participant }) => participant.globalEventsSurvived >= 2 },
   { achievementId: 'clean-exit', title: 'CLEAN EXIT', rarity: 'UNCOMMON', body: 'You repaid a bank loan before default.', test: ({ participant }) => participant.bankLoanStatus === 'paid' && !participant.bankLoanDefaulted },
-  { achievementId: 'debt-free', title: 'DEBT FREE', rarity: 'UNCOMMON', body: 'You finished the game with clean books.', test: ({ participant, contracts }) => (!participant.bankLoanStatus || participant.bankLoanStatus === 'paid') && !contracts.some(contract => loanLikeContract(contract) && ['active', 'due', 'defaulted'].includes(contract.status) && contract.toAccountId === participant.accountId) },
+  { achievementId: 'debt-free', title: 'DEBT FREE', rarity: 'UNCOMMON', body: 'You finished the game with clean books.', test: ({ participant, contracts }) => (!participant.bankLoanStatus || participant.bankLoanStatus === 'paid') && !contracts.some(contract => loanLikeContract(contract) && ['active', 'due', 'defaulted'].includes(contract.status) && isBorrowerOf(contract, participant)) },
   { achievementId: 'treasure-map', title: 'TREASURE MAP', rarity: 'EPIC', body: 'You drew every Treasure card across your account history.', test: ({ treasureCardCount }) => treasureCardCount >= 16 },
   { achievementId: 'event-tourist', title: 'EVENT TOURIST', rarity: 'RARE', body: 'You experienced three different global events.', test: ({ eventCount }) => eventCount >= 3 },
 ];
+const ACHIEVEMENT_RULE_BY_ID = new Map(ACHIEVEMENT_RULES.map(rule => [rule.achievementId, rule]));
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
@@ -152,6 +158,34 @@ function buildMatchContext(participant, shared) {
     treasureCardCount: countTreasureCards(history, shared.matchRecord, participant.accountId),
     eventCount: countEventNames(history, shared.globalEvents),
   };
+}
+
+// A computer persona has no account. Its earlier games come from its own record (personaHistoryFor), and its loans come
+// from persona-linked contracts. The cash comparison skips this seat itself, since every bot shares a null accountId.
+function buildPersonaContext(participant, shared) {
+  const history = shared.personaHistoryFor?.(participant.personaId) || {};
+  const treasureCards = new Set([...asArray(history.treasureCards), ...asArray(participant.treasureCardsSeenList)].map(String));
+  const events = new Set([...asArray(history.events), ...shared.globalEvents].map(String));
+  return {
+    participant,
+    isWinner: participant.finalPlacement === 1,
+    othersCash: shared.participants
+      .filter(entry => entry !== participant)
+      .reduce((sum, entry) => sum + (Number(entry.endingCash) || 0), 0),
+    contracts: shared.contracts,
+    globalEvents: shared.globalEvents,
+    eventCombinations: shared.eventCombinations,
+    treasureCardCount: treasureCards.size,
+    eventCount: events.size,
+  };
+}
+
+function appendPersonaAchievements(candidates, context) {
+  ACHIEVEMENT_RULES.forEach((rule) => {
+    if (!rule.test(context)) return;
+    // No accountId key: persona unlocks must never match an account or a guest row.
+    candidates.push({ personaId: context.participant.personaId, achievementId: rule.achievementId, title: rule.title, rarity: rule.rarity, body: rule.body });
+  });
 }
 
 function appendUnlockedAchievements(candidates, context) {
@@ -238,7 +272,7 @@ export class AchievementStore {
     return removed;
   }
 
-  evaluateMatch(matchRecord, historyForAccount = null) {
+  evaluateMatch(matchRecord, historyForAccount = null, personaHistoryFor = null) {
     const candidates = [];
     const participants = asArray(matchRecord?.participants);
     const shared = {
@@ -248,10 +282,36 @@ export class AchievementStore {
       eventCombinations: asArray(matchRecord?.eventCombinations),
       matchRecord,
       historyForAccount,
+      personaHistoryFor,
     };
     participants.forEach((participant) => {
-      if (!participant.accountId) return;
-      appendUnlockedAchievements(candidates, buildMatchContext(participant, shared));
+      if (participant.accountId) {
+        appendUnlockedAchievements(candidates, buildMatchContext(participant, shared));
+        return;
+      }
+      if (participant.personaId) appendPersonaAchievements(candidates, buildPersonaContext(participant, shared));
+    });
+    return candidates;
+  }
+
+  recoveryCandidatesFromAnnotatedMatch(matchRecord) {
+    const candidates = [];
+    (Array.isArray(matchRecord?.participants) ? matchRecord.participants : []).forEach(participant => {
+      if (typeof participant?.accountId !== 'string' || !participant.accountId) return;
+      const ids = Array.isArray(participant.achievementsUnlocked) ? participant.achievementsUnlocked : [];
+      [...new Set(ids.filter(id => typeof id === 'string'))].forEach(achievementId => {
+        const rule = ACHIEVEMENT_RULE_BY_ID.get(achievementId);
+        if (!rule) return;
+        candidates.push({
+          accountId: participant.accountId,
+          achievementId,
+          title: rule.title,
+          rarity: rule.rarity,
+          body: rule.body,
+          unlockedAt: typeof matchRecord.completedAt === 'string' ? matchRecord.completedAt : null,
+          suppressPublicAnnouncement: matchRecord.roomVisibility === 'private'
+        });
+      });
     });
     return candidates;
   }

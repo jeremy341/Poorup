@@ -1,6 +1,4 @@
-/* ============================================================
-   DOM UTILITIES
-   ============================================================ */
+// DOM UTILITIES
 export function $(sel) {
   return document.querySelector(sel);
 }
@@ -14,7 +12,7 @@ export function esc(s) {
 // element still holds exactly what this helper wrote last. Returns true when the element was written.
 const writtenMarkup = new WeakMap();
 // Controls left mid-action by the rail handlers (pending buttons, appended status lines) are mutated in
-// place; their next render must still rebuild the markup so they reset exactly as before.
+// place; their next render must still rebuild the markup so they reset completely.
 const IN_PLACE_MUTATION_SELECTOR = '[data-pending], [aria-busy="true"], .action-status';
 
 export function setHtml(el, html) {
@@ -48,7 +46,7 @@ export function setText(el, text) {
   return true;
 }
 
-// F789-13: an exported `let` is a live binding, so every importer sees the current preference.
+// An exported `let` is a live binding, so every importer sees the current preference.
 const reducedMotionQuery = window.matchMedia?.("(prefers-reduced-motion: reduce)");
 export let REDUCED_MOTION = reducedMotionQuery?.matches || false;
 const onReducedMotionChange = (event) => { REDUCED_MOTION = Boolean(event?.matches); };

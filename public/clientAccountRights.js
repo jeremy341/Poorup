@@ -54,8 +54,8 @@ const RIGHTS_FORM_COPY = {
     title: 'Set recovery email',
     description: 'Add an email for password recovery. The address is inactive until its single-use verification link is confirmed.',
     badge: 'g400',
-    submitClass: 'btn-dark',
-    submitTextClass: 't-label f11',
+    submitClass: 'cta-red',
+    submitTextClass: 'cta-text cta-text-sm',
     submitLabel: 'SEND VERIFICATION EMAIL'
   }
 };
@@ -194,7 +194,7 @@ function passwordFieldMarkup() {
 }
 
 function rightsFormFields(kind) {
-  if (kind === 'delete') return `${passwordFieldMarkup()}${accountFieldMarkup('Confirmation', '<input class="field" id="account-rights-phrase" required aria-describedby="account-rights-form-error" placeholder="DELETE ACCOUNT" autocomplete="off">')}`;
+  if (kind === 'delete') return `${passwordFieldMarkup()}${accountFieldMarkup('Type DELETE ACCOUNT', '<input class="field" id="account-rights-phrase" required aria-describedby="account-rights-form-error" placeholder="DELETE ACCOUNT" autocomplete="off">')}`;
   if (kind === 'cancel') return passwordFieldMarkup();
   return `${accountFieldMarkup('Recovery email', '<input class="field" id="account-rights-email" type="email" autocomplete="email" required>')}${passwordFieldMarkup()}`;
 }

@@ -32,7 +32,7 @@ assert.match(socketListeners, /host\.say\(text, sender/);
 assert.doesNotMatch(ownerSources.join('\n'), /host\.say\(/);
 console.log('PASS nonConversationUpdatesStayVisibleOutsideChat');
 
-// F-090 / raw error codes: friendly text, server sentences untouched.
+// Raw error codes: friendly text, server sentences untouched.
 const { friendlyActionError } = await import('./clientActionErrorCopy.js');
 for (const code of ['OPTION_TERMS_SERVER_REQUIRED', 'REQUEST_ID_EXPIRED', 'MAINTENANCE_DRAINING', 'DELETION_IN_PROGRESS', 'RECOVERY_MAIL_UNAVAILABLE']) {
   const text = friendlyActionError(code);
@@ -47,7 +47,7 @@ assert.equal(friendlyActionError(''), '');
 assert.match(source, /friendlyActionError\(message \|\| "Action could not be completed\."\)/, 'the shared notice maps codes before showing them');
 console.log('PASS rawServerCodesBecomeFriendlyCopy');
 
-// F1012-11: the chat draft survives a failed send and clears only on acknowledgement.
+// The chat draft survives a failed send and clears only on acknowledgement.
 const { createChatSender } = await import('./clientChatSend.js');
 function chatHarness(respond) {
   const input = { value: '  hello table  ' };
@@ -82,7 +82,7 @@ assert.match(source, /createChatSender\(\{/);
 assert.doesNotMatch(source, /input\.value = "";\s*emitWithChatError\("send-chat"/);
 console.log('PASS chatDraftSurvivesFailedSend');
 
-// Copy truthfulness (F1012-12/13/14, F-024, market notice).
+// Copy truthfulness (market notice).
 const [parlorCopy, socialCopy, marketCopy, casinoCopy, railCopy] = await Promise.all(
   ['clientParlorBindings.js', 'clientSocialSurfaces.js', 'clientMarketUi.js', 'clientCasinoUi.js', 'clientRailRender.js']
     .map(file => readFile(new URL(`./${file}`, import.meta.url), 'utf8')),

@@ -52,7 +52,7 @@ check("global toggle starts once and stops through the controller", () => {
   assert.match(main, /const snapshot = ensureMusicController\(\)\?\.snapshot/);
 });
 
-check("F789-08: audio toggles keep a stable name and flip only aria-pressed", () => {
+check("audio toggles keep a stable name and flip only aria-pressed", () => {
   assert.doesNotMatch(audio, /labelOn|labelOff|Turn sound effects|Turn parlor music/);
   assert.match(audio, /setAttribute\("aria-label", meta\.name\)/);
   assert.doesNotMatch(index, /aria-label="Turn (sound effects|parlor music)/);
@@ -69,7 +69,7 @@ check("F789-08: audio toggles keep a stable name and flip only aria-pressed", ()
   assert.equal((index.match(/aria-label="Parlor music"/g) || []).length, musicIds.length);
 });
 
-check("F789-07: rankings and social dialogs always have an accessible name", () => {
+check("rankings and social dialogs always have an accessible name", () => {
   assert.match(index, /id="rankings-modal"[^>]*aria-label="Global rankings"/);
   assert.match(index, /id="social-modal"[^>]*aria-label="Social"/);
 });

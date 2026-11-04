@@ -24,7 +24,8 @@ async function createGameWithFlights(page, context, code) {
   await guest.locator('#room-join').fill(code);
   await guest.locator('#join-nickname').fill('FLYGUEST');
   await guest.locator('#join-room-submit').click();
-  await guest.locator('#su-start').click();
+  await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
+  if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
   await expect(page.locator('#player-list')).toContainText('FLYGUEST');
   await page.locator('#lobby-start-btn').click();
   await expect(page.locator('#view-game')).toBeVisible();
@@ -158,6 +159,8 @@ test.describe('airport flights UI', () => {
     await page.screenshot({ path: test.info().outputPath('fee-steppers.png') });
     await expect(card.locator('.fee-row').nth(0)).toContainText('$60');
     await expect(card.locator('.fee-row').nth(1)).toContainText('$200');
+    // Airport fees sit in a disclosure that starts closed; open it before stepping.
+    await card.locator('.dd-airport-details > summary').click();
     // The arrival fee is already at the maximum, so its plus button is disabled.
     await expect(card.locator('[data-airport-fee="arrival"][data-delta="10"]')).toBeDisabled();
     await card.locator('[data-airport-fee="departure"][data-delta="10"]').click();

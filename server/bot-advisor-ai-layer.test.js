@@ -1,14 +1,6 @@
-// AI-layer regression suite (bot audit 2026-10, finding 4).
-//
-//   F4-a  A decision where nothing can beat passing (a lone `roll`, or only
-//         options the planner scores at or below standing still) must be
-//         answered by the house engine without a provider call, and recorded
-//         as a by-design house decision (`phase-resolution`) so it is neither
-//         counted as a model ask nor as a model failure.
-//   F4-b  Candidate order put the planner's best first (`act-01`), so a model
-//         that echoes the first option looked like good play. The order shown
-//         to the model is now a seeded, reproducible shuffle; the answer is
-//         mapped back to the real candidate and the position is counted.
+// AI-layer regression suite.
+// When nothing beats passing (a lone `roll`, or only options scored at or below standing still), the house engine answers without a provider call
+// and records a house decision (`phase-resolution`), not a model ask or failure. Candidates are shuffled with a seed, so a model cannot win by echoing the first option.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { AiAdvisor, DeterministicAdvisor } from './botAdvisor.js';
@@ -27,7 +19,7 @@ async function check(name, run) {
   }
 }
 
-// --- fixtures ---------------------------------------------------------------
+// fixtures
 
 let roomSerial = 0;
 function botRoom() {
@@ -81,7 +73,7 @@ function countingAdvisor(pickPosition = () => 0) {
   return { advisor, seen };
 }
 
-// --- F4-a: no provider call when nothing beats passing ----------------------------
+// No provider call when nothing beats passing
 
 await check('F4-a: a lone roll is answered by the house engine without a provider call', async () => {
   const { advisor, seen } = countingAdvisor();
@@ -139,7 +131,7 @@ await check('F4-a: a turn with nothing to decide runs the house action and recor
   assert.ok(withHouse.game.lastDice[0] > 0, 'the house advisor rolled');
 });
 
-// --- F4-b: option-ID bias ----------------------------------------------------------
+// Option-ID bias
 
 await check('F4-b: the same seed shows the same order, different decisions show different orders', async () => {
   const fixture = botRoom();

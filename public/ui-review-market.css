@@ -62,7 +62,7 @@
 #market-modal .market-position-strip > div { display: grid; gap: 7px; padding: 0; border: 0; background: transparent; }
 #market-modal .market-position-strip strong { font-size: 12px; }
 #market-modal .market-desk-card[data-market-view] .market-desk-center > .market-position-strip { display: grid; }
-/* Explicitly undo the former trade-view rules which removed the graph. */
+/* Undo the trade-view rules that hide the graph. */
 #market-modal .market-desk-card[data-market-view] .market-desk-center > .market-history {
   display: flex;
   flex-direction: column;
@@ -99,8 +99,8 @@
 }
 #market-modal .market-trade-ticket > * { flex-shrink: 0; }
 #market-modal .market-ticket-head { padding-bottom: 12px; }
-#market-modal .market-ticket-head > span { padding: 0; border: 0; font-size: 8px; }
-#market-modal .market-ticket-instrument { font-size: 10px; line-height: 1.6; }
+#market-modal .market-ticket-head > span { padding: 0; border: 0; font-size: 11px; }
+#market-modal .market-ticket-instrument { font-size: 11px; line-height: 1.6; }
 #market-modal .market-order-fields { grid-template-columns: minmax(0, 1.2fr) minmax(80px, .8fr); }
 #market-modal .market-order-side > div { padding: 0; gap: 0; }
 #market-modal .market-order-side-button { min-height: 46px; box-shadow: none; }
@@ -117,7 +117,7 @@
 }
 #market-modal .market-order-submit[data-market-side="sell"] { background: var(--red-action); border-color: var(--red-bright); }
 #market-modal .market-advanced-settings { padding: 0; }
-#market-modal .market-advanced-settings > summary { min-height: 44px; padding: 10px 0; line-height: 1.6; cursor: pointer; }
+#market-modal .market-advanced-settings > summary { min-height: 44px; padding: 4px 0; line-height: 1.6; cursor: pointer; }
 #market-modal .market-desk-actions { margin-top: 14px; gap: 8px; }
 #market-modal .market-desk-actions button { min-height: 44px; }
 #market-modal .market-desk-option-fields .field,
@@ -159,15 +159,15 @@
   #market-modal .market-current-price-value { font-size: 26px; }
   #market-modal .market-position-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; padding-bottom: 10px; }
   #market-modal .market-position-strip > div { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
-  #market-modal .market-position-strip strong { font-size: 10px; white-space: nowrap; }
+  #market-modal .market-position-strip strong { font-size: 11px; white-space: nowrap; }
   #market-modal .market-desk-card[data-market-view] .market-trade-ticket { gap: 12px; padding: 12px; }
-  #market-modal .market-history-head h3 { font-size: 9px; }
+  #market-modal .market-history-head h3 { font-size: 11px; }
   #market-modal .market-history-range { min-width: 120px; }
   #market-modal .market-quote-chart { min-height: 120px; }
   #market-modal .market-personal-ledger-disclosure { margin-top: 8px; }
 }
 
-/* Keep the existing small-screen fallback; phones are outside this review. */
+/* Keep the existing small-screen fallback; phones are not covered here. */
 @media (max-width: 849px) {
   #market-modal .market-desk-card[data-market-view] .market-desk-layout { grid-template-columns: minmax(0, 1fr); height: auto; }
   #market-modal .market-desk-center { height: auto; }

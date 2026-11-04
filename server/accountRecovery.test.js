@@ -76,14 +76,17 @@ assert.match(sent.at(-1).variables.actionUrl, /^https:\/\/play\.example\.test\/a
 assert.equal(await recovery.consumePasswordReset(tokenFrom('password-reset'), 'new-password'), true);
 assert.equal(await recovery.consumePasswordReset(tokenFrom('password-reset'), 'another-password'), false);
 
+now += 61 * 1000; // past the per-account reset-mail cooldown
 const expired = await recovery.requestPasswordReset({ username: 'owner', email: 'owner@example.test' });
 const expiredToken = tokenFrom('password-reset');
 assert.equal(expired.success, true);
 now += 31 * 60 * 1000;
 assert.equal(await recovery.consumePasswordReset(expiredToken, 'new-password'), false);
 
+now += 61 * 1000; // past the per-account reset-mail cooldown
 await recovery.requestPasswordReset({ username: 'owner', email: 'owner@example.test' });
 const firstToken = tokenFrom('password-reset');
+now += 61 * 1000; // past the per-account reset-mail cooldown
 await recovery.requestPasswordReset({ username: 'owner', email: 'owner@example.test' });
 const secondToken = tokenFrom('password-reset');
 await new Promise(resolve => setTimeout(resolve, 0));
@@ -91,19 +94,21 @@ assert.equal(await recovery.consumePasswordReset(firstToken, 'new-password'), fa
 assert.equal(await recovery.consumePasswordReset(secondToken, 'new-password'), true);
 assert.deepEqual(revokedCookieAccounts, ['acct-1', 'acct-1']);
 
-// X4b: a failed replacement delivery must leave the previously delivered reset
+// A failed replacement delivery must leave the previously delivered reset
 // link usable instead of consuming it before the replacement arrives.
+now += 61 * 60 * 1000; // past the per-account reset-mail window (five sends per hour)
 const survivorReset = await recovery.requestPasswordReset({ username: 'owner', email: 'owner@example.test' });
 assert.equal(survivorReset.sent, true);
 const survivorToken = tokenFrom('password-reset');
 mailOk = false;
+now += 61 * 1000; // past the per-account reset-mail cooldown
 const failedRetry = await recovery.requestPasswordReset({ username: 'owner', email: 'owner@example.test' });
 mailOk = true;
 assert.equal(failedRetry.sent, true);
 await new Promise(resolve => setTimeout(resolve, 0));
 assert.equal(await recovery.consumePasswordReset(survivorToken, 'survivor-password'), true, 'a failed replacement mail leaves the previous reset link usable');
 
-// E24-09: a pending-deletion account cannot change its recovery email, whether
+// A pending-deletion account cannot change its recovery email, whether
 // the request comes from its socket or the verification link is opened.
 accounts.set('acct-3', { id: 'acct-3', username: 'pending', passwordHash: 'x', recoveryEmail: null, recoveryEmailVerified: false });
 const pendingLinkSent = await recovery.requestEmailVerification({ accountId: 'acct-3', currentPassword: 'pw', email: 'before@example.test' });
@@ -119,7 +124,7 @@ assert.equal(await recovery.consumeEmailVerification(pendingLinkToken), false, '
 assert.equal(accounts.get('acct-3').recoveryEmailVerified, false);
 assert.equal(accounts.get('acct-3').recoveryEmail, null);
 
-// E24-10: a reset request for an account with a verified address answers at
+// A reset request for an account with a verified address answers at
 // once, without waiting for the mail adapter, so response time does not reveal
 // which address pairs exist.
 let releaseResetMail;
@@ -135,7 +140,7 @@ const resetAnswer = await Promise.race([
   new Promise(resolve => setTimeout(() => resolve('waiting-on-mail'), 200)),
 ]);
 releaseResetMail();
-assert.equal(resetAnswer, 'answered', 'a password reset response does not depend on mail delivery time (E24-10)');
+assert.equal(resetAnswer, 'answered', 'a password reset response does not depend on mail delivery time');
 
 // Without a configured public origin there is no link to build, so no mail is
 // sent and no token is issued.
@@ -149,7 +154,7 @@ const offlineReset = await offline.requestPasswordReset({ username: 'owner', ema
 assert.equal(offlineReset.sent, false);
 assert.equal(sent.length, sentBeforeOffline, 'no mail with an empty action link');
 
-// S11-05: erasing an account drops its recovery tokens (and the address they hold).
+// Erasing an account drops its recovery tokens (and the address they hold).
 {
   const purgeAccounts = new Map([['acct-9', { id: 'acct-9', username: 'purged', recoveryEmail: 'purged@example.test', recoveryEmailVerified: true }], ['acct-8', { id: 'acct-8', username: 'staying', recoveryEmail: 'staying@example.test', recoveryEmailVerified: true }]]);
   const purgeSent = [];
@@ -167,7 +172,7 @@ assert.equal(sent.length, sentBeforeOffline, 'no mail with an empty action link'
   assert.equal(purgeRecovery.tokenCount(), 1, 'other accounts keep their tokens');
   assert.equal(purgeRecovery.purgeAccount('acct-9'), 0, 'a repeated purge is a no-op');
 }
-// X4a: a slower, older verification delivery must not replace the pending
+// A slower, older verification delivery must not replace the pending
 // state written by a newer request.
 {
   const olderGate = deferred();
@@ -192,7 +197,36 @@ assert.equal(sent.length, sentBeforeOffline, 'no mail with an empty action link'
   assert.equal(await raceRecovery.consumeEmailVerification(raceToken('new@example.test')), true);
 }
 
-// X4a: two requests for the same address still leave only the newest link able
+// An older request whose delivery resolves after a newer request has already
+// been verified must not reopen pending state or replace that verified address.
+{
+  const olderGate = deferred();
+  const newerGate = deferred();
+  const sent = [];
+  const accounts = new Map([['acct-verified-race', { id: 'acct-verified-race', username: 'verifiedracer', passwordHash: 'x', recoveryEmail: null, recoveryEmailVerified: false }]]);
+  const recovery = createAccountRecovery({
+    now: () => now,
+    publicOrigin: 'https://play.example.test',
+    accountStore: { getAccountById: id => accounts.get(id) || null, persist: () => {}, verifyPassword: () => true },
+    mailAdapter: { send: async message => { sent.push(message); await (message.to === 'old-verified-race@example.test' ? olderGate.promise : newerGate.promise); return { success: true }; } },
+  });
+  const olderRequest = recovery.requestEmailVerification({ accountId: 'acct-verified-race', currentPassword: 'pw', email: 'old-verified-race@example.test' });
+  const newerRequest = recovery.requestEmailVerification({ accountId: 'acct-verified-race', currentPassword: 'pw', email: 'new-verified-race@example.test' });
+  newerGate.resolve();
+  await newerRequest;
+  const newestToken = new URL(sent.find(message => message.to === 'new-verified-race@example.test').variables.actionUrl).searchParams.get('token');
+  assert.equal(await recovery.consumeEmailVerification(newestToken), true);
+  olderGate.resolve();
+  await olderRequest;
+  const account = accounts.get('acct-verified-race');
+  assert.equal(account.recoveryEmail, 'new-verified-race@example.test', 'late older delivery does not replace the verified address');
+  assert.equal(account.recoveryEmailVerified, true, 'late older delivery does not clear verification');
+  assert.equal(account.pendingRecoveryEmail ?? null, null, 'late older delivery does not reopen pending state');
+  const olderToken = new URL(sent.find(message => message.to === 'old-verified-race@example.test').variables.actionUrl).searchParams.get('token');
+  assert.equal(await recovery.consumeEmailVerification(olderToken), false, 'late older verification token is rejected');
+}
+
+// Two requests for the same address still leave only the newest link able
 // to consume the pending state.
 {
   const sameGates = [deferred(), deferred()];
@@ -216,3 +250,43 @@ assert.equal(sent.length, sentBeforeOffline, 'no mail with an empty action link'
   assert.equal(await sameRecovery.consumeEmailVerification(sameTokens[1]), true);
 }
 console.log('account recovery: 30 passed, 0 failed');
+
+{
+  const gate = deferred();
+  const sent = [];
+  const account = { id: 'failed-newer', username: 'failednewer', recoveryEmail: null, recoveryEmailVerified: false };
+  const recovery = createAccountRecovery({
+    now: () => now,
+    publicOrigin: 'https://play.example.test',
+    accountStore: { getAccountById: () => account, persist: () => {}, verifyPassword: () => true },
+    mailAdapter: { send: async message => { sent.push(message); if (message.to === 'old-success@example.test') { await gate.promise; return { success: true }; } return { success: false }; } },
+  });
+  const older = recovery.requestEmailVerification({ accountId: account.id, currentPassword: 'pw', email: 'old-success@example.test' });
+  const newer = await recovery.requestEmailVerification({ accountId: account.id, currentPassword: 'pw', email: 'new-failed@example.test' });
+  assert.equal(newer.success, false);
+  gate.resolve();
+  assert.equal((await older).success, true);
+  assert.equal(account.pendingRecoveryEmail, 'old-success@example.test', 'failed newer delivery must not invalidate the older successful email');
+  const token = new URL(sent[0].variables.actionUrl).searchParams.get('token');
+  assert.equal(await recovery.consumeEmailVerification(token), true);
+}
+
+{
+  const gate = deferred();
+  const messages = [];
+  const account = { id: 'failed-write-race', username: 'failedwriterace' };
+  let failNextPersist = true;
+  const recovery = createAccountRecovery({
+    now: () => now,
+    publicOrigin: 'https://play.example.test',
+    accountStore: { getAccountById: () => account, verifyPassword: () => true, persist: () => { if (failNextPersist) { failNextPersist = false; throw new Error('account write failed'); } } },
+    mailAdapter: { send: async message => { messages.push(message); if (message.to === 'late@example.test') await gate.promise; return { success: true }; } },
+  });
+  const older = recovery.requestEmailVerification({ accountId: account.id, currentPassword: 'pw', email: 'late@example.test' });
+  assert.equal((await recovery.requestEmailVerification({ accountId: account.id, currentPassword: 'pw', email: 'failed-write@example.test' })).success, false);
+  gate.resolve();
+  assert.equal((await older).success, true);
+  assert.equal(account.pendingRecoveryEmail, 'late@example.test', 'a failed newer account write cannot advance the delivery watermark');
+  const token = new URL(messages.find(message => message.to === 'late@example.test').variables.actionUrl).searchParams.get('token');
+  assert.equal(await recovery.consumeEmailVerification(token), true);
+}

@@ -1,7 +1,7 @@
 const CLOSED_LINGER_MS = 8000;
 const FEEDBACK_LINGER_MS = 6000;
 
-// Server rejection codes -> plain sentences. Sentences the server already
+// Server rejection codes become plain sentences. Sentences the server already
 // wrote (anything with a space) are shown untouched.
 const REJECTION_COPY = Object.freeze({
   "already-voted": "You already voted on this one.",

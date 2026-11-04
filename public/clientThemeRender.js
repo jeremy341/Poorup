@@ -1,7 +1,5 @@
-/* ============================================================
-   THEME RENDERER: mounts the five decorative worlds behind the
-   existing Poorup surfaces. It never reads or writes game state.
-   ============================================================ */
+// THEME RENDERER: mounts the five decorative worlds behind the
+// existing Poorup surfaces. It never reads or writes game state.
 import { DEFAULT_THEME_ID, getTheme, MUSIC_TOKEN_SETS } from "./clientThemeData.js";
 
 const VIEW_SELECTORS = ["#view-home", "#view-game", "#view-profile", "#view-rankings", "#view-social", "#view-rules", "#view-about"];

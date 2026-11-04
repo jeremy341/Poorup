@@ -1,9 +1,6 @@
-/* ============================================================
-   AIRPORT FLIGHTS: the flight desk dialog, the FLY button's visibility
-   rule, and the owner's fee steppers. The server prices every flight, so
-   this module only renders the options it receives (state.flights) and
-   sends two actions: fly-to-airport and set-airport-fees.
-   ============================================================ */
+// AIRPORT FLIGHTS: the flight desk dialog, the FLY button's visibility rule and the owner's fee
+// steppers. The server prices every flight, so it only renders the options it receives
+// (state.flights) and sends fly-to-airport and set-airport-fees.
 import { $, esc } from "./clientDom.js";
 import { state } from "./clientState.js";
 import { closeSurface, openSurface, setSurfaceReturnFocus } from "./clientSurfaces.js";

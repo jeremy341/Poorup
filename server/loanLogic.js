@@ -1,7 +1,5 @@
-// Bank-credit rules: the emergency-loan offer ladder, term pricing under
-// events, disbursement, repayments (amnesty and event discounts included),
-// the due/cure/default clock, and collateral foreclosure. Pure module: it
-// only mutates the GameState it is handed.
+// Bank-credit rules: the emergency-loan offer ladder, term pricing under events, disbursement, repayments (amnesty and event
+// discounts included), the due, cure and default clock, and collateral foreclosure. Pure: it only mutates the GameState it is handed.
 import { stampCollateralAgreement, collateralCreditPlan, usesCollateralCredit, settleCollateralAtomically, recordCollateralCredit } from './collateralSettlement.js';
 import { resolveUnsecuredBankDefault } from './bankruptcyLogic.js';
 import { AUCTION_COMMITTED_CASH_ERROR } from './auctionApi.js';
@@ -92,10 +90,8 @@ export function bankLoanOffer(game, player) {
   return { available: true, ...bankLoanTerms(game, player) };
 }
 
-// Guard order and wording are pinned by server/gameLogic.test.js. The
-// facility-side checks run first, then the borrower-side checks. A dead seat
-// or a debt-mode seat never reaches the turn gate, mirroring the casino and
-// market liveness wording.
+// Guard order and wording are pinned by server/gameLogic.test.js. Facility-side checks run first, then borrower-side checks.
+// A dead seat or a debt-mode seat never reaches the turn gate, mirroring the casino and market liveness wording.
 function borrowerSeatRejection(player) {
   if (player.bankrupt) return 'Bank credit is unavailable right now.';
   if (player.disconnected) return 'Bank credit is unavailable right now.';
@@ -127,10 +123,8 @@ function bankLoanOfferRejection(game, player) {
   return borrowerCreditRejection(player);
 }
 
-// The identity of one loan instance. The replay cache is scoped to it, so the
-// same request id against a later loan is a new repayment instead of a replay
-// of the earlier answer. Legacy or hand-repaired loans carry no id: the
-// fields that pin the instance stand in for it.
+// The identity of one loan instance. The replay cache is scoped to it, so the same request id against a later loan is a new
+// repayment, not a replay. Legacy or hand-repaired loans carry no id; the fields that pin the instance stand in for it.
 function loanIdentity(loan) {
   if (!loan) return 'no-loan';
   if (loan.loanId) return String(loan.loanId);
@@ -196,7 +190,7 @@ function debtAmnestyApplies(game, requested, loan) {
   return requested >= loan.remaining;
 }
 
-function settlementDiscount(game, loan) {
+export function settlementDiscount(game, loan) {
   const multiplier = Number(game.activeEventEffects().loanSettlementMultiplier);
   if (!Number.isFinite(multiplier)) return loan.remaining;
   if (multiplier <= 0) return loan.remaining;
@@ -219,6 +213,12 @@ function repaymentPlan(game, player, loan, amount) {
   const discountedDue = settlementDiscount(game, loan);
   const payment = Math.min(amnesty ? discountedDue : requested, loan.remaining);
   if (player.cash < payment) return { error: `You need $${payment} to make this repayment.` };
+  // Cash that a parked claim is waiting on belongs to that creditor, in claim order: a bank repayment
+  // may not jump the queue (the same reserve propertyApi applies to houses and deeds).
+  const owedToClaims = typeof game.pendingDebtAmountFor === 'function' ? game.pendingDebtAmountFor(player.id) : 0;
+  if (owedToClaims > 0 && player.cash - owedToClaims < payment) {
+    return { error: `$${owedToClaims} of your cash is reserved for a debt you owe. Settle it before repaying the bank loan.` };
+  }
   if (game.spendableCash(player) < payment) return { error: AUCTION_COMMITTED_CASH_ERROR };
   return { payment, amnesty };
 }
@@ -314,11 +314,9 @@ function queueBankClaim(game, player, loan, owed) {
   });
 }
 
-// An unsecured default files a bank claim instead of eliminating the seat
-// outright: the player now chooses between raising funds and declaring
-// bankruptcy. The claim is settled through the shared queue, so a debt the
-// seat already owes is paid first, and the loan balance survives until the
-// bank has actually been paid.
+// An unsecured default files a bank claim instead of eliminating the seat outright, so the player chooses between raising funds
+// and declaring bankruptcy. The claim settles through the shared queue (a debt already owed is paid first), and the loan balance
+// survives until the bank has actually been paid.
 function defaultUnsecuredBankLoan(game, player, loan) {
   const owed = Math.max(0, Math.floor(Number(loan.remaining) || 0));
   loan.status = 'defaulted';
@@ -397,15 +395,20 @@ function buildingSaleRate(game) {
 export function seizeLoanCollateral(game, player, collateral) {
   // Legacy or hand-repaired state may still carry equity entries. Terminate
   // them before the bank takes the deed so no holder can keep collecting from
-  // a property that no longer has an owner.
+  // a property with no owner.
   game.terminateTileEquityShares?.(collateral);
   // Houses are the borrower's paid value: liquidate them at the standard
   // half-rate into cash before the deed moves, instead of wiping them.
   const houses = Math.max(0, Math.min(5, Number(collateral.houseCount) || 0));
+  // The basis is the same one a sale uses (printed cost capped at the current
+  // build cost), so a seizure cannot pay out more than the houses cost.
+  const basisOf = typeof game.houseResaleBasis === 'function'
+    ? tile => game.houseResaleBasis(tile)
+    : tile => game.getPropertyHouseCost(tile);
   if (houses > 0 && typeof game.getPropertyHouseCost === 'function') {
     try {
       player.cash = Math.max(0, Number(player.cash) || 0)
-        + Math.floor(houses * Number(game.getPropertyHouseCost(collateral)) * buildingSaleRate(game));
+        + Math.floor(houses * Number(basisOf(collateral)) * buildingSaleRate(game));
     } catch { /* cost lookup failure must not block seizure */ }
   }
   collateral.ownerId = null;
