@@ -148,7 +148,8 @@ for (const boardVariant of ['standard-40', 'metro-52']) {
 }
 
 test('short desktop home reserves space for clock and wordmark', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop-1440x900', 'one desktop zoom-equivalent check');
+  // The full suite includes 1440x900; reduced PR QA includes 1920x1080.
+  test.skip(!['desktop-1440x900', 'desktop-1920x1080'].includes(testInfo.project.name), 'desktop zoom regression in full and PR QA');
   await page.setViewportSize({ width: 960, height: 540 });
   await page.goto('/');
   const overlap = await page.evaluate(() => {
