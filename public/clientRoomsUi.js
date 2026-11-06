@@ -485,7 +485,7 @@ function onCreateRoomClick() {
   if (needsGuestAlias()) {
     // Stay in the modal: vanishing it strands guests hunting for the tiny
     // home alias field. The toast explains; closing stays their choice.
-    parlorNotice("ALIAS", "Create an alias on Home before making a table.");
+    parlorNotice("ALIAS", "Create an alias on Home before making a table.", "warning");
     requireGuestAlias();
     return;
   }
