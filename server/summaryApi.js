@@ -160,6 +160,10 @@ const summaryApi = {
       ...playerSummaryFields(this, player, viewerPlayerId),
       ...playerViewerFields(player, viewerPlayerId)
     };
+    // Recap figures are counts and totals only, so every viewer may see them on the end screen.
+    entry.itemCount = Array.isArray(player.items) ? player.items.length : 0;
+    entry.matchRebate = Math.max(0, Number(player.matchRebate) || 0);
+    entry.bestTradeNet = Math.max(0, Number(player.bestTradeNet) || 0);
     // Inventory instance IDs and action eligibility belong only to this seat.
     // Public, spectator and rival projections omit the inventory field entirely.
     if (isViewerSeat(player, viewerPlayerId)) entry.items = this.summaryItems(player, viewerPlayerId);

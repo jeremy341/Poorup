@@ -469,6 +469,9 @@ function historyEconomyFields(recordValue, participant, accountId) {
   return [
     detailField("ENDING CASH", esc(recordedText(participant, "endingCash", (value) => formatHistoryMoney(value)))),
     detailField("PROPERTIES", historyPropertyCount(participant)),
+    detailField("ITEMS HELD", esc(recordedText(participant, "itemsHeld"))),
+    detailField("REBATE EARNED", esc(recordedText(participant, "matchRebate", (value) => formatHistoryMoney(value)))),
+    detailField("BEST TRADE", esc(recordedText(participant, "bestTradeNet", (value) => formatHistoryMoney(value)))),
     netField("CASINO NET", recordValue?.casino, accountId),
     netField("MARKET NET", recordValue?.market, accountId),
     detailField("TRADES", esc(recordedText(recordValue, "tradesCompleted"))),
