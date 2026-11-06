@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { ITEM_CATALOG } from '../public/itemCatalog.js';
 import { normalizeRequestId } from './requestId.js';
+import { bankSaleQuote } from './bankAccountApi.js';
 
 const failure = error => ({ success: false, error });
 const dollars = value => Number.isFinite(Number(value)) ? Math.max(0, Math.floor(Number(value))) : 0;
@@ -37,15 +38,18 @@ function resolveItemAction(game, socketId, player, item, action) {
     const result = game.useJailFree(socketId, item.itemId);
     return result.success ? { success: true, cashReceived: 0 } : result;
   }
-  const cashReceived = action === 'sell' ? dollars(item.bankSellValue) : dollars(item.redeemValue);
+  // Only a sale to the bank pays the tier fee; redeeming a matured bond is not a sale.
+  const quote = action === 'sell' ? bankSaleQuote(game, player, item.bankSellValue) : null;
+  const cashReceived = quote ? quote.net : dollars(item.redeemValue);
   if (item.catalogId === 'prison-key') game.consumePrisonItem(player, item.itemId);
   else player.items = player.items.filter(entry => entry.itemId !== item.itemId);
-  return { success: true, cashReceived };
+  return { success: true, cashReceived, saleFee: quote ? quote.fee : 0 };
 }
 
-function creditItemCash(game, player, item, action, cashReceived) {
+function creditItemCash(game, player, item, action, cashReceived, saleFee = 0) {
   player.cash += cashReceived;
-  game.feedMessage(`${player.nickname} ${action === 'sell' ? 'sold' : 'redeemed'} ${ITEM_CATALOG[item.catalogId].name} for $${cashReceived}.`);
+  const fee = saleFee > 0 ? ` after a $${saleFee} bank fee` : '';
+  game.feedMessage(`${player.nickname} ${action === 'sell' ? 'sold' : 'redeemed'} ${ITEM_CATALOG[item.catalogId].name} for $${cashReceived}${fee}.`);
   if (game.pendingPayment?.playerId === player.id) game.trySettlePendingPayment();
 }
 
@@ -105,14 +109,17 @@ export function itemSummaryFor(game, player, viewerId) {
     const meta = ITEM_CATALOG[item.catalogId];
     const reason = useReason(game, player, item);
     const saleReason = sellReason(game, player, item);
+    const quote = bankSaleQuote(game, player, item.bankSellValue);
+    const feeNote = quote.fee > 0 ? ` after a $${quote.fee} bank fee` : '';
     return {
       itemId: item.itemId, id: item.itemId, catalogId: item.catalogId,
       name: meta.name, description: item.catalogId === 'parlor-bond'
-        ? `Redeem for $${dollars(item.redeemValue)} from round ${item.maturesRound}, or sell to the bank for $${dollars(item.bankSellValue)}.`
-        : item.catalogId === 'silver-keepsake' ? `A collectible worth $${dollars(item.bankSellValue)} when sold to the bank.` : meta.description,
+        ? `Redeem for $${dollars(item.redeemValue)} from round ${item.maturesRound}, or sell to the bank for $${quote.net}${feeNote}.`
+        : item.catalogId === 'silver-keepsake' ? `A collectible worth $${quote.net} when sold to the bank${feeNote}.` : meta.description,
       quantity: 1,
       sellValue: dollars(item.bankSellValue), bankSellValue: dollars(item.bankSellValue),
       redeemValue: dollars(item.redeemValue), maturesRound: item.maturesRound ?? null,
+      saleFeePct: quote.feePct, saleFee: quote.fee, netSaleValue: quote.net,
       canUse: reason === null, canSell: saleReason === null, canTrade: false, canExchange: false,
       actionLabel: meta.actionLabel, useReason: reason, sellReason: saleReason
     };
@@ -181,11 +188,11 @@ export const itemApi = {
     if (reason) return failure(reason);
     const outcome = resolveItemAction(this, socketId, player, item, action);
     if (!outcome.success) return outcome;
-    const { cashReceived } = outcome;
-    const result = { success: true, action, itemId, cashReceived };
+    const { cashReceived, saleFee = 0 } = outcome;
+    const result = { success: true, action, itemId, cashReceived, saleFee };
     // Remember and consume before crediting: collecting debt can reenter exit code.
     this.itemTransactions.set(replayKey, { action, itemId, result });
-    if (cashReceived > 0) creditItemCash(this, player, item, action, cashReceived);
+    if (cashReceived > 0) creditItemCash(this, player, item, action, cashReceived, saleFee);
     return result;
   },
 
