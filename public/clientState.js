@@ -174,6 +174,7 @@ const state = {
   profiles: loadProfiles(),   // persisted array of saved player designs
   achievementRecords: initialAchievementRecords,
   unlockedAchievements: new Set(initialAchievementRecords.keys()),
+  profileSubject: null,       // a computer player shown on the profile page; null for the signed-in player
   achievementFilter: "all",
   achievementDateFilter: "all",
   achievementRarityFilter: "all",
@@ -272,11 +273,11 @@ const state = {
     playerFinance:   false,
     maxPlayers:      4,       // 2 – 4
     startingCash:    1500,    // 1000 / 1500 / 2000 / 3000
-    vacationPool:    true,    // free-parking jackpot on/off
+    vacationPool:    false,   // free-parking jackpot on/off
     trading:         true,    // trading on/off
-    auction:         false,   // auction unowned deeds on/off
+    auction:         true,    // auction unowned deeds on/off
     doubleGo:        false,   // $400 for landing exactly on GO
-    noRentInJail:    true,    // owner can't collect while visiting
+    noRentInJail:    false,   // owner can't collect while visiting
     bankruptMode:    "elim",  // legacy snapshot key; bankruptcy always eliminates/spectates
     bots:            0,        // reserved CPU seats; bot turns are added separately
     botBrain:        "ai",    // "ai" | "no-ai" (legacy "auto" normalizes to "ai")

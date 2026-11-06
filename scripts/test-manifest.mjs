@@ -1,6 +1,6 @@
 export const TEST_GROUPS = Object.freeze({
   core: [
-    'server/patrol-authority.test.js', 'public/clientNightShift.test.js', 'public/clientPatrolProvenance.test.js',
+    'server/patrol-authority.test.js', 'public/clientNightShift.test.js', 'public/clientPatrolProvenance.test.js', 'server/recap-fields.test.js',
     'server/items.test.js', 'server/items-lifecycle.test.js',
     'server/itemRewardsSettings.test.js', 'server/itemSocket.test.js',
     'server/rulesProfiles.test.js', 'server/botFinanceProfiles.test.js',
@@ -11,7 +11,7 @@ export const TEST_GROUPS = Object.freeze({
     'server/backupStore.test.js', 'server/backup-wire.test.js', 'server/storage-permissions.test.js', 'server/httpRateLimiter.test.js', 'server/httpErrors.test.js', 'server/requestId.test.js', 'server/persistenceMode.test.js',
     'server/authoritativeStore.test.js', 'server/pubsubAdapter.test.js', 'server/balanceMetrics.test.js',
     'server/gameLogic.test.js', 'server/applyCard.test.js', 'server/rent.test.js', 'server/metro-rent-tiers.test.js', 'server/margin-carry-rule.test.js', 'server/round-limit.test.js', 'server/persistence.test.js',
-    'server/leaderboard.test.js', 'server/game-results.test.js', 'server/property-actions.test.js', 'server/hotel-sale-supply.test.js', 'server/bot-trade-counter.test.js', 'server/trade-expiry.test.js', 'server/airport-flights.test.js', 'server/bank-account.test.js', 'server/about-page.test.js', 'server/staticAssets.test.js',
+    'server/leaderboard.test.js', 'server/game-results.test.js', 'server/property-actions.test.js', 'server/hotel-sale-supply.test.js', 'server/bot-trade-counter.test.js', 'server/trade-expiry.test.js', 'server/airport-flights.test.js', 'server/bank-account.test.js', 'server/bank-tier-perks.test.js', 'server/about-page.test.js', 'server/staticAssets.test.js',
     'server/contracts-market.test.js', 'server/market-order-guards.test.js', 'server/sponsorship.test.js', 'server/double-go.test.js',
     'server/turn-doubles-carry.test.js', 'server/turn-off-roll-settle.test.js', 'server/auction-departing-starter.test.js',
     'server/exit-settlement.test.js',
@@ -19,8 +19,8 @@ export const TEST_GROUPS = Object.freeze({
     'server/aiProviderConfig.test.js', 'server/aiProviderRoutes.test.js', 'server/bot-brain.test.js',
     'server/botStrategicContext.test.js', 'server/botFuturePlanner.test.js', 'server/botDevelopmentForecast.test.js',
     'server/botTableBrain.test.js', 'server/botTableMind.test.js', 'server/bot-simulation.test.js',
-    'server/global-events.test.js', 'server/trades.test.js', 'server/casino-bankruptcy.test.js',
-    'server/roomSetup.test.js', 'server/nicknamePolicy.test.js', 'server/serverStorePaths.test.js', 'server/release-hardening.test.js', 'scripts/restore-backup.test.mjs',
+    'server/global-events.test.js', 'server/lucky-table.test.js', 'server/trades.test.js', 'server/casino-bankruptcy.test.js',
+    'server/roomSetup.test.js', 'server/nicknamePolicy.test.js', 'server/bot-personas.test.js', 'server/serverStorePaths.test.js', 'server/release-hardening.test.js', 'scripts/restore-backup.test.mjs',
     'scripts/loadEnvFile.test.mjs', 'scripts/ops-wiring.test.mjs',
     'server/rooms.test.js', 'server/server.test.js', 'server/rooms-seat-reclaim.test.js', 'server/serverSocketRoomLifecycle.test.js', 'server/trade-and-auction-guards.test.js',
     'server/property-mortgage-and-loans.test.js', 'server/card-rent-and-resolve.test.js', 'server/room-settlement.test.js',

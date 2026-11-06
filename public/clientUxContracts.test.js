@@ -69,7 +69,7 @@ check("board variant is selected only after entering the lobby", () => {
   assert.equal(roomsUi.includes('id === "rc-board-variant"'), false);
   assert.equal(roomsUi.includes("#rc-board-variant"), false);
   assert.match(lobby, /settingRow\("Board Variant"/);
-  assert.match(lobby, /Standard is the classic 40-space board/);
+  assert.match(lobby, /Standard: 40 spaces/);
   assert.match(lobby, /\[\["standard-40", "STANDARD · 40"\], \["metro-52", "METRO · 52 \/ 6 SEATS"\]\]/);
 });
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const render = readFileSync(new URL("./clientProfileRender.js", import.meta.url), "utf8");
+const render = ["./clientProfileRender.js", "./clientProfileHistory.js", "./clientProfileHistoryDetails.js"].map(file => readFileSync(new URL(file, import.meta.url), "utf8")).join("\n");
 const bindings = readFileSync(new URL("./clientProfileBindings.js", import.meta.url), "utf8");
 const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 globalThis.window = { matchMedia: () => ({ matches: false }) };

@@ -232,6 +232,7 @@
     "server/trade-expiry.test.js": 250,
     "server/airport-flights.test.js": 300,
     "server/bank-account.test.js": 275,
+    "server/bank-tier-perks.test.js": 60,
     "server/about-page.test.js": 375,
     "server/net-worth-timeline.test.js": 250,
     "server/bot-contract-policy.test.js": 325,
@@ -283,8 +284,11 @@
     "server/storeQuarantinePersistence.test.js": 97,
     "server/balanceMedianEmpty.test.js": 59,
     "server/aiProviderActiveEdit.test.js": 378,
+    "server/recap-fields.test.js": 60,
+    "server/lucky-table.test.js": 60,
     "server/bot-audit-fixes.test.js": 1278,
     "server/money-audit-fixes.test.js": 341,
-    "server/rooms-audit-fixes.test.js": 344
+    "server/rooms-audit-fixes.test.js": 344,
+    "server/bot-personas.test.js": 60
   }
 }

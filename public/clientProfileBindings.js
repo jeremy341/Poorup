@@ -177,7 +177,23 @@ function draftFromAccount(account) {
   return { designName: "", color, grid, tool: "paint", paintColor: "#f0d9ac" };
 }
 
+// A computer player's page reuses the profile page. Leaving it, or opening the signed-in player's own profile, puts that back.
+function clearProfileSubject() {
+  state.profileSubject = null;
+  $("#view-profile")?.removeAttribute("data-subject");
+}
+
+export function showComputerProfile(subject) {
+  state.profileSubject = subject;
+  const root = $("#view-profile");
+  if (root) root.dataset.subject = "computer";
+  state.profileTab = "overview";
+  host.showView("profile");
+  setProfileTab("overview");
+}
+
 function openProfileEditor(fromPhase, profileId) {
+  clearProfileSubject();
   closeRoomsModal();
   state.homeReturnView = fromPhase === "setup" ? "setup-return" : "home";
   state.editingProfileId = profileId || null;
@@ -315,7 +331,7 @@ function onProfileHeroAccountClick(event) {
 
 function onPlNewClick() {
   if (state.profiles.length >= MAX_PROFILES) {
-    host.notice(`You can only save up to ${MAX_PROFILES} custom designs. Delete one to make room.`);
+    host.notice(`You can only save up to ${MAX_PROFILES} custom designs. Delete one to make room.`, "warning");
     return;
   }
   openProfileEditor("home");

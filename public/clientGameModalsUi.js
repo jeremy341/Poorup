@@ -374,6 +374,18 @@ function canStartRematch() {
   return Boolean(me.isHost) || Boolean(me.serverId && me.serverId === state.hostId);
 }
 
+// End-screen highlights from the live table: the item holder, the biggest rebate and the best cash trade.
+function gameOverRecap(players) {
+  const leader = key => players.reduce((best, player) => (Number(player[key]) || 0) > (Number(best?.[key]) || 0) ? player : best, null);
+  const rows = [
+    ["MOST ITEMS", leader("itemCount"), "itemCount", player => `${player.itemCount} HELD`],
+    ["BIGGEST REBATE", leader("matchRebate"), "matchRebate", player => `$${player.matchRebate.toLocaleString()}`],
+    ["BEST TRADE", leader("bestTradeNet"), "bestTradeNet", player => `+$${player.bestTradeNet.toLocaleString()}`],
+  ].filter(([, player, key]) => player && Number(player[key]) > 0);
+  if (!rows.length) return "";
+  return `<dl class="go-recap">${rows.map(([label, player, , format]) => `<div><dt class="t-micro ink-3">${label}</dt><dd class="t-label f12">${esc(player.name)} · ${format(player)}</dd></div>`).join("")}</dl>`;
+}
+
 function showGameOver(winnerName, winnerId, endReason = null) {
   state.gameOver = { winnerName, winnerId, endReason };
   const ranking = rankGameOverPlayers(state.players, state.finalPlacements, winnerId);
@@ -403,6 +415,7 @@ function showGameOver(winnerName, winnerId, endReason = null) {
         </div>
       </div>
       <div class="go-summary">${summary}</div>
+      ${gameOverRecap(state.players)}
       <details class="go-score-details"><summary>Final scores</summary><div class="go-score-heading t-micro ink-3">${endReason === 'round-limit' ? 'FINAL NET WORTH' : 'FINAL CASH'}</div><dl class="go-final-scores">${scoreRows}</dl></details>
       <div class="go-actions">
         <button class="cta-red bank-btn" id="go-rematch" ${canRematch ? '' : 'disabled aria-describedby="go-rematch-note"'}><span class="cta-text cta-text-sm">Rematch</span></button>
