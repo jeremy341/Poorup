@@ -44,6 +44,8 @@ function atomicWrite(filePath, bytes) {
     fs.closeSync(fd);
     fd = null;
     fs.renameSync(temp, filePath);
+    // Flush the directory entry too: the rename is not durable until it is.
+    fsyncParentDirectory(filePath);
   } catch (error) {
     // A leftover temp file holds the whole store, and nothing ever rotates or
     // erases it: it must not survive a failed write.
@@ -51,6 +53,15 @@ function atomicWrite(filePath, bytes) {
     try { fs.unlinkSync(temp); } catch { /* best effort */ }
     throw error;
   }
+}
+
+// Best effort: Windows cannot open directory handles for fsync.
+function fsyncParentDirectory(filePath) {
+  if (process.platform === 'win32') return;
+  try {
+    const dirHandle = fs.openSync(path.dirname(filePath), 'r');
+    try { fs.fsyncSync(dirHandle); } finally { fs.closeSync(dirHandle); }
+  } catch { /* best effort */ }
 }
 
 function backupName(filePath, stamp) {
@@ -454,6 +465,7 @@ export function restoreJsonBackup(backupPath, destinationPath, { allowDirs = [] 
     const handle = fs.openSync(temp, 'r+');
     try { fs.fsyncSync(handle); } finally { fs.closeSync(handle); }
     fs.renameSync(temp, destination);
+    fsyncParentDirectory(destination);
   } catch (error) {
     try { fs.unlinkSync(temp); } catch { /* the temp file may not exist */ }
     throw error;

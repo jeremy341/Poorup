@@ -129,8 +129,8 @@ async function verifyBotMovementGate(botBrain) {
   timers[0].callback();
   await new Promise(resolve => setImmediate(resolve));
   await new Promise(resolve => setImmediate(resolve));
-  const movementGate = timers.find(timer => timer.delay === 2_000 && !timer.cleared);
-  assert.ok(movementGate, `${botBrain} bot waits for five animated tiles at 400 ms per tile`);
+  const movementGate = timers.find(timer => timer.delay === 2_080 && !timer.cleared);
+  assert.ok(movementGate, `${botBrain} bot waits for five animated tiles at the accelerated bot cadence plus the landing settle`);
   assert.equal(room.game.currentPlayerId, bots[0].id, 'the moving bot remains the active seat while its next action is held');
 
   currentTime += movementGate.delay;

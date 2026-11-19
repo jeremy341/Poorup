@@ -324,6 +324,17 @@ function rememberSponsoredContribution(game, replayKey, sponsorship, sponsor, am
   game.contractTransactions.set(replayKey, { sponsorshipId: sponsorship.id, sponsorId: sponsor.id, amounts });
 }
 
+// A withdrawn or dissolved contribution returns the reserved cash, so its
+// memo must not survive: a client retrying the same contributionId would
+// otherwise replay "success" for a contribution that no longer exists and
+// the sponsorship would stall short of its goal.
+function forgetSponsoredContribution(game, sponsorshipId, sponsorId) {
+  if (!sponsorshipId || !sponsorId || !(game.contractTransactions instanceof Map)) return;
+  for (const [key, memo] of game.contractTransactions) {
+    if (memo && memo.sponsorshipId === sponsorshipId && memo.sponsorId === sponsorId) game.contractTransactions.delete(key);
+  }
+}
+
 function prepareSponsoredAcceptance(game, buyer) {
   const ctx = sponsorshipApiContext(game);
   const check = acceptanceCheck(game, buyer, ctx);
@@ -405,11 +416,23 @@ function equitySettlementTerms(game, tile, sponsorship, contributions) {
   return { investor, sharePct, durationRounds: sponsorship.durationRounds };
 }
 
-function createSponsoredEquityContract({ game, buyer, tile, equityTerms, contributions }) {
+// The ledger books what the investor actually paid: their pro-rata share of any
+// escrow excess goes back to them in refundSponsoredExcess, so the contract is
+// written net of that share. The share is computed from the same inputs the
+// refund uses, so the two can never disagree; an undeliverable share (bankrupt
+// investor) falls to the buyer and stays inside the booked price.
+function equityNetAmount({ investor, contributions, total, excess }) {
+  const gross = Number(contributions[0].amount) || 0;
+  const share = sponsorRefundShares(contributions, total, excess)[0] || 0;
+  const refund = investor.bankrupt ? 0 : share;
+  return Math.max(0, gross - refund);
+}
+
+function createSponsoredEquityContract({ game, buyer, tile, equityTerms, contributions, total, excess }) {
   const { investor, sharePct, durationRounds } = equityTerms;
   const contract = {
     id: crypto.randomUUID(), kind: 'equity', rulesVersion: CONTRACT_RULES_VERSION, rentShareVersion: RENT_SHARE_VERSION, fromPlayerId: investor.id, toPlayerId: buyer.id,
-    amount: contributions[0].amount, propertyIndex: tile.index, equityShare: sharePct,
+    amount: equityNetAmount({ investor, contributions, total, excess }), propertyIndex: tile.index, equityShare: sharePct,
     equityControl: 'passive', permanent: false, expiresRound: game.roundNumber + durationRounds,
     durationRounds, createdRound: game.roundNumber, acceptedRound: game.roundNumber, status: 'active'
   };
@@ -421,19 +444,19 @@ function createSponsoredEquityContract({ game, buyer, tile, equityTerms, contrib
   }];
 }
 
-function settleSponsoredPurchase({ game, buyer, ctx, contributions, rollback }) {
+function settleSponsoredPurchase({ game, buyer, ctx, contributions, rollback, total, excess }) {
   const pendingIsEquity = ctx.sponsorship?.mode === 'equity';
   const savedIsEquity = rollback.pending?.mode === 'equity';
   const equityTerms = (pendingIsEquity || savedIsEquity)
     ? equitySettlementTerms(game, ctx.tile, ctx.sponsorship, contributions)
     : null;
   game.acceptPurchaseOffer(buyer, ctx.tile);
-  if (equityTerms) createSponsoredEquityContract({ game, buyer, tile: ctx.tile, equityTerms, contributions });
+  if (equityTerms) createSponsoredEquityContract({ game, buyer, tile: ctx.tile, equityTerms, contributions, total, excess });
 }
 
-function settleSponsoredPurchaseAtomically({ game, buyer, ctx, contributions, rollback }) {
+function settleSponsoredPurchaseAtomically({ game, buyer, ctx, contributions, rollback, total, excess }) {
   try {
-    settleSponsoredPurchase({ game, buyer, ctx, contributions, rollback });
+    settleSponsoredPurchase({ game, buyer, ctx, contributions, rollback, total, excess });
     return true;
   } catch (error) {
     restoreSponsoredRollback({ game, buyer, tile: ctx.tile, contributions, rollback });
@@ -533,6 +556,7 @@ const sponsorshipApi = {
     if (index < 0) return { success: false, error: 'You have no contribution in this sponsorship.' };
     const [entry] = sponsorship.contributions.splice(index, 1);
     sponsor.cash += entry.amount;
+    forgetSponsoredContribution(this, sponsorship.id, sponsor.id);
     this.feedMessage(`${sponsor.nickname} withdrew their sponsorship.`);
     return { success: true, sponsorship: this.summarySponsoredPurchase() };
   },
@@ -556,7 +580,7 @@ const sponsorshipApi = {
     const rollback = captureSponsoredRollback(this, buyer, ctx.tile, check.contributions);
     buyer.cash += total - excess;
     this.pendingSponsoredPurchase = null;
-    const settled = settleSponsoredPurchaseAtomically({ game: this, buyer, ctx, contributions: check.contributions, rollback });
+    const settled = settleSponsoredPurchaseAtomically({ game: this, buyer, ctx, contributions: check.contributions, rollback, total, excess });
     if (!settled) {
       return { success: false, error: 'Sponsored purchase failed; contributions remain reserved.' };
     }
@@ -582,7 +606,9 @@ const sponsorshipApi = {
     if (!sponsorship) return false;
     sponsorship.contributions.forEach(entry => {
       const sponsor = this.getPlayerById(entry.sponsorId);
-      if (sponsor) sponsor.cash += entry.amount;
+      // Same parity as refundSponsorContribution: a bankrupt sponsor's estate
+      // was already settled, so re-crediting it would create cash.
+      if (sponsor && !sponsor.bankrupt) sponsor.cash += entry.amount;
     });
     this.pendingSponsoredPurchase = null;
     return true;
@@ -596,7 +622,8 @@ const sponsorshipApi = {
     if (index < 0) return false;
     const [entry] = sponsorship.contributions.splice(index, 1);
     const sponsor = this.getPlayerById(playerId);
-    if (sponsor) sponsor.cash += entry.amount;
+    if (sponsor && !sponsor.bankrupt) sponsor.cash += entry.amount;
+    forgetSponsoredContribution(this, sponsorship.id, playerId);
     return true;
   },
 

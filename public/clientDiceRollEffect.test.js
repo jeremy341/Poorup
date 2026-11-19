@@ -41,12 +41,12 @@ assert.equal(classes.has("is-visible"), true);
 showDiceRollTotal(12);
 assert.equal(cleared, true, "a newer roll replaces the old hide timer");
 assert.equal(announcement.textContent, "12");
-assert.equal(timeoutMs, 3000, "the announcement remains visible for three seconds");
+assert.equal(timeoutMs, 900, "the announcement holds for the 900ms review window");
 timeoutCallback();
 assert.equal(classes.has("is-visible"), false, "the announcement clears at the end of its lifetime");
 
-const presentationStyles = readFileSync(new URL("./ui-review-presentation.css", import.meta.url), "utf8");
-assert.match(presentationStyles, /dice-roll-total\.is-visible\s*\{\s*animation:\s*dice-total-review 3000ms/);
+const presentationStyles = readFileSync(new URL("./ux-surfaces.css", import.meta.url), "utf8");
+assert.match(presentationStyles, /dice-roll-total\.is-visible\s*\{\s*animation:\s*dice-total-review 900ms/);
 assert.match(presentationStyles, /prefers-reduced-motion:\s*reduce[\s\S]*?dice-roll-total\.is-visible\s*\{[^}]*animation:\s*none/);
 
-console.log("dice roll announcement: sequence dedupe, three-second lifetime, timer replacement, and reduced-motion styling passed");
+console.log("dice roll announcement: sequence dedupe, 900ms review lifetime, timer replacement, and reduced-motion styling passed");

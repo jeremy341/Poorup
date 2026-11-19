@@ -161,8 +161,8 @@ const METRO_TILES = METRO_SEMANTIC_IDS.map((tileId, index) => {
     "jnb-airport": 35, "power-grid": 12, "city-levy": 38, waterworks: 28, "treasure-4": 33, "transit-tax": 38
   }[tileId] ?? STANDARD_TILE_IDS.indexOf(tileId);
   const overrides = {
-    lagos: { name: "LAGOS", group: "metro gold", price: 340, rent: 34 },
-    abuja: { name: "ABUJA", group: "metro gold", price: 360, rent: 36 },
+    lagos: { name: "LAGOS", group: "metro gold", price: 320, rent: 34 },
+    abuja: { name: "ABUJA", group: "metro gold", price: 340, rent: 36 },
     seoul: { name: "SEOUL", group: "metro silver", price: 380, rent: 38 },
     busan: { name: "BUSAN", group: "metro silver", price: 420, rent: 42 },
     "icn-airport": { name: "ICN AIRPORT", kind: "railroad", price: 200, rent: 25 },
@@ -171,7 +171,7 @@ const METRO_TILES = METRO_SEMANTIC_IDS.map((tileId, index) => {
     "city-levy": { name: "CITY LEVY", kind: "tax", price: 100 },
     waterworks: { name: "WATERWORKS", kind: "utility", price: 150, rent: 12 },
     "treasure-4": { name: "TREASURE", kind: "chest" },
-    "transit-tax": { name: "TRANSIT TAX", kind: "tax", price: 100 }
+    "transit-tax": { name: "TRANSIT TAX", kind: "tax", price: 75 }
   }[tileId] || {};
   return withMetroPosition(metroFrom(sourceIndex >= 0 ? sourceIndex : index, tileId, overrides), index);
 });

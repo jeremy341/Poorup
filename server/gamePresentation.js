@@ -1,4 +1,4 @@
-import { BOT_MOVEMENT_STEP_MS, HUMAN_MOVEMENT_STEP_MS, LANDING_DELAY_MS, ROLL_LEAD_MS } from '../public/gamePresentationTiming.js';
+import { BOT_MOVEMENT_STEP_MS, HUMAN_MOVEMENT_STEP_MS, LANDING_DELAY_MS, ROLL_LEAD_MS, walkStepDurationsMs } from '../public/gamePresentationTiming.js';
 
 function cashSnapshot(game) {
   return new Map(game.players.map(player => [player.id, Number(player.cash) || 0]));
@@ -39,16 +39,24 @@ export function withRollPresentation(game, player, action) {
 function finalizePresentation(game, player, record, startedAt) {
     recordPresentationCash(game, 'landing');
     let offsetMs = ROLL_LEAD_MS;
+    const stepEnds = new Map();
     for (const segment of record.segments) {
+      const ends = walkStepDurationsMs(segment.path.length, segment.stepMs);
       segment.offsetMs = offsetMs;
-      segment.durationMs = segment.path.length * segment.stepMs;
+      // Accelerated pacing: full pace for the opening tiles, faster beyond, a
+      // longer settle on the landing tile. The client renders the same curve;
+      // cash offsets follow the real step ends, not the old uniform multiples.
+      segment.pacing = 'accelerated';
+      segment.durationMs = ends.reduce((sum, ms) => sum + ms, 0);
+      stepEnds.set(segment, ends);
       offsetMs += segment.durationMs;
     }
     const durationMs = offsetMs + LANDING_DELAY_MS;
     for (const event of record.cashEvents) {
       const segment = record.segments[event.segmentIndex];
-      event.atMs = event.pathIndex != null && segment
-        ? segment.offsetMs + (event.pathIndex + 1) * segment.stepMs : durationMs;
+      const ends = segment ? stepEnds.get(segment) : null;
+      event.atMs = event.pathIndex != null && ends
+        ? segment.offsetMs + ends[event.pathIndex] : durationMs;
     }
     game.presentation = {
       id: game.diceRollSequence,

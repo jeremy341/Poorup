@@ -194,7 +194,9 @@ export function settlementDiscount(game, loan) {
   const multiplier = Number(game.activeEventEffects().loanSettlementMultiplier);
   if (!Number.isFinite(multiplier)) return loan.remaining;
   if (multiplier <= 0) return loan.remaining;
-  return Math.ceil(loan.remaining * multiplier);
+  // Round the product to 6 decimals first, as premiumRate does: a float
+  // multiplier landing just above an integer must not ceil into an extra $1.
+  return Math.ceil(Math.round(loan.remaining * multiplier * 1e6) / 1e6);
 }
 
 function repaymentAmountError(requested) {

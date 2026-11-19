@@ -8,6 +8,7 @@ globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 
 const surfaces = await import("./clientSocialSurfaces.js");
 const source = readFileSync(new URL("./clientSocialSurfaces.js", import.meta.url), "utf8");
+const rulesSource = readFileSync(new URL("./rulesSections.js", import.meta.url), "utf8");
 const responsiveSource = readFileSync(new URL("./clientResponsiveSocialSurfaces.js", import.meta.url), "utf8");
 const bindings = readFileSync(new URL("./clientParlorBindings.js", import.meta.url), "utf8");
 const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
@@ -105,11 +106,11 @@ check("retiredSeasonSurfacesAndRequestsAreGone", () => {
 });
 
 check("rulesExplainAuctionAndPropertyActionTiming", () => {
-  assert.match(source, /Each valid bid resets the five-second timer/);
-  assert.match(source, /There is no pass action during an auction/);
-  assert.match(source, /build houses and hotels before ending your turn/);
-  assert.match(source, /sell buildings evenly for half their cost on any turn/);
-  assert.match(source, /Mortgaging an owned deed may happen on any turn/);
+  assert.match(rulesSource, /Each valid bid resets the five-second timer/);
+  assert.match(rulesSource, /There is no pass action during an auction/);
+  assert.match(rulesSource, /build houses and hotels before ending your turn/);
+  assert.match(rulesSource, /sell buildings evenly for half their cost on any turn/);
+  assert.match(rulesSource, /Mortgaging an owned deed may happen on any turn/);
 });
 
 check("sharedHistoryReadsBankruptLikeOwnHistoryAndKeepsMatchNumbers", () => {

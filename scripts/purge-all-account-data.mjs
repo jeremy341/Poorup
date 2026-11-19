@@ -29,7 +29,9 @@ const PURGED_BACKUP_PREFIXES = Object.entries(STORE_NAMES)
   .filter(([store]) => store !== 'analyticsRollup')
   .map(([, name]) => `${name}.`);
 const PRESERVED_STORES = new Set(['analyticsRollup']);
-const PRESERVED_DATA_FILES = new Set(['ai-providers.json', 'maintenance.json', 'rooms.json']);
+// rooms.json is NOT preserved: lobby snapshots carry account ids and nicknames,
+// so an account-data purge must take the file with the other account-bearing stores.
+const PRESERVED_DATA_FILES = new Set(['ai-providers.json', 'maintenance.json']);
 const ADDITIONAL_ACCOUNT_FILES = ['__dbg.json', '__gold_acct.json', '__gold_matches.json'];
 
 function inside(parent, candidate) {

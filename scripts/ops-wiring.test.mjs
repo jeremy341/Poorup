@@ -114,8 +114,8 @@ for (const [name] of Object.entries(shellScripts)) {
 // on a push to main from this repository, so a fork pull request whose branch
 // is named main cannot reach the production host.
 const deployWorkflow = read('.github/workflows/deploy-nest.yml');
-const undrainWorkflow = read('.github/workflows/maintenance-undrain.yml');
-for (const [name, workflow] of [['deploy-nest.yml', deployWorkflow], ['maintenance-undrain.yml', undrainWorkflow]]) {
+const undrainWorkflow = read('.github/workflows/maintenance.yml');
+for (const [name, workflow] of [['deploy-nest.yml', deployWorkflow], ['maintenance.yml undrain job', undrainWorkflow]]) {
   assert.match(workflow, /workflow_run\.event == 'push'/, `${name} requires a push-triggered CI run (G12-03)`);
   assert.match(workflow, /workflow_run\.head_repository\.full_name == github\.repository/, `${name} requires the CI head repository to be this one (G12-03)`);
 }
@@ -134,7 +134,9 @@ const jobBody = name => {
   const next = ci.slice(start + 1).search(/\n {2}[a-z][a-z-]*:\n/);
   return next === -1 ? ci.slice(start) : ci.slice(start, start + 1 + next);
 };
-assert.match(ci, /EVENT_NAME" = "push" \] && \[ "\$PUSH_BRANCH" = "main" \]; then\s+tier=fast/, 'a push to main runs the fast tier with the testing-tree check (G12-04)');
+assert.match(ci, /\[ "\$BASE_REF" = "testing" \]; then\s+tier=full/, 'gate-lane PRs (into testing) run the full battery; every other event, a push or promotion PR to main included, stays on the fast tier (G12-04)');
+assert.match(jobBody('tree-check'), /if: needs\.plan\.outputs\.tier == 'fast'/, 'the tree check runs on the fast tier (G12-04)');
+assert.match(jobBody('tree-check'), /HEAD\^\{tree\}/, 'the tree check proves main carries a byte-tested tree (G12-04)');
 assert.match(jobBody('lint'), /node server\/docs-parity\.test\.js/, 'docs-only pull requests still run the docs parity suite (G12-05)');
 assert.match(jobBody('lint'), /node server\/docsFeatureStatus\.test\.js/, 'docs-only pull requests still run the feature-status suite (G12-05)');
 assert.match(jobBody('boot'), /NODE_ENV=production[\s\S]*POORUP_ALLOWED_ORIGINS=[\s\S]*POORUP_DATA_DIR=[\s\S]*POORUP_BACKUP_DIR=[\s\S]*POORUP_HTTP_RATE_LIMIT=[\s\S]*POORUP_SOCKET_RATE_WINDOW_MS=/, 'boot smoke runs in production mode with its required directories and rate limits (G12-10)');
@@ -153,10 +155,10 @@ assert.deepEqual(lockRoot.dependencies, pkg.dependencies, 'the lockfile root dep
 assert.deepEqual(lockRoot.devDependencies, pkg.devDependencies, 'the lockfile root devDependencies match package.json (E37-15)');
 assert.equal(lock.packages['node_modules/@typesafe-ai/sdk'], undefined, 'the lockfile drops the unused SDK package (E37-15)');
 
-// The nightly 1,000-game campaign covers development as well as main, and it
-// leaves a summary and a log artifact behind.
+// The nightly 1,000-game campaign covers the pre-release lane (testing) as
+// well as main, and it leaves a summary and a log artifact behind.
 const campaign = read('.github/workflows/bot-campaign.yml');
-assert.match(campaign, /ref: \[main, development\]/, 'the nightly campaign runs on main and development (G12-14)');
+assert.match(campaign, /ref: \[main, testing\]/, 'the nightly campaign runs on main and testing (G12-14)');
 assert.match(campaign, /GITHUB_STEP_SUMMARY/, 'the nightly campaign writes a step summary (G12-14)');
 assert.match(campaign, /uses: actions\/upload-artifact@v6[\s\S]*path: campaign\.log/, 'the nightly campaign uploads its log (G12-14)');
 

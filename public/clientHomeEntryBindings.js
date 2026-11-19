@@ -57,7 +57,9 @@ function onJoinFormSubmit(event) {
   if (!nickname) return;
   setJoinError("");
   commitJoinAlias(nickname);
-  host.closeRoomsModal();
+  // The modal stays open through the server ack: a failed join keeps the
+  // entered code and name in place, with focus held near the error. The
+  // success path leaves the home view (and the modal) behind.
   host.enterParlor(code);
 }
 
@@ -70,7 +72,10 @@ function onRoomJoinInput(event) {
     error.textContent = "PASTED ROOM CODE MUST BE 6 CHARACTERS. EXTRA CHARACTERS REMOVED.";
     return;
   }
-  if (error.textContent.startsWith("ROOM CODES ARE 6")) error.textContent = "";
+  if (error.textContent) {
+    error.textContent = "";
+    event.target.removeAttribute("aria-invalid");
+  }
 }
 
 function onJoinNicknameInput(event) {

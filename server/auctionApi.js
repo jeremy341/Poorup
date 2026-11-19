@@ -179,7 +179,10 @@ const auctionApi = {
   // the win, as before.
   auctionWinnerId(auction) {
     const top = Number(auction.highestBid) || 0;
-    const tied = (auction.bids || []).filter(bid => bid.amount === top && this.getPlayerById(bid.playerId));
+    // A tied bid from a seat that can no longer win (disconnected, bankrupt,
+    // or no longer able to afford) must not take or void the tie-break: the
+    // head can have been revoked without touching this history.
+    const tied = (auction.bids || []).filter(bid => bid.amount === top && this.auctionWinnerEligible(this.getPlayerById(bid.playerId), top));
     if (tied.length < 2 || !this.bankAccountsEnabled()) return auction.highestBidderId;
     let best = tied[0];
     for (const bid of tied.slice(1)) {

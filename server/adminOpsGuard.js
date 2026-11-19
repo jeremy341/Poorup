@@ -10,9 +10,21 @@ import { isAdminAccount } from './analyticsApi.js';
 export const ADMIN_WRITE_WINDOW_MS = 60_000;
 export const ADMIN_WRITE_LIMIT = 12;
 
-export function sameOrigin(req, configuredOrigin = '') {
+// A production deployment rejects a cookie-authenticated request that carries no
+// Origin header at all: a browser always sends the header on a cross-site write,
+// so the absence means a non-browser client. Set POORUP_ALLOW_MISSING_ORIGIN=true
+// to restore the permissive behavior for Origin-less internal tooling.
+function missingOriginRejected() {
+  return productionRuntime() && String(process.env.POORUP_ALLOW_MISSING_ORIGIN || '').trim().toLowerCase() !== 'true';
+}
+
+function productionRuntime() {
+  return String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+}
+
+export function sameOrigin(req, configuredOrigin = '', { rejectMissingOrigin = false } = {}) {
   const origin = String(req.get?.('origin') || '').trim();
-  if (!origin) return true;
+  if (!origin) return !(rejectMissingOrigin && missingOriginRejected());
   if (configuredOrigin && origin === configuredOrigin) return true;
   const protocol = String(req.get?.('x-forwarded-proto') || req.protocol || 'http').split(',')[0].trim();
   return origin === `${protocol}://${req.get?.('host')}`;
@@ -74,7 +86,7 @@ export function createAdminGuard({
   // The first refusal that applies to a signed-in account, or null when it may act as admin.
   function accessRefusal(req, account) {
     if (!isAdminAccount(account?.id, adminIds)) return { status: 403, error: 'Forbidden.' };
-    if (!sameOrigin(req, publicOrigin)) return { status: 403, error: 'Origin is not allowed.' };
+    if (!sameOrigin(req, publicOrigin, { rejectMissingOrigin: true })) return { status: 403, error: 'Origin is not allowed.' };
     return null;
   }
 

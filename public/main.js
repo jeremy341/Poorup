@@ -16,10 +16,12 @@ import {
   placePieces,
   startPieceWalk,
   cancelPieceWalk,
+  configureBoardSound,
 } from "./clientBoardRender.js";
-import { renderHud } from "./clientHudRender.js";
+import { renderHud, configureHudSound, dismissTurnCoach } from "./clientHudRender.js";
 import { showDiceRollTotal } from "./clientDiceRollEffect.js";
-import { DICE_SHAKE_CYCLE_MS, MODAL_ENTER_MS } from './gamePresentationTiming.js';
+import { announceSystemLine } from "./clientAnnouncer.js";
+import { DICE_SHAKE_CYCLE_MS } from './gamePresentationTiming.js';
 import {
   CONNECTION_COPY,
   renderConnectionStatus,
@@ -71,6 +73,7 @@ import {
   setSurfaceReturnFocus,
   bindBeforeUnloadGuard,
   hideSurfaceResolved,
+  MODAL_EXIT_MS,
 } from "./clientSurfaces.js";
 import {
   toggleLogDrawerFromButton,
@@ -276,11 +279,18 @@ function tone(freq, dur, vol = 0.035, when = 0) {
     osc.stop(t0 + dur);
   } catch { /* audio blocked */ }
 }
+const MODAL_ENTER_MS = 200;
 const SOUND_TRACKS = {
   die: [{ freq: 220, dur: 0.05, vol: 0.03 }],
+  // dice rattle (roll start) and landing thud (total revealed)
+  rattle: [{ freq: 300, dur: 0.03, vol: 0.02 }, { freq: 240, dur: 0.03, vol: 0.02, when: 0.05 }, { freq: 330, dur: 0.03, vol: 0.02, when: 0.1 }, { freq: 260, dur: 0.03, vol: 0.02, when: 0.15 }],
+  thud: [{ freq: 110, dur: 0.09, vol: 0.045 }],
   cash: [{ freq: 660, dur: 0.06, vol: 0.03 }, { freq: 880, dur: 0.07, vol: 0.03, when: 0.06 }],
+  // coin pitch falls when cash leaves the player
+  spend: [{ freq: 880, dur: 0.06, vol: 0.03 }, { freq: 520, dur: 0.08, vol: 0.03, when: 0.06 }],
   house: [{ freq: 140, dur: 0.08, vol: 0.04 }],
   auction: [{ freq: 520, dur: 0.12, vol: 0.03 }, { freq: 390, dur: 0.14, vol: 0.03, when: 0.12 }],
+  bid: [{ freq: 720, dur: 0.05, vol: 0.025 }],
   trade: [{ freq: 520, dur: 0.08, vol: 0.03 }, { freq: 780, dur: 0.1, vol: 0.03, when: 0.09 }],
   step: [{ freq: 180, dur: 0.03, vol: 0.02 }],
 };
@@ -380,7 +390,8 @@ function emitServer(event, payload = {}, callback) {
   socket.emit(event, packet, callback);
 }
 
-function updateServerSetting(key, value) {
+function updateServerSetting(key, value, onResult) {
+  const settled = typeof onResult === "function" ? onResult : null;
   const previousSettings = {
     ...state.settings,
     rulesetOverrides: Array.isArray(state.settings.rulesetOverrides)
@@ -391,9 +402,15 @@ function updateServerSetting(key, value) {
   const previousBoardVariant = state.boardVariant;
   state.settings[key] = value;
   const serverKey = SERVER_SETTING_KEYS[key];
-  if (!serverKey) return;
+  if (!serverKey) {
+    settled?.({ success: true });
+    return;
+  }
   const context = { key, value, previousSettings, previousRuleset, previousBoardVariant };
-  emitServer("set-setting", { key: serverKey, value }, (settingResult) => handleSettingResult(settingResult, context));
+  emitServer("set-setting", { key: serverKey, value }, (settingResult) => {
+    handleSettingResult(settingResult, context);
+    settled?.(settingResult);
+  });
 }
 
 function handleSettingResult(settingResult, context) {
@@ -439,7 +456,10 @@ const serverSyncHost = {
   syncOfferSurface: closeOfferIfWithdrawn,
   placePiecesSoon: () => requestAnimationFrame(() => placePieces()),
   rebuildBoard: () => buildBoard(onTileClick),
-  announceDiceRoll: showDiceRollTotal,
+  announceDiceRoll: (total) => {
+    playSound("thud");
+    showDiceRollTotal(total);
+  },
   // Polite toast only: no modal, no focus move. The offer waits under Finance.
   noticeContractOffer: (offer, proposerName) => announceSocialNotification({
     title: "CONTRACT OFFER",
@@ -488,10 +508,6 @@ function isDuplicateSystem(message, previous) {
   if (!message.system) return false;
   if (!previous?.system) return false;
   return previous.text === message.text;
-}
-function announceSystemLine(text) {
-  const announcer = $("#system-announcer");
-  if (announcer) announcer.textContent = String(text);
 }
 function say(text, who) {
   if (!who) return;
@@ -854,7 +870,20 @@ function renderStep(label, render) {
   }
 }
 
+// Auction bid blip: observable client-side as the highest bid rising inside the same auction.
+let lastAuctionBid = { id: null, bid: 0 };
+function cueAuctionBid() {
+  const auction = state.auction;
+  if (!auction?.active) {
+    lastAuctionBid = { id: null, bid: 0 };
+    return;
+  }
+  if (lastAuctionBid.id === auction.id && auction.bid > lastAuctionBid.bid) playSound("bid");
+  lastAuctionBid = { id: auction.id, bid: auction.bid };
+}
+
 function renderAll() {
+  renderStep("Auction cue", cueAuctionBid);
   renderStep("Top bar", renderTopNav);
   renderStep("Players", renderPlayers);
   renderStep("Room presence", syncRoomPresenceUi);
@@ -982,6 +1011,7 @@ async function runTurn(idx) {
   if (!canActForStage(idx, "roll")) return;
   state.busy = true;
   state.rolling = true;
+  playSound("rattle");
   const requestId = createTurnRequest("roll");
   executeTurnEmit({
     kind: "roll",
@@ -1049,6 +1079,12 @@ function primaryTurnAction() {
 
 function startGame() {
   emitWithChatError("start-game", {}, "Only the host can start the game.");
+}
+
+// Same start-game event as the lobby button, with the ack handed back so solo
+// auto-start can report a refusal instead of failing silently.
+function startRound(onResult) {
+  emitServer("start-game", {}, (response) => onResult?.(response));
 }
 
 function buyTile(tile, submittedStatusNode = null, onSuccess = null) {
@@ -1292,6 +1328,7 @@ function bindGameActions() {
 
   // lobby start round
   $("#lobby-start-btn").addEventListener("click", startGame);
+  $("#turn-coach-close")?.addEventListener("click", dismissTurnCoach);
   $("#player-list").addEventListener("click", (e) => {
     if (e.target.closest("[data-add-computer]")) addComputerPlayer();
   });
@@ -1483,7 +1520,11 @@ function bindEvents() {
 
 // INIT
 document.documentElement.style.setProperty('--dice-shake-cycle', `${DICE_SHAKE_CYCLE_MS}ms`);
+// Dialogs rise over 200ms and fall away faster (see clientSurfaces.js MODAL_EXIT_MS); styles.css owns the keyframes.
 document.documentElement.style.setProperty('--modal-enter-duration', `${MODAL_ENTER_MS}ms`);
+document.documentElement.style.setProperty('--modal-exit-duration', `${MODAL_EXIT_MS}ms`);
+configureBoardSound(playSound);
+configureHudSound(playSound);
 configureSurfaces({ notice: parlorNotice });
 bindBeforeUnloadGuard();
 configureSocialSurfaces({ emitServer, showView });
@@ -1531,6 +1572,7 @@ configureRoomsUi({ emitServer, say, captureActionStatusNode, announceActionStatu
 configureLobbyUi({
   emitServer,
   updateServerSetting,
+  startRound,
   showView,
   renderAll,
   say,
@@ -1543,6 +1585,7 @@ configureLobbyUi({
   closeRoomsModal,
   goHome,
   openConfirmModal,
+  openRoomsModal,
   createRequestId,
 });
 socket?.on("update-state", reconcileParlorEntrySnapshot);
@@ -1580,6 +1623,7 @@ const analyticsPathActive = initAnalytics();
 if (analyticsPathActive) initAdminAiProvider();
 if (!analyticsPathActive) {
   if (window.location.pathname === "/about") openAboutSurface({ history: false });
+  else if (window.location.pathname === "/rules") openRulesSurface();
   else {
     showView("home");
     openCardPreviewFromUrl();

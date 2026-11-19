@@ -11,6 +11,7 @@ import { openSurface, closeSurface, focusSurface, setSurfaceReturnFocus } from "
 import { adoptAccountAppearance } from "./clientAccountAppearance.js";
 import { renderAccountPanel, applyProfileToHomeUI, renderProfileEditor, renderProfileLibrary, formatStatDate } from "./clientProfileRender.js";
 import { closeButtonHTML } from "./clientCloseButton.js";
+import { announceSystemLine } from "./clientAnnouncer.js";
 
 function noop() {}
 let host = { emitServer: noop, say: noop, notice: noop, announceActionStatus: noop, syncAudioButtons: noop, syncHomeMusic: noop, reconcileSignedOutState: noop };
@@ -603,8 +604,7 @@ export function unlockAchievement(id) {
   saveUnlockedAchievements();
   renderAchievements();
   const achievement = ACHIEVEMENTS.find((entry) => entry.id === id);
-  const announcer = $("#system-announcer");
-  if (announcer && achievement) announcer.textContent = `ACHIEVEMENT UNLOCKED: ${achievement.title}`;
+  if (achievement) announceSystemLine(`ACHIEVEMENT UNLOCKED: ${achievement.title}`);
   return true;
 }
 

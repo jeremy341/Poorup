@@ -30,8 +30,34 @@ for (const publicPath of ["/", "/about", "/rules"]) {
   assert.ok(config.description.length > 80 && config.description.length <= 170, `${publicPath} has a search-sized description`);
 }
 assert.match(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/" })), /application\/ld\+json/);
-assert.doesNotMatch(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/rules" })), /application\/ld\+json/);
 assert.doesNotMatch(renderMetadata(metadataConfig({ origin: "", path: "/" })), /application\/ld\+json/);
+
+// Structured data is a single @graph per indexable page. Parse it and walk the nodes.
+function structuredGraph(options) {
+  const html = renderMetadata(metadataConfig(options));
+  const match = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+  assert.ok(match, "a structured data block is emitted");
+  const data = JSON.parse(match[1]);
+  assert.equal(data["@context"], "https://schema.org");
+  assert.ok(Array.isArray(data["@graph"]));
+  const types = data["@graph"].map(node => node["@type"]);
+  return { data, types };
+}
+{
+  const home = structuredGraph({ origin: "https://play.example", path: "/" });
+  assert.deepEqual(home.types, ["WebApplication", "WebSite"]);
+  assert.equal(home.data["@graph"][1].url, "https://play.example/");
+  const app = home.data["@graph"][0];
+  assert.deepEqual([app.numberOfPlayers.minValue, app.numberOfPlayers.maxValue], [2, 6], "player counts match boardRegistry (2-4 standard, up to 6 Metro-52)");
+  const about = structuredGraph({ origin: "https://play.example", path: "/about" });
+  assert.deepEqual(about.types, ["WebApplication", "BreadcrumbList"]);
+  assert.equal(about.data["@graph"][1].itemListElement[0].item, "https://play.example/");
+  const rules = structuredGraph({ origin: "https://play.example", path: "/rules" });
+  assert.deepEqual(rules.types, ["WebApplication", "BreadcrumbList", "TechArticle"]);
+  assert.match(rules.data["@graph"][2].url, /^https:\/\/play\.example\/rules$/);
+  const noindex = renderMetadata(metadataConfig({ origin: "https://play.example", path: "/", indexPolicy: "noindex,nofollow" }));
+  assert.doesNotMatch(noindex, /application\/ld\+json/);
+}
 assert.match(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/", googleVerification: "abcdefghij12345" })), /google-site-verification" content="abcdefghij12345"/);
 assert.doesNotMatch(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/", googleVerification: "<script>" })), /google-site-verification/);
 assert.match(injectMetadata("<html><head><title>Old</title></head></html>", { origin: "https://play.example", path: "/about" }), /<title>About Poorup/);

@@ -1,20 +1,33 @@
 name: CI
 
+# Two lanes, two tiers:
+#
+#   testing is the gate lane. Every pull request and every queued merge runs
+#   the full battery before the merge lands: lint and audit, four test-shards
+#   with server coverage and floors, boot and docker smokes, and browser QA
+#   (four shards over the two representative viewport profiles).
+#
+#   main is the release lane. A promotion PR and its post-merge push run the
+#   fast tier: lint, boot and docker smokes plus the tree check, which proves
+#   main carries exactly the tree that passed the full battery on testing.
+#
+# Required status checks are "test" and "boot smoke" on both lanes.
 on:
   pull_request:
-    branches: [main, development, testing]
-  # Merge-queue groups: the queue (when enabled on testing) runs checks on
+    branches: [testing, main]
+  # Merge-queue groups: if a queue is enabled on testing, it runs checks on
   # temporary gh-readonly-queue branches; without this trigger the required
   # checks would never be reported and every queued merge would fail.
   merge_group:
     branches: [testing]
+  # A push to main is the post-merge verification of a promotion that already
+  # passed the full battery on testing. Local/generated outputs are ignored.
   push:
-    branches: [main, development]
-    # Development pushes run light CI after landing; keep docs-only updates in
-    # the push workflow too. Only local/generated outputs are ignored.
+    branches: [main]
     paths-ignore:
       - 'qa-artifacts/**'
       - '.codescene/**'
+  # A manual run exercises the full battery.
   workflow_dispatch:
 
 permissions:
@@ -31,160 +44,29 @@ jobs:
     timeout-minutes: 10
     outputs:
       tier: ${{ steps.set.outputs.tier }}
-      shards: ${{ steps.set.outputs.shards }}
-      shard_total: ${{ steps.set.outputs.shard_total }}
-      group: ${{ steps.set.outputs.group }}
-      browser_mode: ${{ steps.set.outputs.browser_mode }}
-      browser_shards: ${{ steps.set.outputs.browser_shards }}
-      browser_shard_total: ${{ steps.set.outputs.browser_shard_total }}
-      server_changed: ${{ steps.set.outputs.server_changed }}
     steps:
-      - uses: actions/checkout@v4
-        if: github.event_name == 'push'
-        with:
-          fetch-depth: 0
-      - id: changes
-        # In-workflow path filtering keeps every check name reporting; a
-        # native paths-ignore on pull_request would leave required checks
-        # pending forever. Empty output is treated as code changes (fail-safe).
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
-        uses: dorny/paths-filter@v3
-        with:
-          # On development pushes, compare against testing so server changes
-          # remain visible until a heavy promotion covers them, even if a
-          # newer push replaces a pending CI run. Other pushes use their
-          # previous tip.
-          base: ${{ github.event_name == 'push' && github.ref_name == 'development' && 'testing' || github.event.before }}
-          filters: |
-            docs:
-              - '**/*.md'
-              - 'docs/**'
-            code:
-              - 'server/**'
-              - 'public/**'
-              - '!public/assets/**'
-              - '.github/workflows/**'
-              - 'scripts/**'
-              - 'qa/**'
-              - 'package.json'
-              - 'package-lock.json'
-              - 'eslint.config.js'
-              - 'codecov.yml'
-            frontend:
-              - 'public/**'
-              - 'qa/**'
-              - 'index.html'
-              - 'package.json'
-              - 'package-lock.json'
-            server:
-              - 'server/**'
       - id: set
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
-          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_ref }}
-          HEAD_REF: ${{ github.head_ref }}
-          DOCS_CHANGED: ${{ steps.changes.outputs.docs }}
-          CODE_CHANGED: ${{ steps.changes.outputs.code }}
-          FRONTEND_CHANGED: ${{ steps.changes.outputs.frontend }}
-          SERVER_CHANGED: ${{ steps.changes.outputs.server }}
-          PUSH_BRANCH: ${{ github.ref_name }}
         run: |
-          tier=light
-          shards='[1, 2]'
-          shard_total=2
-          group=core
-          browser_mode=none
-          browser_shards='[1]'
-          browser_shard_total=1
-          docs_only=false
-          if [ "$DOCS_CHANGED" = "true" ] && [ "$CODE_CHANGED" != "true" ]; then
-            docs_only=true
+          # pull_request -> testing and any merge-queue group run the full
+          # battery; everything else (pull_request -> main, push to main) is
+          # the release lane's fast verification. Empty output fails fast.
+          tier=fast
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ "$EVENT_NAME" = "merge_group" ]; then
+            tier=full
+          elif [ "$EVENT_NAME" = "pull_request" ] && [ "$BASE_REF" = "testing" ]; then
+            tier=full
           fi
-          # Development pushes are deliberately allowed without a PR. Keep
-          # their server-coverage decision scoped to the pushed server diff;
-          # main's post-merge workflow should not repeat the development report.
-          if [ "$EVENT_NAME" = "push" ] && [ "$PUSH_BRANCH" != "development" ]; then
-            SERVER_CHANGED=false
-          fi
-          # A push to main is the post-merge check of a promotion that already
-          # passed the heavy testing tier. The fast tier's tree check proves main
-          # carries exactly the tested testing tree; a light run did not (G12-04).
-          if [ "$EVENT_NAME" = "push" ] && [ "$PUSH_BRANCH" = "main" ]; then
-            tier=fast
-          fi
-          if [ "$EVENT_NAME" = "merge_group" ]; then
-            # Merge-queue groups always run the full tier of their base lane;
-            # path filtering does not apply to queued merge results.
-            BASE_BRANCH="${MERGE_GROUP_BASE#refs/heads/}"
-            case "$BASE_BRANCH" in
-              testing)
-                tier=heavy
-                shards='[1, 2, 3, 4]'
-                shard_total=4
-                group=full
-                browser_mode=full
-                browser_shards='[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
-                browser_shard_total=10
-                ;;
-              main) tier=fast ;;
-              *) tier=light ;;
-            esac
-          fi
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            case "$BASE_REF" in
-              testing)
-                # The promotion hop never drops browser coverage entirely: UI-affecting
-                # diffs get the browser suite, server-only diffs get a UI-liveness smoke.
-                # Only the promotion from development runs every viewport profile. A
-                # feature PR runs the two representative profiles, which is about a sixth
-                # of the work and keeps the UI checks that matter on every change.
-                tier=heavy
-                shards='[1, 2, 3, 4]'
-                shard_total=4
-                group=full
-                if [ "$FRONTEND_CHANGED" = "true" ] && [ "$HEAD_REF" = "development" ]; then
-                  browser_mode=full
-                  browser_shards='[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]'
-                  browser_shard_total=10
-                elif [ "$FRONTEND_CHANGED" = "true" ]; then
-                  browser_mode=pr
-                  browser_shards='[1, 2, 3, 4]'
-                  browser_shard_total=4
-                else
-                  browser_mode=smoke
-                  browser_shards='[1]'
-                  browser_shard_total=1
-                fi
-                ;;
-              main)
-                tier=fast
-                ;;
-              development)
-                if [ "$docs_only" = "true" ]; then
-                  tier=light-slim
-                fi
-                ;;
-            esac
-          fi
-          {
-            echo "tier=$tier"
-            echo "shards=$shards"
-            echo "shard_total=$shard_total"
-            echo "group=$group"
-            echo "browser_mode=$browser_mode"
-            echo "browser_shards=$browser_shards"
-            echo "browser_shard_total=$browser_shard_total"
-            echo "server_changed=$SERVER_CHANGED"
-          } >> "$GITHUB_OUTPUT"
-          echo "tier=$tier group=$group shards=$shards browser_mode=$browser_mode docs_only=$docs_only server_changed=$SERVER_CHANGED"
+          echo "tier=$tier" >> "$GITHUB_OUTPUT"
+          echo "tier=$tier event=$EVENT_NAME base=$BASE_REF"
 
   lint:
     name: lint and audit
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [plan]
-    if: contains(fromJson('["light", "heavy", "fast", "light-slim"]'), needs.plan.outputs.tier)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v6
@@ -204,10 +86,9 @@ jobs:
       - run: npm run lint:client
       - name: Validate the unique test manifest
         run: node scripts/test-manifest.test.mjs
-      - name: Docs contract suites (run on every tier, including docs-only pull requests)
-        # Docs-only changes select the light-slim tier, which runs no server
-        # suites. These two suites are what keep README and feature-status claims
-        # honest, so they run here unconditionally (G12-05).
+      - name: Docs contract suites
+        # These two suites keep README and feature-status claims honest, so
+        # they run unconditionally on both tiers.
         run: |
           node server/docs-parity.test.js
           node server/docsFeatureStatus.test.js
@@ -217,11 +98,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: [plan, lint]
-    if: needs.plan.outputs.tier == 'light' || needs.plan.outputs.tier == 'heavy'
+    if: needs.plan.outputs.tier == 'full'
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJson(needs.plan.outputs.shards) }}
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v6
@@ -241,8 +122,8 @@ jobs:
         # the sequential fallback.
         run: >-
           npx c8 --temp-directory .nyc_output --include="server/**" --reporter=text
-          node scripts/run-test-manifest.mjs --group=${{ needs.plan.outputs.group }}
-          --shard=${{ matrix.shard }}/${{ needs.plan.outputs.shard_total }}
+          node scripts/run-test-manifest.mjs --group=full
+          --shard=${{ matrix.shard }}/4
           --timings=.test-timings/shard-${{ matrix.shard }}.json
         env:
           POORUP_TEST_PARALLELISM: '4'
@@ -270,7 +151,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [plan, server-tests]
-    if: needs.plan.outputs.tier == 'heavy' || (needs.plan.outputs.tier == 'light' && needs.plan.outputs.server_changed == 'true')
+    if: needs.plan.outputs.tier == 'full'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v6
@@ -291,9 +172,10 @@ jobs:
           path: .nyc_output
           merge-multiple: true
       - name: Merge and report coverage
-        # Floors sit one point under the measured core-group baseline (lines and
-        # statements 89.6, functions 88.1, branches 77.7 on the server tree). A
-        # drop below a floor fails the job; raise the floors when coverage rises.
+        # Floors sit one point under the measured full-group baseline (lines
+        # and statements 89.6, functions 88.1, branches 77.7 on the server
+        # tree). A drop below a floor fails the job; raise the floors when
+        # coverage rises.
         run: npx c8 report --temp-directory .nyc_output --include="server/**" --reporter=text --reporter=lcov --check-coverage --lines 88 --functions 87 --branches 76 --statements 88
       # The repository is public; Codecov uploads work without a token, and
       # omitting one keeps forked PRs out of the secret path entirely.
@@ -327,7 +209,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [plan]
-    if: contains(fromJson('["light", "heavy", "fast", "light-slim"]'), needs.plan.outputs.tier)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v6
@@ -345,9 +226,9 @@ jobs:
         run: node -e "JSON.parse(require('fs').readFileSync('package.json'))"
       - name: Server boots and serves the app shell in production mode
         # Production turns on the origin allow-list, the absolute storage-path
-        # guard and the backup readiness gate. The default boot exercised none of
-        # them (G12-10). The directories live under the runner temp dir, outside
-        # the checkout, as the production guard requires.
+        # guard and the backup readiness gate. The directories live under the
+        # runner temp dir, outside the checkout, as the production guard
+        # requires.
         run: |
           BOOT_DIR="$RUNNER_TEMP/poorup-boot"
           mkdir -p "$BOOT_DIR/data" "$BOOT_DIR/backups"
@@ -368,14 +249,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: [plan]
-    if: contains(fromJson('["light", "heavy", "fast"]'), needs.plan.outputs.tier)
     steps:
       - uses: actions/checkout@v4
       - name: Build the image
         run: docker build -t poorup:ci .
       - name: The image boots in production mode and reports ready
         # The image runs as the node user and keeps its stores in the declared
-        # volume (G12-11, E37-06). The origin allow-list is required in production.
+        # volume. The origin allow-list is required in production.
         run: |
           docker run -d --name poorup-ci -p 8080:8080 -e POORUP_ALLOWED_ORIGINS=http://localhost:8080 poorup:ci
           for i in $(seq 1 60); do
@@ -388,22 +268,22 @@ jobs:
         if: failure()
         run: docker logs poorup-ci
 
-  # Run browser QA against every heavy PR's actual merge tree, including promotions.
   browser-shards:
-    name: browser QA shard ${{ matrix.shard }}/${{ needs.plan.outputs.browser_shard_total }}
+    name: browser QA shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
     timeout-minutes: 35
     needs: [plan]
-    if: needs.plan.outputs.tier == 'heavy'
-    # The pinned Playwright image already carries Chromium and its system libraries, so a shard skips the browser
-    # download and the apt install. The tag must match the locked @playwright/test version.
+    if: needs.plan.outputs.tier == 'full'
+    # The pinned Playwright image already carries Chromium and its system
+    # libraries, so a shard skips the browser download and the apt install.
+    # The tag must match the locked @playwright/test version.
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble
       options: --user root
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJson(needs.plan.outputs.browser_shards) }}
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v6
@@ -425,24 +305,13 @@ jobs:
             sleep 0.5
           done
           curl -fsS localhost:8099/ >/dev/null
-      - name: UI and accessibility contract shard (every viewport project in full mode)
-        # Full mode: every spec, every viewport project, ten shards on ten runners. Smoke
-        # mode: the @ui-smoke critical checks on the iPad Pro 11 landscape
-        # profile, including the live-game desk contract, so a server-only
-        # promotion still proves the UI boots and renders against the new server.
-        run: |
-          case "${{ needs.plan.outputs.browser_mode }}" in
-            smoke)
-              npm run test:browser -- --grep @ui-smoke --project=ipad-1194x834 --workers=2 --reporter=blob
-              ;;
-            pr)
-              # Feature PRs: two representative profiles, no retries, so a real failure reports at once.
-              POORUP_QA_RETRIES=0 npm run test:browser -- --workers=2 --project=desktop-1920x1080 --project=ipad-1194x834 --shard=${{ matrix.shard }}/${{ needs.plan.outputs.browser_shard_total }} --reporter=blob
-              ;;
-            *)
-              npm run test:browser -- --workers=2 --shard=${{ matrix.shard }}/${{ needs.plan.outputs.browser_shard_total }} --reporter=blob
-              ;;
-          esac
+      - name: UI and accessibility contract shard
+        # Both representative viewport profiles on every gate-lane merge, no
+        # retries: a real failure reports at once.
+        run: >-
+          POORUP_QA_RETRIES=0 npm run test:browser -- --workers=2
+          --project=desktop-1920x1080 --project=ipad-1194x834
+          --shard=${{ matrix.shard }}/4 --reporter=blob
         env:
           POORUP_QA_BASE_URL: http://127.0.0.1:8099
       - name: Upload Playwright blob report
@@ -460,7 +329,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     needs: [plan, browser-shards]
-    if: always() && needs.plan.outputs.tier == 'heavy'
+    if: always() && needs.plan.outputs.tier == 'full'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v6
@@ -507,6 +376,8 @@ jobs:
         with:
           fetch-depth: 0
       - name: The merged tree must be byte-identical to testing
+        # The fast tier's tree check proves main carries exactly the tested
+        # testing tree; a lighter run did not (G12-04).
         run: |
           git fetch origin testing --quiet
           HEAD_TREE=$(git rev-parse "HEAD^{tree}")
@@ -528,9 +399,9 @@ jobs:
     if: always()
     steps:
       - name: Tier-aware gate for the required test check
+        env:
+          TIER: ${{ needs.plan.outputs.tier }}
         run: |
-          TIER="${{ needs.plan.outputs.tier }}"
-          SERVER_CHANGED="${{ needs.plan.outputs.server_changed }}"
           FAIL=0
 
           expect() {
@@ -548,28 +419,25 @@ jobs:
           }
 
           case "$TIER" in
-            light)      SERVER=required; COVERAGE=required; BROWSER=skipok; TREE=skipok; DOCKER=required ;;
-            heavy)      SERVER=required; COVERAGE=required; BROWSER=required; TREE=skipok; DOCKER=required ;;
-            light-slim) SERVER=skipok;   COVERAGE=skipok;   BROWSER=skipok; TREE=skipok; DOCKER=skipok ;;
-            fast)       SERVER=skipok;   COVERAGE=skipok;   BROWSER=skipok; TREE=required; DOCKER=required ;;
+            full)
+              # Gate lane: the whole battery is required.
+              SERVER=required; COVERAGE=required; BROWSER=required; TREE=skipok; DOCKER=required ;;
+            fast)
+              # Release lane: verification only, and the tree check is the
+              # load-bearing guarantee.
+              SERVER=skipok; COVERAGE=skipok; BROWSER=skipok; TREE=required; DOCKER=required ;;
             *)
               echo "::error::unknown or missing tier '$TIER'"
               FAIL=1
-              SERVER=skipok; COVERAGE=skipok; BROWSER=skipok; TREE=skipok; DOCKER=skipok
-              ;;
+              SERVER=skipok; COVERAGE=skipok; BROWSER=skipok; TREE=skipok; DOCKER=skipok ;;
           esac
-          # Client-only PRs change no server code, so the server coverage
-          # merge would report the same numbers; skip it on the light tier.
-          if [ "$TIER" = "light" ] && [ "$SERVER_CHANGED" != "true" ]; then
-            COVERAGE=skipok
-          fi
 
           expect "pipeline tier" "${{ needs.plan.result }}" required
           expect "lint and audit" "${{ needs.lint.result }}" required
-          expect "boot smoke" "${{ needs.boot.result }}" required
-          expect "container image smoke" "${{ needs.docker.result }}" "$DOCKER"
           expect "server tests" "${{ needs.server-tests.result }}" "$SERVER"
           expect "coverage" "${{ needs.coverage.result }}" "$COVERAGE"
+          expect "boot smoke" "${{ needs.boot.result }}" required
+          expect "container image smoke" "${{ needs.docker.result }}" "$DOCKER"
           expect "browser QA" "${{ needs.browser.result }}" "$BROWSER"
           expect "tree check" "${{ needs.tree-check.result }}" "$TREE"
 

@@ -125,7 +125,7 @@ function renderRoomsList() {
     ? `<div class="rooms-empty t-body">CHECKING PUBLIC TABLES…</div>`
     : rooms.length
     ? rooms.map(roomRowHTML).join("")
-    : `<div class="rooms-empty t-body">${String(lobbyState.roomsQuery || "").trim() ? `NO TABLES MATCH "${esc(String(lobbyState.roomsQuery).trim().toUpperCase())}".` : "NO PUBLIC TABLES RIGHT NOW. HOST ONE OR ENTER A CODE."}</div>`;
+    : `<div class="rooms-empty t-body">${String(lobbyState.roomsQuery || "").trim() ? `NO TABLES MATCH "${esc(String(lobbyState.roomsQuery).trim().toUpperCase())}".` : `NO PUBLIC TABLES RIGHT NOW. HOST ONE OR ENTER A CODE.`}<div class="rooms-empty-actions"><button class="btn-dark" type="button" data-rooms-empty-action="create"><span class="t-label f12">HOST A TABLE</span></button><button class="btn-dark" type="button" data-rooms-empty-action="join"><span class="t-label f12">ENTER A CODE</span></button></div></div>`;
 
   syncRoomsFilterButtons();
 }
@@ -147,7 +147,9 @@ function updateCreateRoomUI() {
   syncCreateRoomCode(codeInput, settings);
   const codeValid = /^[A-Z0-9]{6}$/.test(settings.code);
   paintCreateCodeStatus(isPrivate, codeValid, settings);
-  if (codeInput) codeInput.setAttribute("aria-invalid", String(isPrivate && !codeValid));
+  // The field is only flagged after the player has tried to leave it or submit with a bad code,
+  // never the moment it appears empty.
+  if (codeInput) codeInput.setAttribute("aria-invalid", String(isPrivate && !codeValid && createCodeAttempted));
   const createButton = $("#rc-create-btn");
   if (createButton) {
     createButton.disabled = isPrivate && !codeValid;
@@ -155,8 +157,19 @@ function updateCreateRoomUI() {
     else createButton.removeAttribute("aria-describedby");
   }
   document.querySelectorAll("#rc-vis-selector .rc-vis-opt").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.dataset.vis === lobbyState.createRoomSettings.visibility);
+    const active = btn.dataset.vis === lobbyState.createRoomSettings.visibility;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-pressed", String(active));
   });
+}
+
+// True once the player has blurred the code field or tried to create with an invalid private code.
+let createCodeAttempted = false;
+
+function markCreateCodeAttempted() {
+  if (createCodeAttempted) return;
+  createCodeAttempted = true;
+  updateCreateRoomUI();
 }
 
 function syncCreateRoomCode(codeInput, settings) {
@@ -321,8 +334,8 @@ export function renderHome() {
   renderHomeLocalTime();
   renderPatrolHud();
   const theme = getTheme(state.themeId);
-  paintSkyline($("#home-skyline"), theme.skyline.home, theme.palette);
-  paintSkyline($("#home-skyline-copy"), theme.skyline.home, theme.palette);
+  ["#home-skyline", "#home-skyline-copy", "#home-skyline-copy-2", "#home-skyline-copy-3"]
+    .forEach((selector) => paintSkyline($(selector), theme.skyline.home, theme.palette));
   buildMiniBoard();
   renderRoomsList();
   renderHomeSignals();
@@ -442,6 +455,11 @@ function onRoomsListClick(e) {
     }
     return;
   }
+  const tabIndex = e.target.closest("[data-rooms-empty-action]");
+  if (tabIndex) {
+    switchRoomModalTab(tabIndex.dataset.roomsEmptyAction === "create" ? "create" : "join");
+    return;
+  }
   const btn = e.target.closest("[data-join], [data-join-id]");
   if (canJoinRoomRow(btn)) {
     closeRoomsModal();
@@ -468,6 +486,7 @@ function onVisibilityPick(e) {
   if (lobbyState.createRoomSettings.visibility !== vis) {
     lobbyState.createRoomSettings.visibility = vis;
     lobbyState.createRoomSettings.code = "";
+    createCodeAttempted = false;
     updateCreateRoomUI();
   }
 }
@@ -490,6 +509,7 @@ function onCreateRoomClick() {
     return;
   }
   if (invalidPrivateCode()) {
+    createCodeAttempted = true;
     updateCreateRoomUI();
     $("#rc-room-code")?.focus();
     return;
@@ -504,7 +524,7 @@ function onCreateRoomClick() {
 
 function createRoomName() {
   const nameInput = $("#rc-name");
-  return (nameInput?.value || "").trim().toUpperCase().slice(0, 18) || "AFTER HOURS #12";
+  return (nameInput?.value || "").trim().toUpperCase().slice(0, 18) || `AFTER HOURS #${10 + Math.floor(Math.random() * 90)}`;
 }
 
 function createRoomAlias() {
@@ -574,8 +594,8 @@ function entrySignalLabels({ displayName, username, signedIn, identity }) {
     value: signedIn ? identity : "NO ACCOUNT",
     title: signedIn ? `Open account @${username || displayName}` : "Open guest profile or create an account",
     ariaLabel: signedIn
-      ? `Open account ${identity}${username ? `, @${username}` : ""}`
-      : "Open guest profile or create an account"
+      ? `ENTRY: ${identity} — open profile and account settings${username ? `, @${username}` : ""}`
+      : "ENTRY: NO ACCOUNT — open profile and account settings"
   };
 }
 
@@ -586,17 +606,22 @@ function renderSyncSignal(sync) {
   const value = sync.querySelector("#home-signal-sync-value");
   setSignalText(value, copy);
   sync.dataset.connection = status;
-  sync.setAttribute("aria-label", `Refresh live room directory · ${copy}`);
+  sync.setAttribute("aria-label", `SYNC: ${copy} — refresh the live room directory`);
+}
+
+function roomsDirectoryCount() {
+  const count = lobbyState.roomsDirectory.length;
+  return `${count} ${count === 1 ? "LOBBY" : "LOBBIES"}`;
 }
 
 function renderLobbiesSignal(lobbies) {
   if (!lobbies) return;
   const loaded = lobbyState.roomsDirectoryLoaded;
-  const copy = lobbyState.roomsLoading && !loaded ? "SYNCING…" : loaded ? `${lobbyState.roomsDirectory.length} LOBBIES` : "- LOBBIES";
+  const copy = lobbyState.roomsLoading && !loaded ? "SYNCING…" : loaded ? roomsDirectoryCount() : "- LOBBIES";
   const value = lobbies.querySelector("#home-signal-lobbies-value");
   if (value) setText(value, copy);
   lobbies.dataset.loaded = String(loaded);
-  lobbies.setAttribute("aria-label", loaded ? `Browse ${lobbyState.roomsDirectory.length} public lobbies` : "Browse public lobbies");
+  lobbies.setAttribute("aria-label", loaded ? `LOBBIES: ${copy} — browse public lobbies` : "LOBBIES — browse public lobbies");
 }
 
 /** Paint the compact home status strip without rebuilding the home page. */
@@ -633,6 +658,10 @@ function bindRoomsModal() {
   // room creation form interactions
   $("#rc-vis-selector")?.addEventListener("click", onVisibilityPick);
   $("#rc-room-code")?.addEventListener("input", onRoomCodeInput);
+  $("#rc-room-code")?.addEventListener("blur", markCreateCodeAttempted);
+  $("#rc-room-code")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && invalidPrivateCode()) markCreateCodeAttempted();
+  });
   $("#rc-create-btn")?.addEventListener("click", onCreateRoomClick);
 }
 
