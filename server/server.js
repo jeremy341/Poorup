@@ -41,6 +41,7 @@ import { renderRulesPage } from './rulesPage.js';
 import { renderErrorPage as errorPage } from './errorPage.js';
 import { isQuarantinedStore, loadJson, writeJson } from './storeIO.js';
 import { createAuthoritativeStore } from './authoritativeStore.js';
+import { createRoomPersistence } from './roomStore.js';
 import { createPubSubAdapter } from './pubsubAdapter.js';
 import { allowPrivateEndpointsFromEnv, createAiProviderManager, createAiProviderStore } from './aiProviderConfig.js';
 import { registerAiProviderRoutes } from './aiProviderRoutes.js';
@@ -220,6 +221,17 @@ const authoritativeStore = createAuthoritativeStore({
   filePath: dataDirectory ? path.join(dataDirectory, 'rooms.json') : ''
 });
 const pubsubAdapter = createPubSubAdapter();
+// Unstarted lobbies survive a restart (rooms.json under the data directory): restored here, before the runtime and the listener exist, so
+// the first reconnecting client already finds its table. Started matches are not persisted. Without a data directory the authoritative
+// store is in memory, so persistence is skipped.
+const roomPersistence = dataDirectory ? createRoomPersistence({ store: authoritativeStore, roomManager }) : null;
+if (roomPersistence) {
+  const restoredLobbies = roomPersistence.restore();
+  if (restoredLobbies.restored || restoredLobbies.pruned || restoredLobbies.skipped) {
+    console.log(`Restored ${restoredLobbies.restored} lobby room(s); dropped ${restoredLobbies.pruned} stale and ${restoredLobbies.skipped} unreadable.`);
+  }
+}
+const roomPersistenceTimer = roomPersistence?.start() ?? null;
 const analyticsPseudonymKey = String(process.env.POORUP_ANALYTICS_PSEUDONYM_KEY || '').trim();
 const analyticsRollupStore = createAnalyticsRollupStore({
   filePath: dataDirectory ? path.join(dataDirectory, 'analytics-rollup.json') : null,
@@ -560,7 +572,7 @@ const storePaths = resolveStorePaths(process.env);
 const auxiliaryStorePaths = resolveAuxiliaryStorePaths(process.env);
 const retiredStorePaths = resolveRetiredStorePaths(process.env);
 // Every JSON store holding game or account data is backed up from this set, except sessions.json and recovery-tokens.json (restoring them
-// would resurrect revoked sessions and consumed single-use tokens), maintenance.json (it would re-impose an ended drain) and rooms.json (no runtime writer yet).
+// would resurrect revoked sessions and consumed single-use tokens), maintenance.json (it would re-impose an ended drain) and rooms.json (unstarted-lobby snapshots with a short life, see roomStore.js).
 // The operator audit trail is backed up too: without a copy, a lost or corrupt file erases every release, lockout and provider change record.
 const allStorePaths = {
   ...storePaths,
@@ -843,6 +855,8 @@ function shutdownDeadline() {
 
 function disposeRuntimeResources() {
   clearInterval(roomActivityTimer);
+  clearInterval(roomPersistenceTimer);
+  roomPersistence?.flush({ force: true });
   social.dispose?.();
   maintenance.dispose();
   retentionJob.stop();

@@ -120,7 +120,12 @@ function createAdapter(readRows, persistRows = null) {
     return { success: true, deleted: true, roomId: id, version: expected };
   }
 
-  return { readRoom, writeRoom, deleteRoom, size: () => rows.size };
+  // Boot restore needs to enumerate rows; every other method addresses a single known room id.
+  function listRooms() {
+    return [...rows.entries()].map(([roomId, row]) => ({ roomId, version: row.version, snapshot: cloneSnapshot(row.snapshot) }));
+  }
+
+  return { readRoom, writeRoom, deleteRoom, listRooms, size: () => rows.size };
 }
 
 export function createMemoryAuthoritativeStore(initial = {}) {
