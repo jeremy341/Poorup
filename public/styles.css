@@ -184,7 +184,6 @@ body {
   background: var(--surface-0);
   color: var(--text-primary);
   font-family: var(--font-ui);
-  cursor: var(--cursor-reticle), crosshair;
   -webkit-font-smoothing: none;
   text-rendering: geometricPrecision;
   font-synthesis: none;
@@ -194,8 +193,25 @@ body[data-theme-id="light"] { --surface-0: var(--surface-panel-deep); }
 
 ::selection { background: var(--gold-400); color: var(--bg-canvas); }
 
-button { font: inherit; color: inherit; background: none; border: none; cursor: var(--cursor-reticle), crosshair; }
-button:not(:disabled), a, [role="button"], summary, select, input[type="range"] { cursor: var(--cursor-reticle), crosshair; }
+/* Cursors: the document, forms, menus and modals keep the standard pointer signals. The crosshair
+   reticle is a theme flourish scoped to the home stage, the board grid and the patrol targets. */
+button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+button:not(:disabled), a, [role="button"], summary, input[type="range"] { cursor: pointer; }
+select { cursor: default; }
+#view-home .home-main button:not(:disabled),
+#view-home .home-main a,
+#view-home .home-main [role="button"],
+#view-home .home-main summary,
+button.home-patrol-hint,
+button.home-helicopter,
+button.night-target,
+#board-grid,
+#board-grid .tile,
+#board-grid button:not(:disabled) { cursor: var(--cursor-reticle), crosshair; }
+#view-home .home-main { cursor: var(--cursor-reticle), crosshair; }
+#view-home .home-main :is(input, textarea, select) { cursor: text; }
+#view-home .home-main select { cursor: default; }
+#board-grid .tile[aria-disabled="true"] { cursor: default; }
 button:disabled, input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; }
 input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea { cursor: text; }
 input { font: inherit; }
@@ -1631,7 +1647,7 @@ button[id$="-close"],
   display: inline-flex; align-items: center; justify-content: flex-end; min-height: 44px; padding: 4px 8px;
   border: 1px solid rgb(196 151 74 / 42%); border-radius: 3px; background: rgb(16 20 22 / 82%);
   font-family: var(--font-numeric); font-size: clamp(12px, 1vw, 13px); letter-spacing: 0.06em;
-  color: var(--gold-muted); text-shadow: 0 2px 0 rgb(0 0 0 / 55%); pointer-events: auto; cursor: pointer; touch-action: manipulation;
+  color: var(--gold-muted); text-shadow: 0 2px 0 rgb(0 0 0 / 55%); pointer-events: auto; touch-action: manipulation;
 }
 .home-patrol-hint:hover { color: var(--gold-050); border-color: var(--gold-muted); }
 .home-patrol-hint:focus-visible { outline: 2px solid var(--gold-050); outline-offset: 3px; }
@@ -1994,7 +2010,7 @@ button[id$="-close"],
 /* all-card design gallery (visual-only ?preview=cards route) */
 .card-gallery { position: fixed; inset: 0; z-index: 72; display: flex; align-items: center; justify-content: center; padding: clamp(10px, 2vw, 28px); }
 .card-gallery-scrim { position: absolute; inset: 0; background: var(--theme-gallery-scrim); }
-.card-gallery-shell { position: relative; z-index: 1; width: min(1180px, 100%); max-height: min(94vh, 980px); display: flex; flex-direction: column; overflow: hidden; border-color: var(--line-board); box-shadow: 0 18px 70px rgb(0 0 0 / 65%); }
+.card-gallery-shell { position: relative; z-index: 1; width: min(1180px, 100%); max-height: min(94vh, 980px); max-height: min(94dvh, 980px); display: flex; flex-direction: column; overflow: hidden; border-color: var(--line-board); box-shadow: 0 18px 70px rgb(0 0 0 / 65%); }
 .card-gallery-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 20px 22px 16px; border-bottom: 1px solid var(--line-dark); background: rgb(8 24 24 / 80%); }
 .card-gallery-head h2 { margin-top: 7px; color: var(--gold-100); }
 .card-gallery-head p { margin-top: 7px; max-width: 58ch; }
@@ -2013,7 +2029,7 @@ button[id$="-close"],
 
 @media (max-width: 620px) {
   .card-gallery { padding: 0; align-items: stretch; }
-  .card-gallery-shell { max-height: 100vh; border-left: 0; border-right: 0; }
+  .card-gallery-shell { max-height: 100vh; max-height: 100dvh; border-left: 0; border-right: 0; }
   .card-gallery-head { padding: 15px; }
   .card-gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 10px; }
   .card-gallery-grid .cr-body { padding: 12px 10px; }
@@ -2560,7 +2576,7 @@ button[id$="-close"],
 /* setup overlay: fixed so it centers in the viewport and never clips inside the square board */
 .setup-wrap { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 16px; }
 .setup-scrim { position: fixed; inset: 0; background: var(--theme-setup-scrim); }
-.setup-card { position: relative; z-index: 2; width: 100%; max-width: 460px; padding: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+.setup-card { position: relative; z-index: 2; width: 100%; max-width: 460px; padding: 16px; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto; }
 .su-tag { margin-left: auto; }
 .su-copy { margin-bottom: 16px; }
 .su-active-card {
@@ -2706,6 +2722,13 @@ button[id$="-close"],
 }
 .die span { display: block; }
 .die span.on { background: #0d1b16; }
+/* Forced colors drop authored backgrounds, so pips painted with a background vanish. Keep the
+   face on Canvas and draw each pip as a solid CanvasText block; the role="img" label carries the value. */
+@media (forced-colors: active) {
+  .die { forced-color-adjust: none; background: Canvas; border-color: CanvasText; box-shadow: none; }
+  .die span.on { background: CanvasText; forced-color-adjust: none; }
+  .die-blank { forced-color-adjust: none; background: Canvas; color: CanvasText; border-color: CanvasText; box-shadow: none; }
+}
 .die-blank {
   display: flex; align-items: center; justify-content: center;
   width: 46px; height: 46px;
@@ -2969,7 +2992,7 @@ button[id$="-close"],
 /* tile popup */
 .popup { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; padding: 16px; }
 .popup-scrim { position: absolute; inset: 0; background: var(--theme-scrim); cursor: pointer; }
-.popup-card { position: relative; z-index: 2; width: 100%; max-width: 440px; overflow: hidden; max-height: 92vh; overflow-y: auto; overscroll-behavior: contain; }
+.popup-card { position: relative; z-index: 2; width: 100%; max-width: 440px; overflow: hidden; max-height: 92vh; max-height: 92dvh; overflow-y: auto; overscroll-behavior: contain; }
 /* ONE modal motion definition: a 200ms ease-out rise on enter, a faster 130ms fall on exit, scrim fading
    symmetrically. Durations come from --modal-enter-duration / --modal-exit-duration (set in main.js);
    clientSurfaces.js keeps .is-closing on a hidden surface for the exit, then drops it. */
@@ -2981,7 +3004,7 @@ button[id$="-close"],
 @keyframes parlor-modal-exit { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(6px) scale(.985); } }
 @keyframes cr-scrim-out { from { opacity: 1; } to { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .popup:not(.is-hidden) > .popup-card, .popup.is-closing > .popup-card, .popup.is-closing > .popup-scrim { animation: none; } .popup.is-hidden.is-closing { display: none !important; } }
-.social-surface-card { max-width: min(1080px, calc(100vw - 48px)); max-height: min(88vh, 820px); }
+.social-surface-card { max-width: min(1080px, calc(100vw - 48px)); max-height: min(88vh, 820px); max-height: min(88dvh, 820px); }
 #player-card {
   width: min(480px, calc(100vw - 32px));
   max-width: 480px;
@@ -3862,7 +3885,7 @@ button[id$="-close"],
   .account-operator-open { transition: none; }
   .account-operator-open:active:not(:disabled) { transform: none; }
 }
-.account-rights-dialog { max-height: min(620px, 90vh); overflow: auto; }
+.account-rights-dialog { max-height: min(620px, 90vh); max-height: min(620px, 90dvh); overflow: auto; }
 .account-rights-dialog form { margin-top: 14px; }
 .account-rights-dialog form > button { width: 100%; min-height: 46px; margin-top: 8px; }
 @media (max-width: 560px) { .account-privacy-grid { grid-template-columns: 1fr; } }
@@ -3973,7 +3996,11 @@ button[id$="-close"],
   .rules-page-turn { min-height: 44px; }
   /* Crosshair cursors fight affordance on touch/trackpads: default there.
      Desktop keeps the authored reticle theme. */
-  body, button:not(:disabled), a, [role="button"] { cursor: default; }
+  body, button:not(:disabled), a, [role="button"],
+  #view-home .home-main, #view-home .home-main button:not(:disabled), #view-home .home-main a,
+  #view-home .home-main [role="button"], #view-home .home-main summary,
+  button.home-patrol-hint, button.home-helicopter, button.night-target,
+  #board-grid, #board-grid .tile, #board-grid button:not(:disabled) { cursor: default; }
 }
 @media (max-width: 767px) {
   #view-game { height: auto; min-height: 100vh; overflow: visible; }
@@ -4485,7 +4512,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .casino-stake, .market-quantity { display: grid; gap: 5px; }
 .casino-stake .field, .market-quantity .field { width: 100%; }
 .casino-desk-open { width: 100%; min-height: 38px; }
-.casino-desk-card { width: min(560px, 100%); max-height: min(760px, calc(100vh - 32px)); overflow: hidden; }
+.casino-desk-card { width: min(560px, 100%); max-height: min(760px, calc(100vh - 32px)); max-height: min(760px, calc(100dvh - 32px)); overflow: hidden; }
 .casino-modal-body { display: flex; flex-direction: column; min-height: 0; padding: 20px; }
 .casino-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .casino-modal-head h2 { margin-top: 7px; color: var(--gold-100); }
@@ -4743,7 +4770,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 .finance-empty > span:first-child { color: var(--gold-400); }
 .finance-rail-actions { display: grid; gap: 8px; margin-top: auto; }
 .finance-rail-actions .btn-dark { min-height: 42px; width: 100%; }
-.wallet-card { width: min(680px, 100%); max-height: min(760px, calc(100vh - 32px)); overflow: hidden; }
+.wallet-card { width: min(680px, 100%); max-height: min(760px, calc(100vh - 32px)); max-height: min(760px, calc(100dvh - 32px)); overflow: hidden; }
 .wallet-modal-body { display: flex; flex-direction: column; max-height: inherit; padding: 20px; }
 .wallet-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .wallet-modal-head h2 { margin-top: 7px; color: var(--gold-100); }
@@ -5009,7 +5036,7 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   .achievements-progress { width: 100%; text-align: left; }
   .achievements-progress strong { display: inline; margin-right: 7px; }
   .achievements-panel { height: min(620px, max(420px, calc(100vh - 260px))); max-height: none; }
-  .social-surface-card { max-height: 92vh; }
+  .social-surface-card { max-height: 92vh; max-height: 92dvh; }
   .social-tabs { overflow-x: auto; }
   .social-tab { flex: 0 0 auto; }
   .player-profile-actions { grid-template-columns: 1fr; }
@@ -6359,3 +6386,265 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 a.rules-index-link { text-decoration: none; }
 #view-rules .rules-index > p { padding: 8px 7px 2px; }
 #view-rules .rules-index > p a { color: var(--gold-400); }
+
+/* ===== Folded from ui-review-admin.css (formerly a separate patch layer). Kept at the end of this file so it still
+   follows every rule it overrode here; its selectors do not overlap later sheets' rules. ===== */
+/* One Economy report fills the available panel while keeping its data compact. */
+[data-analytics-panel="economy"] .admin-chart-section { min-width: 0; min-height: 0; overflow: hidden; }
+[data-analytics-panel="economy"] .admin-chart-section > .admin-section-body { min-height: 0; }
+[data-analytics-panel="economy"] [data-analytics-chart] { min-height: 0; }
+.economy-report { display: grid; grid-template-rows: auto minmax(0, 1fr); flex: 1 1 0; gap: clamp(16px, 2vh, 24px); min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-active) var(--surface-panel-deep); }
+.economy-adoption-zone, .economy-outcomes-zone { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.economy-report-head { flex: none; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 5px 18px; margin: 0 0 10px; padding-bottom: 9px; border-bottom: 1px solid var(--line-subtle); }
+.economy-report-head > strong { font-size: 15px; }
+.economy-report-head p { margin: 0; line-height: 1.45; }
+.economy-adoption-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; min-width: 0; }
+.economy-adoption-row { display: grid; align-content: start; gap: 7px; min-width: 0; padding: 8px 0; }
+.economy-adoption-copy { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.economy-adoption-copy .t-label, .economy-outcome-row > .t-label { font-size: 14px; }
+.economy-adoption-copy strong, .economy-outcome-row strong { font-size: clamp(20px, 1.7vw, 28px); line-height: 1.1; white-space: nowrap; }
+.economy-adoption-track { height: 12px; overflow: hidden; background: var(--surface-panel); border: 1px solid var(--line-control); }
+.economy-adoption-track > span { display: block; height: 100%; background: var(--analytics-primary); }
+.economy-adoption-row > .t-micro, .economy-outcome-row > .t-micro { line-height: 1.45; }
+.economy-outcome-list { display: grid; grid-template-rows: repeat(5, minmax(64px, 1fr)); flex: 1 1 0; min-width: 0; min-height: 0; }
+.economy-outcome-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; align-content: center; align-items: baseline; gap: 3px 16px; min-width: 0; padding: 8px 2px; border-bottom: 1px solid var(--line-subtle); }
+.economy-outcome-row:first-child { border-top: 1px solid var(--line-subtle); }
+.economy-outcome-row > .t-micro { grid-column: 1 / -1; }
+.economy-report:focus-visible { outline: 2px solid var(--theme-focus); outline-offset: -2px; }
+@media (min-height: 850px) {
+  .economy-outcome-list { grid-template-rows: repeat(5, minmax(80px, 1fr)); }
+  .economy-outcome-row { padding-block: 12px; }
+}
+@media (max-width: 760px) {
+  .economy-adoption-list { grid-template-columns: minmax(0, 1fr); }
+  .economy-report { flex-basis: auto; }
+}
+/* Short windows: the outcome and adoption rows keep their size and the report scrolls to them. The fade at the
+   foot is the overflow cue; the bottom padding keeps the last row clear of it when the report is scrolled to its end. */
+@media (max-height: 800px) {
+  .economy-report { grid-template-rows: auto auto; padding-bottom: 28px; -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
+  .economy-outcome-list { grid-template-rows: none; grid-auto-rows: minmax(64px, auto); flex: none; }
+}
+@media (forced-colors: active) {
+  .economy-adoption-track { border-color: CanvasText; }
+  .economy-adoption-track > span { background: Highlight; }
+  .economy-outcome-row { border-color: CanvasText; }
+}
+
+/* ===== Folded from ui-review-pages.css (formerly a separate patch layer). Kept at the end of this file so it still
+   follows every rule it overrode here; its selectors do not overlap later sheets' rules. ===== */
+/* Focused page, social-feed, and lobby refinements. */
+
+@media (min-width: 1200px) {
+  #view-rankings .social-page-main,
+  #view-social .social-page-main {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* The home header already uses this large-desktop scale (styles.css, min-width 2200px and min-height 1000px).
+   Match its exact condition so navigation stays stable across pages at every large size, including 4K. */
+@media (min-width: 2200px) and (min-height: 1000px) {
+  :is(#view-profile, #view-rankings, #view-social, #view-rules, #view-about) > .page-header { zoom: 1.25; }
+}
+
+@media (min-width: 641px) and (max-width: 1399px) and (pointer: coarse) {
+  .home-signal-line { width: min(100%, 440px); max-width: 440px; }
+}
+
+/* Keep the ledger to a ten-row reading window while retaining internal scroll. */
+#view-rankings .rankings-stage .ranking-list {
+  flex: 1 1 760px;
+  max-height: 760px;
+  min-height: 0;
+  padding-bottom: 24px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+#view-rankings .ranking-row {
+  flex: 0 0 auto;
+  height: 76px;
+  min-height: 76px;
+  max-height: 76px;
+}
+
+#view-rankings .ranking-pagination {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line-dark);
+  background: var(--surface-panel-deep);
+}
+
+:is(#view-rankings, #rankings-modal) .ranking-pagination > button {
+  min-width: 104px;
+  min-height: 44px;
+}
+
+#view-rankings .ranking-pagination > span { text-align: center; }
+#view-rankings .ranking-pagination > button:disabled { opacity: .45; cursor: not-allowed; }
+
+/* A native category picker shares the existing ledger state and arrow controls. */
+:is(#view-rankings, #rankings-modal) .ranking-metric-navigation {
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+:is(#view-rankings, #rankings-modal) .ranking-metric-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+:is(#view-rankings, #rankings-modal) .ranking-metric-picker select {
+  width: min(260px, 100%);
+  min-width: 0;
+  min-height: 40px;
+}
+
+/* Keep the full Social composition inside the modal at short landscape sizes. */
+#social-modal .social-page-shell.is-modal { overflow: hidden; gap: 10px; }
+#social-modal .social-hero { grid-template-columns: auto minmax(0, 1fr) auto; }
+#social-modal .social-guest-shell,
+#social-modal .social-guest-content { flex: 1; min-height: 0; gap: 10px; }
+#social-modal .social-network-grid { display: grid; grid-template-columns: minmax(210px, .7fr) minmax(0, 1.65fr) minmax(270px, .9fr); flex: 1; min-height: 0; gap: 10px; }
+#social-modal .social-network-rail,
+#social-modal .social-context { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+#social-modal .social-rail-nav { overflow-y: auto; overscroll-behavior: contain; }
+#social-modal .social-context-roster { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+#social-modal .social-context { grid-column: auto; max-height: none; }
+#social-modal .social-context-foot { flex: none; }
+#social-modal .social-feed { min-width: 0; min-height: 0; }
+#social-modal .social-surface-body { align-content: start; grid-auto-rows: max-content; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+#social-modal .social-search-results:not(:empty) { max-height: 112px; overflow-y: auto; overscroll-behavior: contain; }
+#social-modal .social-request-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+@media (min-width: 641px) and (max-width: 1100px) {
+  #social-modal .social-network-grid { grid-template-columns: minmax(150px, .65fr) minmax(0, 1.6fr) minmax(220px, .9fr); }
+  #social-modal .social-request-row { grid-template-columns: minmax(0, 1fr); align-items: start; }
+}
+#social-modal .social-request-actions { flex-wrap: wrap; gap: 8px; }
+#social-modal .social-request-actions > button { min-height: 44px; min-width: 72px; }
+@media (min-width: 641px) and (max-height: 820px) {
+  #social-modal .social-hero { padding: 10px 14px; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; }
+  #social-modal .social-hero-mark { display: grid; width: 42px; height: 42px; }
+  #social-modal .social-hero-copy p { display: block; margin-top: 5px; }
+  #social-modal .social-hero-stats { grid-column: auto; grid-template-columns: repeat(3, minmax(64px, 1fr)); }
+  #social-modal .social-hero-stats > div { min-height: 48px; }
+  #social-modal .social-search-band { padding: 8px 12px; }
+  #social-modal .social-feed-head, #social-modal .social-context-head, #social-modal .social-rail-head { padding: 10px; }
+  #social-modal .social-context-foot { padding: 10px; }
+}
+
+@media (max-width: 640px) {
+  :is(#view-rankings, #rankings-modal) .ranking-metric-navigation { flex-wrap: wrap; }
+  :is(#view-rankings, #rankings-modal) .ranking-metric-picker { width: 100%; }
+}
+
+/* Social feeds keep a bounded, readable list inside the active-feed panel. */
+#view-social .social-network-grid {
+  min-width: 0;
+}
+
+#view-social .social-surface-body {
+  align-content: start;
+  grid-auto-rows: max-content;
+  width: 100%;
+  max-width: 1200px;
+  max-height: 760px;
+  min-width: 0;
+  padding-bottom: 22px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+#view-social .social-player-row,
+#view-social .social-request-row,
+#view-social .social-invite-row,
+#view-social .social-notification-row {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+#view-social .social-player-row,
+#view-social .social-notification-row { min-height: 64px; }
+
+#view-social .social-request-row,
+#view-social .social-invite-row {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+}
+
+#view-social .social-request-row > .social-player-row {
+  min-width: 0;
+}
+
+#view-social .social-invite-row > div:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#view-social .social-invite-row > div:first-child > * {
+  overflow-wrap: anywhere;
+}
+
+#view-social .social-request-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+#view-social .social-request-actions > button {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 92px;
+  min-height: 40px;
+  max-height: 44px;
+  align-self: center;
+}
+
+#view-social .social-request-actions > span {
+  margin-right: 4px;
+}
+
+#view-social .social-notification-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+#view-social .social-notification-row > button {
+  min-width: 72px;
+  min-height: 40px;
+}
+
+@media (max-height: 760px) and (min-width: 641px) {
+  #view-rankings .rankings-stage .ranking-list,
+  #view-social .social-surface-body {
+    max-height: 62vh;
+  }
+}
+
+@media (max-width: 640px) {
+  #view-social .social-request-actions > button {
+    min-width: 0;
+    flex: 1 1 110px;
+  }
+}
+
+/* Rankings, Social and Rules: micro labels sit at the 11px floor, not the 9px base. */
+#view-rankings .t-micro, #view-social .t-micro, #view-rules .t-micro { font-size: 11px; }
+
+/* The 11px micro floor would make the social search label taller, so its line box is pinned to keep the 18px label row aligned with the 18px submit margin. */
+.social-search-label > .t-micro:first-child { line-height: 13px; }

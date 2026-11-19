@@ -186,7 +186,7 @@ function buildTile(tile, onTileClick) {
   el.className = tileClassName(tile);
   el.dataset.tile = String(tile.i);
   el.setAttribute("aria-label", tileAriaLabel(tile));
-  el.setAttribute("tabindex", "0");
+  el.setAttribute("tabindex", "-1");
   if (!tileSupportsInspection(tile)) el.setAttribute("aria-disabled", "true");
   el.style.gridColumn = String(tile.col);
   el.style.gridRow = String(tile.row);
@@ -199,6 +199,64 @@ function buildTile(tile, onTileClick) {
   $("#board-grid").insertBefore(el, $("#center-field"));
 }
 
+// ROVING TILE FOCUS: the board is one tab stop, not forty. Exactly one tile carries tabindex 0 (the
+// last focused, else the first); Arrow keys move along the grid, Home/End jump to the first/last tile.
+let rovingTileIndex = 0;
+const boundBoardGrids = new WeakSet();
+const TILE_ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
+function setRovingTile(grid, active) {
+  grid.querySelectorAll(".tile").forEach((el) => el.setAttribute("tabindex", "-1"));
+  if (!active) return;
+  active.setAttribute("tabindex", "0");
+  rovingTileIndex = Number(active.dataset.tile);
+}
+
+// Next tile index for a navigation key, or null. Arrows step through the grid cells in that
+// direction and skip empty cells, so Right on the left edge crosses the board to the far edge.
+function nextTileIndex(fromIndex, key) {
+  if (key === "Home") return TILES[0].i;
+  if (key === "End") return TILES[TILES.length - 1].i;
+  const step = TILE_ARROWS[key];
+  const from = TILES.find((tile) => tile.i === fromIndex);
+  if (!step || !from) return null;
+  const maxCol = Math.max(...TILES.map((tile) => tile.col));
+  const maxRow = Math.max(...TILES.map((tile) => tile.row));
+  let col = from.col + step[0];
+  let row = from.row + step[1];
+  while (col >= 1 && col <= maxCol && row >= 1 && row <= maxRow) {
+    const hit = TILES.find((tile) => tile.col === col && tile.row === row);
+    if (hit) return hit.i;
+    col += step[0];
+    row += step[1];
+  }
+  return null;
+}
+
+function onBoardKeydown(event) {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+  const el = event.target?.closest?.(".tile");
+  if (!el) return;
+  const next = nextTileIndex(Number(el.dataset.tile), event.key);
+  if (next === null || next === Number(el.dataset.tile)) return;
+  const grid = el.closest("#board-grid") || $("#board-grid");
+  const target = grid?.querySelector(`.tile[data-tile="${next}"]`);
+  if (!target) return;
+  event.preventDefault();
+  setRovingTile(grid, target);
+  target.focus();
+}
+
+function bindBoardRoving(grid) {
+  if (boundBoardGrids.has(grid)) return;
+  boundBoardGrids.add(grid);
+  grid.addEventListener("keydown", onBoardKeydown);
+  grid.addEventListener("focusin", (event) => {
+    const el = event.target?.closest?.(".tile");
+    if (el && el.getAttribute("tabindex") !== "0") setRovingTile(grid, el);
+  });
+}
+
 export function buildBoard(onTileClick) {
   const grid = $("#board-grid");
   grid.querySelectorAll(".tile").forEach((n) => n.remove());
@@ -206,6 +264,8 @@ export function buildBoard(onTileClick) {
   paintSkyline($("#board-skyline"), theme.skyline.board || BOARD_SKYLINE, theme.palette);
   TILES.forEach((tile) => buildTile(tile, onTileClick));
   hydrateSprites(grid);
+  setRovingTile(grid, grid.querySelector(`.tile[data-tile="${rovingTileIndex}"]`) || grid.querySelector(".tile"));
+  bindBoardRoving(grid);
 }
 
 function renderTileState(el, tile) {

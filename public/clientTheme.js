@@ -1,6 +1,7 @@
 // THEME UI: keyboard-safe, local-only parlor look selector.
 // It changes atmosphere and CSS tokens only; no server payload is touched.
 import { $, esc } from "./clientDom.js";
+import { announceSystemLine } from "./clientAnnouncer.js";
 import { state } from "./clientState.js";
 import { MUSIC_MANIFEST, MUSIC_PREFERENCES_STORAGE_KEY, sanitizeTrackId } from "./clientMusicData.js";
 import { DEFAULT_THEME_ID, THEME_STORAGE_KEY, getTheme, sanitizeThemeId, themeOptions } from "./clientThemeData.js";
@@ -12,8 +13,7 @@ let storageBound = false;
 let visibilityBound = false;
 
 function announce(message) {
-  const live = $("#system-announcer");
-  if (live) live.textContent = message;
+  announceSystemLine(message);
 }
 
 function preferences() { return $("[data-theme-preferences]"); }

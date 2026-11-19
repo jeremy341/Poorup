@@ -334,7 +334,7 @@
 .rooms-search .field { width: 100%; min-height: 44px; }
 
 /* ---- airport flights: flight desk, Fly button, owner fee steppers ---- */
-.flight-card { width: min(520px, 100%); max-height: min(640px, calc(100vh - 32px)); overflow: hidden; }
+.flight-card { width: min(520px, 100%); max-height: min(640px, calc(100vh - 32px)); max-height: min(640px, calc(100dvh - 32px)); overflow: hidden; }
 .flight-body { display: flex; flex-direction: column; gap: 14px; max-height: inherit; padding: 20px; }
 .flight-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .flight-head h2 { margin-top: 7px; color: var(--gold-100); }

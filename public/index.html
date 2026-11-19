@@ -6,19 +6,19 @@
     <meta name="theme-color" content="#01070a" data-theme-color />
     <meta name="robots" content="noindex,nofollow" data-metadata-robots />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="32x32" />
+    <link rel="preload" href="/assets/fonts/pixelify-sans-700.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/assets/fonts/pixelify-sans-400.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/game-responsive.css" />
     <link rel="stylesheet" href="/game-layout.css" />
     <link rel="stylesheet" href="/about.css" />
     <link rel="stylesheet" href="/ux-surfaces.css" />
-    <link rel="stylesheet" href="/ui-review-pages.css" />
     <link rel="stylesheet" href="/ui-review-economy.css" />
     <link rel="stylesheet" href="/ui-review-market.css" />
     <link rel="stylesheet" href="/ui-review-deeds.css" />
     <link rel="stylesheet" href="/ui-review-presentation.css" />
     <link rel="stylesheet" href="/ui-review-game.css" />
     <link rel="stylesheet" href="/ui-review-system.css" />
-    <link rel="stylesheet" href="/ui-review-admin.css" />
     <link rel="stylesheet" href="/ui-review-recovery.css" />
     <script src="/socket.io/socket.io.min.js"></script>
     <title>Poorup · After-Hours Game Parlor</title>
@@ -30,7 +30,7 @@
     <div class="sr-live" id="system-announcer" data-document-announcer role="status" aria-live="polite" aria-atomic="true"></div>
     <div class="sr-live" id="error-announcer" role="alert" aria-live="assertive" aria-atomic="true"></div>
     <div class="sr-live" id="status-announcer" role="status" aria-live="polite" aria-atomic="true"></div>
-    <div class="toast-stack" id="toast-stack" role="region" aria-label="Notifications" aria-live="polite"></div>
+    <div class="toast-stack" id="toast-stack" role="region" aria-label="Notifications"></div>
     <div class="bot-provider-banner" id="bot-provider-banner" aria-hidden="true" hidden></div>
     <div class="operator-chip is-hidden" id="operator-chip" role="group" aria-label="Operator mode" aria-hidden="true">
       <span class="t-label f11 operator-chip-label">OPERATOR MODE</span>
@@ -290,13 +290,13 @@
               </label>
 
               <div class="rc-field">
-                <span class="t-label f12 g-muted">Room Visibility</span>
-                <div class="rc-vis-selector" id="rc-vis-selector">
-                  <button type="button" class="rc-vis-opt is-active" data-vis="public">
+                <span class="t-label f12 g-muted" id="rc-vis-label">Room Visibility</span>
+                <div class="rc-vis-selector" id="rc-vis-selector" role="group" aria-labelledby="rc-vis-label">
+                  <button type="button" class="rc-vis-opt is-active" data-vis="public" aria-pressed="true">
                     <span class="t-label f12 g100">OPEN (PUBLIC)</span>
                     <span class="t-body ink-2">Anyone can find this table.</span>
                   </button>
-                  <button type="button" class="rc-vis-opt" data-vis="private">
+                  <button type="button" class="rc-vis-opt" data-vis="private" aria-pressed="false">
                     <span class="t-label f12 g100">PRIVATE (INVITE ONLY)</span>
                     <span class="t-body ink-2">Guests need your code.</span>
                   </button>

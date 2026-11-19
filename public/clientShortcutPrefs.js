@@ -1,7 +1,7 @@
 // SHORTCUT PREFERENCE: WCAG 2.1.4 (Character Key Shortcuts). The single-key shortcuts
 // (B C P J L R Space) are on by default, and this per-viewer switch turns them off. Persisted in
 // localStorage. Every storage access is guarded, so a blocked or private-mode browser still works.
-import { $ } from "./clientDom.js";
+import { announceSystemLine } from "./clientAnnouncer.js";
 
 export const SHORTCUTS_STORAGE_KEY = "poorup.shortcuts.v1";
 const TOGGLE_SELECTOR = "[data-shortcut-toggle]";
@@ -41,8 +41,7 @@ export function bindShortcutToggles() {
   document.querySelectorAll(TOGGLE_SELECTOR).forEach((button) => {
     button.addEventListener("click", () => {
       setShortcutsEnabled(!enabled);
-      const announcer = $("#system-announcer");
-      if (announcer) announcer.textContent = enabled ? "Single-key shortcuts on." : "Single-key shortcuts off.";
+      announceSystemLine(enabled ? "Single-key shortcuts on." : "Single-key shortcuts off.");
     });
   });
 }

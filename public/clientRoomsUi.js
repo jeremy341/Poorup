@@ -147,7 +147,9 @@ function updateCreateRoomUI() {
   syncCreateRoomCode(codeInput, settings);
   const codeValid = /^[A-Z0-9]{6}$/.test(settings.code);
   paintCreateCodeStatus(isPrivate, codeValid, settings);
-  if (codeInput) codeInput.setAttribute("aria-invalid", String(isPrivate && !codeValid));
+  // The field is only flagged after the player has tried to leave it or submit with a bad code,
+  // never the moment it appears empty.
+  if (codeInput) codeInput.setAttribute("aria-invalid", String(isPrivate && !codeValid && createCodeAttempted));
   const createButton = $("#rc-create-btn");
   if (createButton) {
     createButton.disabled = isPrivate && !codeValid;
@@ -155,8 +157,19 @@ function updateCreateRoomUI() {
     else createButton.removeAttribute("aria-describedby");
   }
   document.querySelectorAll("#rc-vis-selector .rc-vis-opt").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.dataset.vis === lobbyState.createRoomSettings.visibility);
+    const active = btn.dataset.vis === lobbyState.createRoomSettings.visibility;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-pressed", String(active));
   });
+}
+
+// True once the player has blurred the code field or tried to create with an invalid private code.
+let createCodeAttempted = false;
+
+function markCreateCodeAttempted() {
+  if (createCodeAttempted) return;
+  createCodeAttempted = true;
+  updateCreateRoomUI();
 }
 
 function syncCreateRoomCode(codeInput, settings) {
@@ -473,6 +486,7 @@ function onVisibilityPick(e) {
   if (lobbyState.createRoomSettings.visibility !== vis) {
     lobbyState.createRoomSettings.visibility = vis;
     lobbyState.createRoomSettings.code = "";
+    createCodeAttempted = false;
     updateCreateRoomUI();
   }
 }
@@ -495,6 +509,7 @@ function onCreateRoomClick() {
     return;
   }
   if (invalidPrivateCode()) {
+    createCodeAttempted = true;
     updateCreateRoomUI();
     $("#rc-room-code")?.focus();
     return;
@@ -643,6 +658,10 @@ function bindRoomsModal() {
   // room creation form interactions
   $("#rc-vis-selector")?.addEventListener("click", onVisibilityPick);
   $("#rc-room-code")?.addEventListener("input", onRoomCodeInput);
+  $("#rc-room-code")?.addEventListener("blur", markCreateCodeAttempted);
+  $("#rc-room-code")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && invalidPrivateCode()) markCreateCodeAttempted();
+  });
   $("#rc-create-btn")?.addEventListener("click", onCreateRoomClick);
 }
 

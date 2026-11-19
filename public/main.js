@@ -20,6 +20,7 @@ import {
 } from "./clientBoardRender.js";
 import { renderHud, configureHudSound, dismissTurnCoach } from "./clientHudRender.js";
 import { showDiceRollTotal } from "./clientDiceRollEffect.js";
+import { announceSystemLine } from "./clientAnnouncer.js";
 import { DICE_SHAKE_CYCLE_MS } from './gamePresentationTiming.js';
 import {
   CONNECTION_COPY,
@@ -507,31 +508,6 @@ function isDuplicateSystem(message, previous) {
   if (!message.system) return false;
   if (!previous?.system) return false;
   return previous.text === message.text;
-}
-// ANNOUNCEMENT QUEUE: #system-announcer is one overwrite node, so a burst of system lines would
-// coalesce and the screen reader would only hear the last. Lines queue here and flush one per
-// ANNOUNCE_GAP_MS; none are dropped (a repeat of the line just spoken is skipped).
-const ANNOUNCE_GAP_MS = 800;
-const announceQueue = [];
-let announceTimer = null;
-let lastAnnouncedLine = null;
-
-function flushAnnouncement() {
-  announceTimer = null;
-  const next = announceQueue.shift();
-  if (next === undefined) return;
-  const announcer = $("#system-announcer");
-  if (announcer) announcer.textContent = next;
-  announceTimer = setTimeout(flushAnnouncement, ANNOUNCE_GAP_MS);
-}
-
-function announceSystemLine(text) {
-  const line = String(text);
-  const idle = announceQueue.length === 0 && announceTimer === null;
-  if (!idle && lastAnnouncedLine === line) return;
-  lastAnnouncedLine = line;
-  announceQueue.push(line);
-  if (idle) flushAnnouncement();
 }
 function say(text, who) {
   if (!who) return;

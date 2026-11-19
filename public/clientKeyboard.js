@@ -86,6 +86,51 @@ function handleSurfaceTab(event, activeSurface) {
   next.focus({ preventScroll: true });
 }
 
+// ROVING TAB STOP: a tablist is one Tab stop. The selected tab (else the first) carries tabindex 0
+// and its siblings -1; arrow keys reach the rest. Tablists are rendered by many modules and re-render
+// often, so one observer re-syncs any list whose tabs or selection changed.
+function syncTablistStops(list) {
+  const tabs = [...list.querySelectorAll('[role="tab"]:not([disabled])')];
+  if (!tabs.length) return;
+  const stop = tabs.find((tab) => tab.getAttribute("aria-selected") === "true") || tabs[0];
+  tabs.forEach((tab) => {
+    const want = tab === stop ? "0" : "-1";
+    if (tab.getAttribute("tabindex") !== want) tab.setAttribute("tabindex", want);
+  });
+}
+
+function tablistsTouchedBy(records) {
+  const lists = new Set();
+  for (const record of records) {
+    const target = record.target;
+    const owner = target.closest?.('[role="tablist"]');
+    if (owner) lists.add(owner);
+    record.addedNodes.forEach((node) => {
+      if (node.nodeType !== 1) return;
+      if (node.matches?.('[role="tablist"]')) lists.add(node);
+      node.querySelectorAll?.('[role="tablist"]').forEach((list) => lists.add(list));
+    });
+  }
+  return lists;
+}
+
+function bindRovingTablists() {
+  if (typeof MutationObserver !== "function" || !document.body) return;
+  document.querySelectorAll('[role="tablist"]').forEach(syncTablistStops);
+  let queued = [];
+  const observer = new MutationObserver((records) => {
+    if (!queued.length) {
+      requestAnimationFrame(() => {
+        const batch = queued;
+        queued = [];
+        tablistsTouchedBy(batch).forEach((list) => list.isConnected && syncTablistStops(list));
+      });
+    }
+    queued.push(...records);
+  });
+  observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-selected"] });
+}
+
 function handleTabNavigation(event) {
   if (event.defaultPrevented) return false;
   const tab = event.target?.closest?.('[role="tab"]');
@@ -103,6 +148,7 @@ function handleTabNavigation(event) {
   event.preventDefault();
   tabs[nextIndex].focus({ preventScroll: true });
   tabs[nextIndex].click();
+  if (list.isConnected) syncTablistStops(list);
   return true;
 }
 
@@ -341,4 +387,5 @@ export function bindKeyboard(hooks) {
   host = hooks;
   window.addEventListener("keydown", onKeyDown);
   $("#skip-to-action")?.addEventListener("click", skipToGameAction);
+  bindRovingTablists();
 }
