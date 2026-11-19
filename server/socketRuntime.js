@@ -1387,7 +1387,16 @@ function createRuntime(deps) {
     if (!removed) {
       // A transactional settlement failure keeps the original seat/deadline
       // eligible for a bounded retry, rather than abandoning its expiry.
-      timer.handle = setTimeoutFn(() => runRoomTimer('disconnect-expiry', timer.room.roomCode, () => expireDisconnectedSeat(timer)), 1_000);
+      // Retries back off from 1s to a 30s ceiling and announce once, so a
+      // seat that cannot settle (a parked payment no bankruptcy path
+      // resolves) cannot burn a 1s timer loop indefinitely while the table
+      // waits on the ghost.
+      timer.settleRetries = (timer.settleRetries || 0) + 1;
+      if (timer.settleRetries === 5) {
+        io.in(currentRoom.roomCode).emit('system-message', { text: `${currentPlayer.nickname}'s seat could not be settled after leaving. The table is waiting on a stalled settlement.` });
+      }
+      const retryDelay = Math.min(30_000, 1_000 * 2 ** Math.min(timer.settleRetries - 1, 5));
+      timer.handle = setTimeoutFn(() => runRoomTimer('disconnect-expiry', timer.room.roomCode, () => expireDisconnectedSeat(timer)), retryDelay);
       return false;
     }
     disconnectTimers.delete(timer.key);

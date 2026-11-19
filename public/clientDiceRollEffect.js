@@ -45,25 +45,37 @@ export function createDiceRollSequenceTracker(onRoll = () => {}) {
 }
 
 let hideTimer = null;
+const LIVE_REGION_REGISTER_MS = 60;
 
 export function showDiceRollTotal(total) {
   const boardArea = document.querySelector("#view-game .board-area");
   if (!boardArea) return;
 
   let announcement = boardArea.querySelector(".dice-roll-total");
+  let created = false;
   if (!announcement) {
     announcement = document.createElement("div");
     announcement.className = "dice-roll-total";
     announcement.setAttribute("role", "status");
     announcement.setAttribute("aria-live", "polite");
     boardArea.append(announcement);
+    created = true;
   }
 
   window.clearTimeout(hideTimer);
-  announcement.textContent = String(total);
-  announcement.setAttribute("aria-label", `Dice total: ${total}`);
-  announcement.classList.remove("is-visible");
-  void announcement.offsetWidth;
-  announcement.classList.add("is-visible");
-  hideTimer = window.setTimeout(() => announcement.classList.remove("is-visible"), 3000);
+  // A live region that is created and filled in the same tick is often never registered by the
+  // screen reader, so the first roll of a session would be silent. Give a fresh region one beat to
+  // register before its content changes; an existing region updates immediately.
+  const reveal = () => {
+    announcement.textContent = String(total);
+    announcement.setAttribute("aria-label", `Dice total: ${total}`);
+    announcement.classList.remove("is-visible");
+    void announcement.offsetWidth;
+    announcement.classList.add("is-visible");
+    // The 900ms review hold matches the CSS `dice-total-review` animation and its
+    // test pin: the total stays through the opening of the walk, then clears.
+    hideTimer = window.setTimeout(() => announcement.classList.remove("is-visible"), 900);
+  };
+  if (created) hideTimer = window.setTimeout(reveal, LIVE_REGION_REGISTER_MS);
+  else reveal();
 }

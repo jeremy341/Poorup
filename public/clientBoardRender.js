@@ -1,7 +1,7 @@
 // BOARD RENDERING: builds the 40 tiles, owner/building marks,
 // and the walking game pieces. Pure view layer over clientState.
 import { $, REDUCED_MOTION, setHtml } from "./clientDom.js";
-import { spriteHTML, avatarHTML } from "./clientSprites.js";
+import { spriteHTML, avatarHTML, hydrateSprites } from "./clientSprites.js";
 import {
   GROUP_COLOR,
   TILES,
@@ -96,10 +96,10 @@ export function tileIconHTML(tile) {
 }
 
 const STRIP_EDGES = {
-  bottom: "top:0;left:0;right:0;height:22%;border-bottom:1px solid #01070a",
-  top: "bottom:0;left:0;right:0;height:22%;border-top:1px solid #01070a",
-  left: "top:0;bottom:0;right:0;width:22%;border-left:1px solid #01070a",
-  right: "top:0;bottom:0;left:0;width:22%;border-right:1px solid #01070a",
+  bottom: "top:0;left:0;right:0;height:var(--tile-strip-size);border-bottom:1px solid var(--edge-0)",
+  top: "bottom:0;left:0;right:0;height:var(--tile-strip-size);border-top:1px solid var(--edge-0)",
+  left: "top:0;bottom:0;right:0;width:var(--tile-strip-size);border-left:1px solid var(--edge-0)",
+  right: "top:0;bottom:0;left:0;width:var(--tile-strip-size);border-right:1px solid var(--edge-0)",
 };
 
 export function stripStyle(tile) {
@@ -107,7 +107,7 @@ export function stripStyle(tile) {
   if (!c) return "";
   const edge = STRIP_EDGES[tile.side];
   if (!edge) return "";
-  return `background:${c};${edge}`;
+  return `background:color-mix(in srgb, ${c} 78%, var(--surface-2));${edge}`;
 }
 
 function tileClassName(tile) {
@@ -117,33 +117,36 @@ function tileClassName(tile) {
   return cls;
 }
 
-function wordsFor(name) {
-  return name.split(" ").map((w) => `<span style="display:block">${w}</span>`).join("");
+function boardPlateHTML(spriteName, classes) {
+  return `<span class="tile-plate ${classes}" data-sprite="${spriteName}" data-size="2" aria-hidden="true"></span>`;
 }
 
-const GO_CORNER_HTML = `<span class="go-big">GO</span>
+function specialPlateName(tile) {
+  if (tile.kind === "utility") return /ELECTRIC|POWER/.test(tile.name) ? "board-power" : "board-water";
+  return { railroad: "board-airport", chest: "board-chest", chance: "board-surprise", tax: "board-tax" }[tile.kind];
+}
+
+const GO_CORNER_HTML = `<span class="go-big">${boardPlateHTML("board-start", "tile-plate-start")}GO</span>
           <span class="t-tile tile-name" style="color:#a79d7d">COLLECT</span>
           <span class="t-tile tile-price" style="color:#cfa75f">$200</span>`;
 
 const PASSING_CORNER_HTML = `<span class="passing-by-corner-layout">
           <span class="t-tile tile-name passing-by-corner-label">PASSING BY</span>
           <span class="passing-by-prison-zone" aria-hidden="true">
-            <img class="passing-by-bars-art" src="/assets/board-icons/passing-by-bars.svg" alt="">
+            ${boardPlateHTML("board-passing", "passing-by-bars-art tile-plate-corner")}
           </span>
           <span class="passing-by-token-anchor passing-by-token-anchor-pass" data-tile-anchor="passing" aria-hidden="true"></span>
           <span class="passing-by-token-anchor passing-by-token-anchor-prison" data-tile-anchor="prison" aria-hidden="true"></span>
         </span>`;
 
-const PRISON_BARS_HTML = `<svg class="jail-bars" viewBox="0 0 16 10" shape-rendering="crispEdges" aria-hidden="true">
-            ${[1, 4, 7, 10, 13].map((x) => `<rect x="${x}" y="0" width="1.4" height="10" fill="#d74438"/>`).join("")}
-            <rect x="0" y="4" width="16" height="1.2" fill="#d74438"/></svg>
+const PRISON_BARS_HTML = `${boardPlateHTML("board-prison", "jail-bars tile-plate-corner")}
           <span class="t-tile tile-name" style="color:var(--red-bright)">PRISON</span>`;
 
 function cornerFaceHTML(tile) {
   if (tile.kind === "corner-go") return GO_CORNER_HTML;
   if (tile.kind === "corner-jail") return PASSING_CORNER_HTML;
   if (tile.kind === "corner-go-jail") return PRISON_BARS_HTML;
-  return `<span class="t-tile tile-name">${wordsFor(tile.name)}</span>${tileIconHTML(tile)}`;
+  return `${boardPlateHTML("board-vacation", "tile-plate-corner")}<span class="t-tile tile-name">${tile.name}</span>`;
 }
 
 function priceLineHTML(tile) {
@@ -153,21 +156,17 @@ function priceLineHTML(tile) {
 }
 
 function tileFaceHTML(tile) {
-  const words = wordsFor(tile.name);
-  const verticalSide = tile.side === "left" || tile.side === "right";
-  const verticalChest = verticalSide && tile.kind === "chest";
-  const iconOnly = tile.kind === "chance";
-  if (iconOnly) {
-    return `<span class="tile-face tile-face-special"><span class="tile-icon tile-icon-large">${tileIconHTML(tile)}</span></span>`;
-  }
-  if (verticalChest) {
-    return `<span class="tile-face tile-face-special"><span class="t-tile tile-name">${words}</span><span class="tile-icon tile-icon-large">${tileIconHTML(tile)}</span></span>`;
-  }
-  if (tile.kind === "tax") {
-    return `<span class="tile-face"><span class="t-tile tile-name">${words}</span>${priceLineHTML(tile)}</span>`;
-  }
+  const name = `<span class="t-tile tile-name">${tile.name}</span>`;
   const price = priceLineHTML(tile);
-  return `<span class="tile-face"><span class="t-tile tile-name">${words}</span><span class="tile-icon">${tileIconHTML(tile)}</span>${price}</span>`;
+  if (tile.kind === "property") return `<span class="tile-face">${name}${price}</span>`;
+  const plateName = specialPlateName(tile);
+  if (tile.kind === "chance") {
+    return `<span class="tile-face tile-face-special">${boardPlateHTML(plateName, "tile-icon tile-icon-large")}</span>`;
+  }
+  if (tile.kind === "chest") return `<span class="tile-face tile-face-special">${boardPlateHTML(plateName, "tile-icon tile-icon-large")}${name}</span>`;
+  const icon = boardPlateHTML(plateName, tile.kind === "railroad" ? "tile-icon airport-mark" : "tile-icon");
+  const faceClass = tile.kind === "tax" ? "tile-face-special tile-face-tax" : "tile-face-special";
+  return `<span class="tile-face ${faceClass}">${name}<span class="tile-meta">${icon}${price}</span></span>`;
 }
 
 function applyTileFace(el, tile) {
@@ -176,7 +175,9 @@ function applyTileFace(el, tile) {
     el.innerHTML = cornerFaceHTML(tile);
     return;
   }
-  const strip = tile.group ? `<span class="tile-strip" style="${stripStyle(tile)}"></span>` : "";
+  const strip = tile.group
+    ? `<span class="tile-strip" style="${stripStyle(tile)}">${boardPlateHTML(`district-${tile.group.replaceAll(" ", "-")}`, "tile-district-plate")}</span>`
+    : "";
   el.innerHTML = strip + `<span class="tile-owner" style="display:none"></span>` + tileFaceHTML(tile);
 }
 
@@ -185,7 +186,7 @@ function buildTile(tile, onTileClick) {
   el.className = tileClassName(tile);
   el.dataset.tile = String(tile.i);
   el.setAttribute("aria-label", tileAriaLabel(tile));
-  el.setAttribute("tabindex", "0");
+  el.setAttribute("tabindex", "-1");
   if (!tileSupportsInspection(tile)) el.setAttribute("aria-disabled", "true");
   el.style.gridColumn = String(tile.col);
   el.style.gridRow = String(tile.row);
@@ -198,12 +199,73 @@ function buildTile(tile, onTileClick) {
   $("#board-grid").insertBefore(el, $("#center-field"));
 }
 
+// ROVING TILE FOCUS: the board is one tab stop, not forty. Exactly one tile carries tabindex 0 (the
+// last focused, else the first); Arrow keys move along the grid, Home/End jump to the first/last tile.
+let rovingTileIndex = 0;
+const boundBoardGrids = new WeakSet();
+const TILE_ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
+function setRovingTile(grid, active) {
+  grid.querySelectorAll(".tile").forEach((el) => el.setAttribute("tabindex", "-1"));
+  if (!active) return;
+  active.setAttribute("tabindex", "0");
+  rovingTileIndex = Number(active.dataset.tile);
+}
+
+// Next tile index for a navigation key, or null. Arrows step through the grid cells in that
+// direction and skip empty cells, so Right on the left edge crosses the board to the far edge.
+function nextTileIndex(fromIndex, key) {
+  if (key === "Home") return TILES[0].i;
+  if (key === "End") return TILES[TILES.length - 1].i;
+  const step = TILE_ARROWS[key];
+  const from = TILES.find((tile) => tile.i === fromIndex);
+  if (!step || !from) return null;
+  const maxCol = Math.max(...TILES.map((tile) => tile.col));
+  const maxRow = Math.max(...TILES.map((tile) => tile.row));
+  let col = from.col + step[0];
+  let row = from.row + step[1];
+  while (col >= 1 && col <= maxCol && row >= 1 && row <= maxRow) {
+    const hit = TILES.find((tile) => tile.col === col && tile.row === row);
+    if (hit) return hit.i;
+    col += step[0];
+    row += step[1];
+  }
+  return null;
+}
+
+function onBoardKeydown(event) {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+  const el = event.target?.closest?.(".tile");
+  if (!el) return;
+  const next = nextTileIndex(Number(el.dataset.tile), event.key);
+  if (next === null || next === Number(el.dataset.tile)) return;
+  const grid = el.closest("#board-grid") || $("#board-grid");
+  const target = grid?.querySelector(`.tile[data-tile="${next}"]`);
+  if (!target) return;
+  event.preventDefault();
+  setRovingTile(grid, target);
+  target.focus();
+}
+
+function bindBoardRoving(grid) {
+  if (boundBoardGrids.has(grid)) return;
+  boundBoardGrids.add(grid);
+  grid.addEventListener("keydown", onBoardKeydown);
+  grid.addEventListener("focusin", (event) => {
+    const el = event.target?.closest?.(".tile");
+    if (el && el.getAttribute("tabindex") !== "0") setRovingTile(grid, el);
+  });
+}
+
 export function buildBoard(onTileClick) {
   const grid = $("#board-grid");
   grid.querySelectorAll(".tile").forEach((n) => n.remove());
   const theme = getTheme(state.themeId);
   paintSkyline($("#board-skyline"), theme.skyline.board || BOARD_SKYLINE, theme.palette);
   TILES.forEach((tile) => buildTile(tile, onTileClick));
+  hydrateSprites(grid);
+  setRovingTile(grid, grid.querySelector(`.tile[data-tile="${rovingTileIndex}"]`) || grid.querySelector(".tile"));
+  bindBoardRoving(grid);
 }
 
 function renderTileState(el, tile) {
@@ -219,15 +281,66 @@ function ownerPipMarkup(owner, index) {
   return { sig: `${owner.id}:${owner.color}:${index}:${grid}`, markup: avatarHTML(owner, 1, index) };
 }
 
+// Injected by main.js so the board can tick and thunk without owning an audio engine.
+let boardSound = () => {};
+export function configureBoardSound(playSound) {
+  boardSound = typeof playSound === "function" ? playSound : () => {};
+}
+
+// One-shot motion (owner stamp, building pop): restart the class, then drop it after `ms`.
+const oneShotTimers = new WeakMap();
+function playOneShot(el, className, ms) {
+  if (REDUCED_MOTION || !el) return;
+  clearTimeout(oneShotTimers.get(el));
+  el.classList.remove(className);
+  void el.offsetWidth;
+  el.classList.add(className);
+  oneShotTimers.set(el, setTimeout(() => el.classList.remove(className), ms));
+}
+
+// Reduced motion skips the animated walk, so the piece would appear on its destination with no cue.
+// This substitute is a 200ms colour/opacity ring on the destination tile only (no travel). It is a
+// distinct one-shot class so it never fights `is-highlight`, and it clears itself on animationend
+// with a safety timeout for browsers/tabs that never fire the event.
+const ARRIVAL_CUE_MS = 200;
+const arrivalCueTimers = new Map();
+function playArrivalCue(tileIndex) {
+  const el = document.querySelector(`.tile[data-tile="${tileIndex}"]`);
+  if (!el) return;
+  clearTimeout(arrivalCueTimers.get(el));
+  const clear = () => {
+    clearTimeout(arrivalCueTimers.get(el));
+    arrivalCueTimers.delete(el);
+    el.classList.remove("is-arrival-cue");
+    el.removeEventListener("animationend", onEnd);
+  };
+  const onEnd = (event) => { if (event.animationName === "tile-arrival-cue") clear(); };
+  el.classList.remove("is-arrival-cue");
+  void el.offsetWidth;
+  el.classList.add("is-arrival-cue");
+  el.addEventListener("animationend", onEnd);
+  arrivalCueTimers.set(el, setTimeout(clear, ARRIVAL_CUE_MS + 100));
+}
+
+// `dataset.*Seen` is undefined until a tile's first paint, so initial hydration and rebuilt boards
+// never count as a change; only a later transition does.
+function changedSince(el, key, value, isForward) {
+  const previous = el.dataset[key];
+  el.dataset[key] = String(value);
+  if (previous === undefined) return false;
+  return isForward(previous, String(value));
+}
+
 function renderTileOwner(el, tile) {
   const pip = el.querySelector(".tile-owner");
-  if (!pip) return;
+  if (!pip) return false;
   const owner = state.players.find((p) => p.id === state.owners[tile.i]);
   pip.style.display = owner ? "block" : "none";
   el.classList.toggle("is-owned", Boolean(owner));
+  const stamped = changedSince(el, "ownerSeen", owner?.id ?? "", (before, after) => after !== "" && before !== after);
   if (!owner) {
     el.style.removeProperty("--tile-owner");
-    return;
+    return false;
   }
   el.style.setProperty("--tile-owner", owner.color);
   const face = ownerPipMarkup(owner, state.players.indexOf(owner));
@@ -235,6 +348,7 @@ function renderTileOwner(el, tile) {
     pip.innerHTML = face.markup;
     pip.dataset.sig = face.sig;
   }
+  return stamped;
 }
 
 function housesRowHTML(count) {
@@ -249,10 +363,14 @@ function tileBuildHTML(tile) {
   return housesRowHTML(level);
 }
 
+// Returns the build element when its level rose since the last paint (a new house or hotel appeared).
 function renderTileBuild(el, tile) {
   const buildEl = el.querySelector(".tile-build");
-  if (!buildEl) return;
+  if (!buildEl) return null;
   setHtml(buildEl, tileBuildHTML(tile));
+  const level = tile.kind === "property" ? (state.houses[tile.i] || 0) : 0;
+  const grew = changedSince(el, "buildSeen", level, (before, after) => Number(after) > Number(before));
+  return grew ? buildEl : null;
 }
 
 function renderTileLabel(el, tile) {
@@ -267,17 +385,38 @@ function renderTileLabel(el, tile) {
   if (el.getAttribute("aria-label") !== label) el.setAttribute("aria-label", label);
 }
 
-function renderBoardTile(tile) {
+function renderBoardTile(tile, moments) {
   const el = document.querySelector(`.tile[data-tile="${tile.i}"]`);
   if (!el) return;
   renderTileState(el, tile);
-  renderTileOwner(el, tile);
-  renderTileBuild(el, tile);
+  if (renderTileOwner(el, tile)) moments.stamps.push(el);
+  const grown = renderTileBuild(el, tile);
+  if (grown) moments.builds.push(grown);
   renderTileLabel(el, tile);
 }
 
+// A handful of changes in one pass is a play (buy, rent, build, trade); a flood is a snapshot
+// catch-up (rejoin, restore) and stays quiet instead of stamping the whole board.
+const MAX_STAMPS_PER_PASS = 2;
+const MAX_BUILDS_PER_PASS = 4;
+const STAMP_MS = 320;
+const BUILD_POP_MS = 240;
+
+function playBoardMoments(moments) {
+  if (state.phase !== "playing") return;
+  if (moments.stamps.length && moments.stamps.length <= MAX_STAMPS_PER_PASS) {
+    moments.stamps.forEach((el) => playOneShot(el, "is-stamping", STAMP_MS));
+  }
+  if (moments.builds.length && moments.builds.length <= MAX_BUILDS_PER_PASS) {
+    moments.builds.forEach((buildEl) => playOneShot(buildEl, "is-popping", BUILD_POP_MS));
+    boardSound("house");
+  }
+}
+
 export function renderBoardState() {
-  TILES.forEach(renderBoardTile);
+  const moments = { stamps: [], builds: [] };
+  TILES.forEach((tile) => renderBoardTile(tile, moments));
+  playBoardMoments(moments);
 }
 
 export function tileCenter(i, zone = "passing") {
@@ -346,6 +485,12 @@ function hopPiece(el) {
   el.classList.add("is-hopping");
 }
 
+const LANDING_SETTLE_MS = 160;
+function landPiece(el) {
+  el.classList.add("is-landing");
+  setTimeout(() => el.classList.remove("is-landing"), LANDING_SETTLE_MS + 40);
+}
+
 function reconcilePieceWalk(playerId, walk, el, timestamp = motionNow()) {
   if (walk.cancelled) return;
   if (pieceWalks.get(playerId) !== walk) return;
@@ -360,15 +505,22 @@ function reconcilePieceWalk(playerId, walk, el, timestamp = motionNow()) {
       placePieces();
       return;
     }
+    // Fit each slide/hop inside the step that follows it; the final tile settles with an eased-out landing
+    // (is-moving is stripped the moment the walk finishes, so without this the last slide would just snap).
+    el.style.setProperty("--piece-step-ms", `${Math.min(240, walk.timeline.stepDurationMs(progress.index + 1))}ms`);
+    if (progress.done) landPiece(el);
     setPiecePosition(el, center.x, center.y);
     hopPiece(el);
+    if (walk.lastTick !== progress.index) {
+      walk.lastTick = progress.index;
+      boardSound("step");
+    }
   }
   if (progress.done) {
     finishPieceWalk(playerId, walk, el);
     return;
   }
-  const completedSteps = Math.floor(progress.elapsed / walk.timeline.stepMs);
-  const nextBoundary = walk.startedAt + ((completedSteps + 1) * walk.timeline.stepMs);
+  const nextBoundary = walk.startedAt + walk.timeline.nextBoundaryMs(progress.elapsed);
   clearTimeout(walk.timer);
   walk.timer = setTimeout(() => reconcilePieceWalk(playerId, walk, el), Math.max(16, nextBoundary - timestamp));
 }
@@ -392,7 +544,10 @@ function canAnimateWalk(el, path) {
 export function startPieceWalk(playerId, from, to, options = {}) {
   const path = Array.isArray(options.path) ? options.path : pieceWalkPath(Number(from) || 0, Number(to) || 0);
   const el = pieceElement(playerId);
-  if (!canAnimateWalk(el, path)) return Promise.resolve({ motionSkipped: true });
+  if (!canAnimateWalk(el, path)) {
+    if (REDUCED_MOTION && el && path.length) playArrivalCue(path.at(-1));
+    return Promise.resolve({ motionSkipped: true });
+  }
   cancelPieceWalk(playerId);
   const player = state.players.find((entry) => entry.id === playerId);
   const start = playerTileCenter(player, Number(from) || 0);
@@ -403,12 +558,13 @@ export function startPieceWalk(playerId, from, to, options = {}) {
   const movementComplete = new Promise(resolve => { complete = resolve; });
   const walk = {
     cancelled: false,
+    lastTick: -1,
     timer: null,
     complete,
     path,
     start,
     startedAt,
-    timeline: createWalkTimeline({ path, stepMs: options.stepMs || PIECE_WALK_STEP_MS, startedAt, now: motionNow }),
+    timeline: createWalkTimeline({ path, stepMs: options.stepMs || PIECE_WALK_STEP_MS, startedAt, now: motionNow, pacing: options.pacing }),
   };
   pieceWalks.set(playerId, walk);
   el.classList.add("is-moving");
@@ -436,26 +592,19 @@ if (typeof document !== "undefined" && typeof document.addEventListener === "fun
   });
 }
 
-function pieceMarkupFor(player, index) {
-  const grid = player.avatarGrid ? JSON.stringify(player.avatarGrid) : "";
-  return { sig: `${player.id}:${player.color}:${index}:${grid}`, markup: avatarHTML(player, 3, index) };
-}
+const PAWN_HTML = spriteHTML("board-pawn", 2);
 
-function ensurePiece(layer, p, i) {
-  let el = layer.querySelector(`.piece[data-player="${p.id}"]`);
+function ensurePiece(layer, player) {
+  let el = layer.querySelector(`.piece[data-player="${player.id}"]`);
   if (!el) {
     el = document.createElement("div");
     el.className = "piece";
-    el.dataset.player = p.id;
+    el.dataset.player = player.id;
+    el.innerHTML = PAWN_HTML;
     layer.appendChild(el);
   }
-  el.style.borderColor = p.color;
-  el.title = p.name;
-  const face = pieceMarkupFor(p, i);
-  if (el.dataset.sig !== face.sig) {
-    el.innerHTML = face.markup;
-    el.dataset.sig = face.sig;
-  }
+  el.style.setProperty("--piece-color", player.color);
+  el.title = player.name;
 }
 
 function pruneStrayPieces(layer) {
@@ -468,7 +617,7 @@ function pruneStrayPieces(layer) {
 function ensurePieces() {
   const layer = $("#token-layer");
   if (!layer) return;
-  state.players.filter(p => !p.bankrupt && !p.spectating).forEach((p, i) => ensurePiece(layer, p, i));
+  state.players.filter(p => !p.bankrupt && !p.spectating).forEach(player => ensurePiece(layer, player));
   pruneStrayPieces(layer);
 }
 

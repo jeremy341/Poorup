@@ -98,9 +98,11 @@ for (const deckName of ['surprise', 'treasure']) {
 
 {
   const { game, player } = fixture();
-  game.surpriseDeck = [{ action: 'jailFree', text: 'Key' }];
+  // Deterministic draws: with item rewards on, each real draw has a 1-in-ITEM_DRAW_ODDS chance to swap the planted card for a random item
+  // card, which made this block fail ~5% of runs (two draws). The jail-free handling is under test, not the item roll, so the draw is
+  // pinned the same way the keepsake loop above pins it; item rewards stay on for the key sale below.
+  game.drawCard = () => ({ action: 'jailFree', text: 'Key' });
   game.handleChanceTile(player);
-  game.treasureDeck = [{ action: 'jailFree', text: 'Key' }];
   game.handleChanceTile(player, {}, 'treasure');
   assert.deepEqual(player.jailFreeOrigins, ['surprise', 'treasure']);
   const keys = game.summaryItems(player, player.id);

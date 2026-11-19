@@ -17,7 +17,9 @@ const lobby = fs.readFileSync(new URL("./clientLobbyUi.js", import.meta.url), "u
 const roomsUi = fs.readFileSync(new URL("./clientRoomsUi.js", import.meta.url), "utf8");
 const state = fs.readFileSync(new URL("./clientState.js", import.meta.url), "utf8");
 const stateSync = fs.readFileSync(new URL("./clientStateSync.js", import.meta.url), "utf8");
-const rules = fs.readFileSync(new URL("./clientSocialSurfaces.js", import.meta.url), "utf8");
+// Rule copy lives either in the renderer or the shared data module (rulesSections.js).
+const rules = fs.readFileSync(new URL("./clientSocialSurfaces.js", import.meta.url), "utf8")
+  + fs.readFileSync(new URL("./rulesSections.js", import.meta.url), "utf8");
 const gameModalsSource = fs.readFileSync(new URL("./clientGameModalsUi.js", import.meta.url), "utf8");
 const styles = fs.readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 const { state: liveState } = await import("./clientState.js");

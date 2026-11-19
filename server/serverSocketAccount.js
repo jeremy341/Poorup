@@ -494,10 +494,13 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   function restoreCreateRoomReplay({ room, clientId, account, ack, callback }) {
     const replayPlayer = room.game.getPlayerByClient(clientId);
     const mappedRoom = roomManager.getRoomBySocket(socket.id);
+    // The seat check must hold for every replay, not just a socket that still
+    // maps elsewhere: a socket already joined to this room must not reseat
+    // or read a clientId seat that is live on another connection.
+    if (seatIsLiveOnAnotherSocket(replayPlayer)) {
+      return reply(callback, { success: false, error: 'That seat is already in use.' });
+    }
     if (mappedRoom !== room) {
-      if (seatIsLiveOnAnotherSocket(replayPlayer)) {
-        return reply(callback, { success: false, error: 'That seat is already in use.' });
-      }
       const restored = roomManager.restoreConnection(
         clientId,
         socket.id,
@@ -510,7 +513,10 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     leaveForeignRooms(room.roomCode);
     socket.join(room.roomCode);
     runtime.emitRoomState(room);
-    runtime.emitPendingInteractions(room, socket, room.game.getPlayerByClient(clientId));
+    // Pending interactions belong to the seat this socket actually owns. When
+    // the replay restored the clientId seat that is the same seat; a socket
+    // already mapped to the room must not receive another seat's offers.
+    runtime.emitPendingInteractions(room, socket, room.game.getPlayerBySocket(socket.id));
     reply(callback, ack);
   }
 

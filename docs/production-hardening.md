@@ -35,12 +35,24 @@ POORUP_MAIL_API_URL=<provider-neutral transactional mail endpoint>
 POORUP_MAIL_API_KEY=<mail provider secret>
 POORUP_MAIL_FROM=<verified sender address>
 POORUP_COOKIE_SECURE=true
+
 POORUP_ANALYTICS_PSEUDONYM_KEY=<stable aggregate-only HMAC key>
 ```
 
 `POORUP_ALLOWED_ORIGINS` is mandatory for browser-origin production traffic.
 The HTTP/IP limiter is a process-level second layer; put Cloudflare (or an
 equivalent edge WAF) in front of it for distributed rate limiting.
+
+`NODE_ENV=production` or `POORUP_COOKIE_SECURE=true` also set the `Secure`
+session-cookie flag and emit `Strict-Transport-Security`. There is no in-app
+TLS check, so deploy only behind a TLS-terminating proxy (Caddy/Nest edge,
+Cloudflare): served over plain HTTP, Secure cookies are dropped by browsers
+and every sign-in silently fails.
+
+The socket admission trio (`POORUP_SOCKET_MAX_CONNECTIONS`,
+`POORUP_SOCKET_HANDSHAKE_RATE`, `POORUP_SOCKET_HANDSHAKE_WINDOW_MS`) is
+recommended, not required; defaults are 2000 connections, 120 handshakes
+per 10-second window.
 
 `POORUP_DATA_DIR` and `POORUP_BACKUP_DIR` must be absolute paths outside the
 application directory. With `NODE_ENV=production` the server refuses to start

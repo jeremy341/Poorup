@@ -573,6 +573,35 @@ await check('the write budget is shared across admin route families for one oper
   assert.equal(denied.res.statusCode, 429);
 });
 
+await check('a production request with no Origin header is refused', async () => {
+  const previousEnvironment = process.env.NODE_ENV;
+  const previousBypass = process.env.POORUP_ALLOW_MISSING_ORIGIN;
+  process.env.NODE_ENV = 'production';
+  delete process.env.POORUP_ALLOW_MISSING_ORIGIN;
+  try {
+    const guard = createAdminGuard({ accountResolver: () => ({ id: 'acct-prodadmin' }), adminIds: ['acct-prodadmin'] });
+    const refused = guardResponse();
+    let passed = false;
+    guard.requireAdmin(guardRequest(), refused, () => { passed = true; });
+    assert.equal(passed, false, 'a missing Origin header fails closed in production');
+    assert.equal(refused.statusCode, 403);
+
+    // The documented escape hatch restores the permissive behavior for
+    // Origin-less internal tooling.
+    process.env.POORUP_ALLOW_MISSING_ORIGIN = 'true';
+    const admitted = guardResponse();
+    let bypassed = false;
+    guard.requireAdmin(guardRequest(), admitted, () => { bypassed = true; });
+    assert.equal(bypassed, true, 'POORUP_ALLOW_MISSING_ORIGIN=true admits the request');
+    assert.equal(admitted.statusCode, 200);
+  } finally {
+    if (previousBypass === undefined) delete process.env.POORUP_ALLOW_MISSING_ORIGIN;
+    else process.env.POORUP_ALLOW_MISSING_ORIGIN = previousBypass;
+    if (previousEnvironment === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousEnvironment;
+  }
+});
+
 await check('a denied admin request still delivers the cookie that replaced its legacy bearer', async () => {
   const cookie = 'poorup_session=replacement; Path=/; HttpOnly';
   const cases = [

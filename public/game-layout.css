@@ -2,8 +2,7 @@
    board centre; side rails are slim so the board fills the viewport height.
    Selectors carry #view-game so they win over the older per-breakpoint HUD rules. */
 
-/* ---- board centre: controls replace the wordmark ---- */
-#view-game .center-field .cf-inner,
+/* ---- board centre: controls sit above the wordmark ---- */
 #view-game .center-field .deck { display: none; }
 #view-game .center-field .center-skyline { opacity: 0.32; }
 #view-game .center-field > .hud {
@@ -196,19 +195,20 @@
   }
 }
 
-/* ---- owned tiles carry their owner's colour (frame + soft inner wash), like richup ---- */
-#board-grid .tile.is-owned { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--tile-owner) 85%, transparent), inset 0 0 16px color-mix(in srgb, var(--tile-owner) 26%, transparent); }
+/* ---- owned tiles pair a hard seat-coloured edge with the owner portrait ---- */
+#board-grid .tile.is-owned:not(.is-highlight) { border-color: var(--tile-owner); box-shadow: inset 0 0 0 1px var(--tile-owner); }
+/* one owner-colour stamp when a deed changes hands (set once by clientBoardRender): a thick inset wipes down to the settled edge */
+#board-grid .tile.is-stamping:not(.is-highlight) { animation: tile-owner-stamp 260ms steps(5, end) 1 both; }
+@keyframes tile-owner-stamp {
+  from { box-shadow: inset 0 0 0 14px color-mix(in srgb, var(--tile-owner) 72%, transparent), inset 0 0 0 1px var(--tile-owner); }
+  to { box-shadow: inset 0 0 0 1px var(--tile-owner); }
+}
 
 /* ---- tile popup: manage button for your own deeds ---- */
 .pop-manage { width: 100%; min-height: 44px; }
 
-/* ---- shared dialog entrance: every popup rises and settles, never snapping in ---- */
-@keyframes parlor-modal-enter {
-  from { opacity: 0; transform: translateY(18px) scale(.97); }
-  to { opacity: 1; transform: none; }
-}
-.popup:not(.is-hidden) > .popup-card { animation-duration: var(--modal-enter-duration, 240ms); }
-.popup:not(.is-hidden) > .popup-scrim { animation: cr-scrim-in 200ms ease-out both; }
+/* ---- shared dialog entrance/exit: defined once in styles.css (parlor-modal-enter/-exit); only the scrim fade-in lives here ---- */
+.popup:not(.is-hidden) > .popup-scrim { animation: cr-scrim-in var(--modal-enter-duration, 200ms) var(--ease-out) both; }
 @media (prefers-reduced-motion: reduce) { .popup:not(.is-hidden) > .popup-scrim { animation: none; } }
 
 /* ---- toasts sit in the bottom-right corner, out of the way of the board and top bar ---- */
@@ -284,7 +284,7 @@
 .rules-intro-icon { width: 46px; height: 46px; }
 .rules-intro-copy h1 { margin: 0; }
 .rules-intro-copy p { margin-top: 4px; }
-.rules-intro .rules-toolbar { flex: 1 1 320px; max-width: 520px; margin-left: auto; padding: 0; background: none; border: 0; align-items: center; }
+.rules-intro .rules-toolbar { flex: 0 0 auto; margin-left: auto; padding: 0; background: none; border: 0; align-items: center; justify-content: flex-end; }
 .rules-more { margin-top: 8px; border-top: 1px solid var(--line-dark); padding-top: 8px; }
 .rules-more > summary { cursor: pointer; padding: 8px 12px; color: var(--gold-300, #e5a52d); letter-spacing: 0.12em; list-style-position: inside; }
 .rules-more > summary:focus-visible { outline: 2px solid var(--theme-focus, var(--gold-100)); outline-offset: 2px; }
@@ -334,7 +334,7 @@
 .rooms-search .field { width: 100%; min-height: 44px; }
 
 /* ---- airport flights: flight desk, Fly button, owner fee steppers ---- */
-.flight-card { width: min(520px, 100%); max-height: min(640px, calc(100vh - 32px)); overflow: hidden; }
+.flight-card { width: min(520px, 100%); max-height: min(640px, calc(100vh - 32px)); max-height: min(640px, calc(100dvh - 32px)); overflow: hidden; }
 .flight-body { display: flex; flex-direction: column; gap: 14px; max-height: inherit; padding: 20px; }
 .flight-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .flight-head h2 { margin-top: 7px; color: var(--gold-100); }

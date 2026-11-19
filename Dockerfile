@@ -13,6 +13,8 @@ COPY ecosystem.config.cjs ./
 
 ENV NODE_ENV=production
 ENV PORT=8080
+# Required at run time: -e POORUP_ALLOWED_ORIGINS=<your origin> (boot fails
+# without it; see serverConfig.js assertProductionCors).
 # Production refuses to boot without explicit positive rate limits; these match
 # the defaults in .env.example.
 ENV POORUP_HTTP_RATE_LIMIT=240

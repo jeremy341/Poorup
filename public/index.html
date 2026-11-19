@@ -6,20 +6,14 @@
     <meta name="theme-color" content="#01070a" data-theme-color />
     <meta name="robots" content="noindex,nofollow" data-metadata-robots />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" sizes="32x32" />
+    <link rel="preload" href="/assets/fonts/pixelify-sans-700.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/assets/fonts/pixelify-sans-400.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/game-responsive.css" />
     <link rel="stylesheet" href="/game-layout.css" />
     <link rel="stylesheet" href="/about.css" />
     <link rel="stylesheet" href="/ux-surfaces.css" />
-    <link rel="stylesheet" href="/ui-review-pages.css" />
-    <link rel="stylesheet" href="/ui-review-economy.css" />
-    <link rel="stylesheet" href="/ui-review-market.css" />
-    <link rel="stylesheet" href="/ui-review-deeds.css" />
-    <link rel="stylesheet" href="/ui-review-presentation.css" />
-    <link rel="stylesheet" href="/ui-review-game.css" />
     <link rel="stylesheet" href="/ui-review-system.css" />
-    <link rel="stylesheet" href="/ui-review-admin.css" />
-    <link rel="stylesheet" href="/ui-review-recovery.css" />
     <script src="/socket.io/socket.io.min.js"></script>
     <title>Poorup · After-Hours Game Parlor</title>
   </head>
@@ -30,7 +24,7 @@
     <div class="sr-live" id="system-announcer" data-document-announcer role="status" aria-live="polite" aria-atomic="true"></div>
     <div class="sr-live" id="error-announcer" role="alert" aria-live="assertive" aria-atomic="true"></div>
     <div class="sr-live" id="status-announcer" role="status" aria-live="polite" aria-atomic="true"></div>
-    <div class="toast-stack" id="toast-stack" role="region" aria-label="Notifications" aria-live="polite"></div>
+    <div class="toast-stack" id="toast-stack" role="region" aria-label="Notifications"></div>
     <div class="bot-provider-banner" id="bot-provider-banner" aria-hidden="true" hidden></div>
     <div class="operator-chip is-hidden" id="operator-chip" role="group" aria-label="Operator mode" aria-hidden="true">
       <span class="t-label f11 operator-chip-label">OPERATOR MODE</span>
@@ -99,7 +93,7 @@
               <svg
                 class="skyline"
                 viewBox="0 0 88 36"
-                preserveAspectRatio="none"
+                preserveAspectRatio="xMidYMax meet"
                 shape-rendering="crispEdges"
                 aria-hidden="true"
                 id="home-skyline"
@@ -107,10 +101,26 @@
               <svg
                 class="skyline"
                 viewBox="0 0 88 36"
-                preserveAspectRatio="none"
+                preserveAspectRatio="xMidYMax meet"
                 shape-rendering="crispEdges"
                 aria-hidden="true"
                 id="home-skyline-copy"
+              ></svg>
+              <svg
+                class="skyline"
+                viewBox="0 0 88 36"
+                preserveAspectRatio="xMidYMax meet"
+                shape-rendering="crispEdges"
+                aria-hidden="true"
+                id="home-skyline-copy-2"
+              ></svg>
+              <svg
+                class="skyline"
+                viewBox="0 0 88 36"
+                preserveAspectRatio="xMidYMax meet"
+                shape-rendering="crispEdges"
+                aria-hidden="true"
+                id="home-skyline-copy-3"
               ></svg>
             </div>
           </div>
@@ -153,35 +163,19 @@
 
               <div class="ts-rule">
                 <span class="rule-line"></span>
-                <p class="t-label f11 g-muted trk16">ONE BANK · NO REFUNDS</p>
+                <p class="t-label f11 ink-3 trk16">ONE BANK · NO REFUNDS</p>
               </div>
 
               <p class="t-body ts-copy">
-                Roll, buy the block, charge rent, feed the vacation pot. Last wallet standing keeps the
-                table. Usually around twelve minutes, sometimes a vendetta.
+                Free Monopoly-style property-trading board game for 2&#8211;4 players (up to 6 on Metro-52). Play in your
+                browser, no download or signup. Roll, buy the block, charge rent, feed the vacation pot. Last wallet
+                standing keeps the table. Usually around twelve minutes, sometimes a vendetta.
               </p>
-              <div class="home-signal-line" id="home-signal-line" aria-label="Poorup live status">
-                <button class="home-signal" type="button" data-home-signal="entry" aria-label="Open profile and account settings" aria-describedby="home-signal-entry-help">
-                  <span class="t-micro ink-3">ENTRY</span>
-                  <span class="t-label f11 g100" id="home-signal-entry-value">NO ACCOUNT</span>
-                  <span class="sr-only" id="home-signal-entry-help">Open your account or guest profile.</span>
-                </button>
-                <button class="home-signal" type="button" data-home-signal="sync" aria-label="Refresh live server status" aria-describedby="home-signal-sync-help">
-                  <span class="t-micro ink-3">SYNC</span>
-                  <span class="t-label f11 green" id="home-signal-sync-value">CONNECTING…</span>
-                  <span class="sr-only" id="home-signal-sync-help">Refresh the live public room directory.</span>
-                </button>
-                <button class="home-signal" type="button" data-home-signal="lobbies" aria-label="Browse public lobbies" aria-describedby="home-signal-lobbies-help">
-                  <span class="t-micro ink-3">LOBBIES</span>
-                  <span class="t-label f11 g300" id="home-signal-lobbies-value">· LOBBIES</span>
-                  <span class="sr-only" id="home-signal-lobbies-help">Browse the current public rooms.</span>
-                </button>
-              </div>
             </div>
 
-            <div class="home-entry-desk panel noise">
+            <div class="home-entry-desk panel">
               <form class="home-alias-form" id="home-alias-form">
-                <label class="t-micro g400" for="home-alias">Your name</label>
+                <label class="t-micro ink-2" for="home-alias">Your name</label>
                 <div class="home-alias-row">
                   <button class="chair-av chair-av-btn" type="button" id="chair-edit-btn" aria-label="Edit your identity"><span id="chair-avatar"></span></button>
                   <input id="home-alias" name="alias" class="field" maxlength="12" inputmode="text" autocomplete="nickname" placeholder="Pick a name" />
@@ -191,10 +185,10 @@
               <div class="ts-actions">
                 <button class="cta-red ts-cta ts-play" type="button" id="quick-table-btn" title="Join an open table, or start one"><span data-sprite="crown" data-size="5"></span><span class="cta-text">Play</span></button>
                 <div class="ts-secondary">
-                  <button class="btn-dark ts-cta ts-cta-sm" type="button" id="open-create-btn" title="Create a room"><span data-sprite="dice" data-size="4"></span><span class="cta-text">Create Room</span></button>
-                  <button class="btn-dark ts-cta ts-cta-sm" type="button" id="open-join-btn" title="Join an existing room"><span data-sprite="arrow" data-size="4"></span><span class="cta-text">Join Room</span></button>
+                  <button class="btn-dark" type="button" id="open-create-btn" title="Create a room"><span data-sprite="dice" data-size="4"></span><span class="cta-text">Create Room</span></button>
+                  <button class="btn-dark" type="button" id="open-join-btn" title="Join an existing room"><span data-sprite="arrow" data-size="4"></span><span class="cta-text">Join Room</span></button>
+                  <button class="btn-dark" type="button" id="play-vs-computer-btn" title="Start a private table with one computer player"><span data-sprite="dice" data-size="4"></span><span class="cta-text">Play vs computer</span></button>
                 </div>
-                <button class="btn-dark ts-cta" type="button" id="play-vs-computer-btn" title="Start a private table with one computer player"><span data-sprite="dice" data-size="4"></span><span class="cta-text">Play vs computer</span></button>
                 <button class="btn-dark ts-join is-hidden" type="button" id="resume-btn"><span class="t-label f13">Resume round</span><span class="t-micro g800">SAVE FOUND</span></button>
               </div>
               <span class="chair-name" id="chair-name" hidden></span>
@@ -203,9 +197,24 @@
       </main>
 
       <div class="ticker">
-        <span class="t-micro tk"><span class="g400">AFTER-HOURS PARLOR</span></span>
-        <span class="t-micro tk"><span class="g800 tk-sep">·</span><span class="g400">live table service</span></span>
-        <span class="t-micro tk"><span class="g800 tk-sep">·</span><a class="tk-link" href="/about">about</a><span class="g800 tk-sep">·</span><a class="tk-link" href="/rules">rules</a></span>
+        <div class="home-signal-line" id="home-signal-line" role="group" aria-label="Poorup live status">
+          <button class="home-signal" type="button" data-home-signal="entry" aria-label="ENTRY: NO ACCOUNT — open profile and account settings" aria-describedby="home-signal-entry-help">
+            <span class="t-micro ink-3">ENTRY</span>
+            <span class="t-label f11 ink" id="home-signal-entry-value">NO ACCOUNT</span>
+            <span class="sr-only" id="home-signal-entry-help">Open your account or guest profile.</span>
+          </button>
+          <button class="home-signal" type="button" data-home-signal="sync" aria-label="SYNC: CONNECTING… — refresh the live server status" aria-describedby="home-signal-sync-help">
+            <span class="t-micro ink-3">SYNC</span>
+            <span class="t-label f11 green" id="home-signal-sync-value">CONNECTING…</span>
+            <span class="sr-only" id="home-signal-sync-help">Refresh the live public room directory.</span>
+          </button>
+          <button class="home-signal" type="button" data-home-signal="lobbies" aria-label="LOBBIES — browse public lobbies" aria-describedby="home-signal-lobbies-help">
+            <span class="t-micro ink-3 sr-only">LOBBIES</span>
+            <span class="t-label f11 ink" id="home-signal-lobbies-value">· LOBBIES</span>
+            <span class="sr-only" id="home-signal-lobbies-help">Browse the current public rooms.</span>
+          </button>
+        </div>
+        <span class="t-micro tk"><a class="tk-link" href="/about">about</a><span aria-hidden="true">·</span><a class="tk-link" href="/rules">rules</a></span>
         <span class="t-micro tk tk-right"><span data-sprite="crown" data-size="2"></span>press [B] to browse rooms</span>
       </div>
     </div>
@@ -230,17 +239,17 @@
     </div>
   </header>
       <a class="skip-link" href="#about-page-content">Skip to About content</a>
-      <main class="about-page-main" id="about-page-content" aria-labelledby="about-heading" tabindex="0"><!-- about-content --></main>
+      <main class="about-page-main" id="about-page-content" aria-labelledby="about-heading" tabindex="-1"><!-- about-content --></main>
     </div>
 
     <!-- room browser & room creator modal -->
     <div class="popup is-hidden" id="rooms-modal" role="dialog" aria-modal="true" aria-labelledby="rooms-title-text" aria-describedby="rooms-description" aria-hidden="true">
       <button class="popup-scrim" tabindex="-1" aria-hidden="true" id="rooms-scrim" aria-label="Close rooms"></button>
-      <div class="popup-card rooms-card panel noise" id="rooms-card">
+      <div class="popup-card rooms-card panel" id="rooms-card">
         <div class="rooms-body">
           <div class="rooms-head">
             <div>
-              <div class="t-micro g400">PARLOR DIRECTORY</div>
+              <div class="t-micro ink-2">PARLOR DIRECTORY</div>
               <h2 class="t-section g100 rooms-title" id="rooms-title-text">Available Rooms</h2>
             </div>
             <button class="btn-dark surface-close" id="rooms-close" type="button" aria-label="Close room browser" title="Close room browser"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
@@ -254,7 +263,7 @@
 
           <!-- BROWSE TAB PANEL -->
           <div class="rm-panel" id="rm-panel-browse" role="tabpanel" aria-labelledby="rm-tab-browse">
-            <p class="t-body ink-2 rooms-copy" id="rooms-description">Pick a live table, join with an open seat, or enter a room code.</p>
+            <p class="t-body ink-2 rooms-copy" id="rooms-description">Take an open seat. If you have a code, use Join Room.</p>
             <label class="rooms-search" for="rooms-search"><span class="sr-only">Search tables by name</span><input class="field" id="rooms-search" type="search" placeholder="Search tables by name…" autocomplete="off" maxlength="40" /></label>
             <div class="rooms-filters">
               <button class="btn-dark rooms-filter is-active" type="button" data-filter="all" aria-pressed="true"><span class="t-label f11">ALL</span></button>
@@ -266,24 +275,24 @@
 
           <!-- CREATE TAB PANEL -->
           <div class="rm-panel is-hidden" id="rm-panel-create" role="tabpanel" aria-labelledby="rm-tab-create">
-            <p class="t-body ink-2 rooms-copy">Set your room settings and choose whether to make it public or private.</p>
+            <p class="t-body ink-2 rooms-copy">Set the table. Pick who can find it.</p>
 
             <div class="rc-form">
               <label class="rc-field">
                 <span class="t-label f12 g-muted">Table Name</span>
-                <input class="field rc-input" id="rc-name" name="roomName" maxlength="18" inputmode="text" autocomplete="off" placeholder="AFTER HOURS #12" />
+                <input class="field rc-input" id="rc-name" name="roomName" maxlength="18" inputmode="text" autocomplete="off" placeholder="Leave blank for a house name" />
               </label>
 
               <div class="rc-field">
-                <span class="t-label f12 g-muted">Room Visibility</span>
-                <div class="rc-vis-selector" id="rc-vis-selector">
-                  <button type="button" class="rc-vis-opt is-active" data-vis="public">
+                <span class="t-label f12 g-muted" id="rc-vis-label">Room Visibility</span>
+                <div class="rc-vis-selector" id="rc-vis-selector" role="group" aria-labelledby="rc-vis-label">
+                  <button type="button" class="rc-vis-opt is-active" data-vis="public" aria-pressed="true">
                     <span class="t-label f12 g100">OPEN (PUBLIC)</span>
-                    <span class="t-micro ink-3">Visible in public directory list</span>
+                    <span class="t-body ink-2">Anyone can find this table.</span>
                   </button>
-                  <button type="button" class="rc-vis-opt" data-vis="private">
+                  <button type="button" class="rc-vis-opt" data-vis="private" aria-pressed="false">
                     <span class="t-label f12 g100">PRIVATE (INVITE ONLY)</span>
-                    <span class="t-micro ink-3">Hidden from directory list</span>
+                    <span class="t-body ink-2">Guests need your code.</span>
                   </button>
                 </div>
               </div>
@@ -294,10 +303,10 @@
                   <input class="field rc-input rc-room-code" id="rc-room-code" name="privateRoomCode" maxlength="6" minlength="6" inputmode="text" pattern="[A-Za-z0-9]{6}" placeholder="ABC123" autocomplete="off" spellcheck="false" />
                   <span class="t-micro rc-code-status" id="rc-code-status" aria-live="polite">6 CHARACTERS</span>
                 </div>
-                <span class="t-micro ink-3 rc-code-help" id="rc-code-help">Choose the invite code guests will use.</span>
+                <span class="t-body ink-2 rc-code-help" id="rc-code-help">Hand this code to your guests.</span>
               </div>
 
-              <p class="t-micro ink-3 rc-local" id="rc-local-note">PUBLIC TABLES ARE DISCOVERED IN THE DIRECTORY. PRIVATE TABLES USE YOUR INVITE CODE.</p>
+              <p class="t-body ink-2 rc-local" id="rc-local-note">You can set the board and rules in the lobby.</p>
 
               <button class="cta-red rc-create-btn" type="button" id="rc-create-btn">
                 <span class="cta-text f20">Create & Host Table</span>
@@ -308,7 +317,7 @@
           <!-- JOIN TAB PANEL -->
           <div class="rm-panel is-hidden" id="rm-panel-join" role="tabpanel" aria-labelledby="rm-tab-join">
             <p class="t-body ink-2 rooms-copy" id="join-room-description">Enter the room code and the name you want to use at the table.</p>
-            <form class="rc-form" id="join-form">
+            <form class="rc-form" id="join-form" novalidate>
               <label class="rc-field" for="room-join">
                 <span class="t-label f12 g-muted">Room Code</span>
                 <input class="field rc-input rc-room-code" id="room-join" name="roomCode" maxlength="6" minlength="6" inputmode="text" pattern="[A-Za-z0-9]{6}" placeholder="ABC123" autocomplete="off" spellcheck="false" required />
@@ -865,13 +874,13 @@
                       <span class="global-event-ribbon-cue" id="global-event-ribbon-cue"></span>
                     </div>
                     <span class="sr-live" id="global-event-announcer" role="status" aria-live="polite" aria-atomic="true"></span>
-                    <div class="cf-inner">
+                    <h1 class="sr-only">Poorup</h1>
+                    <div class="cf-inner" aria-hidden="true">
                       <div class="cf-logo-row">
-                        <span class="cf-orn">✚</span>
-                        <div class="cf-rules"><h1 class="wordmark wm-board">Poorup</h1></div>
-                        <span class="cf-orn">✚</span>
+                        <span class="cf-orn"></span>
+                        <div class="cf-rules"><span class="wordmark wm-board">Poorup</span></div>
+                        <span class="cf-orn"></span>
                       </div>
-                      <p class="t-label cf-sub"><span class="g300">✦</span> After-Hours Game Parlor <span class="g300">✦</span></p>
                     </div>
                   <div id="inactivity-announcements" class="sr-only" aria-live="polite" aria-atomic="true"></div>
                   <div class="hud" id="hud">
@@ -924,6 +933,10 @@
                       </button>
                     </div>
                   </div>
+                    <aside class="turn-coach" id="turn-coach" role="note" aria-label="First turn tip" hidden>
+                      <p class="turn-coach-text" id="turn-coach-text">Roll to take your turn. Buy what you land on, or pass it to auction. Enter deeds, trades and loans from the rails.</p>
+                      <button class="btn-dark surface-close turn-coach-close" id="turn-coach-close" type="button" aria-label="Dismiss first-turn tip" title="Dismiss first-turn tip"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><use href="#ui-close"/></svg></button>
+                    </aside>
                     <div class="board-feed" id="board-feed" aria-hidden="true" hidden>
                       <div class="board-feed-lines" id="board-feed-lines"></div>
                     </div>
@@ -973,14 +986,14 @@
               <!-- setup overlay -->
               <div class="setup-wrap" id="setup-wrap" role="dialog" aria-modal="true" aria-labelledby="setup-title" aria-describedby="setup-description" aria-hidden="true">
                 <div class="setup-scrim"></div>
-                <div class="setup-card panel noise">
+                <div class="setup-card panel">
                   <div class="section-title">
                     <span data-sprite="diamond" data-size="3"></span>
                     <h2 class="t-section g300" id="setup-title">Choose Your Player Appearance</h2>
                     <span class="t-micro ink-3 su-tag">SETUP</span>
                     <button class="btn-dark setup-close" id="setup-close" type="button" aria-label="BACK: leave appearance setup"><span class="t-label f11">BACK</span></button>
                   </div>
-                  <p class="t-body ink-2 su-copy" id="setup-description">Your active design is ready for this table. Change it only if you want a different look.</p>
+                  <p class="t-body ink-2 su-copy" id="setup-description">Your usual look is ready. Change it here or take your seat.</p>
 
                   <section class="su-active-card" id="su-active-card" aria-live="polite"></section>
                   <div class="su-active-actions is-hidden" id="su-active-actions">

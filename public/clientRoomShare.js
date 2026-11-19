@@ -2,6 +2,7 @@
 // have no code to share. When the async clipboard API is unavailable, it falls back to the legacy
 // hidden-textarea execCommand path, then announces the result and flashes the button.
 import { $ } from "./clientDom.js";
+import { announceSystemLine } from "./clientAnnouncer.js";
 import { state } from "./clientState.js";
 
 function legacyCopy(code) {
@@ -27,12 +28,11 @@ async function clipboardCopy(code) {
 
 function announceRoomCopy(code, copied) {
   const badge = $("#tn-room-copy");
-  const announcer = $("#system-announcer");
   if (!copied) {
-    if (announcer) announcer.textContent = "ROOM CODE COULD NOT BE COPIED";
+    announceSystemLine("ROOM CODE COULD NOT BE COPIED");
     return;
   }
-  if (announcer) announcer.textContent = `ROOM CODE ${code} COPIED`;
+  announceSystemLine(`ROOM CODE ${code} COPIED`);
   badge?.classList.add("is-copied");
   window.setTimeout(() => badge?.classList.remove("is-copied"), 1000);
 }

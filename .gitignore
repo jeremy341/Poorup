@@ -41,3 +41,7 @@ server/backups/
 blob-report/
 playwright-report/
 .test-timings/
+
+# Local-only folders (not part of the repo)
+richup-ux-matrix/
+.claude/

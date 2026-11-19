@@ -193,10 +193,17 @@ test('dice total appears before the pawn starts moving', async ({ browser }, tes
   expect(await page.evaluate(() => window.__qaMotion.totals.length)).toBe(0);
   expect(await page.locator('.dice-roll-total').count()).toBe(0);
   await page.clock.runFor(1);
-  const afterDice = await page.evaluate(() => ({ rollDisabled: document.querySelector('#roll-btn')?.disabled, total: document.querySelector('.dice-roll-total')?.textContent, visible: document.querySelector('.dice-roll-total')?.classList.contains('is-visible') }));
+  const afterDice = await page.evaluate(() => ({ rollDisabled: document.querySelector('#roll-btn')?.disabled, announced: window.__qaMotion.totals.length }));
   expect(afterDice.rollDisabled).toBe(true);
-  expect(afterDice.total).toBe('4');
-  expect(afterDice.visible).toBe(true);
+  // The total is announced at 800ms, but a freshly created live region fills one
+  // beat (60ms) later so screen readers register it (clientDiceRollEffect.js).
+  // The walk does not start until 1240ms, so the total still leads the pawn.
+  expect(afterDice.announced).toBe(1);
+  await page.clock.runFor(60);
+  const revealed = await page.evaluate(() => ({ total: document.querySelector('.dice-roll-total')?.textContent, visible: document.querySelector('.dice-roll-total')?.classList.contains('is-visible'), walkStarts: window.__qaMotion.walkStarts.length }));
+  expect(revealed.total).toBe('4');
+  expect(revealed.visible).toBe(true);
+  expect(revealed.walkStarts).toBe(0);
   } finally {
     await context.close();
   }

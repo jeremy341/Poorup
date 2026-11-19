@@ -25,7 +25,7 @@ assert.ok(record, 'a roll must publish its explicit movement rather than only it
 assert.equal(record.actorId, player.id);
 assert.deepEqual(record.dice, [3, 3]);
 assert.deepEqual(record.segments[0].path, [39, 0, 1, 2, 3, 4]);
-assert.equal(record.readyAt, 13240, 'dice reveal, six human steps and landing delay form one server timeline');
+assert.equal(record.readyAt, 13320, 'dice reveal, six accelerated human steps with the landing settle, and the landing delay form one server timeline');
 assert.equal(record.cashEvents.find(event => event.cause === 'go').deltas[0].amount, 200);
 assert.equal(player.cash, 1500, 'salary and the $200 tile-four tax settle authoritatively without waiting for animation');
 assert.equal(record.cashEvents.find(event => event.cause === 'landing').deltas[0].amount, -200);

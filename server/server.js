@@ -37,9 +37,11 @@ import { createMetadataRouter, gateIndexEnv, indexingApproved as isIndexingAppro
 import { createStaticAssets } from './staticAssets.js';
 import { asyncRoute, createHttpErrorHandler } from './httpErrors.js';
 import { renderAboutPage } from './aboutPage.js';
+import { renderRulesPage } from './rulesPage.js';
 import { renderErrorPage as errorPage } from './errorPage.js';
 import { isQuarantinedStore, loadJson, writeJson } from './storeIO.js';
 import { createAuthoritativeStore } from './authoritativeStore.js';
+import { createRoomPersistence } from './roomStore.js';
 import { createPubSubAdapter } from './pubsubAdapter.js';
 import { allowPrivateEndpointsFromEnv, createAiProviderManager, createAiProviderStore } from './aiProviderConfig.js';
 import { registerAiProviderRoutes } from './aiProviderRoutes.js';
@@ -80,6 +82,15 @@ app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'same-origin');
+  // process isolation: keeps this app's documents and its window handles from
+  // being shared with any other site the browser may have open.
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('Origin-Agent-Cluster', '?1');
+  // Only meaningful over TLS; the same conditions that force secure cookies
+  // force HTTPS, so they gate the header here too.
+  const forceSecure = productionRuntime || String(process.env.POORUP_COOKIE_SECURE || '').toLowerCase() === 'true';
+  if (forceSecure) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src ${connectSources.join(' ')}; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'`);
   next();
@@ -210,6 +221,17 @@ const authoritativeStore = createAuthoritativeStore({
   filePath: dataDirectory ? path.join(dataDirectory, 'rooms.json') : ''
 });
 const pubsubAdapter = createPubSubAdapter();
+// Unstarted lobbies survive a restart (rooms.json under the data directory): restored here, before the runtime and the listener exist, so
+// the first reconnecting client already finds its table. Started matches are not persisted. Without a data directory the authoritative
+// store is in memory, so persistence is skipped.
+const roomPersistence = dataDirectory ? createRoomPersistence({ store: authoritativeStore, roomManager }) : null;
+if (roomPersistence) {
+  const restoredLobbies = roomPersistence.restore();
+  if (restoredLobbies.restored || restoredLobbies.pruned || restoredLobbies.skipped) {
+    console.log(`Restored ${restoredLobbies.restored} lobby room(s); dropped ${restoredLobbies.pruned} stale and ${restoredLobbies.skipped} unreadable.`);
+  }
+}
+const roomPersistenceTimer = roomPersistence?.start() ?? null;
 const analyticsPseudonymKey = String(process.env.POORUP_ANALYTICS_PSEUDONYM_KEY || '').trim();
 const analyticsRollupStore = createAnalyticsRollupStore({
   filePath: dataDirectory ? path.join(dataDirectory, 'analytics-rollup.json') : null,
@@ -356,6 +378,11 @@ app.get('/about', (_req, res) => {
   res.type('html').send(renderAboutPage({ env: pageEnv }));
 });
 
+app.get('/rules', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('html').send(renderRulesPage({ env: pageEnv }));
+});
+
 const metadataOrigin = metadataConfig({ env: process.env, path: '/' }).origin;
 const indexingApproved = isIndexingApproved(process.env);
 app.get('/sitemap.xml', (_req, res, next) => {
@@ -366,6 +393,7 @@ app.get('/sitemap.xml', (_req, res, next) => {
   return res.type('application/xml').send(body);
 });
 app.get('/account/session', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   const account = httpAccountResolver(req);
   if (!account) return res.status(401).json({ success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in again.' });
   if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);
@@ -544,7 +572,7 @@ const storePaths = resolveStorePaths(process.env);
 const auxiliaryStorePaths = resolveAuxiliaryStorePaths(process.env);
 const retiredStorePaths = resolveRetiredStorePaths(process.env);
 // Every JSON store holding game or account data is backed up from this set, except sessions.json and recovery-tokens.json (restoring them
-// would resurrect revoked sessions and consumed single-use tokens), maintenance.json (it would re-impose an ended drain) and rooms.json (no runtime writer yet).
+// would resurrect revoked sessions and consumed single-use tokens), maintenance.json (it would re-impose an ended drain) and rooms.json (unstarted-lobby snapshots with a short life, see roomStore.js).
 // The operator audit trail is backed up too: without a copy, a lost or corrupt file erases every release, lockout and provider change record.
 const allStorePaths = {
   ...storePaths,
@@ -827,6 +855,8 @@ function shutdownDeadline() {
 
 function disposeRuntimeResources() {
   clearInterval(roomActivityTimer);
+  clearInterval(roomPersistenceTimer);
+  roomPersistence?.flush({ force: true });
   social.dispose?.();
   maintenance.dispose();
   retentionJob.stop();

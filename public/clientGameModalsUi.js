@@ -386,6 +386,58 @@ function gameOverRecap(players) {
   return `<dl class="go-recap">${rows.map(([label, player, , format]) => `<div><dt class="t-micro ink-3">${label}</dt><dd class="t-label f12">${esc(player.name)} · ${format(player)}</dd></div>`).join("")}</dl>`;
 }
 
+const PLACE_WORDS = ["", "1st", "2nd", "3rd"];
+
+function placeWord(place) {
+  return PLACE_WORDS[place] || `${place}th`;
+}
+
+function dollars(value) {
+  return `$${value.toLocaleString()}`;
+}
+
+function winnerVerdict(score, roundLimit) {
+  if (score.value === null) return "The table is yours.";
+  return roundLimit
+    ? `You close the night first on net worth: ${dollars(score.value)}.`
+    : `You close the night holding ${dollars(score.value)}.`;
+}
+
+function bankruptVerdict(rounds) {
+  const played = rounds > 0 ? `, and the table played on to round ${rounds}` : "";
+  return `You went out${played}. Going out is part of the game.`;
+}
+
+function ownedDeedCount(me) {
+  return Object.values(state.owners || {}).filter((ownerId) => ownerId === me.id).length;
+}
+
+function finisherVerdict(row, ranking, score, me) {
+  const deeds = ownedDeedCount(me);
+  const facts = [
+    row.placement ? `${placeWord(row.placement)} of ${ranking.length}` : "",
+    score.value === null ? "" : `${dollars(score.value)} ${score.label.toLowerCase()}`,
+    deeds > 0 ? `${deeds} ${deeds === 1 ? "deed" : "deeds"} held` : "",
+  ].filter(Boolean);
+  if (!facts.length) return "You played it to the end.";
+  return `You finished ${facts.join(", ")}. You played it to the end.`;
+}
+
+// Talks to the local player: a winner gets the win plainly, anyone else gets one line about their own
+// game drawn from what the table already knows (placement, score, deeds, whether they went out).
+function gameOverVerdict(winnerName, ranking, endReason) {
+  const me = state.players[0];
+  const row = me ? ranking.find((player) => player.id === me.id) : null;
+  if (!row) return { title: `${winnerName} wins.`, line: "" };
+  const roundLimit = endReason === "round-limit";
+  const score = gameOverScore(row, endReason);
+  if (row.isWinner) return { title: `You win, ${winnerName}.`, line: winnerVerdict(score, roundLimit) };
+  const title = `${winnerName} took this one.`;
+  if (row.bankrupt) return { title, line: bankruptVerdict(Number(state.roundNumber) || 0) };
+  if (row.disconnected) return { title, line: "You were away when the table closed." };
+  return { title, line: finisherVerdict(row, ranking, score, me) };
+}
+
 function showGameOver(winnerName, winnerId, endReason = null) {
   state.gameOver = { winnerName, winnerId, endReason };
   const ranking = rankGameOverPlayers(state.players, state.finalPlacements, winnerId);
@@ -405,12 +457,14 @@ function showGameOver(winnerName, winnerId, endReason = null) {
     return `<div><dt class="t-label f11">${esc(player.name)}</dt><dd class="t-label f12">${score.value === null ? 'N/A' : '$' + score.value.toLocaleString()}</dd></div>`;
   }).join('');
 
+  const verdict = gameOverVerdict(winnerName, ranking, endReason);
   $("#gameover-card").innerHTML = `
     <div class="bank-body">
       <div class="bank-head" style="justify-content:center;text-align:center">
         <div>
-          <div class="go-kicker g400">ROUND OVER</div>
-          <h3 class="go-name" id="gameover-card-title">${esc(winnerName)} WINS</h3>
+          <div class="go-kicker g400">Game over</div>
+          <h3 class="go-name" id="gameover-card-title">${esc(verdict.title)}</h3>
+          ${verdict.line ? `<p class="t-body go-verdict" id="go-verdict">${esc(verdict.line)}</p>` : ""}
           <p class="t-body ink-2" id="go-end-reason">${endReason === "round-limit" ? "Round limit reached. Ranked by net worth." : "Last active player. Everyone else is out."}</p>
         </div>
       </div>

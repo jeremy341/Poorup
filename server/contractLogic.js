@@ -1006,7 +1006,18 @@ function expireEquityContract(game, contract) {
   const property = game.getTile(contract.propertyIndex);
   if (property) {
     const shares = Array.isArray(property.equityShares) ? property.equityShares : [];
-    property.equityShares = shares.filter(entry => entry.contractId !== contract.id);
+    const entry = shares.find(item => item.contractId === contract.id);
+    // A carried unpaidRentShare is real money the holder earned but the owner
+    // could not pay. On expiry the share is stripped, so settle it explicitly
+    // as a written-off line item: silently dropping it would strand the
+    // balance with no record.
+    const carried = Math.max(0, Math.floor(Number(contract.unpaidRentShare) || 0));
+    if (carried > 0) {
+      const holder = entry ? game.getPlayerById(entry.holderId) : null;
+      game.feedMessage(`${holder ? holder.nickname : 'A shareholder'}'s rent share on ${property.name || 'a property'} expired with $${carried} unpaid — written off.`);
+      contract.unpaidRentShare = 0;
+    }
+    property.equityShares = shares.filter(item => item.contractId !== contract.id);
   }
   contract.status = 'expired';
   return true;
