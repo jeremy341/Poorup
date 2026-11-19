@@ -104,7 +104,10 @@ required.
 ### Environment and safe rollout
 
 The Nest-only `/srv/poorup/shared/poorup.env` is loaded by PM2 and must remain
-outside the repository. Do not paste it into issues, logs, or Git. For the
+outside the repository. PM2 resolves its path through
+`POORUP_SHARED_ENV_FILE` (`ecosystem.config.cjs`); the default already points
+at `/srv/poorup/shared/poorup.env`, so only override it when the env file
+moves. Do not paste it into issues, logs, or Git. For the
 dual-host test phase, configure:
 
 ```text

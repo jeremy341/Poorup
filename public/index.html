@@ -157,21 +157,22 @@
               </div>
 
               <p class="t-body ts-copy">
-                Roll, buy the block, charge rent, feed the vacation pot. Last wallet standing keeps the
-                table. Usually around twelve minutes, sometimes a vendetta.
+                Free Monopoly-style property-trading board game for 2&#8211;4 players (up to 6 on Metro-52). Play in your
+                browser, no download or signup. Roll, buy the block, charge rent, feed the vacation pot. Last wallet
+                standing keeps the table. Usually around twelve minutes, sometimes a vendetta.
               </p>
               <div class="home-signal-line" id="home-signal-line" aria-label="Poorup live status">
-                <button class="home-signal" type="button" data-home-signal="entry" aria-label="Open profile and account settings" aria-describedby="home-signal-entry-help">
+                <button class="home-signal" type="button" data-home-signal="entry" aria-label="ENTRY: NO ACCOUNT — open profile and account settings" aria-describedby="home-signal-entry-help">
                   <span class="t-micro ink-3">ENTRY</span>
                   <span class="t-label f11 g100" id="home-signal-entry-value">NO ACCOUNT</span>
                   <span class="sr-only" id="home-signal-entry-help">Open your account or guest profile.</span>
                 </button>
-                <button class="home-signal" type="button" data-home-signal="sync" aria-label="Refresh live server status" aria-describedby="home-signal-sync-help">
+                <button class="home-signal" type="button" data-home-signal="sync" aria-label="SYNC: CONNECTING… — refresh the live server status" aria-describedby="home-signal-sync-help">
                   <span class="t-micro ink-3">SYNC</span>
                   <span class="t-label f11 green" id="home-signal-sync-value">CONNECTING…</span>
                   <span class="sr-only" id="home-signal-sync-help">Refresh the live public room directory.</span>
                 </button>
-                <button class="home-signal" type="button" data-home-signal="lobbies" aria-label="Browse public lobbies" aria-describedby="home-signal-lobbies-help">
+                <button class="home-signal" type="button" data-home-signal="lobbies" aria-label="LOBBIES — browse public lobbies" aria-describedby="home-signal-lobbies-help">
                   <span class="t-micro ink-3">LOBBIES</span>
                   <span class="t-label f11 g300" id="home-signal-lobbies-value">· LOBBIES</span>
                   <span class="sr-only" id="home-signal-lobbies-help">Browse the current public rooms.</span>
@@ -230,7 +231,7 @@
     </div>
   </header>
       <a class="skip-link" href="#about-page-content">Skip to About content</a>
-      <main class="about-page-main" id="about-page-content" aria-labelledby="about-heading" tabindex="0"><!-- about-content --></main>
+      <main class="about-page-main" id="about-page-content" aria-labelledby="about-heading" tabindex="-1"><!-- about-content --></main>
     </div>
 
     <!-- room browser & room creator modal -->
@@ -308,7 +309,7 @@
           <!-- JOIN TAB PANEL -->
           <div class="rm-panel is-hidden" id="rm-panel-join" role="tabpanel" aria-labelledby="rm-tab-join">
             <p class="t-body ink-2 rooms-copy" id="join-room-description">Enter the room code and the name you want to use at the table.</p>
-            <form class="rc-form" id="join-form">
+            <form class="rc-form" id="join-form" novalidate>
               <label class="rc-field" for="room-join">
                 <span class="t-label f12 g-muted">Room Code</span>
                 <input class="field rc-input rc-room-code" id="room-join" name="roomCode" maxlength="6" minlength="6" inputmode="text" pattern="[A-Za-z0-9]{6}" placeholder="ABC123" autocomplete="off" spellcheck="false" required />

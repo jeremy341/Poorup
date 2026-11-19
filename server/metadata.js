@@ -7,7 +7,7 @@ const PREVIEW_WIDTH = 1200;
 const PREVIEW_HEIGHT = 630;
 const PREVIEW_TYPE = "image/png";
 const PRIVATE_PATH = /^(?:\/admin(?:\/|$)|\/game(?:\/|$)|\/play(?:\/|$)|\/rooms(?:\/|$)|\/profile(?:\/|$)|\/rankings(?:\/|$)|\/social(?:\/|$))/i;
-const METADATA_PATHS = new Set(["/", "/play", "/rooms", "/profile", "/rankings", "/social", "/rules", "/admin/analytics"]);
+const METADATA_PATHS = new Set(["/", "/play", "/rooms", "/profile", "/rankings", "/social", "/admin/analytics"]);
 
 // Search copy for the pages that may be indexed. The game never claims to be
 // Monopoly or any other product; it describes itself as the same kind of game.
@@ -113,9 +113,8 @@ function escapeAttribute(value) {
 // private or unconfigured deploy never advertises itself to crawlers.
 function structuredData(meta) {
   if (!meta.origin || meta.indexPolicy !== "index,follow") return "";
-  if (meta.path !== "/" && meta.path !== "/about") return "";
-  const data = {
-    "@context": "https://schema.org",
+  if (meta.path !== "/" && meta.path !== "/about" && meta.path !== "/rules") return "";
+  const webApplication = {
     "@type": "WebApplication",
     name: "Poorup",
     url: `${meta.origin}/`,
@@ -127,10 +126,31 @@ function structuredData(meta) {
     inLanguage: "en",
     offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
     audience: { "@type": "PeopleAudience", suggestedMinAge: 10 },
-    numberOfPlayers: { "@type": "QuantitativeValue", minValue: 1, maxValue: 4 },
+    // 2-4 on the Standard-40 board, up to 6 on Metro-52 (see server/boardRegistry.js).
+    numberOfPlayers: { "@type": "QuantitativeValue", minValue: 2, maxValue: 6 },
   };
-  if (meta.previewUrl) data.image = meta.previewUrl;
-  return JSON.stringify(data).replace(/</g, "\\u003c");
+  if (meta.previewUrl) webApplication.image = meta.previewUrl;
+  const graph = [webApplication];
+  if (meta.path === "/") graph.push({ "@type": "WebSite", name: "Poorup", url: `${meta.origin}/` });
+  if (meta.path === "/about" || meta.path === "/rules") {
+    graph.push({
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Home", item: `${meta.origin}/` },
+        { "@type": "ListItem", position: 2, name: meta.path === "/about" ? "About" : "Rules", item: meta.canonicalUrl },
+      ],
+    });
+  }
+  if (meta.path === "/rules") {
+    graph.push({
+      "@type": "TechArticle",
+      headline: meta.title,
+      description: meta.description,
+      url: meta.canonicalUrl,
+      inLanguage: "en",
+    });
+  }
+  return JSON.stringify({ "@context": "https://schema.org", "@graph": graph }).replace(/</g, "\\u003c");
 }
 
 export function renderMetadata(options = {}) {
@@ -160,7 +180,9 @@ export function renderMetadata(options = {}) {
     tags.push(`<meta property="og:image:width" content="${PREVIEW_WIDTH}">`);
     tags.push(`<meta property="og:image:height" content="${PREVIEW_HEIGHT}">`);
     tags.push(`<meta property="og:image:type" content="${PREVIEW_TYPE}">`);
+    tags.push(`<meta property="og:image:alt" content="${escapeAttribute(meta.title || "Poorup")}">`);
     tags.push(`<meta name="twitter:image" content="${escapeAttribute(meta.previewUrl)}">`);
+    tags.push(`<meta name="twitter:image:alt" content="${escapeAttribute(meta.title || "Poorup")}">`);
   }
   const structured = structuredData(meta);
   if (structured) tags.push(`<script type="application/ld+json">${structured}</script>`);

@@ -284,7 +284,7 @@
 .rules-intro-icon { width: 46px; height: 46px; }
 .rules-intro-copy h1 { margin: 0; }
 .rules-intro-copy p { margin-top: 4px; }
-.rules-intro .rules-toolbar { flex: 1 1 320px; max-width: 520px; margin-left: auto; padding: 0; background: none; border: 0; align-items: center; }
+.rules-intro .rules-toolbar { flex: 0 0 auto; margin-left: auto; padding: 0; background: none; border: 0; align-items: center; justify-content: flex-end; }
 .rules-more { margin-top: 8px; border-top: 1px solid var(--line-dark); padding-top: 8px; }
 .rules-more > summary { cursor: pointer; padding: 8px 12px; color: var(--gold-300, #e5a52d); letter-spacing: 0.12em; list-style-position: inside; }
 .rules-more > summary:focus-visible { outline: 2px solid var(--theme-focus, var(--gold-100)); outline-offset: 2px; }

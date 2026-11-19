@@ -324,6 +324,17 @@ function rememberSponsoredContribution(game, replayKey, sponsorship, sponsor, am
   game.contractTransactions.set(replayKey, { sponsorshipId: sponsorship.id, sponsorId: sponsor.id, amounts });
 }
 
+// A withdrawn or dissolved contribution returns the reserved cash, so its
+// memo must not survive: a client retrying the same contributionId would
+// otherwise replay "success" for a contribution that no longer exists and
+// the sponsorship would stall short of its goal.
+function forgetSponsoredContribution(game, sponsorshipId, sponsorId) {
+  if (!sponsorshipId || !sponsorId || !(game.contractTransactions instanceof Map)) return;
+  for (const [key, memo] of game.contractTransactions) {
+    if (memo && memo.sponsorshipId === sponsorshipId && memo.sponsorId === sponsorId) game.contractTransactions.delete(key);
+  }
+}
+
 function prepareSponsoredAcceptance(game, buyer) {
   const ctx = sponsorshipApiContext(game);
   const check = acceptanceCheck(game, buyer, ctx);
@@ -533,6 +544,7 @@ const sponsorshipApi = {
     if (index < 0) return { success: false, error: 'You have no contribution in this sponsorship.' };
     const [entry] = sponsorship.contributions.splice(index, 1);
     sponsor.cash += entry.amount;
+    forgetSponsoredContribution(this, sponsorship.id, sponsor.id);
     this.feedMessage(`${sponsor.nickname} withdrew their sponsorship.`);
     return { success: true, sponsorship: this.summarySponsoredPurchase() };
   },
@@ -582,7 +594,9 @@ const sponsorshipApi = {
     if (!sponsorship) return false;
     sponsorship.contributions.forEach(entry => {
       const sponsor = this.getPlayerById(entry.sponsorId);
-      if (sponsor) sponsor.cash += entry.amount;
+      // Same parity as refundSponsorContribution: a bankrupt sponsor's estate
+      // was already settled, so re-crediting it would create cash.
+      if (sponsor && !sponsor.bankrupt) sponsor.cash += entry.amount;
     });
     this.pendingSponsoredPurchase = null;
     return true;
@@ -596,7 +610,8 @@ const sponsorshipApi = {
     if (index < 0) return false;
     const [entry] = sponsorship.contributions.splice(index, 1);
     const sponsor = this.getPlayerById(playerId);
-    if (sponsor) sponsor.cash += entry.amount;
+    if (sponsor && !sponsor.bankrupt) sponsor.cash += entry.amount;
+    forgetSponsoredContribution(this, sponsorship.id, playerId);
     return true;
   },
 

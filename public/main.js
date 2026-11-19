@@ -1543,6 +1543,7 @@ configureLobbyUi({
   closeRoomsModal,
   goHome,
   openConfirmModal,
+  openRoomsModal,
   createRequestId,
 });
 socket?.on("update-state", reconcileParlorEntrySnapshot);
@@ -1580,6 +1581,7 @@ const analyticsPathActive = initAnalytics();
 if (analyticsPathActive) initAdminAiProvider();
 if (!analyticsPathActive) {
   if (window.location.pathname === "/about") openAboutSurface({ history: false });
+  else if (window.location.pathname === "/rules") openRulesSurface();
   else {
     showView("home");
     openCardPreviewFromUrl();

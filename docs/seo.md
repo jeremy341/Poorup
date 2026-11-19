@@ -23,6 +23,7 @@ With the two required settings the server serves a `robots.txt` that points at `
 ## After deploying
 
 1. Add the site in Google Search Console and Bing Webmaster Tools, verify it, and submit `https://<your domain>/sitemap.xml`.
+1.5. Check `https://<your domain>/robots.txt` — with the two settings above it must allow `/`, disallow `/admin/` and `/game/`, and point at `/sitemap.xml`. Before they were set it reads `Disallow: /`.
 2. Paste the home URL into a link-preview checker (or a chat app) to see the preview card.
 3. Ask for a re-crawl of `/`, `/about` and `/rules` in Search Console.
 
@@ -31,6 +32,7 @@ With the two required settings the server serves a `robots.txt` that points at `
 - `/` the game. Title and description are set per page by `server/metadata.js`.
 - `/about` a plain, crawlable page (server-rendered, no JavaScript needed) with how the game plays, a comparison section and an FAQ. Source: `server/aboutPage.js`.
 - `/rules` the rules book, now indexable.
+- `/llms.txt` a plain-text summary for AI assistants and answer engines (what Poorup is, key facts, the three pages, short FAQ). Served from `public/llms.txt` with no gate, since it describes the game rather than inviting indexing of game pages. Keep its facts in step with `/about` and `/rules` when the rules change.
 
 ## Naming other products
 

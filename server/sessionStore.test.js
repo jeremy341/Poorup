@@ -19,7 +19,7 @@ assert.equal(fs.readFileSync(path.join(root, 'sessions.json'), 'utf8').includes(
 assert.equal(store.resolve(first.cookieValue).accountId, 'acct-1');
 assert.match(store.cookie(first.cookieValue), /HttpOnly/);
 assert.match(store.cookie(first.cookieValue), /Secure/);
-assert.match(store.cookie(first.cookieValue), /SameSite=Lax/);
+assert.match(store.cookie(first.cookieValue), /SameSite=Strict/);
 assert.equal(parseCookieHeader(`x=1; poorup_session=${first.cookieValue}; y=2`).poorup_session, first.cookieValue);
 
 const second = store.issue('acct-1', { userAgentClass: 'mobile', ipClass: 'net-b' });

@@ -47,6 +47,7 @@ const FEATURES = Object.freeze([
   "Free, in your browser, with no download and no signup",
   "Two to four players, with computer players to fill empty seats",
   "Private rooms with a share code, plus a public room list",
+  "In-room chat, with reconnect support for dropped connections",
   "Auctions, player-to-player trades, mortgages, houses and hotels",
   "Optional extras such as bank loans, a market and rare table-wide events",
   "A pixel-art look with a fast, readable board"

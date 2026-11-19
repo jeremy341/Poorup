@@ -125,7 +125,7 @@ function renderRoomsList() {
     ? `<div class="rooms-empty t-body">CHECKING PUBLIC TABLES…</div>`
     : rooms.length
     ? rooms.map(roomRowHTML).join("")
-    : `<div class="rooms-empty t-body">${String(lobbyState.roomsQuery || "").trim() ? `NO TABLES MATCH "${esc(String(lobbyState.roomsQuery).trim().toUpperCase())}".` : "NO PUBLIC TABLES RIGHT NOW. HOST ONE OR ENTER A CODE."}</div>`;
+    : `<div class="rooms-empty t-body">${String(lobbyState.roomsQuery || "").trim() ? `NO TABLES MATCH "${esc(String(lobbyState.roomsQuery).trim().toUpperCase())}".` : `NO PUBLIC TABLES RIGHT NOW. HOST ONE OR ENTER A CODE.`}<div class="rooms-empty-actions"><button class="btn-dark" type="button" data-rooms-empty="create"><span class="t-label f12">HOST A TABLE</span></button><button class="btn-dark" type="button" data-rooms-empty="join"><span class="t-label f12">ENTER A CODE</span></button></div></div>`;
 
   syncRoomsFilterButtons();
 }
@@ -442,6 +442,11 @@ function onRoomsListClick(e) {
     }
     return;
   }
+  const tabIndex = e.target.closest("[data-rooms-empty]");
+  if (tabIndex) {
+    switchRoomModalTab(tabIndex.dataset.roomsEmpty === "create" ? "create" : "join");
+    return;
+  }
   const btn = e.target.closest("[data-join], [data-join-id]");
   if (canJoinRoomRow(btn)) {
     closeRoomsModal();
@@ -574,8 +579,8 @@ function entrySignalLabels({ displayName, username, signedIn, identity }) {
     value: signedIn ? identity : "NO ACCOUNT",
     title: signedIn ? `Open account @${username || displayName}` : "Open guest profile or create an account",
     ariaLabel: signedIn
-      ? `Open account ${identity}${username ? `, @${username}` : ""}`
-      : "Open guest profile or create an account"
+      ? `ENTRY: ${identity} — open profile and account settings${username ? `, @${username}` : ""}`
+      : "ENTRY: NO ACCOUNT — open profile and account settings"
   };
 }
 
@@ -586,17 +591,22 @@ function renderSyncSignal(sync) {
   const value = sync.querySelector("#home-signal-sync-value");
   setSignalText(value, copy);
   sync.dataset.connection = status;
-  sync.setAttribute("aria-label", `Refresh live room directory · ${copy}`);
+  sync.setAttribute("aria-label", `SYNC: ${copy} — refresh the live room directory`);
+}
+
+function roomsDirectoryCount() {
+  const count = lobbyState.roomsDirectory.length;
+  return `${count} ${count === 1 ? "LOBBY" : "LOBBIES"}`;
 }
 
 function renderLobbiesSignal(lobbies) {
   if (!lobbies) return;
   const loaded = lobbyState.roomsDirectoryLoaded;
-  const copy = lobbyState.roomsLoading && !loaded ? "SYNCING…" : loaded ? `${lobbyState.roomsDirectory.length} LOBBIES` : "- LOBBIES";
+  const copy = lobbyState.roomsLoading && !loaded ? "SYNCING…" : loaded ? roomsDirectoryCount() : "- LOBBIES";
   const value = lobbies.querySelector("#home-signal-lobbies-value");
   if (value) setText(value, copy);
   lobbies.dataset.loaded = String(loaded);
-  lobbies.setAttribute("aria-label", loaded ? `Browse ${lobbyState.roomsDirectory.length} public lobbies` : "Browse public lobbies");
+  lobbies.setAttribute("aria-label", loaded ? `LOBBIES: ${copy} — browse public lobbies` : "LOBBIES — browse public lobbies");
 }
 
 /** Paint the compact home status strip without rebuilding the home page. */

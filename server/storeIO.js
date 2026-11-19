@@ -97,12 +97,30 @@ function exclusiveCopy(filePath, stamp, raw) {
   }
 }
 
+// The copy must be durable before anything can overwrite the corrupt
+// original: flush it (and its directory entry) now, not "eventually".
+// Best effort — a flush that cannot happen must not fail the quarantine,
+// and it must never feed exclusiveCopy's EEXIST retry loop a second copy.
+function fsyncFilePathAndDirectory(target) {
+  try {
+    const handle = fs.openSync(target, 'r');
+    try { fs.fsyncSync(handle); } finally { fs.closeSync(handle); }
+  } catch { /* best effort */ }
+  if (process.platform !== 'win32') {
+    try {
+      const dirHandle = fs.openSync(path.dirname(target), 'r');
+      try { fs.fsyncSync(dirHandle); } finally { fs.closeSync(dirHandle); }
+    } catch { /* best effort */ }
+  }
+}
+
 function quarantine(filePath, raw) {
   quarantinedStores.add(path.resolve(filePath));
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   let target;
   try {
     target = exclusiveCopy(filePath, stamp, raw);
+    fsyncFilePathAndDirectory(target);
   } catch (copyError) {
     // The copy failed, so move the original aside instead. If that fails too,
     // refuse to start: the next persist would overwrite the only copy of the
@@ -140,7 +158,9 @@ function sweepStaleTempFiles(filePath) {
 
 function writeJson(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: STORE_DIRECTORY_MODE });
-  const data = `${JSON.stringify(value, null, 2)}\n`;
+  // Compact JSON: stores are machine-read; whitespace doubles write cost and
+  // backup size for nothing. Newline + fsync below keep the crash safety.
+  const data = `${JSON.stringify(value)}\n`;
   const tempPath = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
   const handle = fs.openSync(tempPath, 'w', STORE_FILE_MODE);
   try {
@@ -167,6 +187,16 @@ function writeJson(filePath, value) {
     // the caller gets a failure, not a false durable success.
     console.error(`Store ${path.basename(filePath)} atomic rename failed; previous snapshot preserved.`, renameError);
     throw new Error(`Atomic store write failed for ${path.basename(filePath)}.`, { cause: renameError });
+  }
+  // The rename is only durable once its directory entry is flushed: fsync the
+  // parent too, or a power loss in the window after the rename can lose the
+  // committed write entirely. Best effort everywhere; Windows cannot open
+  // directory handles for fsync.
+  if (process.platform !== 'win32') {
+    try {
+      const dirHandle = fs.openSync(path.dirname(filePath), 'r');
+      try { fs.fsyncSync(dirHandle); } finally { fs.closeSync(dirHandle); }
+    } catch { /* best effort */ }
   }
   sweepStaleTempFiles(filePath);
 }

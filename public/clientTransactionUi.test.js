@@ -14,7 +14,8 @@ const styles = read("styles.css");
 const hud = read("clientHudRender.js");
 const logDrawer = read("clientLogDrawer.js");
 const main = read("main.js");
-const social = read("clientSocialSurfaces.js");
+// Rule copy lives either in the renderer or the shared data module (rulesSections.js).
+const social = read("clientSocialSurfaces.js") + read("rulesSections.js");
 const parlor = read("clientParlorBindings.js");
 
 let passed = 0;

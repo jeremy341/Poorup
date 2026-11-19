@@ -71,7 +71,9 @@ function serializeCookie(name, value, options = {}) {
   if (options.maxAge !== undefined) pieces.push(`Max-Age=${Math.max(0, Math.floor(Number(options.maxAge) || 0))}`);
   if (options.httpOnly !== false) pieces.push('HttpOnly');
   if (options.secure !== false) pieces.push('Secure');
-  pieces.push(`SameSite=${options.sameSite || 'Lax'}`);
+  // SameSite defaults to Strict: the cookie is only read by this origin, so
+  // Lax's top-level-navigation hand-off buys nothing and weakens CSRF cover.
+  pieces.push(`SameSite=${options.sameSite || 'Strict'}`);
   return pieces.join('; ');
 }
 

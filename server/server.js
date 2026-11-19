@@ -37,6 +37,7 @@ import { createMetadataRouter, gateIndexEnv, indexingApproved as isIndexingAppro
 import { createStaticAssets } from './staticAssets.js';
 import { asyncRoute, createHttpErrorHandler } from './httpErrors.js';
 import { renderAboutPage } from './aboutPage.js';
+import { renderRulesPage } from './rulesPage.js';
 import { renderErrorPage as errorPage } from './errorPage.js';
 import { isQuarantinedStore, loadJson, writeJson } from './storeIO.js';
 import { createAuthoritativeStore } from './authoritativeStore.js';
@@ -80,6 +81,15 @@ app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'same-origin');
+  // process isolation: keeps this app's documents and its window handles from
+  // being shared with any other site the browser may have open.
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('Origin-Agent-Cluster', '?1');
+  // Only meaningful over TLS; the same conditions that force secure cookies
+  // force HTTPS, so they gate the header here too.
+  const forceSecure = productionRuntime || String(process.env.POORUP_COOKIE_SECURE || '').toLowerCase() === 'true';
+  if (forceSecure) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src ${connectSources.join(' ')}; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'`);
   next();
@@ -356,6 +366,11 @@ app.get('/about', (_req, res) => {
   res.type('html').send(renderAboutPage({ env: pageEnv }));
 });
 
+app.get('/rules', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('html').send(renderRulesPage({ env: pageEnv }));
+});
+
 const metadataOrigin = metadataConfig({ env: process.env, path: '/' }).origin;
 const indexingApproved = isIndexingApproved(process.env);
 app.get('/sitemap.xml', (_req, res, next) => {
@@ -366,6 +381,7 @@ app.get('/sitemap.xml', (_req, res, next) => {
   return res.type('application/xml').send(body);
 });
 app.get('/account/session', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   const account = httpAccountResolver(req);
   if (!account) return res.status(401).json({ success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in again.' });
   if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);

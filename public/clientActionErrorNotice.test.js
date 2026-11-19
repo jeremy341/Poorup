@@ -83,17 +83,18 @@ assert.doesNotMatch(source, /input\.value = "";\s*emitWithChatError\("send-chat"
 console.log('PASS chatDraftSurvivesFailedSend');
 
 // Copy truthfulness (market notice).
-const [parlorCopy, socialCopy, marketCopy, casinoCopy, railCopy] = await Promise.all(
-  ['clientParlorBindings.js', 'clientSocialSurfaces.js', 'clientMarketUi.js', 'clientCasinoUi.js', 'clientRailRender.js']
+const [parlorCopy, socialCopy, marketCopy, casinoCopy, railCopy, rulesCopy] = await Promise.all(
+  ['clientParlorBindings.js', 'clientSocialSurfaces.js', 'clientMarketUi.js', 'clientCasinoUi.js', 'clientRailRender.js', 'rulesSections.js']
     .map(file => readFile(new URL(`./${file}`, import.meta.url), 'utf8')),
 );
 assert.doesNotMatch(parlorCopy, /parlor moderators/i, 'reports are recorded for review, nobody is promised to act');
 assert.match(parlorCopy, /Report recorded for review\./);
 assert.match(parlorCopy, /Room chat pauses for you and them while you share a room/, 'block copy states the real room-chat effect');
-assert.match(socialCopy, /idle for 3 minutes can be removed by inactivity/, 'turn-time copy quotes the 180 s inactivity removal');
+assert.match(rulesCopy, /idle for 3 minutes can be removed by inactivity/, 'turn-time copy quotes the 180 s inactivity removal');
 const { PLAYER_INACTIVITY_REMOVAL_MS } = await import('../server/playerPresence.js');
 assert.equal(PLAYER_INACTIVITY_REMOVAL_MS, 3 * 60 * 1000, 'copy says 3 minutes; keep it in step with the server constant');
 assert.doesNotMatch(`${socialCopy}
+${rulesCopy}
 ${casinoCopy}
 ${railCopy}`, /fictional (board )?(money|cash)|fictional casino result|fictional market result/i, 'cash games use in-game cash, not a separate currency');
 assert.doesNotMatch(marketCopy, /SERVER PRICING POLICY NOT CONFIGURED/);

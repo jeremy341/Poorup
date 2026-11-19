@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { randomInt } from './random.js';
 import { START_TILE_INDEX } from './gameData.js';
 import { tilesForVariant } from './boardRegistry.js';
+import { AUCTION_DURATION_MS } from './auctionApi.js';
 import {
   DEFAULT_ROOM_SETTINGS,
   isRetiredRoomSettingKey,
@@ -1389,6 +1390,12 @@ class RoomManager {
     auction.highestBidderId = null;
     auction.highestBid = 0;
     auction.lastBidAt = 0;
+    // A revoke in the last moments must leave a real bidding window for the
+    // rivals, exactly as the disconnect path (revokeAuctionLeadIfLeader) and
+    // the bankruptcy path do; without it the already-armed timer closes the
+    // auction almost immediately.
+    auction.endsAt = Math.max(Number(auction.endsAt) || 0, Date.now() + AUCTION_DURATION_MS);
+    game.feedMessage?.('The highest bid is reset.');
   }
 }
 

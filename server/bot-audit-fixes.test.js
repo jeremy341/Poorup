@@ -1,4 +1,4 @@
-// Regression pins for the October bot-engine audit (docs/BOT-ENGINE-AUDIT-2026-10.md):
+// Regression pins from the October 2026 bot-engine audit (its doc was removed; see git history):
 // small engine-contract mismatches that made bots spin, wait on an auction that
 // never comes, or lose an option to an id collision.
 import assert from 'node:assert/strict';

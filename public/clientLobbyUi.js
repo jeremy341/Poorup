@@ -62,6 +62,7 @@ let quickTableRequestId = 0;
 let quickTableDirectoryTimer = null;
 let activeRoomEntryAttempt = null;
 let activeRoomEntryStatusNode = null;
+let pendingJoinRoomCode = "";
 
 export function sendRoomEntryWithRetries({
   emit,
@@ -144,12 +145,25 @@ function visibilityFromSnapshot(room) {
 
 export function reconcileParlorEntrySnapshot(snapshot) {
   if (!state.roomEntryPending) return false;
+  if (state.suppressRoomUpdates) return false;
   const ack = roomEntryAckFromSnapshot(snapshot, state.clientId);
   if (!ack) return false;
+  if (!entryAckMatchesPendingRoom(ack)) return false;
   activeRoomEntryAttempt?.cancel();
   activeRoomEntryAttempt = null;
   applyParlorEntryAck(ack);
   return true;
+}
+
+// A stale snapshot from the room just left still lists this clientId, so a
+// fallback ack must prove it belongs to the room being entered: a code entry
+// matches its room code, and a codeless entry (public or directory join) only
+// accepts a codeless public snapshot, never a leaked private one.
+function entryAckMatchesPendingRoom(ack) {
+  const entryCode = String(state.roomCode || "").trim().toUpperCase();
+  const ackCode = String(ack.roomCode || "").trim().toUpperCase();
+  if (entryCode || ackCode) return entryCode === ackCode;
+  return ack.visibility === "public" && state.roomVisibility === "public";
 }
 
 /**
@@ -638,7 +652,7 @@ function quickTableFallbackCreate() {
   };
   state.pendingRoomSettings = { vacationPool: false, trading: true, auction: true };
   parlorNotice("QUICK TABLE", "NO OPEN TABLES. HOSTING A NEW PUBLIC TABLE WITH CLASSIC RULES.");
-  enterParlor();
+  enterParlor(undefined, { viaQuickTable: true });
 }
 
 function quickTableDirectoryAck(response, requestId) {
@@ -651,7 +665,7 @@ function quickTableDirectoryAck(response, requestId) {
   const candidate = chooseQuickTableRoom(response?.rooms)[0];
   if (candidate) {
     parlorNotice("QUICK TABLE", "OPEN TABLE FOUND. JOINING NOW.");
-    enterParlor({ roomId: candidate.roomId });
+    enterParlor({ roomId: candidate.roomId }, { viaQuickTable: true });
     return;
   }
   quickTableFallbackCreate();
@@ -708,6 +722,22 @@ function parlorPendingRoomMeta(event) {
 
 function rejectParlorEntry(response) {
   host.announceActionStatus(response.error || "Room could not be entered.", activeRoomEntryStatusNode);
+  const modal = $("#rooms-modal");
+  const joinPanel = $("#rm-panel-join");
+  const joinOpen = Boolean(modal && !modal.classList.contains("is-hidden") && joinPanel && !joinPanel.classList.contains("is-hidden"));
+  // Surface the server's reason next to the join form and return focus to the
+  // code field. When the entry closed the modal (resetTableForEntry runs
+  // closeAllSurfaces), the still-open branch below reopens it with the
+  // code the user typed.
+  if (joinOpen) {
+    const joinError = $("#join-form-error");
+    if (joinError) joinError.textContent = response?.error || "ROOM NOT FOUND.";
+    const codeInput = $("#room-join");
+    if (codeInput) {
+      codeInput.setAttribute("aria-invalid", "true");
+      codeInput.focus({ preventScroll: true });
+    }
+  }
   activeRoomEntryStatusNode = null;
   state.roomEntryPending = false;
   state.roomEntryRequestId = "";
@@ -724,12 +754,31 @@ function rejectParlorEntry(response) {
   activeRoomEntryAttempt = null;
   host.showView("home");
   host.renderAll();
+  const reopenJoinCode = pendingJoinRoomCode;
+  pendingJoinRoomCode = "";
+  setJoinSubmitPending(false);
+  if (!joinOpen && reopenJoinCode) {
+    // A join holds the requested code until the entry settles: a failure puts
+    // the join panel back instead of dropping the user on the home view with
+    // the code and name lost. Quick-table joins carry no code, so they keep
+    // their own notice-and-retry path.
+    host.openRoomsModal?.("join");
+    const joinError = $("#join-form-error");
+    if (joinError) joinError.textContent = response?.error || "ROOM NOT FOUND.";
+    const codeInput = $("#room-join");
+    if (codeInput) {
+      codeInput.value = reopenJoinCode;
+      codeInput.setAttribute("aria-invalid", "true");
+    }
+  }
 }
 
 function applyParlorEntryAck(response) {
   quickTableFlow = false;
   quickTableRetryCount = 0;
   clearQuickTableDirectoryTimer();
+  pendingJoinRoomCode = "";
+  setJoinSubmitPending(false);
   state.roomEntryPending = false;
   state.roomEntryRequestId = "";
   applyCreatedEntryIdentity(response);
@@ -764,23 +813,36 @@ function onParlorEntryResponse(response, event) {
 }
 
 // Solo entry: a table with one computer player. The host still starts the round.
+// The table is private (defaults in the CTA tooltip), so it generates its own
+// six-character invite code: public solo tables let strangers wander in.
 export function playVsComputer() {
   if (!requireGuestAlias()) return;
   if (quickTableFlow || state.roomEntryPending) return;
   state.quickJoin = false;
-  state.pendingRoomMeta = { roomName: "COMPUTER TABLE", visibility: "public", boardVariant: "standard-40" };
+  state.pendingRoomMeta = { roomName: "COMPUTER TABLE", visibility: "private", roomCode: generateRoomInviteCode(), boardVariant: "standard-40" };
   state.pendingRoomSettings = { vacationPool: false, trading: true, auction: true, bots: 1 };
   enterParlor();
 }
 
-export function enterParlor(code) {
+function generateRoomInviteCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  return Array.from(bytes, byte => alphabet[byte % alphabet.length]).join("");
+}
+
+export function enterParlor(code, options = {}) {
   if (!requireGuestAlias()) return;
-  if (state.roomEntryPending) return;
+  // A quick-table run drives its own enter calls via retryQuickTableJoin; any
+  // other entry started mid-flow would hijack the seat, so only the flow's own
+  // continuation may pass the guard.
+  if (state.roomEntryPending || (quickTableFlow && !options.viaQuickTable)) return;
   activeRoomEntryStatusNode = host.captureActionStatusNode(document.activeElement);
   const { requestedCode, requestedRoomId } = normalizeEntryDescriptor(code);
   const meta = getAppearanceMeta(activeAppearance());
   const event = entryEvent(requestedCode, requestedRoomId);
   const requestId = entryRequestId(event);
+  pendingJoinRoomCode = event === "join-room" && requestedCode ? requestedCode : "";
+  setJoinSubmitPending(event === "join-room");
   resetTableForEntry(requestedCode, requestId);
   const payload = parlorEntryPayload({ event, requestedCode, meta, requestedRoomId, requestId });
   activeRoomEntryAttempt?.cancel();
@@ -794,9 +856,26 @@ export function enterParlor(code) {
     },
     onTimeout() {
       activeRoomEntryAttempt = null;
-      rejectParlorEntry({ success: false, error: "Room entry timed out. Try again." });
+      const timeoutResponse = { success: false, error: "Room entry timed out. Try again." };
+      // One slow ack must not abort a quick table that still has retries: it
+      // goes back to the directory like any recoverable join error.
+      if (quickTableFlow && quickTableRetryCount < QUICK_TABLE_MAX_RETRIES) {
+        retryQuickTableJoin(timeoutResponse);
+        return;
+      }
+      rejectParlorEntry(timeoutResponse);
     },
   });
+}
+
+// Visual clamp for the join form's own submit: roomEntryPending already
+// blocks a second entry, the button must also say so while an ack is owed.
+function setJoinSubmitPending(pending) {
+  const submit = $("#join-room-submit");
+  if (!submit) return;
+  submit.disabled = pending;
+  const label = submit.querySelector(".cta-text");
+  if (label) label.textContent = pending ? "CONNECTING…" : "JOIN ROOM";
 }
 
 function enterLobby() {

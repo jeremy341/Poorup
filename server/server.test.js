@@ -390,6 +390,7 @@ async function run() {
   try {
     await waitForServer(child, 15000);
     check('server boots and serves the shell', true);
+    await checkHardeningHeaders();
 
     socket = io(BASE, { reconnection: false });
     await connect(socket);
@@ -416,6 +417,20 @@ async function run() {
     }
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
+}
+
+// Cross-origin isolation and no-store must ride on ordinary responses: the
+// shell proves the global middleware, /account/session proves an
+// authenticated route answers without teaching a shared cache anything.
+async function checkHardeningHeaders() {
+  const shell = await fetch(`${BASE}/`);
+  check('the shell answers with the isolation headers',
+    shell.headers.get('cross-origin-opener-policy') === 'same-origin' &&
+    shell.headers.get('cross-origin-resource-policy') === 'same-origin' &&
+    shell.headers.get('origin-agent-cluster') === '?1',
+    { coop: shell.headers.get('cross-origin-opener-policy'), corp: shell.headers.get('cross-origin-resource-policy'), oac: shell.headers.get('origin-agent-cluster') });
+  const session = await fetch(`${BASE}/account/session`);
+  check('/account/session answers no-store', String(session.headers.get('cache-control') || '').includes('no-store'), { cacheControl: session.headers.get('cache-control') });
 }
 
 function nextEvent(socket, event, timeoutMs = 5000) {

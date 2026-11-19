@@ -337,8 +337,11 @@ const cardApi = {
   },
 
   payEachPayout(player, amount) {
+    // Seats inside the reconnect-grace window still owe and are owed by these
+    // cards: skipping them would silently drop a $50 leg the seat is entitled
+    // to on reconnect. Only bankruptcy removes a seat from these card paths.
     let total = 0;
-    this.activePlayers().filter(other => this.payEachIsRecipient(player, other)).forEach(other => {
+    this.nonBankruptPlayers().filter(other => this.payEachIsRecipient(player, other)).forEach(other => {
       total += this.payEachShare(player, other, amount);
     });
     return total;
@@ -397,8 +400,10 @@ const cardApi = {
   // which parks an unpaid share as a debt (payEachShare calls chargePlayer).
   collectFromEachCard(player, card) {
     const amount = this.cardRewardAmount(card);
-    const alive = this.activePlayers();
-    alive.forEach(other => {
+    // Same reconnect-grace rule as payEachPayout: a disconnected seat still
+    // pays its share and reconnects with the deduction already settled.
+    const holders = this.nonBankruptPlayers();
+    holders.forEach(other => {
       if (other.id !== player.id) {
         const paid = Math.min(other.cash, amount);
         other.cash -= paid;
@@ -416,7 +421,7 @@ const cardApi = {
     return RESOLVE_TAIL;
   },
 
-  goToJailCard(player, options) {
+  goToJailCard(player, card, options) {
     this.recordPresentationMove(player, this.tiles.find(tile => tile.type === 'jail').index, { cause: 'card-jail', teleport: true });
     player.position = this.tiles.find(tile => tile.type === 'jail').index;
     player.inJail = true;

@@ -2955,6 +2955,12 @@ button[id$="-close"],
 .rules-book-page { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--surface-panel); border: 1px solid var(--line-board); box-shadow: inset 0 1px 0 rgb(232 211 171 / 6%), 0 3px 14px rgb(0 0 0 / 28%); }
 .rules-book-page-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: clamp(16px, 2vw, 24px); overscroll-behavior: contain; }
 .rules-book-page-scroll .rules-article-head { padding-bottom: 18px; }
+/* Static (no-JS) rules page: chapters share one book page instead of the
+   client's one-at-a-time pager. */
+.rules-chapter { padding: 18px 2px; }
+.rules-chapter + .rules-chapter { border-top: 1px solid var(--line-dark); }
+.rules-book-page-head { padding-bottom: 12px; border-bottom: 1px solid var(--line-dark); }
+#rules-book-page-heading:focus { outline: none; }
 .rules-book-page-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; background: var(--surface-panel-deep); border-top: 1px solid var(--line-dark); }
 .rules-page-turn { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; max-width: 34%; padding: 0 9px; }
 .rules-page-turn .t-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3178,9 +3184,9 @@ button[id$="-close"],
   .rankings-search-controls { grid-template-columns: 1fr; }
   .rankings-search-submit { width: 100%; }
   .market-derivative-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .rules-book-spread { display: flex; flex-direction: column; flex: none; min-height: 0; }
-  #view-rules .rules-index { flex: 0 0 auto; max-height: 150px; }
-  #view-rules .rules-book-page { flex: 0 0 430px; min-height: 430px; }
+  .rules-book-spread { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; }
+  #view-rules .rules-index { flex: 0 0 auto; max-height: 30dvh; }
+  #view-rules .rules-book-page { flex: 1 1 0; min-height: 0; }
 }
 /* Short desktop windows (1024x768): the ledger keeps a readable floor and the
    network rail keeps all five views. Touch tablets keep their own iPad layout. */
@@ -5148,6 +5154,8 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   textarea:focus-visible, a:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
   .dot, .st-dot, .pr-dot, .tile-owner { background: currentColor !important; box-shadow: none !important; }
   .cta-red { background: ButtonFace; color: ButtonText; border-color: CanvasText; }
+  /* Dim authored ink (signals, wordmark) is unreadable on the white canvas. */
+  .home-signal-line, .page-header .hdr-wordmark { forced-color-adjust: auto; }
 }
 
 /* LANDSCAPE TABLET DESK: iPad-first composition
@@ -6188,3 +6196,59 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 #view-profile[data-subject="computer"] #profile-panel-account { display: none !important; }
 #view-profile[data-subject="computer"] .profile-overview-card { display: none !important; }
 #view-profile[data-subject="computer"] .computer-profile-note { grid-column: 1 / -1; margin: 0; padding: 16px; }
+
+/* ===== Layout-invariance fallbacks (home + rules) ===========================
+   Targets are large desktops; these keep smaller windows usable without the
+   body or document ever becoming the scroller. */
+
+/* Short wide windows (e.g. a 1366x768 laptop's ~657px viewport): bound the home
+   view so the ticker stays on screen and any overflow scrolls inside .home-main. */
+@media (min-width: 1280px) and (max-height: 759px) {
+  #view-home { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
+  #view-home .home-main { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  #view-home .title-screen { flex: 0 0 auto; min-height: 0; }
+}
+
+/* Mouse-driven small desktop windows (900-1279 wide): the desk sits beside the
+   statement, as on large desktops, so Create / Join / Play vs computer stay on
+   the first screen instead of stacking below it. */
+@media (min-width: 900px) and (max-width: 1279px) and (orientation: landscape) and (not ((hover: none) and (pointer: coarse))) {
+  #view-home .home-main { display: flex; flex-direction: column; }
+  #view-home .title-screen { display: flex; flex: 1 0 auto; }
+  #view-home .parlor-desk-grid {
+    display: grid;
+    flex: 1;
+    grid-template-columns: minmax(0, 1.08fr) minmax(360px, .92fr);
+    align-items: center;
+    gap: 18px;
+    /* top band keeps the clock / score / Night Shift hint clear of the desk */
+    padding: 132px 22px 18px;
+  }
+  #view-home .parlor-statement { max-width: 620px; }
+  #view-home .parlor-statement .wm-hero { font-size: clamp(52px, 7vw, 78px); }
+  #view-home .home-entry-desk { max-width: clamp(360px, 40vw, 440px); justify-self: end; }
+}
+
+/* Phones: the name field and the four entry buttons come first; the wordmark,
+   blurb and status row follow and scroll inside .home-main. */
+@media (max-width: 767px) {
+  #view-home .home-entry-desk { order: -1; }
+}
+
+/* Phones: the 21-chapter contents list collapses behind the CHAPTERS toggle
+   (same disclosure the portrait tablet uses), leaving the room to the reader.
+   Scoped to the client markup that carries the toggle; the static no-JS page
+   keeps its plain scrollable list. */
+@media (max-width: 767px) {
+  #view-rules .rules-index:has(.rules-chapters-toggle) { flex: 0 0 auto; max-height: none; overflow: visible; padding: 8px 10px; }
+  #view-rules .rules-index:has(.rules-chapters-toggle) .rules-index-head { align-items: center; padding: 0; border: 0; }
+  #view-rules .rules-index:has(.rules-chapters-toggle) .rules-index-head > span { display: none; }
+  #view-rules .rules-chapters-toggle { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 44px; padding-inline: 10px; }
+  #view-rules .rules-index:has(.rules-chapters-toggle) .rules-index-nav { display: none; max-height: min(240px, 30dvh); margin-top: 8px; overflow-y: auto; overscroll-behavior: contain; }
+  #view-rules .rules-index.is-index-open:has(.rules-chapters-toggle) .rules-index-nav { display: grid; }
+}
+
+/* Static contents links are anchors, not buttons: no default underline. */
+a.rules-index-link { text-decoration: none; }
+#view-rules .rules-index > p { padding: 8px 7px 2px; }
+#view-rules .rules-index > p a { color: var(--gold-400); }
