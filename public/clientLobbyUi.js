@@ -35,6 +35,7 @@ import { stopAuctionTimer } from "./clientAuctionUi.js";
 let host = {
   emitServer: noop,
   updateServerSetting: noop,
+  startRound: noop,
   showView: noop,
   renderAll: noop,
   say: noop,
@@ -63,6 +64,11 @@ let quickTableDirectoryTimer = null;
 let activeRoomEntryAttempt = null;
 let activeRoomEntryStatusNode = null;
 let pendingJoinRoomCode = "";
+// Solo "Play vs computer" auto-start. soloEntryIntent marks the entry playVsComputer is about to
+// make; soloAutoStart then tracks that one table (settled = bots staged, fired = start emitted).
+let soloEntryIntent = false;
+let soloEntry = false;
+let soloAutoStart = null;
 
 export function sendRoomEntryWithRetries({
   emit,
@@ -749,6 +755,8 @@ function rejectParlorEntry(response) {
   state.quickJoin = false;
   quickTableFlow = false;
   quickTableRetryCount = 0;
+  soloEntry = false;
+  soloAutoStart = null;
   clearQuickTableDirectoryTimer();
   activeRoomEntryAttempt?.cancel();
   activeRoomEntryAttempt = null;
@@ -789,15 +797,63 @@ function applyParlorEntryAck(response) {
   renderSetup();
   renderLobbyRail();
   syncServerAppearance();
-  applyPendingRoomSettings();
+  const solo = soloEntry;
+  soloEntry = false;
+  soloAutoStart = solo ? { roomCode: state.roomCode, settled: false, fired: false } : null;
+  applyPendingRoomSettings(solo ? onSoloSettingsSettled : null);
   state.pendingRoomMeta = null;
   if (state.phase === "lobby") requestAnimationFrame(() => placePieces());
 }
 
-function applyPendingRoomSettings() {
+// Sends the staged table settings; onSettled(ok) runs once every one has been acknowledged.
+function applyPendingRoomSettings(onSettled = null) {
   if (!state.pendingRoomSettings) return;
-  Object.entries(state.pendingRoomSettings).forEach(([key, value]) => host.updateServerSetting(key, value));
+  const entries = Object.entries(state.pendingRoomSettings);
   state.pendingRoomSettings = null;
+  let waiting = entries.length;
+  let allAccepted = true;
+  const acknowledge = (result) => {
+    if (result?.success === false) allAccepted = false;
+    waiting -= 1;
+    if (waiting === 0) onSettled?.(allAccepted);
+  };
+  entries.forEach(([key, value]) => host.updateServerSetting(key, value, acknowledge));
+}
+
+function onSoloSettingsSettled(accepted) {
+  if (!soloAutoStart || soloAutoStart.roomCode !== state.roomCode) return;
+  if (!accepted) {
+    soloAutoStart = null;
+    parlorNotice("COMPUTER TABLE", "The computer seat could not be staged. Check the table settings, then start the round.", "warning");
+    return;
+  }
+  soloAutoStart.settled = true;
+  trySoloAutoStart();
+}
+
+// Starts the round through the lobby button's start-game event, once, for the solo table this
+// client just created. It waits out the appearance picker (phase "setup") and gives up if another
+// human has taken a seat; a refusal leaves the lobby and its Start Round button in place.
+function trySoloAutoStart() {
+  const auto = soloAutoStart;
+  if (!auto || !auto.settled || auto.fired) return;
+  if (state.phase !== "lobby" || state.roomCode !== auto.roomCode) return;
+  if (state.players.some((player, index) => index > 0 && !player.bot)) {
+    soloAutoStart = null;
+    return;
+  }
+  if (!(Number(state.settings.bots) > 0)) {
+    soloAutoStart = null;
+    return;
+  }
+  auto.fired = true;
+  host.startRound((response) => {
+    if (soloAutoStart !== auto) return;
+    soloAutoStart = null;
+    if (response?.success === false) {
+      parlorNotice("COMPUTER TABLE", `${response.error || "The round did not start."} Press Start Round when you are ready.`, "warning");
+    }
+  });
 }
 
 function onParlorEntryResponse(response, event) {
@@ -821,7 +877,12 @@ export function playVsComputer() {
   state.quickJoin = false;
   state.pendingRoomMeta = { roomName: "COMPUTER TABLE", visibility: "private", roomCode: generateRoomInviteCode(), boardVariant: "standard-40" };
   state.pendingRoomSettings = { vacationPool: false, trading: true, auction: true, bots: 1 };
-  enterParlor();
+  soloEntryIntent = true;
+  try {
+    enterParlor();
+  } finally {
+    soloEntryIntent = false;
+  }
 }
 
 function generateRoomInviteCode() {
@@ -836,6 +897,9 @@ export function enterParlor(code, options = {}) {
   // other entry started mid-flow would hijack the seat, so only the flow's own
   // continuation may pass the guard.
   if (state.roomEntryPending || (quickTableFlow && !options.viaQuickTable)) return;
+  // Every other entry path (create, join, rooms list, quick table) clears the solo marker.
+  soloEntry = soloEntryIntent;
+  soloAutoStart = null;
   activeRoomEntryStatusNode = host.captureActionStatusNode(document.activeElement);
   const { requestedCode, requestedRoomId } = normalizeEntryDescriptor(code);
   const meta = getAppearanceMeta(activeAppearance());
@@ -888,7 +952,7 @@ function enterLobby() {
     state.phase = "lobby";
     host.renderAll();
     requestAnimationFrame(() => placePieces());
-    return;
+    trySoloAutoStart();
 }
 
 export function goHome() {
@@ -920,6 +984,8 @@ export function goHome() {
   state.messages = [];
   state.log = [];
   state.phase = "home";
+  soloEntry = false;
+  soloAutoStart = null;
   state.roomEntryPending = false;
   state.roomEntryRequestId = "";
   activeRoomEntryAttempt?.cancel();

@@ -97,7 +97,7 @@
 #financing-modal .financing-repayment-progress { display: grid; gap: 5px; margin: 12px 0; }
 #financing-modal .financing-repayment-labels { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 #financing-modal .financing-repayment-track { height: 9px; margin: 0; overflow: hidden; background: var(--surface-panel-deep); border: 1px solid var(--line-control); }
-#financing-modal .financing-repayment-track > span { display: block; height: 100%; background: var(--green-status); transition: width 180ms ease-out; }
+#financing-modal .financing-repayment-track > span { display: block; height: 100%; background: var(--green-status); transition: width var(--dur-s) var(--ease-out); }
 #financing-modal .financing-repayment-progress > p { margin: 0; text-align: right; }
 #financing-modal .contract-repay-panel { margin-top: 12px; padding: 12px; border: 1px solid var(--line-control); background: var(--surface-panel-deep); }
 #financing-modal .contract-repay-heading { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; }

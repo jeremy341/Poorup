@@ -3,7 +3,7 @@ export const BOT_AUCTION_DELAY_MS = 450;
 // Prefer the whole shared roll timeline; the positional fallback supports
 // legacy/simulation callers that do not carry presentation metadata.
 export { BOT_MOVEMENT_STEP_MS } from '../public/gamePresentationTiming.js';
-import { BOT_MOVEMENT_STEP_MS, presentationRemainingMs } from '../public/gamePresentationTiming.js';
+import { BOT_MOVEMENT_STEP_MS, presentationRemainingMs, walkDurationMs } from '../public/gamePresentationTiming.js';
 const BOT_MOVEMENT_MAX_STEPS = 12;
 
 export function botMovementSettleDelayMs(previousPositions, game, now = Date.now()) {
@@ -20,7 +20,7 @@ export function botMovementSettleDelayMs(previousPositions, game, now = Date.now
     const steps = ((to - from) % boardSize + boardSize) % boardSize;
     if (steps > 0 && steps <= BOT_MOVEMENT_MAX_STEPS) longestWalk = Math.max(longestWalk, steps);
   }
-  return longestWalk * BOT_MOVEMENT_STEP_MS;
+  return walkDurationMs(longestWalk, BOT_MOVEMENT_STEP_MS);
 }
 
 export function scheduleBotTimer(setTimeoutFn, callback, kind = 'turn', minimumDelayMs = 0) {

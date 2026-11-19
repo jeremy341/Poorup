@@ -321,8 +321,8 @@ export function renderHome() {
   renderHomeLocalTime();
   renderPatrolHud();
   const theme = getTheme(state.themeId);
-  paintSkyline($("#home-skyline"), theme.skyline.home, theme.palette);
-  paintSkyline($("#home-skyline-copy"), theme.skyline.home, theme.palette);
+  ["#home-skyline", "#home-skyline-copy", "#home-skyline-copy-2", "#home-skyline-copy-3"]
+    .forEach((selector) => paintSkyline($(selector), theme.skyline.home, theme.palette));
   buildMiniBoard();
   renderRoomsList();
   renderHomeSignals();

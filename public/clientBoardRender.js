@@ -221,15 +221,66 @@ function ownerPipMarkup(owner, index) {
   return { sig: `${owner.id}:${owner.color}:${index}:${grid}`, markup: avatarHTML(owner, 1, index) };
 }
 
+// Injected by main.js so the board can tick and thunk without owning an audio engine.
+let boardSound = () => {};
+export function configureBoardSound(playSound) {
+  boardSound = typeof playSound === "function" ? playSound : () => {};
+}
+
+// One-shot motion (owner stamp, building pop): restart the class, then drop it after `ms`.
+const oneShotTimers = new WeakMap();
+function playOneShot(el, className, ms) {
+  if (REDUCED_MOTION || !el) return;
+  clearTimeout(oneShotTimers.get(el));
+  el.classList.remove(className);
+  void el.offsetWidth;
+  el.classList.add(className);
+  oneShotTimers.set(el, setTimeout(() => el.classList.remove(className), ms));
+}
+
+// Reduced motion skips the animated walk, so the piece would appear on its destination with no cue.
+// This substitute is a 200ms colour/opacity ring on the destination tile only (no travel). It is a
+// distinct one-shot class so it never fights `is-highlight`, and it clears itself on animationend
+// with a safety timeout for browsers/tabs that never fire the event.
+const ARRIVAL_CUE_MS = 200;
+const arrivalCueTimers = new Map();
+function playArrivalCue(tileIndex) {
+  const el = document.querySelector(`.tile[data-tile="${tileIndex}"]`);
+  if (!el) return;
+  clearTimeout(arrivalCueTimers.get(el));
+  const clear = () => {
+    clearTimeout(arrivalCueTimers.get(el));
+    arrivalCueTimers.delete(el);
+    el.classList.remove("is-arrival-cue");
+    el.removeEventListener("animationend", onEnd);
+  };
+  const onEnd = (event) => { if (event.animationName === "tile-arrival-cue") clear(); };
+  el.classList.remove("is-arrival-cue");
+  void el.offsetWidth;
+  el.classList.add("is-arrival-cue");
+  el.addEventListener("animationend", onEnd);
+  arrivalCueTimers.set(el, setTimeout(clear, ARRIVAL_CUE_MS + 100));
+}
+
+// `dataset.*Seen` is undefined until a tile's first paint, so initial hydration and rebuilt boards
+// never count as a change; only a later transition does.
+function changedSince(el, key, value, isForward) {
+  const previous = el.dataset[key];
+  el.dataset[key] = String(value);
+  if (previous === undefined) return false;
+  return isForward(previous, String(value));
+}
+
 function renderTileOwner(el, tile) {
   const pip = el.querySelector(".tile-owner");
-  if (!pip) return;
+  if (!pip) return false;
   const owner = state.players.find((p) => p.id === state.owners[tile.i]);
   pip.style.display = owner ? "block" : "none";
   el.classList.toggle("is-owned", Boolean(owner));
+  const stamped = changedSince(el, "ownerSeen", owner?.id ?? "", (before, after) => after !== "" && before !== after);
   if (!owner) {
     el.style.removeProperty("--tile-owner");
-    return;
+    return false;
   }
   el.style.setProperty("--tile-owner", owner.color);
   const face = ownerPipMarkup(owner, state.players.indexOf(owner));
@@ -237,6 +288,7 @@ function renderTileOwner(el, tile) {
     pip.innerHTML = face.markup;
     pip.dataset.sig = face.sig;
   }
+  return stamped;
 }
 
 function housesRowHTML(count) {
@@ -251,10 +303,14 @@ function tileBuildHTML(tile) {
   return housesRowHTML(level);
 }
 
+// Returns the build element when its level rose since the last paint (a new house or hotel appeared).
 function renderTileBuild(el, tile) {
   const buildEl = el.querySelector(".tile-build");
-  if (!buildEl) return;
+  if (!buildEl) return null;
   setHtml(buildEl, tileBuildHTML(tile));
+  const level = tile.kind === "property" ? (state.houses[tile.i] || 0) : 0;
+  const grew = changedSince(el, "buildSeen", level, (before, after) => Number(after) > Number(before));
+  return grew ? buildEl : null;
 }
 
 function renderTileLabel(el, tile) {
@@ -269,17 +325,38 @@ function renderTileLabel(el, tile) {
   if (el.getAttribute("aria-label") !== label) el.setAttribute("aria-label", label);
 }
 
-function renderBoardTile(tile) {
+function renderBoardTile(tile, moments) {
   const el = document.querySelector(`.tile[data-tile="${tile.i}"]`);
   if (!el) return;
   renderTileState(el, tile);
-  renderTileOwner(el, tile);
-  renderTileBuild(el, tile);
+  if (renderTileOwner(el, tile)) moments.stamps.push(el);
+  const grown = renderTileBuild(el, tile);
+  if (grown) moments.builds.push(grown);
   renderTileLabel(el, tile);
 }
 
+// A handful of changes in one pass is a play (buy, rent, build, trade); a flood is a snapshot
+// catch-up (rejoin, restore) and stays quiet instead of stamping the whole board.
+const MAX_STAMPS_PER_PASS = 2;
+const MAX_BUILDS_PER_PASS = 4;
+const STAMP_MS = 320;
+const BUILD_POP_MS = 240;
+
+function playBoardMoments(moments) {
+  if (state.phase !== "playing") return;
+  if (moments.stamps.length && moments.stamps.length <= MAX_STAMPS_PER_PASS) {
+    moments.stamps.forEach((el) => playOneShot(el, "is-stamping", STAMP_MS));
+  }
+  if (moments.builds.length && moments.builds.length <= MAX_BUILDS_PER_PASS) {
+    moments.builds.forEach((buildEl) => playOneShot(buildEl, "is-popping", BUILD_POP_MS));
+    boardSound("house");
+  }
+}
+
 export function renderBoardState() {
-  TILES.forEach(renderBoardTile);
+  const moments = { stamps: [], builds: [] };
+  TILES.forEach((tile) => renderBoardTile(tile, moments));
+  playBoardMoments(moments);
 }
 
 export function tileCenter(i, zone = "passing") {
@@ -348,6 +425,12 @@ function hopPiece(el) {
   el.classList.add("is-hopping");
 }
 
+const LANDING_SETTLE_MS = 160;
+function landPiece(el) {
+  el.classList.add("is-landing");
+  setTimeout(() => el.classList.remove("is-landing"), LANDING_SETTLE_MS + 40);
+}
+
 function reconcilePieceWalk(playerId, walk, el, timestamp = motionNow()) {
   if (walk.cancelled) return;
   if (pieceWalks.get(playerId) !== walk) return;
@@ -362,15 +445,22 @@ function reconcilePieceWalk(playerId, walk, el, timestamp = motionNow()) {
       placePieces();
       return;
     }
+    // Fit each slide/hop inside the step that follows it; the final tile settles with an eased-out landing
+    // (is-moving is stripped the moment the walk finishes, so without this the last slide would just snap).
+    el.style.setProperty("--piece-step-ms", `${Math.min(240, walk.timeline.stepDurationMs(progress.index + 1))}ms`);
+    if (progress.done) landPiece(el);
     setPiecePosition(el, center.x, center.y);
     hopPiece(el);
+    if (walk.lastTick !== progress.index) {
+      walk.lastTick = progress.index;
+      boardSound("step");
+    }
   }
   if (progress.done) {
     finishPieceWalk(playerId, walk, el);
     return;
   }
-  const completedSteps = Math.floor(progress.elapsed / walk.timeline.stepMs);
-  const nextBoundary = walk.startedAt + ((completedSteps + 1) * walk.timeline.stepMs);
+  const nextBoundary = walk.startedAt + walk.timeline.nextBoundaryMs(progress.elapsed);
   clearTimeout(walk.timer);
   walk.timer = setTimeout(() => reconcilePieceWalk(playerId, walk, el), Math.max(16, nextBoundary - timestamp));
 }
@@ -394,7 +484,10 @@ function canAnimateWalk(el, path) {
 export function startPieceWalk(playerId, from, to, options = {}) {
   const path = Array.isArray(options.path) ? options.path : pieceWalkPath(Number(from) || 0, Number(to) || 0);
   const el = pieceElement(playerId);
-  if (!canAnimateWalk(el, path)) return Promise.resolve({ motionSkipped: true });
+  if (!canAnimateWalk(el, path)) {
+    if (REDUCED_MOTION && el && path.length) playArrivalCue(path.at(-1));
+    return Promise.resolve({ motionSkipped: true });
+  }
   cancelPieceWalk(playerId);
   const player = state.players.find((entry) => entry.id === playerId);
   const start = playerTileCenter(player, Number(from) || 0);
@@ -405,12 +498,13 @@ export function startPieceWalk(playerId, from, to, options = {}) {
   const movementComplete = new Promise(resolve => { complete = resolve; });
   const walk = {
     cancelled: false,
+    lastTick: -1,
     timer: null,
     complete,
     path,
     start,
     startedAt,
-    timeline: createWalkTimeline({ path, stepMs: options.stepMs || PIECE_WALK_STEP_MS, startedAt, now: motionNow }),
+    timeline: createWalkTimeline({ path, stepMs: options.stepMs || PIECE_WALK_STEP_MS, startedAt, now: motionNow, pacing: options.pacing }),
   };
   pieceWalks.set(playerId, walk);
   el.classList.add("is-moving");

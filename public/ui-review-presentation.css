@@ -21,13 +21,15 @@
   -webkit-text-stroke: 1px #d3f3d4;
 }
 #view-game .dice-roll-total::before { content: ""; position: absolute; inset: -.14em -.2em; border: 2px solid #a9e8ac; opacity: 0; pointer-events: none; }
-#view-game .dice-roll-total.is-visible::before { animation: dice-total-impact 650ms cubic-bezier(.2, .8, .2, 1) both; }
+#view-game .dice-roll-total.is-visible::before { animation: dice-total-impact 650ms var(--ease-out) both; }
 @keyframes dice-total-impact { 0% { opacity: 0; transform: scale(.72); } 20% { opacity: .85; transform: scale(1); } 100% { opacity: 0; transform: scale(1.3); } }
-#view-game .dice-roll-total.is-visible { animation: dice-total-review 3000ms cubic-bezier(.2, .8, .2, 1) both; }
+#view-game .dice-roll-total.is-visible { animation: dice-total-review 900ms var(--ease-out) both; }
 @keyframes dice-total-review {
+  /* The 900ms review hold is pinned by clientDiceRollEffect.test.js and mirrored by the JS hide
+     timer: in at ~240ms, held through the opening of the walk, gone by ~900ms. */
   0% { opacity: 0; transform: translate(-50%, -38%) scale(.82); }
-  8% { opacity: 1; transform: translate(-50%, -50%) scale(1.06); }
-  14%, 88% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  27% { opacity: 1; transform: translate(-50%, -50%) scale(1.06); }
+  30%, 85% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   100% { opacity: 0; transform: translate(-50%, -54%) scale(1.025); }
 }
 @media (prefers-reduced-motion: reduce) {

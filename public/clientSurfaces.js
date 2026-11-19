@@ -1,7 +1,7 @@
 // SHARED SURFACE / DIALOG CONTROLLER: keeps every blocking surface keyboard-safe without coupling
 // the game state machine to a modal implementation. The entry module injects parlorNotice for the
 // table-notice throttle.
-import { $, esc } from "./clientDom.js";
+import { $, esc, REDUCED_MOTION } from "./clientDom.js";
 import { hydrateSprites } from "./clientSprites.js";
 import { state } from "./clientState.js";
 import { snoozeAuctionSurface } from "./clientStateSync.js";
@@ -31,8 +31,33 @@ function surfaceVisible(el) {
   return !el.classList.contains("is-hidden");
 }
 
+// EXIT MOTION (visual only): a closed .popup keeps `.is-closing` for one short fall-away (styles.css
+// parlor-modal-exit) while every logical state (is-hidden, aria-hidden, the stack, inert, focus) already
+// reflects "closed". The closing node is inert and click-through, and reopening it cancels the exit.
+export const MODAL_EXIT_MS = 130;
+const MODAL_EXIT_SAFETY_MS = 60;
+const closingSurfaces = new Map();
+
+function cancelSurfaceExit(el) {
+  const timer = closingSurfaces.get(el);
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  closingSurfaces.delete(el);
+  el.classList.remove("is-closing");
+  el.inert = false;
+}
+
+function beginSurfaceExit(el) {
+  if (REDUCED_MOTION || !el.classList.contains("popup")) return;
+  cancelSurfaceExit(el);
+  el.classList.add("is-closing");
+  el.inert = true;
+  closingSurfaces.set(el, setTimeout(() => cancelSurfaceExit(el), MODAL_EXIT_MS + MODAL_EXIT_SAFETY_MS));
+}
+
 function setSurfaceHidden(el, hidden) {
   if (!el) return;
+  if (!hidden) cancelSurfaceExit(el);
   el.classList.toggle("is-hidden", hidden);
   el.setAttribute("aria-hidden", String(hidden));
 }
@@ -263,8 +288,10 @@ export function closeSurface(selector, options = {}) {
   if (selector === "#auction-modal") snoozeAuctionSurface();
   surfaceReturns.delete(selector);
   surfaceStack = surfaceStack.filter(entry => entry !== selector);
+  const wasOpen = surfaceVisible(surface);
   setSurfaceHidden(surface, true);
   const active = syncSurfaceA11y();
+  if (wasOpen) beginSurfaceExit(surface);
   if (active) {
     surfaceFocusable(active)[0]?.focus({ preventScroll: true });
     return;
@@ -289,6 +316,8 @@ export function closeAllSurfaces() {
   pendingConfirmation = null;
   surfaceStack = [];
   surfaceReturns.clear();
+  // Instant semantics: no exit motion here, and any exit already in flight is dropped.
+  closingSurfaces.forEach((_timer, el) => cancelSurfaceExit(el));
   SURFACE_SELECTORS.forEach((selector) => {
     const surface = $(selector);
     setSurfaceHidden(surface, true);

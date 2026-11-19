@@ -137,13 +137,25 @@ function autoDismissMs(kind, isError) {
   return 4200;
 }
 
+// Keep in step with the 150ms parlor-toast-out animation in styles.css. The node is removed on
+// animationend; the timer is the safety net for reduced motion, background tabs and no-CSS runs.
+const TOAST_EXIT_SAFETY_MS = 220;
+
 function dismissToastLater(toast) {
   if (!toast.isConnected) return;
   if (toast.classList.contains("is-leaving")) return;
   clearTimeout(toast._autoTimer);
   toast.classList.add("is-leaving");
   syncToastStack();
-  setTimeout(() => toast.remove(), 160);
+  let safety = null;
+  const remove = () => {
+    clearTimeout(safety);
+    toast.remove();
+  };
+  toast.addEventListener("animationend", (event) => {
+    if (event.target === toast && event.animationName === "parlor-toast-out") remove();
+  });
+  safety = setTimeout(remove, TOAST_EXIT_SAFETY_MS);
 }
 
 function trimToastStack(stack) {
