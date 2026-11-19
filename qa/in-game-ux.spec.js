@@ -163,7 +163,9 @@ async function verifyCornerIsNotInteractive(page) {
   await corner.evaluate(element => element.click());
   await expect(page.locator('#popup')).toHaveClass(/is-hidden/);
   await page.locator('#board-grid .tile[data-tile="1"]').focus();
-  await page.keyboard.press('Shift+Tab');
+  // The board is one roving tab stop: Shift+Tab leaves the board entirely, so
+  // the keyboard path along the ring is ArrowLeft through the grid.
+  await page.keyboard.press('ArrowLeft');
   await expect.poll(() => page.evaluate(() => document.activeElement?.dataset.tile)).toBe('0');
   await page.keyboard.press('Enter');
   await page.keyboard.press('Space');

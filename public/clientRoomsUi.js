@@ -125,7 +125,7 @@ function renderRoomsList() {
     ? `<div class="rooms-empty t-body">CHECKING PUBLIC TABLES…</div>`
     : rooms.length
     ? rooms.map(roomRowHTML).join("")
-    : `<div class="rooms-empty t-body">${String(lobbyState.roomsQuery || "").trim() ? `NO TABLES MATCH "${esc(String(lobbyState.roomsQuery).trim().toUpperCase())}".` : `NO PUBLIC TABLES RIGHT NOW. HOST ONE OR ENTER A CODE.`}<div class="rooms-empty-actions"><button class="btn-dark" type="button" data-rooms-empty="create"><span class="t-label f12">HOST A TABLE</span></button><button class="btn-dark" type="button" data-rooms-empty="join"><span class="t-label f12">ENTER A CODE</span></button></div></div>`;
+    : `<div class="rooms-empty t-body">${String(lobbyState.roomsQuery || "").trim() ? `NO TABLES MATCH "${esc(String(lobbyState.roomsQuery).trim().toUpperCase())}".` : `NO PUBLIC TABLES RIGHT NOW. HOST ONE OR ENTER A CODE.`}<div class="rooms-empty-actions"><button class="btn-dark" type="button" data-rooms-empty-action="create"><span class="t-label f12">HOST A TABLE</span></button><button class="btn-dark" type="button" data-rooms-empty-action="join"><span class="t-label f12">ENTER A CODE</span></button></div></div>`;
 
   syncRoomsFilterButtons();
 }
@@ -455,9 +455,9 @@ function onRoomsListClick(e) {
     }
     return;
   }
-  const tabIndex = e.target.closest("[data-rooms-empty]");
+  const tabIndex = e.target.closest("[data-rooms-empty-action]");
   if (tabIndex) {
-    switchRoomModalTab(tabIndex.dataset.roomsEmpty === "create" ? "create" : "join");
+    switchRoomModalTab(tabIndex.dataset.roomsEmptyAction === "create" ? "create" : "join");
     return;
   }
   const btn = e.target.closest("[data-join], [data-join-id]");

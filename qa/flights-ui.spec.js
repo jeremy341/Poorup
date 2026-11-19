@@ -58,6 +58,10 @@ test.describe('airport flights UI', () => {
   test('FLY FROM HERE opens a priced flight desk, selects the cheapest airport, and books it', async ({ page, context }) => {
     const code = `F${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
     const guest = await createGameWithFlights(page, context, code);
+    // The lobby-start burst still holds the closing turn snapshot when the game
+    // view first appears; pose only after it has landed (the roll button arms),
+    // or the late snapshot restores the server's flight state over the fixture.
+    await expect(page.locator('#roll-btn')).toBeEnabled();
     const sent = await page.evaluate(async () => {
       const [{ state }, flight, hud] = await Promise.all([
         import('/clientState.js'), import('/clientFlightUi.js'), import('/clientHudRender.js'),
@@ -115,6 +119,8 @@ test.describe('airport flights UI', () => {
   test('the flight desk closes with Escape and the FLY button hides when no flight is bookable', async ({ page, context }) => {
     const code = `F${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
     const guest = await createGameWithFlights(page, context, code);
+    // Same start-burst barrier as the booking flow above.
+    await expect(page.locator('#roll-btn')).toBeEnabled();
     await page.evaluate(async () => {
       const [{ state }, hud] = await Promise.all([import('/clientState.js'), import('/clientHudRender.js')]);
       state.phase = 'playing';

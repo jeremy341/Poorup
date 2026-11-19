@@ -2544,6 +2544,9 @@ button[id$="-close"],
   display: flex; align-items: flex-start; gap: 8px;
   width: min(80%, 380px); box-sizing: border-box; padding: 8px 8px 8px 12px;
   background: var(--surface-2); border: 1px solid var(--line-active); box-shadow: var(--shadow-panel), var(--shadow-inset);
+  /* The strip is a dismissable aside, never a control surface: clicks on whatever it
+     happens to overlap must fall through to the HUD. Only its close button is live. */
+  pointer-events: none;
 }
 .turn-coach[hidden] { display: none; }
 .turn-coach-text {
@@ -2551,7 +2554,7 @@ button[id$="-close"],
   font-family: var(--font-body); font-size: 12px; line-height: 1.4; letter-spacing: .02em;
   text-transform: none; color: var(--text-primary);
 }
-.turn-coach button.surface-close.turn-coach-close { width: 28px; height: 28px; min-width: 28px; min-height: 28px; }
+.turn-coach button.surface-close.turn-coach-close { width: 28px; height: 28px; min-width: 28px; min-height: 28px; pointer-events: auto; }
 
 .deck {
   position: absolute; bottom: 8%;
@@ -3994,6 +3997,10 @@ button[id$="-close"],
   .hud-jail-action { min-height: 44px; }
   .theme-open-btn { min-height: 44px; }
   .rules-page-turn { min-height: 44px; }
+  /* The landscape touch shell parks the roll/jail action column against the
+     board's bottom edge, which is exactly where the first-turn coach's dead
+     space sits on desktop. Lift the coach above the action column. */
+  .turn-coach { bottom: 12%; }
   /* Crosshair cursors fight affordance on touch/trackpads: default there.
      Desktop keeps the authored reticle theme. */
   body, button:not(:disabled), a, [role="button"],
