@@ -64,7 +64,7 @@ export function renderAboutContent() {
   const tracks = Object.values(MUSIC_MANIFEST.tracks).filter(track => track.status === 'approved').map(track => `<li><a href="${escapeHtml(track.source)}" target="_blank" rel="noopener noreferrer">${escapeHtml(track.title)}</a><span>${escapeHtml(track.artist)}</span><small>${escapeHtml(track.license)}</small></li>`).join('');
   return `<div class="about-document">
     <header class="about-intro">
-      <div class="t-micro g400">THE AFTER-HOURS PARLOR</div>
+      <div class="t-micro ink-2">THE AFTER-HOURS PARLOR</div>
       <h1 id="about-heading" tabindex="-1">About Poorup</h1>
       <p class="about-lead">A property game for friends, rivals, and the last wallet standing.</p>
       <p class="about-summary">Poorup is a free property-trading board game you play in your browser with friends or computer players. Roll the dice, buy properties, collect rent, trade and bid at auctions, and be the last player left standing. No download and no signup.</p>
@@ -72,12 +72,29 @@ export function renderAboutContent() {
       <noscript><p class="about-static-note">This information works without JavaScript. Playing Poorup requires JavaScript.</p></noscript>
     </header>
     <div class="about-reading-layout">
-      <nav class="about-contents" aria-label="About sections"><span class="t-micro g400">IN THIS PARLOR</span><a href="#about-project">The project</a><a href="#about-features">What makes it Poorup</a><a href="#about-credits">Credits &amp; links</a><a href="#about-faq">Common questions</a></nav>
+      <nav class="about-contents" aria-label="About sections"><span class="t-micro ink-2">IN THIS PARLOR</span><a href="#about-project">The project</a><a href="#about-features">What makes it Poorup</a><a href="#about-credits">Credits &amp; links</a><a href="#about-faq">Common questions</a></nav>
       <div class="about-reading">
-        <section id="about-project" tabindex="-1" aria-labelledby="about-project-title"><div class="about-section-label t-micro g400">01 / THE PROJECT</div><h2 id="about-project-title">A game night, without the setup.</h2><p>Poorup is built to get friends around a table quickly. A browser, a name, and a room code are enough to start. Accounts are optional, and computer players can fill the empty seats.</p><p>The goal is a complete multiplayer property game where the next action is clear, the board stays at the center, and a lost connection does not mean losing your seat.</p><div class="about-note"><span class="t-micro g400">INDEPENDENT BY DESIGN</span><p>Poorup is an independent project. It is not Monopoly and is not affiliated with Hasbro, the Monopoly brand or Richup.io; those names belong to their owners and are used here only to describe the kind of game Poorup is.</p></div></section>
-        <section id="about-features" tabindex="-1" aria-labelledby="about-features-title"><div class="about-section-label t-micro g400">02 / THE GAME</div><h2 id="about-features-title">Familiar stakes. Its own personality.</h2><p>Poorup is a free online Monopoly-style board game with its own board, cards, art and rules. Its after-hours pixel parlor brings a little character to every deal.</p><ul class="about-feature-list">${features}</ul><details class="about-basics"><summary>How a game of Poorup plays</summary><ol>${steps}</ol></details><p>If you have played Monopoly at home, or a free online version such as Richup.io, the loop will feel familiar: move around a board, buy what you land on, charge rent and negotiate. Poorup is its own game with its own board, cards and artwork, built to be quick to start and easy to read, with computer players, auctions and trades that follow the same rules as human seats.</p></section>
-        <section id="about-credits" tabindex="-1" aria-labelledby="about-credits-title"><div class="about-section-label t-micro g400">03 / CREDITS &amp; LINKS</div><h2 id="about-credits-title">The details that make the parlor.</h2><div class="about-credit-row"><h3>Typography</h3><p>Pixelify Sans, Jersey 15, Silkscreen, and IBM Plex Mono.</p></div><div class="about-credit-row"><h3>Music</h3><p>The parlor's theme soundtracks come from the creators below. Each track links to its source and keeps its credited license.</p><details class="about-music-credits"><summary>Soundtrack credits</summary><ul>${tracks}</ul></details></div><div class="about-credit-row"><h3>Explore Poorup</h3><p><a href="/" data-home-tab="play">Take a seat</a><span aria-hidden="true"> · </span><a href="/rules" data-top-surface="rules">Read the full rules</a></p></div></section>
-        <section id="about-faq" tabindex="-1" aria-labelledby="about-faq-title"><div class="about-section-label t-micro g400">04 / COMMON QUESTIONS</div><h2 id="about-faq-title">Before you take a seat.</h2>${faq}</section>
+        <section id="about-project" tabindex="-1" aria-labelledby="about-project-title"><div class="about-section-label t-micro ink-2">01 / THE PROJECT</div><h2 id="about-project-title">A game night, without the setup.</h2><p>Poorup is built to get friends around a table quickly. A browser, a name, and a room code are enough to start. Accounts are optional, and computer players can fill the empty seats.</p><p>The goal is a complete multiplayer property game where the next action is clear, the board stays at the center, and a lost connection does not mean losing your seat.</p><div class="about-note"><span class="t-micro ink-2">INDEPENDENT BY DESIGN</span><p>Poorup is an independent project. It is not Monopoly and is not affiliated with Hasbro, the Monopoly brand or Richup.io; those names belong to their owners and are used here only to describe the kind of game Poorup is.</p></div></section>
+        <section id="about-features" tabindex="-1" aria-labelledby="about-features-title">
+          <div class="about-section-label t-micro ink-2">02 / THE GAME</div>
+          <h2 id="about-features-title">Rent comes due.</h2>
+          <p class="t-body">Buy the block, collect the rent, and keep enough cash for the next corner. Poorup has its own board, cards, art, and rules.</p>
+          <ul class="about-feature-list">${features}</ul>
+          <details class="about-basics"><summary>How a game of Poorup plays</summary><ol>${steps}</ol></details>
+          <p class="t-body">Know Monopoly or Richup.io? The dice will feel familiar. Computer players bid and trade under the same rules as everyone else.</p>
+        </section>
+        <section id="about-credits" tabindex="-1" aria-labelledby="about-credits-title">
+          <div class="about-section-label t-micro ink-2">03 / CREDITS &amp; LINKS</div>
+          <h2 id="about-credits-title">Type and soundtrack</h2>
+          <div class="about-credit-row"><h3>Typography</h3><p>Pixelify Sans, Jersey 15, Silkscreen, and IBM Plex Mono.</p></div>
+          <div class="about-credit-row">
+            <h3>Music</h3>
+            <p class="t-body">Your theme picks the soundtrack. Each track lists who made it, where to find it, and its license.</p>
+            <details class="about-music-credits"><summary>Soundtrack credits</summary><ul>${tracks}</ul></details>
+          </div>
+          <div class="about-credit-row"><h3>Explore Poorup</h3><p><a href="/" data-home-tab="play">Take a seat</a><span aria-hidden="true"> · </span><a href="/rules" data-top-surface="rules">Read the full rules</a></p></div>
+        </section>
+        <section id="about-faq" tabindex="-1" aria-labelledby="about-faq-title"><div class="about-section-label t-micro ink-2">04 / COMMON QUESTIONS</div><h2 id="about-faq-title">Before you take a seat.</h2>${faq}</section>
         <footer class="about-document-footer"><p>Poorup is a free browser game. Not affiliated with Hasbro, Monopoly or Richup.io.</p><a class="btn-dark" href="/" data-home-tab="play">Back to the parlor</a></footer>
       </div>
     </div>

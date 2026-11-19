@@ -1,7 +1,7 @@
 // BOARD RENDERING: builds the 40 tiles, owner/building marks,
 // and the walking game pieces. Pure view layer over clientState.
 import { $, REDUCED_MOTION, setHtml } from "./clientDom.js";
-import { spriteHTML, avatarHTML } from "./clientSprites.js";
+import { spriteHTML, avatarHTML, hydrateSprites } from "./clientSprites.js";
 import {
   GROUP_COLOR,
   TILES,
@@ -96,10 +96,10 @@ export function tileIconHTML(tile) {
 }
 
 const STRIP_EDGES = {
-  bottom: "top:0;left:0;right:0;height:22%;border-bottom:1px solid #01070a",
-  top: "bottom:0;left:0;right:0;height:22%;border-top:1px solid #01070a",
-  left: "top:0;bottom:0;right:0;width:22%;border-left:1px solid #01070a",
-  right: "top:0;bottom:0;left:0;width:22%;border-right:1px solid #01070a",
+  bottom: "top:0;left:0;right:0;height:var(--tile-strip-size);border-bottom:1px solid var(--edge-0)",
+  top: "bottom:0;left:0;right:0;height:var(--tile-strip-size);border-top:1px solid var(--edge-0)",
+  left: "top:0;bottom:0;right:0;width:var(--tile-strip-size);border-left:1px solid var(--edge-0)",
+  right: "top:0;bottom:0;left:0;width:var(--tile-strip-size);border-right:1px solid var(--edge-0)",
 };
 
 export function stripStyle(tile) {
@@ -107,7 +107,7 @@ export function stripStyle(tile) {
   if (!c) return "";
   const edge = STRIP_EDGES[tile.side];
   if (!edge) return "";
-  return `background:${c};${edge}`;
+  return `background:color-mix(in srgb, ${c} 78%, var(--surface-2));${edge}`;
 }
 
 function tileClassName(tile) {
@@ -117,33 +117,36 @@ function tileClassName(tile) {
   return cls;
 }
 
-function wordsFor(name) {
-  return name.split(" ").map((w) => `<span style="display:block">${w}</span>`).join("");
+function boardPlateHTML(spriteName, classes) {
+  return `<span class="tile-plate ${classes}" data-sprite="${spriteName}" data-size="2" aria-hidden="true"></span>`;
 }
 
-const GO_CORNER_HTML = `<span class="go-big">GO</span>
+function specialPlateName(tile) {
+  if (tile.kind === "utility") return /ELECTRIC|POWER/.test(tile.name) ? "board-power" : "board-water";
+  return { railroad: "board-airport", chest: "board-chest", chance: "board-surprise", tax: "board-tax" }[tile.kind];
+}
+
+const GO_CORNER_HTML = `<span class="go-big">${boardPlateHTML("board-start", "tile-plate-start")}GO</span>
           <span class="t-tile tile-name" style="color:#a79d7d">COLLECT</span>
           <span class="t-tile tile-price" style="color:#cfa75f">$200</span>`;
 
 const PASSING_CORNER_HTML = `<span class="passing-by-corner-layout">
           <span class="t-tile tile-name passing-by-corner-label">PASSING BY</span>
           <span class="passing-by-prison-zone" aria-hidden="true">
-            <img class="passing-by-bars-art" src="/assets/board-icons/passing-by-bars.svg" alt="">
+            ${boardPlateHTML("board-passing", "passing-by-bars-art tile-plate-corner")}
           </span>
           <span class="passing-by-token-anchor passing-by-token-anchor-pass" data-tile-anchor="passing" aria-hidden="true"></span>
           <span class="passing-by-token-anchor passing-by-token-anchor-prison" data-tile-anchor="prison" aria-hidden="true"></span>
         </span>`;
 
-const PRISON_BARS_HTML = `<svg class="jail-bars" viewBox="0 0 16 10" shape-rendering="crispEdges" aria-hidden="true">
-            ${[1, 4, 7, 10, 13].map((x) => `<rect x="${x}" y="0" width="1.4" height="10" fill="#d74438"/>`).join("")}
-            <rect x="0" y="4" width="16" height="1.2" fill="#d74438"/></svg>
+const PRISON_BARS_HTML = `${boardPlateHTML("board-prison", "jail-bars tile-plate-corner")}
           <span class="t-tile tile-name" style="color:var(--red-bright)">PRISON</span>`;
 
 function cornerFaceHTML(tile) {
   if (tile.kind === "corner-go") return GO_CORNER_HTML;
   if (tile.kind === "corner-jail") return PASSING_CORNER_HTML;
   if (tile.kind === "corner-go-jail") return PRISON_BARS_HTML;
-  return `<span class="t-tile tile-name">${wordsFor(tile.name)}</span>${tileIconHTML(tile)}`;
+  return `${boardPlateHTML("board-vacation", "tile-plate-corner")}<span class="t-tile tile-name">${tile.name}</span>`;
 }
 
 function priceLineHTML(tile) {
@@ -153,21 +156,17 @@ function priceLineHTML(tile) {
 }
 
 function tileFaceHTML(tile) {
-  const words = wordsFor(tile.name);
-  const verticalSide = tile.side === "left" || tile.side === "right";
-  const verticalChest = verticalSide && tile.kind === "chest";
-  const iconOnly = tile.kind === "chance";
-  if (iconOnly) {
-    return `<span class="tile-face tile-face-special"><span class="tile-icon tile-icon-large">${tileIconHTML(tile)}</span></span>`;
-  }
-  if (verticalChest) {
-    return `<span class="tile-face tile-face-special"><span class="t-tile tile-name">${words}</span><span class="tile-icon tile-icon-large">${tileIconHTML(tile)}</span></span>`;
-  }
-  if (tile.kind === "tax") {
-    return `<span class="tile-face"><span class="t-tile tile-name">${words}</span>${priceLineHTML(tile)}</span>`;
-  }
+  const name = `<span class="t-tile tile-name">${tile.name}</span>`;
   const price = priceLineHTML(tile);
-  return `<span class="tile-face"><span class="t-tile tile-name">${words}</span><span class="tile-icon">${tileIconHTML(tile)}</span>${price}</span>`;
+  if (tile.kind === "property") return `<span class="tile-face">${name}${price}</span>`;
+  const plateName = specialPlateName(tile);
+  if (tile.kind === "chance") {
+    return `<span class="tile-face tile-face-special">${boardPlateHTML(plateName, "tile-icon tile-icon-large")}</span>`;
+  }
+  if (tile.kind === "chest") return `<span class="tile-face tile-face-special">${boardPlateHTML(plateName, "tile-icon tile-icon-large")}${name}</span>`;
+  const icon = boardPlateHTML(plateName, tile.kind === "railroad" ? "tile-icon airport-mark" : "tile-icon");
+  const faceClass = tile.kind === "tax" ? "tile-face-special tile-face-tax" : "tile-face-special";
+  return `<span class="tile-face ${faceClass}">${name}<span class="tile-meta">${icon}${price}</span></span>`;
 }
 
 function applyTileFace(el, tile) {
@@ -176,7 +175,9 @@ function applyTileFace(el, tile) {
     el.innerHTML = cornerFaceHTML(tile);
     return;
   }
-  const strip = tile.group ? `<span class="tile-strip" style="${stripStyle(tile)}"></span>` : "";
+  const strip = tile.group
+    ? `<span class="tile-strip" style="${stripStyle(tile)}">${boardPlateHTML(`district-${tile.group.replaceAll(" ", "-")}`, "tile-district-plate")}</span>`
+    : "";
   el.innerHTML = strip + `<span class="tile-owner" style="display:none"></span>` + tileFaceHTML(tile);
 }
 
@@ -204,6 +205,7 @@ export function buildBoard(onTileClick) {
   const theme = getTheme(state.themeId);
   paintSkyline($("#board-skyline"), theme.skyline.board || BOARD_SKYLINE, theme.palette);
   TILES.forEach((tile) => buildTile(tile, onTileClick));
+  hydrateSprites(grid);
 }
 
 function renderTileState(el, tile) {
@@ -436,26 +438,19 @@ if (typeof document !== "undefined" && typeof document.addEventListener === "fun
   });
 }
 
-function pieceMarkupFor(player, index) {
-  const grid = player.avatarGrid ? JSON.stringify(player.avatarGrid) : "";
-  return { sig: `${player.id}:${player.color}:${index}:${grid}`, markup: avatarHTML(player, 3, index) };
-}
+const PAWN_HTML = spriteHTML("board-pawn", 2);
 
-function ensurePiece(layer, p, i) {
-  let el = layer.querySelector(`.piece[data-player="${p.id}"]`);
+function ensurePiece(layer, player) {
+  let el = layer.querySelector(`.piece[data-player="${player.id}"]`);
   if (!el) {
     el = document.createElement("div");
     el.className = "piece";
-    el.dataset.player = p.id;
+    el.dataset.player = player.id;
+    el.innerHTML = PAWN_HTML;
     layer.appendChild(el);
   }
-  el.style.borderColor = p.color;
-  el.title = p.name;
-  const face = pieceMarkupFor(p, i);
-  if (el.dataset.sig !== face.sig) {
-    el.innerHTML = face.markup;
-    el.dataset.sig = face.sig;
-  }
+  el.style.setProperty("--piece-color", player.color);
+  el.title = player.name;
 }
 
 function pruneStrayPieces(layer) {
@@ -468,7 +463,7 @@ function pruneStrayPieces(layer) {
 function ensurePieces() {
   const layer = $("#token-layer");
   if (!layer) return;
-  state.players.filter(p => !p.bankrupt && !p.spectating).forEach((p, i) => ensurePiece(layer, p, i));
+  state.players.filter(p => !p.bankrupt && !p.spectating).forEach(player => ensurePiece(layer, player));
   pruneStrayPieces(layer);
 }
 

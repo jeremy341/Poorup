@@ -509,7 +509,7 @@ function onCreateRoomClick() {
 
 function createRoomName() {
   const nameInput = $("#rc-name");
-  return (nameInput?.value || "").trim().toUpperCase().slice(0, 18) || "AFTER HOURS #12";
+  return (nameInput?.value || "").trim().toUpperCase().slice(0, 18) || `AFTER HOURS #${10 + Math.floor(Math.random() * 90)}`;
 }
 
 function createRoomAlias() {

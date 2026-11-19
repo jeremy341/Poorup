@@ -2,8 +2,7 @@
    board centre; side rails are slim so the board fills the viewport height.
    Selectors carry #view-game so they win over the older per-breakpoint HUD rules. */
 
-/* ---- board centre: controls replace the wordmark ---- */
-#view-game .center-field .cf-inner,
+/* ---- board centre: controls sit above the wordmark ---- */
 #view-game .center-field .deck { display: none; }
 #view-game .center-field .center-skyline { opacity: 0.32; }
 #view-game .center-field > .hud {
@@ -196,8 +195,8 @@
   }
 }
 
-/* ---- owned tiles carry their owner's colour (frame + soft inner wash), like richup ---- */
-#board-grid .tile.is-owned { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--tile-owner) 85%, transparent), inset 0 0 16px color-mix(in srgb, var(--tile-owner) 26%, transparent); }
+/* ---- owned tiles pair a hard seat-coloured edge with the owner portrait ---- */
+#board-grid .tile.is-owned:not(.is-highlight) { border-color: var(--tile-owner); box-shadow: inset 0 0 0 1px var(--tile-owner); }
 
 /* ---- tile popup: manage button for your own deeds ---- */
 .pop-manage { width: 100%; min-height: 44px; }

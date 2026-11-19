@@ -34,6 +34,10 @@ const AVATAR_FACES = [
   [".111111.", "11211211", "11111111", "11111111", "13333131", "11111111", "11111111", ".1.11.1."],
 ];
 
+function boardStamp(rows) {
+  return (size) => sprite(rows, { 1: "currentColor" }, size);
+}
+
 const SPRITES = {
   logo: (s) =>
     sprite(
@@ -70,6 +74,31 @@ const SPRITES = {
     s,
   ),
   pawn: (s, color) => sprite([".11.", "1111", ".11.", "1111"], { 1: color }, s),
+  "district-brown": boardStamp(["..1..", ".111.", "11111", "11.11", "11111"]),
+  "district-cyan": boardStamp([".1.1.", ".1.1.", "11111", "1.1.1", ".1.1."]),
+  "district-magenta": boardStamp(["..1..", ".111.", "..1..", "11111", ".1.1."]),
+  "district-orange": boardStamp(["1...1", "11111", ".1.1.", "11111", ".1.1."]),
+  "district-red": boardStamp([".111.", "11.11", "1...1", ".....", "11111"]),
+  "district-yellow": boardStamp(["..1..", "..1.1", "1.1.1", "1.111", "11111"]),
+  "district-green": boardStamp(["..1..", ".1.1.", "11..1", "111.1", "11111"]),
+  "district-blue": boardStamp([".111.", ".1.1.", "11111", ".1.1.", ".111."]),
+  "district-metro-gold": boardStamp(["1.1.1", ".111.", "11111", ".111.", "1.1.1"]),
+  "district-metro-silver": boardStamp(["11...", ".11..", "..11.", "...11", "....."]),
+  "board-start": boardStamp(["..1..", "...1.", "11111", "...1.", "..1.."]),
+  "board-passing": boardStamp(["11111", "1.1.1", "1.1.1", "1.1.1", "1.1.1"]),
+  "board-prison": boardStamp([".111.", ".1.1.", "11111", "11.11", "11111"]),
+  "board-vacation": boardStamp([".111.", "11111", "1.1.1", "..1..", ".111."]),
+  "board-airport": boardStamp(["..1..", "..1..", "11111", "..1..", ".111."]),
+  "board-power": boardStamp(["...1.", "..11.", ".111.", "..11.", "..1.."]),
+  "board-water": boardStamp(["..1..", ".1.1.", "1...1", "11..1", ".111."]),
+  "board-tax": boardStamp(["11111", "1...1", "1.111", "1...1", "1.1.1"]),
+  "board-chest": boardStamp([".111.", "11111", "1.1.1", "1...1", "11111"]),
+  "board-surprise": boardStamp([".111.", "1...1", "..11.", ".....", "..1.."]),
+  "board-pawn": (size) => sprite(
+    ["..111..", ".13221.", ".12221.", "..121..", "..121..", ".12221.", ".12221.", "1222221", "1111111"],
+    { 1: "var(--piece-edge)", 2: "var(--piece-color)", 3: "var(--piece-shine)" },
+    size,
+  ),
   avatar: (s, color, seed) => sprite(AVATAR_FACES[seed % AVATAR_FACES.length], { 1: color, 2: "#01070a", 3: "#01070a" }, s),
 };
 
