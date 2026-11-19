@@ -24,7 +24,7 @@ const sync = source("./clientStateSync.js");
 const rail = source("./clientRailRender.js");
 const responsive = source("./game-responsive.css");
 const styles = source("./styles.css");
-const deedStyles = source("./ui-review-deeds.css");
+const deedStyles = source("./ux-surfaces.css");
 const dealUi = source("./clientDealUi.js");
 
 globalThis.window = { matchMedia: () => ({ matches: false }) };

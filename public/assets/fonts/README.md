@@ -6,16 +6,28 @@ is recorded below was read from the `name` table inside each shipped file
 (copyright line, version, licence URL). Anything not found in the files is
 marked as such, not guessed.
 
-## Required follow-up: ship the licence text
+## Required follow-up: ship the licence text — DONE
 
 The OFL requires that the licence text and each family's copyright notice
-travel with the fonts when they are redistributed. **No `OFL.txt` (or any other
-licence file) currently ships in this directory.** Before the next release add
-one OFL 1.1 copy per family (taken from the upstream repositories listed
-below) next to the font files, for example `OFL-ibm-plex-mono.txt`,
-`OFL-jersey15.txt`, `OFL-pixelify-sans.txt` and `OFL-silkscreen.txt`. Until
-those files exist, this README only points to the licence, it does not satisfy
-the "include the licence text" condition.
+travel with the fonts when they are redistributed. **Each family's licence
+file now ships in this directory**, fetched verbatim from the canonical
+`google/fonts` upstream:
+
+- `OFL-ibm-plex-mono.txt` — Copyright © 2017 IBM Corp. **with Reserved Font
+  Name "Plex"** (the only family here that reserves a name; the family is
+  shipped under its original name, so the reservation is satisfied).
+- `OFL-jersey15.txt` — Copyright 2023 The Soft Type Project Authors
+  (https://github.com/scfried/soft-type-jersey). No Reserved Font Name.
+- `OFL-pixelify-sans.txt` — Copyright 2021 The Pixelify Sans Project Authors
+  (https://github.com/eifetx/Pixelify-Sans). No Reserved Font Name.
+- `OFL-silkscreen.txt` — Copyright 2001 The Silkscreen Project Authors
+  (https://github.com/googlefonts/silkscreen). No Reserved Font Name; the
+  canonical googlefonts release distributes Silkscreen under OFL 1.1, which
+  covers the copy shipped here.
+
+The Reserved Font Name check flagged earlier is resolved by those files:
+IBM Plex Mono reserves "Plex" (satisfied, name unchanged); the other three
+families declare none.
 
 ## Families
 
@@ -36,11 +48,11 @@ the "include the licence text" condition.
   (family credit from memory, not in the file). Pixelify Sans and Silkscreen
   low to medium (from memory, not in the files).** Confirm against the upstream
   repositories before publishing a named credit.
-- **Reserved Font Names:** not checked. Some OFL releases declare one in the
-  copyright header (the files above do not state one in the lines shown), and
-  an upstream `OFL.txt` will say so. Read it when adding the licence files, and
-  do not rename or modify a family that declares one without the upstream terms.
-- **Silkscreen is the family to double-check first.** Its original release
-  predates the OFL, and the file only gives an OFL URL. Confirm that the
-  googlefonts release's `OFL.txt` covers the `silkscreen-regular.ttf` copy used
-  here.
+- **Reserved Font Names: resolved.** IBM Plex Mono's upstream OFL declares
+  "Plex" as its Reserved Font Name (the family ships unrenamed, satisfying
+  it); Pixelify Sans, Jersey 15 and Silkscreen declare none in their
+  upstream `OFL.txt` files, which now ship beside the font files.
+- **Silkscreen: resolved.** The canonical googlefonts release distributes
+  Silkscreen under OFL 1.1 with no Reserved Font Name, and its licence text
+  ships here — the pre-OFL-history concern is settled by the upstream
+  release the copy is taken from.
