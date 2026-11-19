@@ -51,8 +51,8 @@ hands off to the NEW release's `scripts/deploy-nest.sh`: drain via
 skipped via `flock`; failures run `rollback-nest.sh` (`previous` is seeded).
 No GitHub secrets are needed for this path.
 
-Push-triggered maintenance screen: `maintenance-drain.yml` (push to main) and
-`maintenance-undrain.yml` (CI non-success) exist for the push path but stay
+Push-triggered maintenance screen: the `maintenance.yml` drain job (push to
+main) and its undrain job (CI non-success) exist for the push path but stay
 parked: the front gateway only forwards the existing `jeremy-d` SSH identity
 and rejects newly provisioned keys, so Actions cannot SSH in. If the gateway
 authorizes a deploy key later, set the repository variable

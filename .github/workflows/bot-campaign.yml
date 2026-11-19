@@ -11,14 +11,15 @@ concurrency:
 
 jobs:
   full-bot-campaign:
-    # Development is the branch where bot changes land first; main is the
-    # released tree. Both get the same fixed-seed campaign (G12-14).
+    # Testing is the gate lane where every candidate tree has already passed
+    # the fixed-seed campaign's prerequisites; main is the released tree.
+    # Both get the same fixed-seed campaign (G12-14).
     name: 1,000 fixed-seed no-stall games on ${{ matrix.ref }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        ref: [main, development]
+        ref: [main, testing]
     steps:
       - uses: actions/checkout@v4
         with:

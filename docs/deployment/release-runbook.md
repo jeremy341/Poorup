@@ -2,12 +2,12 @@
 
 1. Merge only a reviewed PR into main.
 2. Confirm the tier-appropriate gates before the `testing` → `main` hop:
-   required checks `test` and `boot smoke` are green, browser QA is green on
-   the `development` → `testing` promotion (it runs on that hop, not on every
-   PR), the CodeScene cloud check has been reviewed, and human approval is on
-   every hop. Once the `testing` merge queue is enabled, heavy-tier checks run
-   against the queue's merge result automatically: a green queue group is
-   then the primary evidence for this step.
+   required checks `test` and `boot smoke` are green, the full battery (four
+   test shards with coverage plus browser QA) has already run on the PR that
+   merged into `testing`, the CodeScene cloud check has been reviewed, and
+   human approval is on every hop. Once the `testing` merge queue is enabled,
+   full-tier checks run against the queue's merge result automatically: a
+   green queue group is then the primary evidence for this step.
 3. Record the release SHA.
 4. Create and verify a backup.
 5. Set maintenance to DRAINING.
@@ -19,7 +19,7 @@
 11. Monitor Analytics and logs.
 12. Keep the previous release for rollback.
 
-Keep `development`, `testing`, and `main` as permanent branches. When merging
+Keep `testing` and `main` as the permanent branches. When merging
 promotion PRs, do not enable source-branch deletion; only short-lived feature
 branches may be deleted after their PR is merged.
 

@@ -2,7 +2,7 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: /
-    target-branch: development
+    target-branch: testing
     schedule:
       interval: weekly
     groups:
@@ -11,6 +11,6 @@ updates:
           - patch
   - package-ecosystem: github-actions
     directory: /
-    target-branch: development
+    target-branch: testing
     schedule:
       interval: weekly
