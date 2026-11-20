@@ -273,14 +273,6 @@ a:focus-visible {
  * Decorative worlds sit behind the existing Poorup surfaces. They never
  * own input, layout tracks, game state, or semantic status colors.
  */
-.view { position: relative; z-index: 1; }
-.theme-page-world,
-.theme-home-world,
-.theme-board-world {
-  pointer-events: none;
-  overflow: hidden;
-  contain: paint;
-}
 .theme-page-world {
   position: fixed;
   inset: 0;
@@ -324,24 +316,12 @@ a:focus-visible {
 .theme-prop-incident { top: 19%; left: 14%; }
 .theme-prop-light { top: 12%; right: 14%; width: clamp(14px, 3vw, 38px); }
 .theme-prop-weather { right: 18%; bottom: 15%; width: clamp(18px, 3.2vw, 42px); }
-.theme-scene.is-entering { animation: theme-scene-in 300ms var(--ease-out) both; }
 @keyframes theme-scene-in {
   from { opacity: 0; transform: translate3d(0, 2px, 0); }
   to { opacity: var(--theme-scene-opacity, 0.36); transform: translate3d(0, 0, 0); }
 }
 .theme-motion-paused .theme-scene,
 .theme-motion-paused .theme-prop { animation-play-state: paused; }
-.profile-preferences { position: relative; }
-.theme-choice-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin-top: 12px;
-  max-height: min(470px, calc(100vh - 230px));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 2px;
-}
 .theme-choice {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
@@ -357,19 +337,14 @@ a:focus-visible {
   border-radius: 2px;
   transition: border-color var(--dur-xs) var(--ease-snap), background var(--dur-xs) var(--ease-snap), color var(--dur-xs) var(--ease-snap);
 }
-.theme-choice:hover { color: var(--gold-100); background: var(--surface-button-dark); border-color: var(--line-default); }
 .theme-choice:focus-visible { color: var(--gold-050); border-color: var(--line-active); outline: 2px solid var(--gold-100); outline-offset: 1px; }
 .theme-choice[aria-checked="true"] { color: var(--gold-050); background: var(--surface-panel-raised); border-color: var(--line-active); box-shadow: var(--shadow-active); }
 .theme-choice img { display: block; width: 52px; height: 38px; object-fit: cover; image-rendering: pixelated; border: 1px solid var(--line-dark); }
-.theme-choice-copy { display: grid; gap: 4px; min-width: 0; }
-.theme-choice-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }
 .theme-choice-description { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--text-muted); font-family: var(--font-body); font-size: 12px; line-height: 1.25; }
 .theme-choice[aria-checked="true"] .theme-choice-description { color: var(--gold-muted); }
 @media (max-width: 900px) {
-  .theme-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 640px) {
-  .theme-choice-grid { grid-template-columns: 1fr; max-height: calc(100dvh - 210px); }
   .theme-choice { min-height: 58px; }
 }
 @media (orientation: landscape) and (min-width: 768px) and (max-width: 1279px) {
@@ -379,9 +354,6 @@ a:focus-visible {
   .theme-scene.is-entering { animation: none; opacity: var(--theme-scene-opacity, 0.36); transform: none; }
 }
 @media (forced-colors: active) {
-  .theme-page-world,
-  .theme-home-world,
-  .theme-board-world { display: none; }
   .theme-choice[aria-checked="true"] { outline: 2px solid Highlight; }
 }
 
@@ -548,8 +520,6 @@ body[data-theme-id]:not([data-theme-id="original"]) #view-home .home-patrol-hint
 .theme-choice { display: grid; grid-template-columns: 68px minmax(0, 1fr); align-items: center; gap: 9px; min-width: 0; min-height: 72px; padding: 7px; text-align: left; color: var(--text-muted); background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); border-radius: 2px; cursor: pointer; transition: border-color var(--dur-xs) var(--ease-snap), background var(--dur-xs) var(--ease-snap), color var(--dur-xs) var(--ease-snap); }
 .theme-choice input { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; }
 .theme-choice:hover { color: var(--gold-100); background: var(--surface-button-dark); border-color: var(--line-default); }
-.theme-choice:focus-within { color: var(--gold-050); border-color: var(--line-active); outline: 2px solid var(--theme-focus, var(--gold-100)); outline-offset: 1px; }
-.theme-choice:has(input:checked) { color: var(--gold-050); background: var(--surface-panel-raised); border-color: var(--line-active); box-shadow: var(--shadow-active); }
 .theme-choice input:checked + .theme-choice-art { border-color: var(--line-active); }
 .theme-choice-art { display: block; width: 68px; height: 42px; overflow: hidden; border: 1px solid var(--line-dark); background: var(--surface-board-center); }
 .theme-choice img { display: block; width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
@@ -975,8 +945,7 @@ body:has(#view-admin-analytics:not(.is-hidden)) .theme-page-world {
 .pc-spark { display: inline-block; vertical-align: middle; overflow: visible; }
 .pc-spark .pc-line { stroke-width: 1.5; }
 .analytics-chart-summary { margin: 0; }
-@media (max-width: 900px) { .theme-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 640px) { .theme-choice-grid { grid-template-columns: 1fr; max-height: calc(100dvh - 210px); } .theme-choice { min-height: 64px; } }
+@media (max-width: 640px) { .theme-choice-grid { grid-template-columns: 1fr; max-height: calc(100dvh - 210px); } }
 @media (prefers-reduced-motion: reduce) { .theme-scene.is-entering, .theme-prop { animation: none; transform: none; } }
 @media (forced-colors: active) { .theme-page-world, .theme-home-world, .theme-board-world { display: none; } .theme-choice:has(input:checked) { outline: 2px solid Highlight; } }
 .is-hidden { display: none !important; }
@@ -4279,7 +4248,6 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
   .market-history-range { display: grid; }
   .market-history-range-note { display: block; }
   .market-position-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .market-quote-chart { height: clamp(150px, 23dvh, 210px); min-height: 150px; }
   .market-trade-ticket { gap: 8px; padding: 9px; }
   .market-desk-center { height: auto; min-height: 0; grid-template-rows: none; }
   .market-history { grid-template-rows: none; }
@@ -4767,7 +4735,6 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .dice-rolling, .chest, .blink, .piece.is-hopping, .face-cell:hover, .cash-chip, #hud-cash.is-cash-up, #hud-cash.is-cash-down, .tile-build.is-popping > *, #board-grid .tile.is-stamping { animation: none !important; }
   .piece.is-moving, .piece.is-landing, .tile, .tile::before, .log-drawer { transition: none !important; }
-  .popup-card, .panel, .hud-cell, .global-event-banner, .panel-menu, .auction-bar-fill { transition: none !important; animation: none !important; }
   .hud-cash-action:active:not(:disabled) { transform: none; }
 }
 
@@ -5004,7 +4971,6 @@ summary.finance-bank-head::-webkit-details-marker { display: none; }
     overflow: hidden;
   }
   #view-game .right-rail-body { min-height: 0; overflow-y: auto; }
-  #view-game .global-event-banner { width: min(680px, calc(100% - 14px)); gap: 8px; padding: 8px 10px; }
 
   #view-game.is-left-rail-hidden .game-main { grid-template-columns: 0 minmax(0, 1fr) var(--ipad-right-rail); }
   #view-game.is-right-rail-hidden .game-main { grid-template-columns: var(--ipad-left-rail) minmax(0, 1fr) 0; }
@@ -5857,8 +5823,7 @@ a.rules-index-link { text-decoration: none; }
 #view-rules .rules-index > p { padding: 8px 7px 2px; }
 #view-rules .rules-index > p a { color: var(--gold-400); }
 
-/* ===== Folded from ui-review-admin.css (formerly a separate patch layer). Kept at the end of this file so it still
-   follows every rule it overrode here; its selectors do not overlap later sheets' rules. ===== */
+/* ===== Admin economy report (kept last so it follows every rule it overrides) ===== */
 /* One Economy report fills the available panel while keeping its data compact. */
 [data-analytics-panel="economy"] .admin-chart-section { min-width: 0; min-height: 0; overflow: hidden; }
 [data-analytics-panel="economy"] .admin-chart-section > .admin-section-body { min-height: 0; }
@@ -5901,9 +5866,7 @@ a.rules-index-link { text-decoration: none; }
   .economy-outcome-row { border-color: CanvasText; }
 }
 
-/* ===== Folded from ui-review-pages.css (formerly a separate patch layer). Kept at the end of this file so it still
-   follows every rule it overrode here; its selectors do not overlap later sheets' rules. ===== */
-/* Focused page, social-feed, and lobby refinements. */
+/* ===== Focused page, social-feed and lobby refinements (kept last so it follows every rule it overrides) ===== */
 
 @media (min-width: 1200px) {
   #view-rankings .social-page-main,

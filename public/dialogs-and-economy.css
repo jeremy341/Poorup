@@ -178,8 +178,7 @@ button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: cen
   .social-page-shell.is-modal .social-network-grid { min-height: 360px; }
 }
 
-/* ==== Folded from ui-review-economy.css (loaded after the rules above, unchanged order) ==== */
-/* Economy UI: local workbench layouts within Poorup's existing parlor palette. */
+/* ---- Economy workbenches: market, financing and sponsorship layouts ---- */
 
 /* Market: a quiet exchange terminal with clear quote, history, and order zones. */
 #market-modal .market-desk-card {
@@ -404,7 +403,7 @@ button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: cen
   #financing-modal .contract-repay-controls > label { grid-column: 1; }
 }
 
-/* ==== Folded from ui-review-market.css (loaded after the rules above, unchanged order) ==== */
+/* ---- Market desk ---- */
 /* Persistent exchange workspace. Quote history stays beside every order mode. */
 #market-modal .market-desk-card {
   width: min(1640px, calc(100vw - 48px));
@@ -592,8 +591,7 @@ button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: cen
 #casino-modal .economy-result[hidden] { display: none; }
 #casino-modal .casino-modal-body > .economy-note { margin-top: 12px; }
 
-/* ==== Folded from ui-review-deeds.css (loaded after the rules above, unchanged order) ==== */
-/* Compact contextual controls for the deed manager. */
+/* ---- Deed manager: compact contextual controls ---- */
 .deed-detail-primary-build { margin-top: 12px; }
 .deed-detail-primary-build > .deed-detail-build-btn { width: 100%; min-height: 48px; }
 .deed-detail-primary-build .deed-detail-build-msg { margin: 7px 0 0; padding: 7px 9px; }
@@ -670,8 +668,7 @@ button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: cen
   #deed-modal .deed-detail-card { max-height: calc(100dvh - 24px); overflow-y: auto; }
 }
 
-/* ==== Folded from ui-review-presentation.css (loaded after the rules above, unchanged order) ==== */
-/* Presentation refinements for the existing after-hours pixel parlor. */
+/* ---- Presentation refinements ---- */
 
 /* Card text carries the draw; the card's familiar frame and action remain. */
 #card-modal #card-reveal .card-reveal-name {
@@ -800,7 +797,7 @@ button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: cen
   #gameover-modal .go-summary-row > :nth-child(3) { grid-column: 3; justify-self: end; }
 }
 
-/* ==== Folded from ui-review-game.css (loaded after the rules above, unchanged order) ==== */
+/* ---- Game rails ---- */
 /* Players and chat form one continuous rail; the player count sets their join. */
 @media (min-width: 768px) and (orientation: landscape) {
   #view-game .rail-left { gap: 0; }
@@ -897,7 +894,7 @@ button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: cen
   #view-game .is-metro .piece > svg { width: 10px; height: auto; }
 }
 
-/* ==== Folded from ui-review-recovery.css (loaded after the rules above, unchanged order) ==== */
+/* ---- Prison mark ---- */
 /* Use the existing board bars glyph within the reference icon's square. */
 .deed-detail-icon .pop-prison-mark, .choice-icon .pop-prison-mark { display: block; flex: 0 0 auto; width: 44px; height: 28px; max-width: 100%; color: var(--red-bright); }
 

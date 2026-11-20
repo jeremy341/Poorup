@@ -146,7 +146,7 @@ function updateCreateRoomUI() {
   const codeInput = $("#room-create-code");
   syncCreateRoomCode(codeInput, settings);
   const codeValid = /^[A-Z0-9]{6}$/.test(settings.code);
-  paintCreateCodeStatus(isPrivate, codeValid, settings);
+  paintCreateCodeStatus(isPrivate, codeValid);
   // The field is only flagged after the player has tried to leave it or submit with a bad code,
   // never the moment it appears empty.
   if (codeInput) codeInput.setAttribute("aria-invalid", String(isPrivate && !codeValid && createCodeAttempted));
@@ -178,7 +178,7 @@ function syncCreateRoomCode(codeInput, settings) {
   codeInput.value = settings.code;
 }
 
-function paintCreateCodeStatus(isPrivate, codeValid, settings) {
+function paintCreateCodeStatus(isPrivate, codeValid) {
   const codeStatus = $("#room-create-code-status");
   if (!codeStatus) return;
   codeStatus.textContent = !isPrivate ? "NOT NEEDED FOR PUBLIC TABLES" : codeValid ? "READY" : `${lobbyState.createRoomSettings.code.length}/6 CHARACTERS`;
