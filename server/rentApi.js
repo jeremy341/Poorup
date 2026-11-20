@@ -1,5 +1,5 @@
-// Rent computation as a prototype mixin. The formula is shared with the
-// player's public bot forecast so candidate projections use authoritative rules.
+// Rent on GameState as a prototype mixin. The formula itself lives in botRentForecast.js (calculateRentFromFacts) and is shared
+// with the bots' forecast, so a bot projecting rent and the engine charging it can never disagree.
 import { calculateRentFromFacts, rentFactsFromGame } from './botRentForecast.js';
 
 const rentApi = {
@@ -24,6 +24,7 @@ const rentApi = {
     return calculateRentFromFacts({ ...facts, tile: { type: 'other', rent }, hasFullSet: false, doubleRent: false });
   },
 
+  // The name bot code uses (and stubs in tests) for getPropertyRent.
   calculateRent(tile) {
     return this.getPropertyRent(tile);
   }
