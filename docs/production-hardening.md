@@ -2,7 +2,9 @@
 
 Poorup remains one modular monolith. The authoritative room state stays in
 memory for a single process, while account, social, match, achievement,
-season, cosmetic, and telemetry projections use atomic JSON stores.
+and telemetry projections use atomic JSON stores. The season and cosmetic
+stores are retired features kept only so existing standings stay readable
+(`server/retiredAccountStore.js`); they are still backed up and restored.
 
 Current feature status, evidence paths, and policy-gated surfaces are tracked
 in [`docs/feature-status.json`](feature-status.json). This runbook does not

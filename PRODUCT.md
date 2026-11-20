@@ -23,7 +23,7 @@ Poorup combines a complete server-authoritative property game with account-free 
 - Played in a desktop browser during a remote or in-person game night.
 - The host configures rules in the lobby and starts once at least 2 players are present.
 - Players repeatedly scan the board, current-turn state, cash, owned properties, chat, and contextual decisions.
-- The target presentation is large desktop at 1920x1080 and 2560x1440.
+- The primary target is desktop, from 1440x900 up to 2560x1440 (the browser QA matrix in `qa/visual-capture/viewports.mjs` also covers 4K and landscape iPad sizes).
 
 ## Capabilities and Constraints
 
@@ -32,7 +32,7 @@ Poorup combines a complete server-authoritative property game with account-free 
 - Server-side game logic remains the source of truth and existing Socket.IO contracts remain stable.
 - Frontend remains vanilla HTML, CSS, and JavaScript.
 - Board presentation uses the supplied pixel-parlor visual language in a 40/52-space HTML/CSS renderer while live Socket.IO state remains server-authoritative.
-- Smaller screens keep the existing functional fallback but are not part of this redesign's visual acceptance target.
+- Phone-sized screens keep a functional fallback but are not part of the visual acceptance target.
 
 ## Brand Commitments
 
@@ -42,10 +42,10 @@ Poorup combines a complete server-authoritative property game with account-free 
 
 ## Evidence on Hand
 
-- Working multiplayer implementation in `server/` with the plain client in `public/main.js`.
-- The latest supplied archive adds a profile library, room tabs, sound toggle, card reveals, deed detail, auction pass UI, turn timer, and game-over surface; these remain available in the plain client.
-- Existing board topology and content in the plain HTML/CSS board renderer; the protected legacy SVG copy is retained only for rollback.
-- Current landing and game-shell accessibility improvements live in `public/index.html` and `public/styles.css`.
+- Working multiplayer implementation in `server/` (entry `server/server.js`) with the plain client in `public/` (entry `public/index.html` and `public/main.js`).
+- The client already ships a profile library, room tabs, sound toggle, card reveals, deed detail, auction pass UI and a game-over surface. Turns have no fixed time limit; a separate inactivity clock and vote-kick flow run during a game.
+- The board is drawn by the HTML/CSS board renderer (`public/clientBoardRender.js`) from the topology in `public/clientBoardData.js`.
+- Landing and game-shell accessibility work lives in `public/index.html` and `public/styles.css`.
 - No testimonials, usage numbers, customer logos, or external performance claims are available and none may be fabricated.
 
 ## Product Principles
@@ -55,6 +55,10 @@ Poorup combines a complete server-authoritative property game with account-free 
 3. Secondary information stays available without covering the active play area.
 4. Real-time state changes are legible, accessible, and never decorative noise.
 5. A player can enter a room without an account or unnecessary ceremony.
+
+## Onboarding direction (not built)
+
+New players mostly miss the rules page and meet their first purchase prompt cold. The recommended direction (an October 2026 proposal, not yet agreed with the owner), in order: one-time contextual tips at the first purchase, auction, card and debt decision (stored per account, never blocking the action); then an optional, skippable guided first game on a fixed Standard setup with every optional system off. No tour that repeats on every visit. Measure the effect (share reaching round 3, first-game passes, early bankruptcies) before building the guided game.
 
 ## Accessibility & Inclusion
 
