@@ -71,7 +71,6 @@ Every test file is a plain Node script that exits non-zero on failure, so any si
 | `scripts/` | Test runner and manifest, CI timing tools, deploy and rollback scripts for the host, and backup restore and data-purge tools. |
 | `docs/` | Runbooks and reference docs; start at [docs/README.md](docs/README.md). |
 | `design/` | The visual design system. |
-| `bench/` | Bot-campaign parity baseline; see [bench/README.md](bench/README.md). |
 
 Root files: `PRODUCT.md` (product intent), `AGENTS.md` (rules for coding agents), `Dockerfile` and `ecosystem.config.cjs` (container and PM2 runtime), `.github/` (CI, deploy and maintenance workflows), `.codescene/` and `codecov.yml` (code-health and coverage settings).
 

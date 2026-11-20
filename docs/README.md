@@ -20,7 +20,7 @@ then the live runbook; to roll back, the rollback runbook.
 
 | Document | What it is for |
 | --- | --- |
-| [security-audit.md](security-audit.md) | The November 2026 audit of sockets, auth and accounts: findings, fixes and what was checked and found clean. |
+| [security-notes.md](security-notes.md) | What the server protects and where: sockets, accounts, sessions, operator routes, the container; plus the November 2026 fixes and open decisions. |
 | [security-headers.md](security-headers.md) | The HTTP response policy (CSP, security headers, host and timeout guards) and why each directive is there. |
 | [rate-limits.md](rate-limits.md) | Every rate limit and abuse budget, its environment variable, and which HTTP routes and socket events it covers. |
 
@@ -43,7 +43,6 @@ then the live runbook; to roll back, the rollback runbook.
 | [../.env.example](../.env.example) | Every server environment variable, with comments. |
 | [../qa/README.md](../qa/README.md) | Browser specs: how to run them and what each group covers. |
 | [../qa/load/README.md](../qa/load/README.md) | The Socket.IO capacity harness for the testing deployment. |
-| [../bench/README.md](../bench/README.md) | The bot-campaign parity baseline. |
 | [../scripts/social/README.md](../scripts/social/README.md) | Regenerating the link-preview card image. |
 | [../public/assets/audio/README.md](../public/assets/audio/README.md) | Music credits and licenses. |
 | [../public/assets/fonts/README.md](../public/assets/fonts/README.md) | Font credits and licenses. |
