@@ -27,7 +27,7 @@ export const TEST_GROUPS = Object.freeze({
     'server/game-contract-debt.test.js', 'server/reconnect.test.js', 'server/social-achievement.test.js',
     'server/hybrid-contract-achievements.test.js', 'server/match-history-schema.test.js', 'server/net-worth-timeline.test.js', 'server/bot-contract-policy.test.js', 'server/reconnect-turn-wait.test.js', 'server/bot-engine-contracts.test.js', 'server/bot-economics.test.js', 'server/bot-trade-rework.test.js', 'server/bot-market-accounting.test.js', 
     'server/matchHistoryAdapter.test.js', 'server/match-store-trace-cap.test.js', 'server/serverSocketAccount.test.js', 'server/serverSocketGame.test.js',
-    'server/serverSocketSocial.test.js', 'server/accountStore-rollback.test.js', 'server/accountStore-rights.test.js',
+    'server/serverSocketSocial.test.js', 'server/socialSocketAudit.test.js', 'server/login-lockout.test.js', 'server/password-kdf.test.js', 'server/accountStore-rollback.test.js', 'server/accountStore-rights.test.js',
     'server/socket-logout-session.test.js', 'server/trust-proxy-advisory.test.js', 'server/dockerfile-hardening.test.js',
     'server/accountLifecycleStores.test.js', 'server/sessionStore.test.js', 'server/accountExport.test.js',
     'server/mailAdapter.test.js', 'server/accountRecovery.test.js', 'server/accountDeletion.test.js',

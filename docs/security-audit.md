@@ -12,12 +12,12 @@ server or browser run was done. Findings are ordered by severity.
 | ID | Severity | Finding | Status |
 |---|---|---|---|
 | F-01 | Medium | Socket sign-out acked success but left the cookie session alive, and the same socket re-bound the account on its next call | **Fixed** (regression tests added) |
-| F-02 | Medium | One source can lock any known account out of sign-in (per-account lockout, not per-source) | **Not fixed**: lockout policy is a product decision |
+| F-02 | Medium | One source can lock any known account out of sign-in (per-account lockout, not per-source) | **Fixed**: failures are counted per (username, source), with a higher all-sources cap |
 | F-03 | Medium | With `POORUP_TRUST_PROXY_HOPS` unset, a reverse proxy makes all clients share one pre-auth budget | **Partly fixed**: production boot advisory added; default left at 0 on purpose |
-| F-04 | Low | `ACCOUNT_LOCKED` reveals that a username exists, and the locked path skips the scrypt that unknown names pay | **Not fixed**: same decision as F-02 |
-| F-05 | Low | Password hashing uses Node's default scrypt cost (N=16384), below current guidance, with no rehash on login | **Not fixed**: memory and migration trade-off |
+| F-04 | Low | `ACCOUNT_LOCKED` reveals that a username exists, and the locked path skips the scrypt that unknown names pay | **Fixed**: unknown and known names get the same lock answer; the all-sources cap answers generically |
+| F-05 | Low | Password hashing uses Node's default scrypt cost (N=16384), below current guidance, with no rehash on login | **Fixed**: per-record cost (N=32768, r=8, p=3), rehash on the next correct sign-in |
 | F-06 | Low | Dockerfile base image referenced by a floating tag | **Fixed**: pinned to a digest |
-| F-07 | Info | `server/socialSocketAudit.test.js` fails, and it is not registered in the manifest | **Pre-existing**, unrelated, not changed |
+| F-07 | Info | `server/socialSocketAudit.test.js` fails, and it is not registered in the manifest | **Fixed**: stale fixtures corrected, test registered in the core manifest |
 
 Dependency audit (`npm audit --omit=dev`): 0 vulnerabilities (info 0, low 0, moderate 0, high 0, critical 0). No upgrades were needed.
 
@@ -69,7 +69,13 @@ The 15-minute window restarts with each new burst, so one address can keep a kno
 others while distributed guessing stays bounded; (b) progressive delays instead of a hard lock; (c) a notice and the recovery-email flow
 for a locked owner. The change touches `login`'s signature (it needs the source), so it should be made with the user.
 
-**Status: not fixed (policy decision).**
+**Status: fixed.** `server/loginFailures.js` counts failures per (username, source) with a limit of 10 per 15 minutes, and per username across all
+sources with a limit of 50. `login(payload, { source })` takes the source from the transport (`authAttemptKey(socket)`), never from the client
+payload. A correct password clears only the signing-in source's count, so the owner cannot lift a lock another address earned; a password
+reset clears the whole name. Tests: `server/login-lockout.test.js`, `server/account-auth-abuse.test.js`.
+
+Residual risk: 50 failures spread over many addresses still make the real owner's sign-in answer "incorrect" until the window ends or the
+password is reset. That is the price of bounding distributed guessing; the recovery-email flow is the way out.
 
 ---
 
@@ -118,7 +124,9 @@ The locked branch also returns before the `scrypt` call that unknown names pay (
 its response is faster. Changing the timing alone would not help, because the code itself still reveals the lock. Removing the difference
 requires changing the lock message, which is a UX decision tied to F-02.
 
-**Status: not fixed (with F-02).**
+**Status: fixed (with F-02).** A source that has locked itself gets `ACCOUNT_LOCKED` for known and unknown names alike (tested with deepEqual).
+Past the all-sources cap, a name answers with the generic wrong-password error after paying the same scrypt as any other attempt, so neither
+the message nor the timing reveals the name.
 
 ---
 
@@ -130,7 +138,12 @@ requires changing the lock message, which is a UX decision tied to F-02.
 it means about 128 MB per derivation (r=8), which is synchronous, so it adds real pressure on the event loop and memory under login load.
 Changing it also requires rehash-on-login for existing records, since the stored parameters are implicit.
 
-**Status: not fixed (memory and migration decision).** Recommended: store the parameters per record and rehash on successful login.
+**Status: fixed.** `passwordKdf` ({ N, r, p }) is stored per record. Records without it verify with the old defaults and move to
+N=32768, r=8, p=3 (OWASP's 32 MiB setting) with a fresh salt at the next correct sign-in (`login`). Stored parameters outside a sane range
+fall back to the old cost. Tests: `server/password-kdf.test.js`.
+
+Cost: about 190 ms per derivation here (it was about 36 ms), synchronous, so each sign-in, registration and password check holds the event
+loop for that long. The per-address auth budget (8 per minute) bounds it.
 
 ---
 
@@ -147,11 +160,12 @@ so bump it on a schedule.
 
 ---
 
-## F-07 · Info · Pre-existing failing suite (not related to this change)
+## F-07 · Info · Stale social audit fixtures
 
-`server/socialSocketAudit.test.js` fails with `warm snapshot contains both public accounts (0 !== 2)`. It fails identically on a clean copy
-of `HEAD` (checked out to a scratch folder), and it is not registered in `scripts/test-manifest.mjs`, so `npm test` does not run it. Left
-unchanged. Worth a separate look.
+`server/socialSocketAudit.test.js` failed with `warm snapshot contains both public accounts (0 !== 2)`. The server was changed on purpose to
+hide friends-only achievements from signed-out viewers (`withAchievementPrivacy`), but the test's default account fixture still used
+`achievements: 'friends'` and expected those accounts in public rankings. The fixture default is now `'public'`, and the suite is registered
+in the core manifest so it runs in `npm test`.
 
 ---
 
@@ -243,5 +257,5 @@ unchanged. Worth a separate look.
 | `node --test server/dockerfile-hardening.test.js` | 3/3 pass (digest check red before the pin) |
 | `node server/serverSocketAccount.test.js`, `account-auth-abuse`, `socket-admission`, `release-hardening`, `serverSocketSocial`, `server`, `rooms`, `social-socket`, `accountRightsSocket` | exit 0 |
 | `node scripts/ops-wiring.test.mjs`, `server/serverStorePaths.test.js` | exit 0 |
-| `node server/socialSocketAudit.test.js` | exit 1 on `HEAD` as well (F-07) |
+| `node server/socialSocketAudit.test.js` | 16 scenarios passed (F-07 fixed) |
 | `npx eslint` on all changed `.js`/`.mjs` files | no output (clean) |

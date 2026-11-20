@@ -148,8 +148,8 @@ test('2560 desktop scales in-game modal families while keeping the player card c
     expect(scale.body).toBeGreaterThanOrEqual(14);
     expect(scale.action).toBeGreaterThanOrEqual(48);
   } else {
-    expect(scale.micro).toBe(11); // micro floor is 11px
-    expect(scale.body).toBe(13);
+    expect(scale.micro).toBe(12); // .t-micro is 12px (public/styles.css)
+    expect(scale.body).toBe(14); // .t-body is 14px (public/styles.css)
   }
 });
 

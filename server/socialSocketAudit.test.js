@@ -125,7 +125,7 @@ withClock(1_000_000, setClock => {
 // ---- handler fixtures ------------------------------------------------------
 
 function account(id, extra = {}) {
-  return { id, username: id.replace('acct-', ''), displayName: id.toUpperCase(), color: '#d74438', avatarGrid: null, privacy: { history: 'public', achievements: 'friends', friendRequests: 'everyone', roomInvites: 'friends' }, ...extra };
+  return { id, username: id.replace('acct-', ''), displayName: id.toUpperCase(), color: '#d74438', avatarGrid: null, privacy: { history: 'public', achievements: 'public', friendRequests: 'everyone', roomInvites: 'friends' }, ...extra };
 }
 
 function socialHarness({ viewer = null, accounts = [], friendships = {}, friends = [], notifications = [], handshake = { address: '203.0.113.50', headers: {} }, privacy } = {}) {
@@ -211,7 +211,7 @@ function socialHarness({ viewer = null, accounts = [], friendships = {}, friends
   assert.equal(stalePrivate.metrics.wins.find(row => row.accountId === 'cache-private').achievements, undefined, 'expired budget-limited cache still redacts private fields');
   assert.deepEqual(stalePrivate.metrics.achievements.map(row => row.accountId), ['cache-open']);
   assert.equal(h.calls.snapshot, 1, 'expired cache cannot recompute after the read budget is exhausted');
-  hidden.privacy.achievements = 'friends';
+  hidden.privacy.achievements = 'public';
   const fallback = h.ask('get-leaderboard-snapshot', { scope: 'all' });
   assert.equal(fallback.metrics.wins.find(row => row.accountId === 'cache-private').achievements, 7, 'stale fallback reflects privacy becoming public again');
   assert.deepEqual(fallback.metrics.achievements.map(row => row.accountId), ['cache-private', 'cache-open']);

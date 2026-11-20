@@ -98,7 +98,7 @@ Connection admission (before any event): per-peer handshake budget, a tighter bu
 | --- | --- | --- | --- | --- | --- |
 | `check-username` | per-peer username budget | Peer | 60 s | 30 | Covered (budget now configurable). |
 | `account-register` | per-peer auth budget | Peer | 60 s | 8 | Covered. A successful attempt does not refund the budget. |
-| `account-login` | per-peer auth budget + per-account lockout (`accountStore`: 10 failures per 15 min) | Peer + account | 60 s / 15 min | 8 / 10 | Covered. |
+| `account-login` | per-peer auth budget + lockout per (username, source) (`loginFailures`: 10 failures per 15 min) plus 50 per username across sources | Peer + account | 60 s / 15 min | 8 / 10 | Covered. |
 | `account-restore` | none beyond global | n/a | n/a | n/a | **Intentional.** Presents a 256-bit session token, which cannot be guessed. Not spent against the password budget. |
 | `account-logout` | global only | n/a | n/a | n/a | **Global only.** Cheap, revokes the caller's own session. |
 | `account-update` | `accountWrite` (NEW) | Account | 60 s | 60 | **Now covered.** |

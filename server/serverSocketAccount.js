@@ -221,7 +221,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   on('set-player-appearance', handleSetPlayerAppearance);
 
   on('account-register', sessionGrantHandler(payload => accountStore.register(payload), false, true));
-  on('account-login', sessionGrantHandler(payload => accountStore.login(payload), false, true));
+  on('account-login', sessionGrantHandler(payload => accountStore.login(payload, { source: authAttemptKey(socket) }), false, true));
   // Restore presents a 256-bit session token, not a guessable secret, so it
   // does not spend the password-attempt budget.
   on('account-restore', sessionGrantHandler(payload => accountStore.restore(payload.sessionToken), true, false));

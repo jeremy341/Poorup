@@ -91,11 +91,11 @@ try {
     assert.equal(lockStore.sessionIssuedAt.size, 0);
 
     lockStore.login({ username: 'lockeduser', password: 'wrong-password' });
-    assert.equal(lockStore.passwordFailures.size, 1);
+    assert.equal(lockStore.loginFailures.size, 1);
     lockStore.login({ username: 'lockeduser', password: 'another-new-password' });
     lockStore.login({ username: 'lockeduser', password: 'wrong-password' });
     assert.equal(lockStore.purgeAccount(lockRegistered.account.id), true);
-    assert.equal(lockStore.passwordFailures.size, 0, 'purge forgets the erased account\'s failure counters');
+    assert.equal(lockStore.loginFailures.size, 0, 'purge forgets the erased account\'s failure counters');
     assert.equal(lockStore.sessionIssuedAt.size, 0, 'purge forgets session stamps');
   } finally {
     fs.rmSync(lockPath, { force: true });

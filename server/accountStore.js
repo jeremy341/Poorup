@@ -2,7 +2,8 @@
 // entry points used by the server. Helpers live in the account* modules beside it.
 import { PENDING_PATROL_ACHIEVEMENT_LIMIT, USERNAME_RE, clampInt, equityLikeContract, loanLikeContract, nonNegative, num } from './accountShared.js';
 import { applyProfilePatch, cloneJson, loadableAccount, normalizeColor, normalizeDisplayName, normalizeLoadedAccount, normalizeUsername, profileAccountId, publicAccount, publicAchievements, publicPlayerStats, sanitizeAvatarGrid, sanitizePrivacy, sanitizeStats } from './accountRecords.js';
-import { createSessionToken, hasCredentialShape, hashPassword, hashSessionToken, revokeLiveSessions, revokePersistedSessionHashes, validPasswordShape, writeNewPassword } from './accountSecurity.js';
+import { LoginFailureTracker } from './loginFailures.js';
+import { CURRENT_SCRYPT, createSessionToken, hasCredentialShape, hashPassword, hashPasswordForAccount, needsPasswordUpgrade, hashSessionToken, revokeLiveSessions, revokePersistedSessionHashes, validPasswordShape, writeNewPassword } from './accountSecurity.js';
 import { accountAlreadyRecordedMatch, accountHoldsMatch, anonymizeAccountInMatchRecord, applyMatchResult, buildMatchRecord, countContracts, findParticipant, leaderboardRow, realizedMarketPnl, replaceOwnMatchRecord, windowRecords } from './accountMatches.js';
 import { applyPatrolSettlement, normalizedSettlementId, patrolEarnsJournal, patrolReplayResult, projectedPatrolAceRuns, sanitizePendingPatrolAchievementSettlements } from './accountPatrol.js';
 import crypto from 'crypto';
@@ -130,6 +131,8 @@ export class AccountStore {
     this.sessionIssuedAt = new Map();
     // Account id: { startedAt, count }. Bounded by the account count.
     this.passwordFailures = new Map();
+    // Sign-in failures per (username, source address), plus a higher cap per username across all sources.
+    this.loginFailures = new LoginFailureTracker();
     // Record accounting for persist(): records on disk at load, records that
     // failed validation and are not yet moved aside, and the count of records
     // still represented on disk only by those rejects.
@@ -283,7 +286,8 @@ export class AccountStore {
         color: normalizeColor(color),
         avatarGrid: sanitizeAvatarGrid(avatarGrid),
         passwordSalt: salt,
-        passwordHash: hashPassword(password, salt),
+        passwordHash: hashPassword(password, salt, CURRENT_SCRYPT),
+        passwordKdf: { ...CURRENT_SCRYPT },
         stats: sanitizeStats({}),
         history: [],
         achievements: [],
@@ -354,25 +358,37 @@ export class AccountStore {
     this.passwordFailures.set(account.id, entry);
   }
 
-  login({ username, password } = {}) {
+  // `source` is the caller's address key, resolved by the transport. It is
+  // never read from the client payload.
+  login({ username, password } = {}, { source = 'unknown' } = {}) {
     const handle = normalizeUsername(username);
     const account = this.accounts.get(handle);
-    if (!hasCredentialShape(account, password) || !validPasswordShape(password)) {
-      // An unknown username pays the same scrypt as a known one, so the
-      // response time cannot tell registered names from unregistered ones.
-      if (!account && validPasswordShape(password)) hashPassword(password, DUMMY_PASSWORD_SALT);
+    const failures = this.loginFailures;
+    const refuse = () => {
+      failures.recordFailure(handle, source);
       return { success: false, error: 'Username or password is incorrect.' };
+    };
+    // One address that keeps failing for one name is refused before any scrypt
+    // runs. Known and unknown names get the same answer, and the cap is per
+    // source, so a stranger cannot lock the real owner out from elsewhere.
+    if (failures.sourceLocked(handle, source)) return { success: false, code: 'ACCOUNT_LOCKED', error: ACCOUNT_LOCKED_ERROR };
+    const usable = hasCredentialShape(account, password) && validPasswordShape(password);
+    // Unknown names and names past their all-sources cap pay the same scrypt as
+    // a real check and get the same generic answer, so neither the response
+    // nor its timing says whether the name exists or is under attack.
+    if (!usable || failures.accountLocked(handle)) {
+      if (validPasswordShape(password)) hashPassword(password, DUMMY_PASSWORD_SALT, CURRENT_SCRYPT);
+      return refuse();
     }
-    // Cheap state first: a locked account never pays for a scrypt derivation.
-    if (this.passwordLocked(account)) return { success: false, code: 'ACCOUNT_LOCKED', error: ACCOUNT_LOCKED_ERROR };
     const expected = Buffer.from(account.passwordHash, 'hex');
-    const actual = Buffer.from(hashPassword(password, account.passwordSalt), 'hex');
+    const actual = Buffer.from(hashPasswordForAccount(account, password), 'hex');
     const matched = expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
-    this.recordPasswordResult(account, matched);
-    if (!matched) {
-      return { success: false, error: 'Username or password is incorrect.' };
-    }
+    if (!matched) return refuse();
+    failures.recordSuccess(handle, source);
     return commitMutation(this, () => {
+      // A correct password is the only moment the plaintext is available to
+      // move an older record to the current cost.
+      if (needsPasswordUpgrade(account)) writeNewPassword(account, password);
       const sessionToken = this.issueSession(account);
       return { success: true, account: publicAccount(account), sessionToken };
     });
@@ -423,7 +439,7 @@ export class AccountStore {
     if (!hasCredentialShape(account, password) || !validPasswordShape(password)) return false;
     if (this.passwordLocked(account)) return false;
     const expected = Buffer.from(account.passwordHash, 'hex');
-    const actual = Buffer.from(hashPassword(password, account.passwordSalt), 'hex');
+    const actual = Buffer.from(hashPasswordForAccount(account, password), 'hex');
     const matched = expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
     this.recordPasswordResult(account, matched);
     return matched;
@@ -450,6 +466,7 @@ export class AccountStore {
     // Resetting the password is the remedy for a locked account, so the failure
     // window must not outlive it (the mutation above throws if it did not land).
     this.passwordFailures.delete(account.id);
+    this.loginFailures.clear(account.username);
     return updated;
   }
 
@@ -466,6 +483,7 @@ export class AccountStore {
       return true;
     });
     this.passwordFailures.delete(account.id);
+    this.loginFailures.clear(account.username);
     return updated;
   }
 
@@ -533,6 +551,7 @@ export class AccountStore {
       return true;
     }, { removed: 1 });
     this.passwordFailures.delete(account.id);
+    this.loginFailures.clear(account.username);
     return purged;
   }
 
