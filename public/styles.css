@@ -1661,8 +1661,6 @@ button[id$="-close"],
 .dd-build-btn .t-micro { color: var(--cta-label-muted); }
 .dd-buy-blocked .t-micro { color: var(--text-muted); }
 .dd-foot { margin-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.deed-card.is-clickable { cursor: pointer; }
-.deed-card.is-clickable:hover { border-color: var(--gold-500); }
 
 /* card reveal: a landscape card. Header strip, centred text, footer strip. */
 #card-modal .card-reveal { max-width: 480px; overflow: visible; background: none; border: 0; box-shadow: none; padding: 0; }
@@ -2575,28 +2573,6 @@ button[id$="-close"],
   border-color: var(--line-active);
   box-shadow: var(--shadow-active);
 }
-
-.deed-card {
-  position: relative;
-  display: flex; gap: 12px;
-  min-height: 95px; padding: 12px 12px 12px 22px;
-  background: var(--surface-panel-raised);
-  border: 1px solid var(--line-subtle);
-  border-radius: 2px;
-  transition: background var(--dur-xs) var(--ease-snap);
-}
-.deed-card:hover { background: var(--surface-hover); }
-.deed-card[type="button"] { width: 100%; color: inherit; text-align: left; }
-.deed-rail { position: absolute; left: 0; top: 0; bottom: 0; width: 10px; }
-.deed-main { flex: 1; min-width: 0; }
-.deed-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-.deed-name { font-size: 12px; line-height: 1.25; color: var(--text-primary); }
-.deed-price { flex-shrink: 0; font-size: 12px; color: var(--gold-300); }
-.deed-rent { margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.deed-foot { margin-top: 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.deed-foot .btn-dark { padding: 5px 10px; }
-.houses { display: flex; align-items: center; gap: 3px; flex-wrap: nowrap; }
-.hotel-pixel { display: inline-flex; }
 
 .log-line {
   padding: 6px 8px;
