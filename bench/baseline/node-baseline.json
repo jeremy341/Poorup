@@ -1,0 +1,20 @@
+{
+  "runtime": "node v24.16.0",
+  "cpu": "AMD Ryzen 5 5600 6-Core Processor              ",
+  "platform": "win32 x64",
+  "games": 60,
+  "startIndex": 1,
+  "stepLimit": 2000,
+  "startingCash": 1500,
+  "totalMs": 74453,
+  "gamesPerSec": 0.806,
+  "stepsPerSec": 270,
+  "totalSteps": 20083,
+  "perGameMs": {
+    "p50": 950,
+    "p95": 2591,
+    "max": 9574
+  },
+  "ended": 60,
+  "stalls": 0
+}
