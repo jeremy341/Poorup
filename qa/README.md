@@ -29,17 +29,20 @@ name.
 
 ## What is in this folder
 
-- `*.spec.js`: the specs, one file per surface or concern: pages and shared
-  header (`poorup`, `shared-header`, `about`, `metadata`), lobby and rooms
-  (`rooms-*`), the in-game board, HUD and modals (`turn-ui`, `in-game-ux`,
-  `modal-*`, `close-controls`, `trade-builder-layout`, `deed-*`,
-  `owned-deed-navigation`), finance and sponsorship (`finance-*`,
-  `rent-share-rules`, `sponsored-purchase-presentation`), accounts and profiles
-  (`account-*`, `client-account-auth-races`, `profile-history`), Parlor Patrol
-  (`patrol-*`, `night-shift-*`), themes and music (`theme`, `music-box-reference`),
-  maintenance and the admin console (`admin-*`, `analytics-console`,
-  `maintenance-lockout`), and layout and accessibility contracts (`visual-contracts`,
-  `responsive-a11y-contracts`, `board-layout-regression`, `ipad-*`, `release-surfaces`).
+- `*.spec.js`: the specs, one file per surface or concern. Pages and header:
+  `app-shell-and-pages`, `shared-header`, `about`, `metadata`. Lobby and rooms:
+  `rooms-search`, `rooms-results-announcement`, `appearance-skip`. Board, HUD and
+  modals: `turn-ui`, `in-game-ux`, `board-stage-and-market-desk`,
+  `metro-board-and-home-fit`, `trade-offer-credit-and-board-fit`,
+  `modal-fixture-surfaces`, `modal-action-rules`, `close-controls`,
+  `trade-builder-layout`, `deed-*`, `owned-deed-navigation`,
+  `rankings-and-deed-trade`. Finance and sponsorship: `finance-*`,
+  `financing-deed-and-friend-actions`, `rent-share-rules`,
+  `sponsored-purchase-presentation`. Accounts and profiles: `account-*`,
+  `profile-history`. Parlor Patrol: `patrol-*`. Themes and music: `theme`,
+  `music-player`. Maintenance and the admin console: `admin-*`,
+  `maintenance-lockout`. Layout and accessibility: `visual-contracts`,
+  `responsive-a11y-contracts`, `ipad-*`, `release-surfaces`.
 - `support/deed-harness.mjs`: shared fixtures for the deed specs (a finished
   game room, a client wired to it, screenshot helpers).
 - `visual-capture/`: the viewport profiles, the surface catalog and the runner
@@ -67,17 +70,3 @@ These are not server settings, so they are not in `.env.example`.
 | `POORUP_CAPTURE_GROUP`, `_SEED`, `_VIEWPORT`, `_VISUALS`, `POORUP_VISUAL_CAPTURE_DIR` | `npm run capture:ui` and the capture-aware specs | Which surfaces, viewport and room seed to capture, and where the screenshots go. Set by `scripts/capture-ui.mjs`; rarely by hand. |
 | `POORUP_LOAD_ENV`, `_TARGET`, `_CLIENTS`, `_ALLOW_LOCAL` | `qa/load/poorup-socket-load.mjs` | See [load/README.md](load/README.md). |
 | `POORUP_SHARED_ENV_FILE` | `ecosystem.config.cjs` | Host env file merged by PM2 (default `/srv/poorup/shared/poorup.env`). |
-
-## Known overlap
-
-Three pairs of specs exercise largely the same scenarios under identical or
-near-identical test titles. They are the product of two merged histories, not
-separate features, and merging each pair into one file is a pending cleanup:
-
-| Pair | Difference |
-| --- | --- |
-| `audit-remediation.spec.js` and `modal-and-board-regressions.spec.js` | The desktop zoom check runs at 1440x900 and 1920x1080 in the first, at 1440x900 only in the second; the second waits for the setup screen before starting. |
-| `modal-audit-fixes.spec.js` and `modal-regressions.spec.js` | Same tests; the first prefixes titles with `F01`..`F07`. |
-| `modal-decision-fixes.spec.js` and `modal-decisions.spec.js` | Same tests; the first splits the helpers into smaller functions. |
-
-Merge each pair into one file that keeps the superset of assertions.

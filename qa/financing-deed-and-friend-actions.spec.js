@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 
 async function installFixture(page) {
   const fixture=await readFile(new URL('./visual-capture/ipad-modal-fixture.browser.js',import.meta.url),'utf8');
-  await page.route('**/qa/modal-fixes-fixture.js',route=>route.fulfill({status:200,contentType:'text/javascript',body:fixture}));
+  await page.route('**/qa/financing-actions-fixture.js',route=>route.fulfill({status:200,contentType:'text/javascript',body:fixture}));
   await page.goto('/');
   await page.evaluate(async()=>{
     const {state}=await import('/clientState.js');
@@ -13,7 +13,7 @@ async function installFixture(page) {
     document.querySelector('#view-home').classList.add('is-hidden');
     document.querySelector('#view-game').classList.remove('is-hidden');
   });
-  await page.addScriptTag({url:'/qa/modal-fixes-fixture.js',type:'module'});
+  await page.addScriptTag({url:'/qa/financing-actions-fixture.js',type:'module'});
   await page.evaluate(()=>window.__installIpadModalCapture());
 }
 
