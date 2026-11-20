@@ -1,6 +1,6 @@
 # Poorup: Visual Design System
 
-Source: derived from the provided 1672×941 desktop screenshot. Values are reconstruction targets from the raster reference, so colors and measurements should be treated as design tokens rather than claims about the original source code.
+The visual language of the Poorup client. The colors, spacing and type below are the design tokens the client's CSS implements (`public/styles.css` defines the `--bg-*`, `--surface-*` and `--font-*` custom properties); measurements are targets for a 1672×941 desktop layout. When this document and the CSS disagree, the CSS is what ships.
 
 ## 1. Design DNA
 
@@ -85,20 +85,16 @@ Contrast (WCAG 2.x, computed from the CSS values): `text.muted` `#A79D7D` is 7.5
 
 # 3. Typography
 
-The exact font cannot be proven from a raster screenshot alone. The system clearly uses a square, retro monospace/pixel family.
+The system uses square, retro pixel and monospace families. All are open-licensed and shipped from `public/assets/fonts/` (credits in that folder's README):
 
-## Recommended practical stack
+| Role | CSS variable | Font |
+| --- | --- | --- |
+| Display / brand | `--font-display`, `--font-brand` | `Jersey 15`, falling back to `Pixelify Sans` |
+| UI, game text and body | `--font-ui`, `--font-body` | `Pixelify Sans` |
+| Small pixel labels | `--font-pixel` | `Silkscreen` |
+| Small numbers | `--font-numeric` | the system monospace stack (`IBM Plex Mono` is also shipped) |
 
-### Display / brand
-- Preferred: custom outlined `POORUP` logo asset from the board
-- Alternatives: `Pixelify Sans` 700–800, `Jersey 10`, or `Press Start 2P` for small decorative labels
-
-### UI / game text
-- Preferred: `Pixel Operator`, `Departure Mono`, or another readable bitmap-style mono
-- Fallback: `"Courier New", monospace`
-
-### Body / chat fallback
-- `IBM Plex Mono` or `Geist Mono` if a smoother readable mono is needed
+Every stack ends in `"Courier New", monospace`.
 
 ## Type scale
 
@@ -546,71 +542,7 @@ Use:
 
 ---
 
-# 11. Figma Style Naming
-
-## Colors
-
-```text
-BG / Canvas
-BG / Chrome
-Surface / Panel
-Surface / Panel Raised
-Surface / Deep
-Surface / Board
-Surface / Input
-
-Text / Primary
-Text / Secondary
-Text / Muted
-Text / Gold
-
-Gold / 050
-Gold / 100
-Gold / 300
-Gold / 400
-Gold / 500
-Gold / 700
-Gold / 800
-
-Semantic / Red
-Semantic / Green
-Semantic / Blue
-
-Property / Brown
-Property / Cyan
-Property / Magenta
-Property / Red
-Property / Green
-Property / Blue
-```
-
-## Text styles
-
-```text
-Display / Brand
-Display / Board Logo
-Heading / Section
-Heading / Panel
-Label / Control
-Body / Normal
-Body / Compact
-Value / Money Large
-CTA / Large
-Board / Tile
-```
-
-## Effects
-
-```text
-Effect / Panel Shadow
-Effect / Inset Highlight
-Effect / Active Gold
-Effect / CTA Red
-```
-
----
-
-# 12. CSS Token Starter
+# 11. CSS Token Starter
 
 ```css
 :root {
@@ -671,7 +603,7 @@ Effect / CTA Red
 
 ---
 
-# 13. “Does this still look like Poorup?” Checklist
+# 12. “Does this still look like Poorup?” Checklist
 
 A new screen belongs to the system if:
 

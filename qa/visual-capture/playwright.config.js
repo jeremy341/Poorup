@@ -11,12 +11,12 @@ const selectedProfiles = selectViewports({ viewport: process.env.POORUP_CAPTURE_
 export default defineConfig({
   testDir: path.join(repositoryRoot, 'qa'),
   testMatch: [
-    'poorup.spec.js',
+    'app-shell-and-pages.spec.js',
     'release-surfaces.spec.js',
     'ipad-pro-modals.spec.js',
     'in-game-ux.spec.js',
     'admin-analytics-visual.spec.js',
-    'client-market-ui.spec.js',
+    'board-stage-and-market-desk.spec.js',
     'player-card-responsive.spec.js',
     'sponsored-purchase-presentation.spec.js',
   ],

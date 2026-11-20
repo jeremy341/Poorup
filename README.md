@@ -33,47 +33,78 @@ Development-time AI assistance is separate from the bots available in-game: dete
 - **Visual identity:** custom player designs, theme worlds with original Poorup SVG artwork, and an optional music player.
 - **Persistence:** no database; account and match records use local JSON stores.
 
-## How to run
+## Quick start
+
+Requires Node.js 22 (see `engines` in `package.json`; CI and the Dockerfile use 22).
 
 ```bash
 git clone https://github.com/jeremy341/Poorup.git
 cd Poorup
-npm install
+npm ci
 npm start
 ```
 
-Then open `http://localhost:8080` in your browser (two tabs for a local multiplayer test). A full game needs at least two players; the host starts from the lobby once seats are filled.
+Open <http://localhost:8080> (set `PORT` to change it). A game needs at least two players: open two tabs, enter different nicknames, create a room in one and join with the room code in the other. The host starts from the lobby once seats are filled; bots can fill empty seats.
 
-Read the complete rules in the in-game **Rules** surface. Poorup uses Node.js,
-Express, Socket.IO, and a vanilla HTML/CSS/JavaScript client.
+The server reads its configuration from the process environment only; it does not load `.env`. Local defaults are enough to play. Account and match data are written to `server/data/` (git-ignored); backups are only made when `POORUP_BACKUP_DIR` is set. [`.env.example`](.env.example) lists the server settings with comments (test and tooling variables are listed in [qa/README.md](qa/README.md)); the production values are explained in [docs/production-hardening.md](docs/production-hardening.md).
+
+## Run the tests
+
+| Command | What it runs |
+| --- | --- |
+| `npm test` | The `core` group: most of the unit and wire tests in `server/`, `public/` and `scripts/`, plus a short seeded bot-campaign run. The usual check before a commit; it takes about five minutes sequentially, or less with `POORUP_TEST_PARALLELISM=4`. |
+| `npm run test:full` | Every group in `scripts/test-manifest.mjs`: `core` plus the audit, timers, account, inactivity and UI-surface groups. CI runs this in four shards. The same `POORUP_TEST_PARALLELISM=4` applies. |
+| `npm run test:audit`, `test:account`, `test:inactivity` | One named group from the manifest. |
+| `npm run lint` / `npm run lint:client` | ESLint for `server scripts qa` / for `public`. |
+| `npm run test:browser` | Playwright browser specs in `qa/`. Starts `node server/server.js` on port 8080 unless `POORUP_QA_BASE_URL` points at a server you started yourself. First run: `npx playwright install chromium`. |
+| `npm run coverage` | The full suite under c8 (server coverage). |
+
+Every test file is a plain Node script that exits non-zero on failure, so any single one can be run directly, for example `node server/rooms.test.js`. A new test file must be added to a group in `scripts/test-manifest.mjs` or CI will not run it. More on the browser specs in [qa/README.md](qa/README.md).
+
+## Repo map
+
+| Path | What lives there |
+| --- | --- |
+| `server/` | The Node.js server: Express HTTP, Socket.IO handlers, game rules, bots, account and match stores, security and ops code. Tests sit beside the code as `*.test.js`. |
+| `public/` | The static client: vanilla HTML, CSS and ES modules (no build step), plus SVG art, fonts and audio under `public/assets/`. Tests sit beside the code as `*.test.js`. |
+| `qa/` | Playwright browser specs, the screenshot-capture tooling (`qa/visual-capture/`) and the socket load harness (`qa/load/`). |
+| `scripts/` | Test runner and manifest, CI timing tools, deploy and rollback scripts for the host, and backup restore and data-purge tools. |
+| `docs/` | Runbooks and reference docs; start at [docs/README.md](docs/README.md). |
+| `design/` | The visual design system. |
+| `bench/` | Bot-campaign parity baseline; see [bench/README.md](bench/README.md). |
+
+Root files: `PRODUCT.md` (product intent), `AGENTS.md` (rules for coding agents), `Dockerfile` and `ecosystem.config.cjs` (container and PM2 runtime), `.github/` (CI, deploy and maintenance workflows), `.codescene/` and `codecov.yml` (code-health and coverage settings).
+
+## Architecture in ten minutes
+
+Poorup is one Node.js process serving a static client and a Socket.IO API. The server owns every rule and every dollar; the client only sends intents and draws what it is told.
+
+**Entry points.** `server/server.js` builds Express and Socket.IO, loads the stores, and registers the socket handlers. `public/index.html` loads `public/main.js`, the client's entry module.
+
+**One action, end to end.** A click calls `emitServer(event, payload, ack)` in `public/main.js`. On the server a handler registered by one of three domain modules receives it: `serverSocketAccount.js` (accounts, rooms, lobby), `serverSocketGame.js` (dice, property, auctions, trades, loans, bankruptcy) or `serverSocketSocial.js` (chat, friends, invites, rankings, Parlor Patrol). Rate limits and session checks run first, then the handler calls a method on the room's game state, answers the client's `ack`, and `server/socketRuntime.js` broadcasts a fresh snapshot to every seat as an `update-state` event. The client applies it in `public/clientSocketListeners.js` and `public/clientStateSync.js` and re-renders. Nothing the client computes is trusted.
+
+**Game rules.** `server/gameLogic.js` defines the game state for one room (`rooms.js` holds the seats, tables and the room registry). Its behavior is split into topic modules mixed in by name: `propertyApi.js`, `auctionApi.js`, `tradeApi.js`, `bankruptcyApi.js`, `economyApi.js` and so on, with pure rule tables in files such as `gameData.js`, `boardRegistry.js`, `rulesetRegistry.js` and `financeRules.js`.
+
+**Bots.** Bots are ordinary seats that act through the same verbs as humans. `server/botLogic.js` is the pure, deterministic decision policy (no timers or I/O); `server/botAdvisor.js` is the optional AI layer that only ranks an already-legal list of choices and falls back to the deterministic policy on any failure. The timers that run bot turns live in `socketRuntime.js`.
+
+**Client.** There is no framework or build step. `public/main.js` wires events and the render loop; `client*.js` modules each own one surface (board, lobby, trade, market, profile, admin) and share one mutable state object in `clientState.js`. CSS lives in `public/*.css`; art, fonts and audio in `public/assets/`.
+
+**Persistence.** No database. Accounts, social data, match history, achievements and telemetry are JSON files written atomically (`server/storeIO.js`) and copied to checksummed backups (`backupStore.js`). Unstarted lobbies are snapshotted so they survive a restart (`roomStore.js`); a game in progress lives only in memory, so a restart ends it. That is why the service runs as a single process and drains before a deploy.
+
+**Operations.** HTTP security headers (`securityHeaders.js`), rate limits (`httpRateLimiter.js`, `socketRateLimiter.js`, `abuseBudgets.js`), maintenance and drain mode (`drainController.js`), and the admin console are all in `server/`; each has a document in [docs/](docs/README.md).
+
+**Tests.** Unit and wire tests sit beside the code and are run by `scripts/run-test-manifest.mjs` from the list in `scripts/test-manifest.mjs`; browser specs live in `qa/`. See [Run the tests](#run-the-tests).
 
 ## How to play
 
-Guest play requires no account. Roll, resolve the landed space, and complete any
-required purchase, auction, card, or payment before ending your turn. Build
-evenly across a color group, and use trades or mortgages to manage cash.
+Guest play requires no account. Roll, resolve the landed space, and complete any required purchase, auction, card, or payment before ending your turn. Build evenly across a color group, and use trades or mortgages to manage cash. The full rules are in the in-game **Rules** surface.
 
-Players have unlimited turn time. A separate inactivity-removal clock and
-vote-kick flow operate during a game.
+Players have unlimited turn time. A separate inactivity-removal clock and vote-kick flow operate during a game.
 
-MIT License
+## Deployment
 
-Copyright (c) 2026 jeremy341
+The Dockerfile builds a production image (`docker build -t poorup .`). The live host runs the release under PM2; see the runbooks listed in [docs/README.md](docs/README.md) (start with [the live runbook](docs/deployment/nest-live-runbook.md)) and [docs/production-hardening.md](docs/production-hardening.md).
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+## License
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+MIT, see [LICENSE](LICENSE).

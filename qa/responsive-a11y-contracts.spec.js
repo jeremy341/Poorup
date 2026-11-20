@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("Batch 3 responsive and accessibility contracts", () => {
+test.describe("responsive and accessibility contracts", () => {
   test("modal close controls keep a 40px hit height", async ({ page }) => {
     await page.goto("/");
     await page.locator("#open-create-btn").click();
