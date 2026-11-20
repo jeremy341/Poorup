@@ -167,12 +167,22 @@ function registerAccountSocketHandlers(on, socket, runtime) {
         if (typeof runtime.sessionStore?.revokeLegacyTokenSessions !== 'function') throw new Error('Legacy session lineage is unavailable.');
         runtime.sessionStore.revokeLegacyTokenSessions(legacyToken);
       }
+      revokeSocketCookieSession();
       reply(callback, result);
     } catch {
       reply(callback, { success: false, code: 'ACCOUNT_LOGOUT_FAILED', error: 'Sign out could not be completed.' });
     }
     refreshLockoutState();
   });
+
+  // The socket was opened with a cookie session (bound at the handshake). Sign-out must end it as the HTTP logout does: otherwise the
+  // next social call re-binds the account from that cookie and the socket stays signed in after a successful sign-out.
+  function revokeSocketCookieSession() {
+    const sessionId = socket.data.sessionId;
+    socket.data.sessionId = null;
+    socket.data.sessionAccountId = null;
+    if (sessionId) runtime.sessionStore?.revoke?.(sessionId);
+  }
 
   on('account-update', handleAccountUpdate);
   on('restore-session', handleRestoreSession);
