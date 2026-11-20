@@ -189,6 +189,7 @@
     "server/host-election-repair.test.js": 393,
     "server/hotel-sale-supply.test.js": 400,
     "server/house-resale.test.js": 263,
+    "server/http-security-headers.test.js": 6000,
     "server/http-surface-wire.test.js": 10231,
     "server/httpErrors.test.js": 1900,
     "server/httpRateLimiter.test.js": 128,

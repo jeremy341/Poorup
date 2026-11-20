@@ -35,7 +35,8 @@ import { createPseudonymizer } from './analyticsPrivacy.js';
 import { createAnalyticsRollupStore } from './analyticsRollupStore.js';
 import { createMetadataRouter, gateIndexEnv, indexingApproved as isIndexingApproved, metadataConfig } from './metadata.js';
 import { createStaticAssets } from './staticAssets.js';
-import { asyncRoute, createHttpErrorHandler } from './httpErrors.js';
+import { answerHttpError, asyncRoute, createHttpErrorHandler } from './httpErrors.js';
+import { attachSocketHttpHeaders, createSecurityMiddleware, hardenHttpServer } from './securityHeaders.js';
 import { renderAboutPage } from './aboutPage.js';
 import { renderRulesPage } from './rulesPage.js';
 import { renderErrorPage as errorPage } from './errorPage.js';
@@ -63,7 +64,7 @@ assertPersistenceMode(process.env);
 assertProductionCors(process.env);
 
 const app = express();
-const server = http.createServer(app);
+const server = hardenHttpServer(http.createServer(app));
 let httpAccountResolver = () => null;
 let httpAccountRights = null;
 let httpAccountRecovery = null;
@@ -78,23 +79,8 @@ const connectSources = configuredPublicOrigin
   ? ["'self'", configuredPublicOrigin]
   : (productionRuntime ? ["'self'"] : ["'self'", 'ws:', 'wss:']);
 assertRateLimitConfig(process.env);
-app.use((_req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'same-origin');
-  // process isolation: keeps this app's documents and its window handles from
-  // being shared with any other site the browser may have open.
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-  res.setHeader('Origin-Agent-Cluster', '?1');
-  // Only meaningful over TLS; the same conditions that force secure cookies
-  // force HTTPS, so they gate the header here too.
-  const forceSecure = productionRuntime || String(process.env.POORUP_COOKIE_SECURE || '').toLowerCase() === 'true';
-  if (forceSecure) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src ${connectSources.join(' ')}; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'`);
-  next();
-});
+// Security headers, method and Host guards, and the private-file guard run before anything else (static files included).
+app.use(...createSecurityMiddleware({ connectSources, allowedHosts: process.env.POORUP_ALLOWED_HOSTS, errorPage }));
 // Static files are served before the HTTP rate limiter: one cold load is over a
 // hundred requests, so counting them would 429 a third page load in a minute.
 // A path that is not a file falls through and is counted like any other.
@@ -152,6 +138,7 @@ const io = new Server(server, {
   // rate limiter gets a chance to reject them.
   maxHttpBufferSize: 100_000
 });
+attachSocketHttpHeaders(server);
 
 // The supplied plain-client project is the production static UI. Keep the
 // protected SVG references in public/assets and serve the HTML/CSS/JS directly.
@@ -702,7 +689,7 @@ registerAdminOpsRoutes(app, {
   })
 });
 
-app.use((_req, res) => res.status(404).type('html').send(errorPage('404 · Table not found', 'That route is not part of this parlor.')));
+app.use((req, res) => answerHttpError(req, res, 404, errorPage));
 app.use(createHttpErrorHandler({ metrics, errorPage }));
 
 const social = createSocialApi({ io, accountStore, socialStore, matchStore, achievementStore, sessionStore });
