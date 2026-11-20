@@ -36,7 +36,7 @@ function playerByServerId(serverId) {
 }
 
 /** True when the local player may book a flight right now (server-decided). */
-export function canFlyNow() {
+function canFlyNow() {
   return flights().enabled && flights().options.length > 0;
 }
 
@@ -148,7 +148,7 @@ export function renderFlightDeskIfOpen() {
 
 /* ---------- owner fee steppers (rendered inside the deed manager) ---------- */
 
-export function airportFeesApply(tile) {
+function airportFeesApply(tile) {
   return flights().enabled && tile?.kind === "railroad";
 }
 

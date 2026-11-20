@@ -1309,7 +1309,7 @@ function sendFinancingNegotiation(control = document.activeElement) {
   });
 }
 
-export function repaymentAmountForContract(contract, rawAmount) {
+function repaymentAmountForContract(contract, rawAmount) {
   const remaining = Math.max(0, Math.floor(Number(contract?.remaining) || 0));
   const requested = Math.floor(Number(rawAmount));
   if (remaining <= 0) return 0;

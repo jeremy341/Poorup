@@ -245,7 +245,7 @@ function queueAccountLogout(token) {
   return queued;
 }
 
-export function afterPendingAccountLogout(operation) {
+function afterPendingAccountLogout(operation) {
   const run = async () => {
     if (!await waitForCrossTabLogoutBarrier()) return null;
     return operation();

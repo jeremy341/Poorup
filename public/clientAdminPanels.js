@@ -8,16 +8,16 @@ export function escapeHtml(value) {
 
 const NOT_RECORDED = '<span class="admin-null">not recorded</span>';
 
-export function formatCount(value) {
+function formatCount(value) {
   return value === null || value === undefined ? NOT_RECORDED : escapeHtml(Number(value).toLocaleString('en-US', { maximumFractionDigits: 0 }));
 }
 
 // A live counter nothing has incremented yet is unknown, which is not the same as zero.
-export function formatSinceStart(value) {
+function formatSinceStart(value) {
   return value === null || value === undefined ? '<span class="admin-null">not recorded yet</span>' : formatCount(value);
 }
 
-export function formatRate(value) {
+function formatRate(value) {
   if (value === null || value === undefined) return NOT_RECORDED;
   return escapeHtml(`${(Number(value) * 100).toLocaleString('en-US', { maximumFractionDigits: 1 })}%`);
 }
@@ -70,7 +70,7 @@ export function healthMarkup(status) {
   return `<div class="admin-health-line" data-health-state="${escapeHtml(health.state)}"><span class="admin-verdict-badge t-label f12" data-health-badge>${HEALTH_WORDS[health.state]}</span>${list ? `<ul class="admin-issues" aria-label="Checks that need attention">${list}</ul>` : ''}</div>`;
 }
 
-export const ROOM_COLUMNS = Object.freeze(['Room', 'Phase', 'Visibility', 'Humans', 'Bots', 'Round', 'Age', 'Idle', 'State']);
+const ROOM_COLUMNS = Object.freeze(['Room', 'Phase', 'Visibility', 'Humans', 'Bots', 'Round', 'Age', 'Idle', 'State']);
 
 function plural(count, word) { return `${count} ${word}${count === 1 ? '' : 's'}`; }
 

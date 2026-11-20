@@ -36,7 +36,7 @@ export function beginFriendRequestAction(id) {
   return token;
 }
 
-export function friendRequestPending(id) {
+function friendRequestPending(id) {
   return socialAuthCurrent(pendingFriendRequests.get(String(id)));
 }
 
@@ -261,7 +261,7 @@ function focusRankingsPage() {
   requestAnimationFrame(() => $("#rankings-page-content [data-ranking-stage]")?.focus({ preventScroll: true }));
 }
 
-export function socialPlayerRowHTML(player, actionLabel = "VIEW") {
+function socialPlayerRowHTML(player, actionLabel = "VIEW") {
   if (!player) return "";
   const id = player.id || player.accountId;
   const mutual = Number(player.mutualFriends) || 0;
@@ -450,7 +450,7 @@ function friendsBodyHTML(social) {
   return social.friends?.length ? social.friends.map((player) => socialPlayerRowHTML(player)).join("") : `<p class="t-body ink-3 social-empty">NO FRIENDS YET. Search by username or open someone from the table.</p>`;
 }
 
-export function requestsBodyHTML(social) {
+function requestsBodyHTML(social) {
   const pending = id => friendRequestPending(id) ? ' disabled aria-busy="true"' : "";
   const incoming = social.requests?.map((request) => `<div class="social-request-row">${socialPlayerRowHTML(request.from, "VIEW")}<div class="social-request-actions"><button class="btn-dark social-request-accept" type="button" data-social-request="accept" data-friendship-id="${esc(request.id)}"${pending(request.id)}><span class="t-label f11">ACCEPT</span></button><button class="btn-dark" type="button" data-social-request="decline" data-friendship-id="${esc(request.id)}"${pending(request.id)}><span class="t-label f11">DECLINE</span></button></div></div>`).join("") || "";
   const outgoing = social.outgoing?.map((request) => `<div class="social-request-row">${socialPlayerRowHTML(request.to, "VIEW")}<div class="social-request-actions"><span class="t-micro ink-3">REQUEST SENT</span><button class="btn-dark" type="button" data-social-request-cancel data-friendship-id="${esc(request.id)}"${pending(request.id)}><span class="t-label f11">CANCEL</span></button></div></div>`).join("") || "";

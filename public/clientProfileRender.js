@@ -34,11 +34,11 @@ function setHTML(sel, value) {
   if (el) el.innerHTML = value;
 }
 
-export function replaceText(sel, value) {
+function replaceText(sel, value) {
   $(sel)?.replaceChildren(document.createTextNode(value));
 }
 
-export function accountRate(stats = {}) {
+function accountRate(stats = {}) {
   const games = Number(stats.gamesPlayed) || 0;
   return games ? `${Math.round(((Number(stats.wins) || 0) / games) * 100)}%` : "0%";
 }
@@ -67,7 +67,7 @@ function sourceGrid(draft, profile, account) {
   return account?.avatarGrid || null;
 }
 
-export function profileDisplaySource() {
+function profileDisplaySource() {
   const subject = state.profileSubject;
   if (subject) return { account: null, profile: null, subject, name: subject.name, color: "#286ea1", grid: null, designName: null };
   const account = state.account?.account || null;

@@ -5,7 +5,7 @@ export function formatInactiveTime(milliseconds) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-export function inactivePlayerId(player) {
+function inactivePlayerId(player) {
   return String(player?.serverId || player?.id || player?.name || "player");
 }
 

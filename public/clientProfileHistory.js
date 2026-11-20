@@ -18,11 +18,11 @@ export function formatStatDate(value) {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" }).toUpperCase();
 }
 
-export function cleanHistory(entries) {
+function cleanHistory(entries) {
   return entries.filter((entry) => entry && typeof entry === "object").slice(0, 50);
 }
 
-export function accountHistoryList(account) {
+function accountHistoryList(account) {
   const matchHistory = Array.isArray(account?.matchHistory) ? account.matchHistory : null;
   if (matchHistory && matchHistory.length) return cleanHistory(matchHistory);
   if (Array.isArray(account?.history)) return cleanHistory(account.history);
@@ -34,7 +34,7 @@ export function ownParticipant(entry, accountId) {
   return entry.participants.find((item) => item.accountId === accountId) || null;
 }
 
-export function baseSummary(account) {
+function baseSummary(account) {
   const stats = account?.stats || {};
   const games = Math.max(0, Number(stats.gamesPlayed) || 0);
   const wins = Math.max(0, Math.min(games, Number(stats.wins) || 0));
@@ -49,13 +49,13 @@ export function baseSummary(account) {
   };
 }
 
-export function recordedOwnValue(entry, accountId, key, fallbackKey) {
+function recordedOwnValue(entry, accountId, key, fallbackKey) {
   const participant = ownParticipant(entry, accountId);
   const value = participant?.[key] ?? (fallbackKey ? entry?.[fallbackKey] : entry?.[key]);
   return value != null && Number.isFinite(Number(value)) ? Number(value) : null;
 }
 
-export function historyValues(history, accountId) {
+function historyValues(history, accountId) {
   const cashValues = history.map((entry) => recordedOwnValue(entry, accountId, "endingCash")).filter((value) => value != null);
   const propertyValues = history.map((entry) => recordedOwnValue(entry, accountId, "propertyCount", "properties")).filter((value) => value != null);
   return {
@@ -65,18 +65,18 @@ export function historyValues(history, accountId) {
   };
 }
 
-export function statValue(stats, key, format = String) {
+function statValue(stats, key, format = String) {
   if (!Object.prototype.hasOwnProperty.call(stats, key)) return "NOT RECORDED";
   if (stats[key] == null) return "NOT RECORDED";
   if (!Number.isFinite(Number(stats[key]))) return "NOT RECORDED";
   return format(Number(stats[key]));
 }
 
-export function statRecords(items) {
+function statRecords(items) {
   return `<dl class="profile-stat-list">${items.map(([label, value]) => `<div class="profile-stat-record"><dt class="t-micro ink-3">${label}</dt><dd class="t-label f14 g100">${value}</dd></div>`).join("")}</dl>`;
 }
 
-export function categoricalOutcome(entry, accountId) {
+function categoricalOutcome(entry, accountId) {
   const participant = ownParticipant(entry, accountId);
   if (participant?.bankrupt === true) return "BANKRUPT";
   if (entry.bankrupt === true) return "BANKRUPT";
@@ -85,14 +85,14 @@ export function categoricalOutcome(entry, accountId) {
   return fallbackOutcome(entry);
 }
 
-export function placementOutcome(participant, entry) {
+function placementOutcome(participant, entry) {
   const placement = Number(participant?.finalPlacement ?? entry.finalPlacement);
   if (!Number.isInteger(placement) || placement <= 0) return "";
   if (placement === 1) return "WIN";
   return `PLACED #${placement}`;
 }
 
-export function fallbackOutcome(entry) {
+function fallbackOutcome(entry) {
   const result = String(entry.result || "").toUpperCase();
   if (result === "WIN") return "WIN";
   if (entry.won === true) return "WIN";
@@ -101,7 +101,7 @@ export function fallbackOutcome(entry) {
   return "NOT RECORDED";
 }
 
-export function recentResultsHTML(ctx) {
+function recentResultsHTML(ctx) {
   if (!ctx.chronological.length) {
     const message = ctx.account ? "NO COMPLETED ROUNDS YET" : "ACCOUNT HISTORY UNAVAILABLE";
     return `<p class="profile-results-empty t-body ink-2">${message}</p>`;
@@ -114,7 +114,7 @@ export function recentResultsHTML(ctx) {
   return `<ol class="profile-recent-results" aria-label="Recent completed match outcomes">${rows}</ol>`;
 }
 
-export function profilePersonalRecordsHTML(ctx) {
+function profilePersonalRecordsHTML(ctx) {
   const values = [
     ["AVG ENDING CASH", ctx.averageCash == null ? "NOT RECORDED" : `$${ctx.averageCash.toLocaleString()}`],
     ["BEST CASH STACK", ctx.bestCash == null ? "NOT RECORDED" : `$${ctx.bestCash.toLocaleString()}`],
@@ -138,17 +138,17 @@ const ACTIVITY_STAT_FIELDS = [
   ["EQUITY DEALS", "equityDeals"],
 ];
 
-export function profileStatValue(ctx, key, format) {
+function profileStatValue(ctx, key, format) {
   if (!ctx.account) return "NOT RECORDED";
   return statValue(ctx.stats, key, format);
 }
 
-export function statisticsGroupHTML(ctx, fields) {
+function statisticsGroupHTML(ctx, fields) {
   const items = fields.map(([label, key, format]) => [label, profileStatValue(ctx, key, format)]);
   return statRecords(items);
 }
 
-export function statisticsTabsHTML(ctx) {
+function statisticsTabsHTML(ctx) {
   const patrolFields = PARLOR_PATROL_ENABLED ? [
     ["PATROL VERIFIED BEST", "patrolVerifiedBest"],
     ...(Number(ctx.stats?.patrolBest) > 0 ? [["PATROL LEGACY BEST", "patrolBest"]] : []),
@@ -195,7 +195,7 @@ export function renderProfileStatistics() {
   hydrateSprites(root);
 }
 
-export function listSize(list, fallback) {
+function listSize(list, fallback) {
   if (Array.isArray(list)) return list.length;
   return fallback;
 }
@@ -218,12 +218,12 @@ export function safeId(value) {
   return String(value || "").replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80);
 }
 
-export function recordedText(recordValue, key, format = (value) => String(value)) {
+function recordedText(recordValue, key, format = (value) => String(value)) {
   if (!recordValue || !Object.prototype.hasOwnProperty.call(recordValue, key) || recordValue[key] == null) return "NOT RECORDED";
   return format(recordValue[key]);
 }
 
-export function detailField(label, value, tone = "g100") {
+function detailField(label, value, tone = "g100") {
   return `<div class="profile-history-detail-field"><dt class="t-micro ink-3">${label}</dt><dd class="t-label f12 ${tone}">${value}</dd></div>`;
 }
 
@@ -242,7 +242,7 @@ export function formatDuration(value) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-export function resultTone(result) {
+function resultTone(result) {
   if (result === "WIN") return "green";
   if (result === "BANKRUPT") return "red";
   return "g100";
@@ -255,7 +255,7 @@ export function placementLabel(recordValue, participant) {
   return `#${esc(placement)}${field}`;
 }
 
-export function rulesLabel(recordValue) {
+function rulesLabel(recordValue) {
   const overrides = recordValue?.rulesetOverrides;
   if (!Array.isArray(overrides)) return "NOT RECORDED";
   return overrides.length ? `${overrides.length} HOUSE RULE${overrides.length === 1 ? "" : "S"}` : "STANDARD RULES";
@@ -275,24 +275,24 @@ export function historySummaryFields(recordValue, participant, result) {
   ].join("");
 }
 
-export function placementRank(player) {
+function placementRank(player) {
   const placement = Number(player?.finalPlacement);
   return Number.isInteger(placement) && placement > 0 ? placement : Infinity;
 }
 
-export function byPlacement(a, b) {
+function byPlacement(a, b) {
   const left = placementRank(a);
   const right = placementRank(b);
   return left === right ? 0 : left - right;
 }
 
-export function historyPlayerTags(player, you) {
+function historyPlayerTags(player, you) {
   const youTag = you ? '<em class="profile-history-tag is-you">YOU</em>' : "";
   const bankruptTag = player.bankrupt === true ? '<em class="profile-history-tag is-bankrupt">BANKRUPT</em>' : "";
   return youTag + bankruptTag;
 }
 
-export function historyPlayerRow(player, accountId) {
+function historyPlayerRow(player, accountId) {
   const you = accountId != null && player.accountId === accountId;
   const rank = player.finalPlacement == null ? "NOT RECORDED" : `#${esc(player.finalPlacement)}`;
   const cash = player.endingCash == null ? "-" : esc(formatHistoryMoney(player.endingCash, "-"));
@@ -306,7 +306,7 @@ export function historyPlayerRows(recordValue, accountId) {
   return [...participants].sort(byPlacement).map((player) => historyPlayerRow(player, accountId)).join("");
 }
 
-export function netField(label, list, accountId) {
+function netField(label, list, accountId) {
   const entry = (Array.isArray(list) ? list : []).find((item) => item?.accountId === accountId);
   const net = Number(entry?.net);
   if (!entry || entry.net == null || !Number.isFinite(net)) return detailField(label, "NOT RECORDED");
@@ -328,7 +328,7 @@ export function historyEconomyFields(recordValue, participant, accountId) {
   ].join("");
 }
 
-export function historyPropertyCount(participant) {
+function historyPropertyCount(participant) {
   const propertyCount = participant?.propertyCount ?? participant?.properties;
   if (propertyCount == null) return "NOT RECORDED";
   return esc(propertyCount);
@@ -341,7 +341,7 @@ export function historyEventList(recordValue) {
   return `<ul>${events.map((event) => `<li>${esc(historyEventName(event))}</li>`).join("")}</ul>`;
 }
 
-export function historyEventName(event) {
+function historyEventName(event) {
   if (typeof event === "string") return event;
   if (event?.name) return event.name;
   if (event?.title) return event.title;
@@ -449,7 +449,7 @@ export function restoreOpenHistoryRows(root) {
   }
 }
 
-export function emptyHistoryPanelHTML(account) {
+function emptyHistoryPanelHTML(account) {
   const message = account
     ? "NO COMPLETED ROUNDS YET. YOUR FIRST FINISH WILL APPEAR HERE."
     : "SIGN IN TO KEEP A SERVER-SYNCED ROUND HISTORY.";
@@ -458,7 +458,7 @@ export function emptyHistoryPanelHTML(account) {
 
 /* ---------- summary strip, filters, count ---------- */
 
-export function placementNumber(entry, accountId) {
+function placementNumber(entry, accountId) {
   const placement = Number(ownParticipant(entry, accountId)?.finalPlacement ?? entry.finalPlacement);
   return Number.isInteger(placement) && placement > 0 ? placement : null;
 }
@@ -490,7 +490,7 @@ export function profileHistorySummary(history, accountId, ownerRecords = new Map
   };
 }
 
-export function summaryStripHTML(summary) {
+function summaryStripHTML(summary) {
   const cells = [
     ["ROUNDS", String(summary.rounds), "g100"],
     ["WINS", summary.known ? `${summary.wins} · ${summary.winRate}%` : "-", summary.wins ? "green" : "g100"],
@@ -508,7 +508,7 @@ export function summaryStripHTML(summary) {
 const RESULT_FILTERS = [["all", "ALL"], ["win", "WINS"], ["placed", "PLACED"], ["bankrupt", "BANKRUPT"]];
 const historyFilters = { result: "all", board: "all", houseRules: false };
 
-export function resultKind(outcome) {
+function resultKind(outcome) {
   if (outcome === "WIN") return "win";
   if (outcome === "BANKRUPT") return "bankrupt";
   return outcome.startsWith("PLACED #") ? "placed" : "other";
@@ -527,7 +527,7 @@ export function profileHistoryCountLabel({ shown, saved, total, filtered }) {
   return total > saved ? `${saved} OF ${total} ROUNDS LISTED` : `${saved} SAVED`;
 }
 
-export function historyToolbarHTML(history, hasRows) {
+function historyToolbarHTML(history, hasRows) {
   const boards = [...new Set(history.map(boardOf).filter(Boolean))];
   const houseRuleRounds = history.filter(hasHouseRules).length;
   const pressed = (key) => String(historyFilters.result === key);
@@ -587,7 +587,7 @@ export function setAllProfileHistoryRowsExpanded(expanded) {
 
 const FOCUS_ATTRIBUTES = ["data-profile-history-filter", "data-profile-history-bulk", "data-profile-history-toggle"];
 
-export function historyFocusTarget(root) {
+function historyFocusTarget(root) {
   const active = globalThis.document?.activeElement;
   if (!active || !root.contains(active)) return null;
   for (const attribute of FOCUS_ATTRIBUTES) {
@@ -602,7 +602,7 @@ export function restoreHistoryFocus(root, target) {
   [...root.querySelectorAll(`[${target.attribute}]`)].find((candidate) => candidate.getAttribute(target.attribute) === target.value)?.focus({ preventScroll: true });
 }
 
-export function subjectMatchRowHTML(match) {
+function subjectMatchRowHTML(match) {
   const placement = match.placement === 1 ? "WIN" : match.placement ? `PLACE ${esc(match.placement)}` : "MATCH";
   const tone = match.placement === 1 ? "green" : "g100";
   return `<div class="player-profile-match"><span class="t-micro ink-3">${esc(String(match.completedAt || "UNDATED").slice(0, 10))}</span><strong class="t-label f11 ${tone}">${placement}</strong><span class="t-micro ink-3">${esc(match.players)} PLAYERS · ${esc(match.events)} EVENTS</span></div>`;

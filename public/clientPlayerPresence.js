@@ -1,4 +1,4 @@
-export const VISIBLE_IDLE_MS = 30_000;
+const VISIBLE_IDLE_MS = 30_000;
 
 const INPUT_EVENTS = ["pointermove", "mousemove", "keydown", "click", "touchstart"];
 

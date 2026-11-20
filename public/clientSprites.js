@@ -193,6 +193,5 @@ export {
   emptyFaceGrid,
   faceGridFromPreset,
   cloneFaceGrid,
-  AVATAR_FACES,
   FACE_SIZE,
 };

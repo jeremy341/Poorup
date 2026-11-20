@@ -28,7 +28,6 @@ import {
   setAchievementFilter,
   setAchievementDateFilter,
   setAchievementRarityFilter,
-  updateAccountFromResponse,
   openAccountModal,
   closeAccountModal,
   logoutAccount,

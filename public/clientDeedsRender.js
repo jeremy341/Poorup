@@ -7,24 +7,10 @@ import {
   GROUP_COLOR,
   RENT_TABLE,
   TILES,
-  MAX_HOUSES,
   HOTEL_LEVEL,
 } from "./clientBoardData.js";
 import { state } from "./clientState.js";
-import { isRentShare } from "./clientFinanceRules.js";
 import { rentFor, ownsFullGroup, serverTileFor } from "./clientDeedRules.js";
-
-export function houseDisplay(level) {
-  if (!level) return "";
-  if (level === HOTEL_LEVEL) {
-    return `<span class="hotel-pixel" title="HOTEL">${spriteHTML("hotel", 2, "#cfa75f")}</span>`;
-  }
-  return Array.from({ length: MAX_HOUSES })
-    .map((_, i) =>
-      spriteHTML("house", 2, i < level ? "#4b853d" : "#252d24"),
-    )
-    .join("");
-}
 
 const LADDER_PADS = {
   property: { label: " ".repeat(10), pips: " ".repeat(12), close: " ".repeat(8) },
@@ -162,104 +148,6 @@ function bulbOrFaucetHTML(tile) {
   return spriteHTML("faucet", 2);
 }
 
-function kindIconHTML(tile) {
-  if (tile.kind === "railroad") return airportOrTrainHTML(tile);
-  if (tile.kind === "utility") return bulbOrFaucetHTML(tile);
-  return "";
-}
-
-function deedStatusPillHTML(opts, isMortgaged, hasSet) {
-  if (!opts.status) return "";
-  if (isMortgaged) return `<span class="t-micro red">MORTGAGED</span>`;
-  if (hasSet) return `<span class="t-micro green">FULL SET</span>`;
-  return `<span class="t-micro green">${opts.status}</span>`;
-}
-
-function equityLineHTML(equityShares) {
-  if (!equityShares.length) return "";
-  const total = equityShares.reduce((sum, share) => sum + Number(share.share || 0), 0);
-  const rentShare = equityShares.every(share => Number(share.rentShareVersion) === 1 || isRentShare(state.playerContracts?.active?.find(contract => contract.id === share.contractId)));
-  return `<span class="t-micro g300">${rentShare ? "RENT SHARE" : "LEGACY EQUITY"} ${total}%</span>`;
-}
-
-function equitySharesOf(tile) {
-  const serverTile = serverTileFor(tile.i);
-  if (!serverTile) return [];
-  return serverTile.equityShares || [];
-}
-
-function deedClickable(opts, mine) {
-  if (!opts.showBuild) return false;
-  return mine;
-}
-
-function deedWrapperAttrsHTML(interactive, clickable, tile) {
-  if (interactive) return ` type="button" aria-label="Manage ${esc(tile.name)}" data-deed-open="${tile.i}"`;
-  if (clickable) return ` data-deed-open="${tile.i}"`;
-  return "";
-}
-
-function deedHousesHTML(view) {
-  if (!view.isProperty) return `<span class="houses">${view.kindIcon}</span>`;
-  const display = houseDisplay(view.level);
-  if (display) return `<span class="houses">${display}</span>`;
-  return `<span class="houses"><span class="t-micro ink-3">NO HOUSES</span></span>`;
-}
-
-function deedActionHTML(opts, tile) {
-  if (!opts.action) return "";
-  const disabled = opts.disabled ? "disabled" : "";
-  return `<button class="btn-dark" data-buy="${tile.i}" ${disabled}><span class="t-label f11">${opts.action}</span></button>`;
-}
-
-function deedCardView(tile, opts) {
-  const isProperty = tile.kind === "property";
-  const isMortgaged = !!state.mortgaged[tile.i];
-  const mine = state.owners[tile.i] === "p1";
-  const clickable = deedClickable(opts, mine);
-  const hasSet = isProperty && ownsFullGroup("p1", tile.group);
-  return {
-    isProperty,
-    isMortgaged,
-    clickable,
-    interactive: clickable && !opts.action,
-    level: houseLevel(tile),
-    rentLabel: isMortgaged ? "MORTGAGED" : deedCurrentRentLabel(tile),
-    rail: deedRailColor(tile),
-    kindIcon: kindIconHTML(tile),
-    statusPill: deedStatusPillHTML(opts, isMortgaged, hasSet),
-    equity: equityLineHTML(equitySharesOf(tile)),
-  };
-}
-
-function deedCardShellHTML(tile, view, opts) {
-  const wrapper = view.interactive ? "button" : "div";
-  const cardClass = view.clickable ? "deed-card is-clickable" : "deed-card";
-  const tone = view.isMortgaged ? "red" : "green";
-  const manage = view.clickable ? `<span class="t-micro g300">MANAGE ›</span>` : "";
-  const wrapperAttrs = deedWrapperAttrsHTML(view.interactive, view.clickable, tile);
-  return `<${wrapper} class="${cardClass}" data-deed="${tile.i}"${wrapperAttrs}>
-    <span class="deed-rail" style="background:${view.rail}"></span>
-    <div class="deed-main">
-      <div class="deed-top">
-        <span class="t-label deed-name">${tile.name}</span>
-        <span class="t-label deed-price numeric">$${tile.price}</span>
-      </div>
-      <div class="deed-rent">
-        <span class="t-micro ink-3">RENT NOW</span>
-       <span class="t-label f11 ${tone}">${view.rentLabel}</span>
-     </div>
-        ${view.equity}
-      <div class="deed-foot">
-        ${deedHousesHTML(view)}
-        ${view.statusPill}
-        ${manage}
-        ${deedActionHTML(opts, tile)}
-      </div>
-    </div>
-  </${wrapper}>`;
-}
-
 /* One flat line per owned property: colour dot, name, buildings, rent. The
    whole row opens the deed manager (build / sell / mortgage). */
 export function propertyRowHTML(tile, { showRent = true } = {}) {
@@ -278,8 +166,4 @@ export function propertyRowHTML(tile, { showRent = true } = {}) {
     ${meta}
     ${showRent ? `<span class="prop-rent numeric">${isMortgaged ? "" : deedCurrentRentLabel(tile)}</span>` : ""}
   </button>`;
-}
-
-export function deedCardHTML(tile, opts = {}) {
-  return deedCardShellHTML(tile, deedCardView(tile, opts), opts);
 }

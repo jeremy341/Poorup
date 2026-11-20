@@ -39,8 +39,6 @@ export const BALANCE_TABS = Object.freeze(['status', 'matches', 'economy']);
 
 // Window control: ranges the endpoints accept. `season` is tolerated for old links only.
 export const ANALYTICS_RANGES = Object.freeze(['hour', 'day', 'week', 'month']);
-export const RANGE_LABELS = Object.freeze({ hour: '1H', day: '24H', week: '7D', month: '30D' });
-export const RANGE_NAMES = Object.freeze({ hour: 'Last hour', day: 'Last 24 hours', week: 'Last 7 days', month: 'Last 30 days' });
 
 // Query dimensions the normalizer still carries. Only `range` has a control on the page.
 export const ANALYTICS_FILTERS = Object.freeze(['range', 'boardVariant', 'marketComplexity', 'botMode']);

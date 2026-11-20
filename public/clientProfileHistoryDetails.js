@@ -21,7 +21,7 @@ export function historyNetWorthChartSpec(record, accountId) {
   };
 }
 
-export function historyWorthPanel(recordValue, accountId) {
+function historyWorthPanel(recordValue, accountId) {
   const rows = recordValue?.netWorthTimeline;
   if (!Array.isArray(rows)) return '<p class="profile-history-worth-empty">NOT RECORDED</p>';
   const spec = historyNetWorthChartSpec(recordValue, accountId);
@@ -35,7 +35,7 @@ export function historyWorthPanel(recordValue, accountId) {
   return `<div class="profile-history-chart" data-profile-history-chart="${esc(recordValue.matchId)}"></div><p class="t-micro ink-3 profile-history-chart-note">FINAL NET WORTH · ${final}</p><p class="t-micro ink-3 profile-history-chart-note">NET WORTH = CASH + DEEDS + BUILDINGS − DEBTS · ONE POINT PER ROUND</p>`;
 }
 
-export function historyDetailPanels(recordValue, accountId, participant) {
+function historyDetailPanels(recordValue, accountId, participant) {
   const result = matchResult(recordValue, accountId);
   const summaryFields = historySummaryFields(recordValue, participant, result);
   const playerRows = historyPlayerRows(recordValue, accountId);
@@ -50,12 +50,12 @@ export function historyDetailPanels(recordValue, accountId, participant) {
   ];
 }
 
-export function historyDetailTabButtons(panels, detailId) {
+function historyDetailTabButtons(panels, detailId) {
   const buttons = panels.map(([key, label], index) => `<button type="button" role="tab" id="${detailId}-tab-${key}" aria-selected="${index === 0}" aria-controls="${detailId}-panel-${key}" tabindex="${index === 0 ? "0" : "-1"}" data-profile-history-detail-tab="${key}">${label}</button>`).join("");
   return buttons;
 }
 
-export function historyDetailTabContents(panels, detailId) {
+function historyDetailTabContents(panels, detailId) {
   const contents = panels.map(([key, , content], index) => `<section role="tabpanel" id="${detailId}-panel-${key}" aria-labelledby="${detailId}-tab-${key}" tabindex="0"${index ? " hidden" : ""}>${content}</section>`).join("");
   return contents;
 }
@@ -87,7 +87,7 @@ export function ownerEndingCash(ownerRecord, accountId) {
   return value === null ? null : formatHistoryMoney(value);
 }
 
-export const STANDARD_BOARD = "standard-40";
+const STANDARD_BOARD = "standard-40";
 
 export function boardOf(entry) {
   return typeof entry?.boardVariant === "string" ? entry.boardVariant : "";

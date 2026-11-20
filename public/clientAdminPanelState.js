@@ -2,7 +2,7 @@
 // `[data-section]` with a `[data-section-state]` message slot and a `[data-section-body]`. Content
 // stays on screen through refreshes and failures. Unauthorized clears it, since the session does not carry admin rights.
 
-export const FAILURE_TEXT = Object.freeze({
+const FAILURE_TEXT = Object.freeze({
   401: 'ADMIN ACCOUNT REQUIRED',
   403: 'ADMIN ACCESS REQUIRED',
   429: 'RATE LIMITED · RETRY',

@@ -17,7 +17,7 @@ export function effectDimensions(kind, aircraft) {
   return [64, 64];
 }
 
-export function targetSrc(kind, direction) {
+function targetSrc(kind, direction) {
   if (kind === "beacon") return `${PATROL_ART}beacon-6-frames.svg`;
   if (kind === "drone") return `${PATROL_ART}drone-8-frames.svg`;
   if (kind === "airplane") return `${PATROL_ART}airplane-10-frames.svg`;
@@ -25,7 +25,7 @@ export function targetSrc(kind, direction) {
   return `${PATROL_ART}helicopter-16-frames.svg`;
 }
 
-export function targetSize(kind) {
+function targetSize(kind) {
   if (kind === "beacon") return [48, 48];
   if (kind === "drone") return [96, 64];
   if (kind === "airplane") return [112, 64];
@@ -55,7 +55,7 @@ export function targetClassName(kind, direction, isDrop) {
   return `night-target night-target-${direction} night-target-${kind} is-flight`;
 }
 
-export function pickWaveTargetKind(wave, roll) {
+function pickWaveTargetKind(wave, roll) {
   if (wave >= 4 && roll < 0.12) return "airplane";
   if (wave >= 3 && roll < 0.24) return "beacon";
   if (wave >= 2 && roll < 0.44) return "drone";

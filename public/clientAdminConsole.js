@@ -9,10 +9,9 @@ import {
 // the change log and the release control. The shell (clientAnalytics.js) picks the shown
 // section. This controller owns requests, polling, empty and error states, and teardown.
 
-export const ROOMS_POLL_MS = 15000;
-export const COUNTDOWN_TICK_MS = 1000;
+const ROOMS_POLL_MS = 15000;
+const COUNTDOWN_TICK_MS = 1000;
 const AUDIT_UNSAVED = 'Done, but the audit log could not be saved. Check the audit log file.';
-export const OPS_TABS = Object.freeze(['status', 'rooms', 'bots', 'release']);
 const CHIP_TABS = Object.freeze(['rooms', 'bots', 'release']);
 
 function find(root, selector) { return root?.querySelector?.(selector) || null; }

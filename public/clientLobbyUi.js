@@ -871,7 +871,7 @@ function onParlorEntryResponse(response, event) {
 // Solo entry: a table with one computer player. The host still starts the round.
 // The table is private (defaults in the CTA tooltip), so it generates its own
 // six-character invite code: public solo tables let strangers wander in.
-export function playVsComputer() {
+function playVsComputer() {
   if (!requireGuestAlias()) return;
   if (quickTableFlow || state.roomEntryPending) return;
   state.quickJoin = false;
