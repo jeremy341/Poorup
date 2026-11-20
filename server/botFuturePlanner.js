@@ -110,14 +110,6 @@ function stateClone(snapshot) {
   };
 }
 
-function propertyGroupCount(state, group) {
-  return state.board.filter(tile => tile.group === group && tile.ownerSeat === 'self').length;
-}
-
-function groupTarget(snapshot, group) {
-  return (snapshot.board || []).filter(tile => tile.group === group).length;
-}
-
 // Full-set size per group is a property of the snapshot board (its groups never change), so it is counted once per snapshot board.
 const TARGET_COUNTS = new WeakMap();
 
