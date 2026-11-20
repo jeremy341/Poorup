@@ -27,8 +27,7 @@ skills-lock.json
 .impeccable/
 
 # Editor directories and files
-.vscode/*
-!.vscode/extensions.json
+.vscode/
 .idea
 .DS_Store
 *.suo
@@ -42,6 +41,8 @@ playwright-report/
 .test-timings/
 # Evidence written by qa/load (see qa/load/README.md)
 qa/load/evidence-*.json
+# Timing output of bench/baseline/campaign-baseline.mjs (machine-specific)
+bench/baseline/node-baseline.json
 
 # Local-only folders (not part of the repo)
 richup-ux-matrix/

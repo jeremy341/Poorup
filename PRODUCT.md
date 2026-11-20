@@ -38,16 +38,14 @@ Poorup combines a complete server-authoritative property game with account-free 
 ## Brand Commitments
 
 - Product name: Poorup.
-- Voice: direct, playful, competitive, and concise. No invented claims, fake social proof, or mock statistics.
+- Voice: direct, playful, competitive, and concise.
 - Visual identity: After-hours Game Parlor, a dark neo-retro tabletop with selective pixel and screen-print character and modern readable controls.
 
-## Evidence on Hand
+## Where it lives
 
 - Working multiplayer implementation in `server/` (entry `server/server.js`) with the plain client in `public/` (entry `public/index.html` and `public/main.js`).
-- The client already ships a profile library, room tabs, sound toggle, card reveals, deed detail, auction pass UI and a game-over surface. Turns have no fixed time limit; a separate inactivity clock and vote-kick flow run during a game.
+- Turns have no fixed time limit; a separate inactivity clock and vote-kick flow run during a game.
 - The board is drawn by the HTML/CSS board renderer (`public/clientBoardRender.js`) from the topology in `public/clientBoardData.js`.
-- Landing and game-shell accessibility work lives in `public/index.html` and `public/styles.css`.
-- No testimonials, usage numbers, customer logos, or external performance claims are available and none may be fabricated.
 
 ## Product Principles
 

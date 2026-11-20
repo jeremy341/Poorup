@@ -8,8 +8,6 @@ for identical behavior. It is not part of `npm test` or CI.
 | --- | --- |
 | `baseline/campaign-baseline.mjs` | Runs the seeded bot campaign and writes the two JSON files below. It mirrors the loop in `server/bot-simulation.test.js`: seed `index * 1009 + 7`, three no-AI bot seats, $1500 starting cash, a 2000-step cap. |
 | `baseline/node-results.json` | **The parity oracle.** One entry per game (60 games, indexes 1 to 60): seed, step count, whether it ended, stalls and each seat's final net worth. Every field is deterministic, so a correct build reproduces it exactly. |
-| `baseline/node-baseline.json` | A timing record of the same 60-game run (games per second, per-game percentiles). It is specific to the machine and Node version named inside it (the Rust-port experiment's reference point) and is informational only; never compare against it for correctness. |
-| `fixtures/capture.mjs`, `fixtures/tap-hooks.mjs` | A recorder for differential-test fixtures: it wraps the pure game-rule and bot-policy functions during seeded games and writes their arguments and results as `<module>/<function>.jsonl.gz`. The generated `.gz` files are deliberately not committed; regenerate them when needed with `node bench/fixtures/capture.mjs [seeds] [perSeedCap] [startIndex]`. |
 
 ## Run the parity check
 
@@ -21,8 +19,7 @@ OUT=$(mktemp -d)
 node bench/baseline/campaign-baseline.mjs 5 1 "$OUT"    # games, first index, output dir
 ```
 
-Compare the fresh results with the oracle, matching by game index (the timing
-file will differ and should):
+The script also writes `node-baseline.json` (wall-clock timings for the run) beside the results; that file is machine-specific and not part of the check, so it is not committed. Compare the fresh results with the oracle, matching by game index:
 
 ```bash
 node -e "
@@ -40,6 +37,4 @@ and game rules: if you intentionally change bot behavior or game balance, the
 oracle is expected to differ. Regenerate it in that same change, with the full
 60 games and the default output folder, and say so in the commit.
 
-The scripts import `server/botAdvisor.js` and `server/bot-policy-tournament.js`;
-if those move, update the import paths in `campaign-baseline.mjs` and the module
-list in `fixtures/capture.mjs`.
+The script imports `server/botAdvisor.js` and `server/bot-policy-tournament.js`; if those move, update its import paths.
