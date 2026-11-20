@@ -54,12 +54,6 @@ function hasMalformedOriginList(env = process.env) {
   return raw.some(origin => !normalizeOrigin(origin));
 }
 
-export function isOriginAllowed(origin, configuredOrigins = []) {
-  if (!origin) return true;
-  if (!configuredOrigins.length) return true;
-  return configuredOrigins.includes('*') || configuredOrigins.includes(origin);
-}
-
 // Socket.IO's allowRequest applies the same exact-origin policy to every transport, including direct WebSocket upgrades.
 // Wildcards are excluded from this admission seam.
 export function isAllowedSocketOrigin(origin, allowedOrigins = []) {

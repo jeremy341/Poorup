@@ -1538,4 +1538,4 @@ class RoomManager {
   }
 }
 
-export { LOBBY_SNAPSHOT_SCHEMA, Player, Room, RoomManager, validLobbySnapshot };
+export { Player, Room, RoomManager };

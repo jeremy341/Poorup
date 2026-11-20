@@ -77,5 +77,3 @@ export function createRetentionJob({ deletionCoordinator, recovery, analyticsRol
 
   return { runOnce, start, stop, status };
 }
-
-export { DEFAULT_INTERVAL_MS, DEFAULT_ANALYTICS_RETENTION_MS, DEFAULT_BACKUP_RETENTION_MS };

@@ -284,4 +284,4 @@ export function summarizeRuntimeMetrics(registry) {
   };
 }
 
-export { ALLOWED_LABELS, METRIC_TYPES };
+export { METRIC_TYPES };

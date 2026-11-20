@@ -121,4 +121,4 @@ function rateLimitAddressKey(address) {
   return `${words.slice(0, 4).map(word => word.toString(16)).join(':')}::/64`;
 }
 
-export { ipv4FromIpv6, ipv6Words, isNonPublicIpv4, isNonPublicIpv6, rateLimitAddressKey };
+export { ipv6Words, isNonPublicIpv4, isNonPublicIpv6, rateLimitAddressKey };

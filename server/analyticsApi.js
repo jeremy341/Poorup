@@ -238,5 +238,3 @@ function actorMatchesQuery(row, query) {
   if (query.dimension === 'bot') return Boolean(scope.botMode) && (!query.botMode || query.botMode === 'all' || query.botMode === scope.botMode);
   return true;
 }
-
-export { MAX_ADMIN_IDS };

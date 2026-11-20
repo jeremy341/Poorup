@@ -87,5 +87,3 @@ export function buildAccountExport({ account, social = {}, retiredData = {}, mat
     recoveryEmail: { address: text(account.recoveryEmail, 254), verified: account.recoveryEmailVerified === true }
   };
 }
-
-export { safeHistoryEntry, safeMatch };

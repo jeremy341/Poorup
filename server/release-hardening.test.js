@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { assertProductionCors, createCorsOrigin, isOriginAllowed, parseAllowedOrigins, resolveRetentionToken, tokensMatch } from './serverConfig.js';
+import { assertProductionCors, createCorsOrigin, parseAllowedOrigins, resolveRetentionToken, tokensMatch } from './serverConfig.js';
 import { createSocketRateLimiter } from './socketRateLimiter.js';
 
 // Operator tokens are compared in constant time, and the retention job falls
@@ -19,10 +19,6 @@ assert.equal(retentionWarnings.length, 1, 'the maintenance-token fallback warns 
 assert.deepEqual(parseAllowedOrigins({ POORUP_ALLOWED_ORIGINS: ' https://poorup.example, https://play.example ' }), ['https://poorup.example', 'https://play.example']);
 assert.deepEqual(parseAllowedOrigins({ POORUP_ALLOWED_ORIGINS: 'https://poorup.example/' }), ['https://poorup.example']);
 assert.deepEqual(parseAllowedOrigins({ POORUP_ALLOWED_ORIGINS: '' }), []);
-assert.equal(isOriginAllowed(undefined, ['https://poorup.example']), true);
-assert.equal(isOriginAllowed('https://poorup.example', ['https://poorup.example']), true);
-assert.equal(isOriginAllowed('https://evil.example', ['https://poorup.example']), false);
-assert.equal(isOriginAllowed('https://anything.example', []), true);
 let productionOriginResult = null;
 createCorsOrigin({ NODE_ENV: 'production' })('https://unexpected.example', (_error, allowed) => { productionOriginResult = allowed; });
 assert.equal(productionOriginResult, false);

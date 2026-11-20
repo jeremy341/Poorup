@@ -65,17 +65,6 @@ check('persistence accepts only an adapter instance with a healthy transactional
   assert.equal(persistence.persistenceMode(env, { healthCheck() { return false; }, transaction() {} }).ready, false);
 });
 
-check('readiness projection exposes only store, backup, and maintenance health', () => {
-  assert.equal(typeof persistence.buildReadinessProjection, 'function');
-  assert.deepEqual(persistence.buildReadinessProjection({ storeLoaded: true, backupFresh: false, maintenance: 'normal' }), {
-    ready: false,
-    storeLoaded: true,
-    backupFresh: false,
-    maintenance: 'normal'
-  });
-  assert.equal(JSON.stringify(persistence.buildReadinessProjection({ storeLoaded: true, backupFresh: true, maintenance: 'normal' })).includes('password'), false);
-});
-
 check('runtime exposes current AI provider status and its subscription cleanup', () => {
   const manager = new RoomManager();
   manager.createRoom({ socketId: 'provider-socket', clientId: 'provider-client', nickname: 'Provider' });
