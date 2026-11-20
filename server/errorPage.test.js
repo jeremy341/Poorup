@@ -4,7 +4,7 @@ import { renderErrorPage } from './errorPage.js';
 const page = renderErrorPage('Confirm recovery email', 'Use this address for recovery.', '<form method="post" action="/account/recovery/verify"><input type="hidden" name="token" value="safe-token"><button type="submit">CONFIRM RECOVERY EMAIL</button></form>');
 assert.match(page, /<html lang="en">/);
 assert.match(page, /href="\/styles\.css"/);
-assert.match(page, /href="\/ui-review-system\.css"/);
+assert.match(page, /href="\/admin-and-system-pages.css"/);
 assert.match(page, /<h1>Confirm recovery email<\/h1>/);
 assert.match(page, /method="post" action="\/account\/recovery\/verify"/);
 assert.match(page, /name="token" value="safe-token"/);

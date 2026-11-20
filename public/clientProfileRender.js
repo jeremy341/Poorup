@@ -258,12 +258,12 @@ export function renderAccountPanel() {
 }
 
 function configureDesignButtons(atCap) {
-  const newBtn = $("#pl-new-btn");
+  const newBtn = $("#profile-library-new-btn");
   if (newBtn) {
     newBtn.disabled = atCap;
     newBtn.querySelector(".t-label").textContent = atCap ? `MAX ${MAX_PROFILES} DESIGNS` : "+ NEW DESIGN";
   }
-  const saveBtn = $("#pl-save-btn");
+  const saveBtn = $("#profile-library-save-btn");
   if (saveBtn) {
     saveBtn.disabled = !state.profileDraft || atCap;
     saveBtn.querySelector(".cta-text").textContent = atCap ? `MAX ${MAX_PROFILES} DESIGNS` : "SAVE DESIGN";
@@ -271,7 +271,7 @@ function configureDesignButtons(atCap) {
 }
 
 function emptyLibraryMessage() {
-  return `<p class="pl-empty">No custom designs yet. Press <strong style="color:var(--gold-300)">+ NEW DESIGN</strong> to draw your first player.</p>`;
+  return `<p class="profile-library-empty">No custom designs yet. Press <strong style="color:var(--gold-300)">+ NEW DESIGN</strong> to draw your first player.</p>`;
 }
 
 function draftCard() {
@@ -295,7 +295,7 @@ function cardForProfile(profile, i, draft) {
 }
 
 function tileClasses(p, selected) {
-  const cls = ["pl-tile"];
+  const cls = ["profile-library-tile"];
   if (selected) cls.push("is-active");
   if (p.isDraft) cls.push("is-draft");
   if (p.isEditing) cls.push("is-editing");
@@ -310,20 +310,20 @@ function tileStateLabel(selected, editing) {
 
 function tileSelectHTML(p, i, selected) {
   const entity = { color: p.color, avatarGrid: p.avatarGrid };
-  const name = `<span class="pl-name-row"><span class="pl-name-chip" style="background:${p.color}" aria-hidden="true"></span><span class="t-label pl-tile-name">${esc(p.designName)}</span></span>`;
-  const av = `<span class="pl-tile-av">${avatarHTML(entity, 3, i)}</span>`;
+  const name = `<span class="profile-library-name-row"><span class="profile-library-name-chip" style="background:${p.color}" aria-hidden="true"></span><span class="t-label profile-library-tile-name">${esc(p.designName)}</span></span>`;
+  const av = `<span class="profile-library-tile-avatar">${avatarHTML(entity, 3, i)}</span>`;
   if (p.isDraft) {
-    return `<div class="pl-tile-select pl-tile-draft" aria-label="Unsaved design preview">${av}<span class="pl-tile-info">${name}<span class="t-micro g400">UNSAVED DRAFT · LIVE PREVIEW</span></span></div>`;
+    return `<div class="profile-library-tile-select profile-library-tile-draft" aria-label="Unsaved design preview">${av}<span class="profile-library-tile-info">${name}<span class="t-micro g400">UNSAVED DRAFT · LIVE PREVIEW</span></span></div>`;
   }
   const status = tileStateLabel(selected, Boolean(p.isEditing));
-  return `<button class="pl-tile-select" type="button" data-profile-select="${esc(p.id)}" aria-pressed="${selected}">${av}<span class="pl-tile-info">${name}${status}</span></button>`;
+  return `<button class="profile-library-tile-select" type="button" data-profile-select="${esc(p.id)}" aria-pressed="${selected}">${av}<span class="profile-library-tile-info">${name}${status}</span></button>`;
 }
 
 function tileActionsHTML(p) {
   if (p.isDraft) {
-    return `<div class="pl-tile-actions"><span class="t-micro g400 pl-draft-badge">DRAFT</span></div>`;
+    return `<div class="profile-library-tile-actions"><span class="t-micro g400 profile-library-draft-badge">DRAFT</span></div>`;
   }
-  return `<div class="pl-tile-actions"><button class="btn-dark" type="button" data-profile-edit="${esc(p.id)}"><span class="t-label">EDIT</span></button><button class="btn-dark pl-delete" type="button" data-profile-delete="${esc(p.id)}"><span class="t-label">DELETE</span></button></div>`;
+  return `<div class="profile-library-tile-actions"><button class="btn-dark" type="button" data-profile-edit="${esc(p.id)}"><span class="t-label">EDIT</span></button><button class="btn-dark profile-library-delete" type="button" data-profile-delete="${esc(p.id)}"><span class="t-label">DELETE</span></button></div>`;
 }
 
 function libraryTileHTML(p, i, activeId) {
@@ -337,7 +337,7 @@ function libraryTileHTML(p, i, activeId) {
 export function renderProfileLibrary() {
   const atCap = state.profiles.length >= MAX_PROFILES;
   configureDesignButtons(atCap);
-  const list = $("#pl-list");
+  const list = $("#profile-library-list");
   if (!list) return;
   if (!state.profiles.length) {
     if (!state.profileDraft) {
@@ -441,7 +441,7 @@ export function renderProfileEditor() {
   if (!d) return;
   const deleteBtn = $("#profile-delete-btn");
   if (deleteBtn) deleteBtn.classList.toggle("is-hidden", !state.editingProfileId);
-  const saveLabel = $("#pl-save-btn")?.querySelector(".cta-text");
+  const saveLabel = $("#profile-library-save-btn")?.querySelector(".cta-text");
   if (saveLabel) saveLabel.textContent = state.editingProfileId ? "Save Changes" : "Save Design";
   $("#profile-swatches").innerHTML = PROFILE_SWATCHES.map((c) => swatchHTML(c, d)).join("");
   $("#profile-color-picker").value = d.color;

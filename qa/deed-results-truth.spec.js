@@ -8,15 +8,15 @@ const brownTiles = [1, 3];
 
 
 async function sellOneHouse(page, testInfo, game, index, expectedLevel) {
-  await page.locator('#dd-sell').click();
+  await page.locator('#deed-detail-sell').click();
   await expect.poll(() => game.getTile(index).houseCount).toBe(expectedLevel);
   if (index === 1 && expectedLevel === 1) {
-    await expect(page.locator('#dd-sell')).toBeDisabled();
-    await expect(page.locator('#dd-close')).toBeFocused();
+    await expect(page.locator('#deed-detail-sell')).toBeDisabled();
+    await expect(page.locator('#deed-detail-close')).toBeFocused();
     await captureState(page, testInfo, 'deed-sell-one-house', 'Even selling blocks a second sale from the lower street');
   }
-  if (expectedLevel === 0 && index === 3) await expect(page.locator('#dd-trade-deed')).toBeFocused();
-  await page.locator('#dd-close').click();
+  if (expectedLevel === 0 && index === 3) await expect(page.locator('#deed-detail-trade-deed')).toBeFocused();
+  await page.locator('#deed-detail-close').click();
 }
 
 // A finished room, seen by the given viewer, with the client installed on it.
@@ -107,9 +107,9 @@ test('real Brown-set sales stay even and Sell deed negotiates with a player', as
   await page.exposeFunction('__deedTruthAction', bridge);
   await installFinishedRoom(page, room, owner, true);
   await openDeedDetail(page, 1);
-  await expect(page.locator('#dd-sell')).toBeEnabled();
-  await expect(page.locator('#dd-sell')).toContainText('SELL HOUSE');
-  await expect(page.locator('#dd-mortgage')).toBeDisabled();
+  await expect(page.locator('#deed-detail-sell')).toBeEnabled();
+  await expect(page.locator('#deed-detail-sell')).toContainText('SELL HOUSE');
+  await expect(page.locator('#deed-detail-mortgage')).toBeDisabled();
   await captureDeedSurface(page, testInfo, 'deed-manager-property', 'Even building sales available off turn', 'deed-manager-property.detail.png');
   for (const [index, expectedLevel] of [[1, 1], [3, 1], [1, 0], [3, 0]]) {
     if (index !== 1 || expectedLevel !== 1) await openDeedDetail(page, index);
@@ -118,12 +118,12 @@ test('real Brown-set sales stay even and Sell deed negotiates with a player', as
   expect(owner.cash).toBe(900); // $200 spent, four $25 refunds.
   expect(brownTiles.map(index => game.getTile(index).houseCount)).toEqual([0, 0]);
   await openDeedDetail(page, 1);
-  await expect(page.locator('#dd-bank-sale')).toHaveCount(0);
-  await expect(page.locator('#dd-trade-deed')).toBeEnabled();
-  await expect(page.locator('#dd-mortgage')).toBeEnabled();
+  await expect(page.locator('#deed-detail-bank-sale')).toHaveCount(0);
+  await expect(page.locator('#deed-detail-trade-deed')).toBeEnabled();
+  await expect(page.locator('#deed-detail-mortgage')).toBeEnabled();
   await expect(page.locator('#deed-card-detail')).not.toContainText(/50%|CONFIRM BANK SALE/);
   await captureDeedSurface(page, testInfo, 'deed-sell-empty', 'Cleared deed sells through a negotiated player trade', 'deed-sell-empty.detail.png');
-  await page.locator('#dd-trade-deed').click();
+  await page.locator('#deed-detail-trade-deed').click();
   await expect(page.locator('#deed-modal')).toBeHidden();
   await expect(page.locator('#trade-modal')).toBeVisible();
   expect(await page.locator('#trade-card').evaluate(card => {
@@ -178,9 +178,9 @@ test('mortgaged deeds can be offered and requested without clearing their mortga
   }));
   await installFinishedRoom(page, room, seller, true);
   await openDeedDetail(page, 5);
-  await expect(page.locator('#dd-trade-deed')).toBeEnabled();
+  await expect(page.locator('#deed-detail-trade-deed')).toBeEnabled();
   await captureDeedSurface(page, testInfo, 'deed-mortgaged', 'Mortgaged airport remains eligible for player trade', 'deed-mortgaged.detail.png');
-  await page.locator('#dd-trade-deed').click();
+  await page.locator('#deed-detail-trade-deed').click();
   await expect(page.locator('#deed-modal')).toBeHidden();
   await expect(page.locator('#trade-modal')).toBeVisible();
   const offered = page.locator('[data-side="me"][data-deed="5"]');

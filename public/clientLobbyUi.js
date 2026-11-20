@@ -233,7 +233,7 @@ function renderSetup() {
   wrap.classList.toggle("is-hidden", state.phase !== "setup");
   if (state.phase !== "setup") return;
 
-  const entryButton = $("#su-start");
+  const entryButton = $("#setup-start-btn");
   if (entryButton) {
     entryButton.disabled = Boolean(state.roomEntryPending);
     const label = entryButton.querySelector(".cta-text");
@@ -319,40 +319,40 @@ function paintSetupIdentity(choice, meta) {
   const sourceLabel = state.tableAppearanceOverride == null ? "ACTIVE DESIGN" : "THIS TABLE ONLY";
   const activeName = activeDesignName();
   const activeIsDifferent = tableAppearanceIsDifferent();
-  const activeCard = $("#su-active-card");
+  const activeCard = $("#setup-active-card");
   if (activeCard) {
-    activeCard.innerHTML = `<div class="su-active-avatar">${avatarHTML({ color: meta.color, avatarGrid: meta.avatarGrid }, 4, 0)}</div><div class="su-active-copy"><span class="t-micro ${activeIsDifferent ? "g400" : "green"}">${sourceLabel}</span><strong class="t-label f14 su-active-name" style="color:${meta.textColor}">${esc(selectedName)}</strong><span class="t-micro ink-3">${activeIsDifferent ? `ACTIVE DESIGN · ${esc(activeName)}` : "READY TO ENTER THE PARLOR"}</span></div>`;
+    activeCard.innerHTML = `<div class="setup-active-avatar">${avatarHTML({ color: meta.color, avatarGrid: meta.avatarGrid }, 4, 0)}</div><div class="setup-active-copy"><span class="t-micro ${activeIsDifferent ? "g400" : "green"}">${sourceLabel}</span><strong class="t-label f14 setup-active-name" style="color:${meta.textColor}">${esc(selectedName)}</strong><span class="t-micro ink-3">${activeIsDifferent ? `ACTIVE DESIGN · ${esc(activeName)}` : "READY TO ENTER THE PARLOR"}</span></div>`;
   }
   toggleSetupOverrideButtons(!activeIsDifferent);
-  $("#su-chooser")?.classList.remove("is-hidden");
+  $("#setup-chooser")?.classList.remove("is-hidden");
 }
 
 function toggleSetupOverrideButtons(hidden) {
-  $("#su-active-actions")?.classList.toggle("is-hidden", hidden);
-  $("#su-reset-btn")?.classList.toggle("is-hidden", hidden);
-  $("#su-make-active-btn")?.classList.toggle("is-hidden", hidden);
+  $("#setup-active-actions")?.classList.toggle("is-hidden", hidden);
+  $("#setup-reset-btn")?.classList.toggle("is-hidden", hidden);
+  $("#setup-make-active-btn")?.classList.toggle("is-hidden", hidden);
 }
 
 function paintSetupTabs() {
-  document.querySelectorAll(".su-tab").forEach((btn) => {
+  document.querySelectorAll(".setup-tab").forEach((btn) => {
     btn.classList.toggle("is-active", btn.dataset.suTab === state.setupTab);
     btn.setAttribute("aria-selected", String(btn.dataset.suTab === state.setupTab));
   });
-  $("#su-custom-count").textContent = `${state.profiles.length}/${MAX_PROFILES}`;
-  $("#su-grid")?.setAttribute("aria-labelledby", `su-tab-${state.setupTab}`);
+  $("#setup-custom-count").textContent = `${state.profiles.length}/${MAX_PROFILES}`;
+  $("#setup-grid")?.setAttribute("aria-labelledby", `su-tab-${state.setupTab}`);
 }
 
 function paintSetupGrid(choice) {
   if (state.setupTab === "custom") {
-    $("#su-grid").innerHTML = customDesignsHTML(choice);
+    $("#setup-grid").innerHTML = customDesignsHTML(choice);
     return;
   }
-  $("#su-grid").innerHTML = presetDesignsHTML(choice);
+  $("#setup-grid").innerHTML = presetDesignsHTML(choice);
 }
 
 function customDesignsHTML(choice) {
   if (!state.profiles.length) {
-    return `<p class="su-empty-custom">No custom designs yet. Create one from the home screen, then pick it here.</p>`;
+    return `<p class="setup-empty-custom">No custom designs yet. Create one from the home screen, then pick it here.</p>`;
   }
   return state.profiles
     .map((p, i) => customDesignCardHTML(p, choice === p.id, i))
@@ -379,11 +379,11 @@ function tableOrActiveDesign() {
 
 function customDesignCardHTML(p, active, i) {
   const status = customStatusText(active, p.id);
-  return `<button type="button" class="su-opt su-opt-profile${active ? " is-active" : ""}" data-app="${esc(p.id)}">
-              <div class="su-av">${avatarHTML(p, 5, i)}</div>
+  return `<button type="button" class="setup-option setup-option-profile${active ? " is-active" : ""}" data-app="${esc(p.id)}">
+              <div class="setup-avatar">${avatarHTML(p, 5, i)}</div>
               <div>
               <div class="t-label f13" style="color:${p.color}">${esc(profileDesignName(p))}</div>
-                <div class="t-micro ink-3 su-state">${status}</div>
+                <div class="t-micro ink-3 setup-state">${status}</div>
               </div>
             </button>`;
 }
@@ -397,11 +397,11 @@ function presetDesignCardHTML(a, i, choice, takenIdentities) {
   const active = choice === i;
   const taken = !active && takenIdentities.has(setupIdentityKey(a.color, null));
   const status = presetStatusText(active, taken, i);
-  return `<button type="button" class="su-opt${active ? " is-active" : ""}${taken ? " is-taken" : ""}" data-app="${i}"${taken ? " disabled aria-disabled=\"true\" title=\"This icon is taken at the table\"" : ""}>
-      <div class="su-av">${avatarHTML(a, 5, i)}</div>
+  return `<button type="button" class="setup-option${active ? " is-active" : ""}${taken ? " is-taken" : ""}" data-app="${i}"${taken ? " disabled aria-disabled=\"true\" title=\"This icon is taken at the table\"" : ""}>
+      <div class="setup-avatar">${avatarHTML(a, 5, i)}</div>
       <div>
         <div class="t-label f13" style="color:${taken ? "var(--text-muted)" : a.textColor}">${a.label}</div>
-        <div class="t-micro ink-3 su-state">${status}</div>
+        <div class="t-micro ink-3 setup-state">${status}</div>
       </div>
     </button>`;
 }
@@ -639,7 +639,7 @@ function resetTableForEntry(requestedCode, requestId = "") {
   state.log = ["ACTIVE DESIGN READY. ENTER THE PARLOR."];
   host.showView("game");
   host.renderAll();
-  focusSurface("#setup-wrap", "#su-start");
+  focusSurface("#setup-wrap", "#setup-start-btn");
   requestAnimationFrame(() => placePieces());
 }
 
@@ -729,7 +729,7 @@ function parlorPendingRoomMeta(event) {
 function rejectParlorEntry(response) {
   host.announceActionStatus(response.error || "Room could not be entered.", activeRoomEntryStatusNode);
   const modal = $("#rooms-modal");
-  const joinPanel = $("#rm-panel-join");
+  const joinPanel = $("#rooms-panel-join");
   const joinOpen = Boolean(modal && !modal.classList.contains("is-hidden") && joinPanel && !joinPanel.classList.contains("is-hidden"));
   // Surface the server's reason next to the join form and return focus to the
   // code field. When the entry closed the modal (resetTableForEntry runs
@@ -1160,17 +1160,17 @@ function appearanceStepSkipped() {
 }
 
 export function bindLobbyUi() {
-  $("#su-tabs")?.addEventListener("click", (e) => {
+  $("#setup-tabs")?.addEventListener("click", (e) => {
     const tabBtn = e.target.closest("[data-su-tab]");
     if (!tabBtn) return;
     state.setupTab = tabBtn.dataset.suTab;
     renderSetup();
   });
-  $("#su-reset-btn")?.addEventListener("click", () => {
+  $("#setup-reset-btn")?.addEventListener("click", () => {
     clearTableAppearanceOverride();
-    focusSurface("#setup-wrap", "#su-start");
+    focusSurface("#setup-wrap", "#setup-start-btn");
   });
-  $("#su-make-active-btn")?.addEventListener("click", () => {
+  $("#setup-make-active-btn")?.addEventListener("click", () => {
     const choice = activeAppearance();
     state.appearance = choice;
     saveActiveDesignId(choice);
@@ -1181,9 +1181,9 @@ export function bindLobbyUi() {
     renderSetup();
     renderLobbyRail();
     syncServerAppearance();
-    focusSurface("#setup-wrap", "#su-start");
+    focusSurface("#setup-wrap", "#setup-start-btn");
   });
-  $("#su-grid").addEventListener("click", (e) => {
+  $("#setup-grid").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-app]");
     if (!btn) return;
     if (btn.disabled) return;
@@ -1192,7 +1192,7 @@ export function bindLobbyUi() {
     const choice = /^\d+$/.test(raw) ? Number(raw) : raw;
     setTableAppearanceOverride(choice);
   });
-  $("#su-start").addEventListener("click", enterLobby);
+  $("#setup-start-btn").addEventListener("click", enterLobby);
   $("#setup-close")?.addEventListener("click", () => host.goHome());
   $("#setup-wrap .setup-scrim")?.addEventListener("click", () => host.goHome());
 

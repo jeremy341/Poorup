@@ -11,9 +11,9 @@ test('the rooms list narrows as you search by table name', async ({ browser }, t
     await page.goto('/');
     await page.locator('#home-alias').fill(alias);
     await page.locator('#open-create-btn').click();
-    await page.locator('#rc-name').fill(name);
-    await page.locator('#rc-create-btn').click();
-    await page.locator('#su-start').click();
+    await page.locator('#room-create-name').fill(name);
+    await page.locator('#room-create-btn').click();
+    await page.locator('#setup-start-btn').click();
   };
   await makeRoom(alpha, 'HOSTONE');
   await makeRoom(beta, 'HOSTTWO');
@@ -21,7 +21,7 @@ test('the rooms list narrows as you search by table name', async ({ browser }, t
   const viewer = await (await browser.newContext()).newPage();
   await viewer.goto('/');
   await viewer.locator('#open-join-btn').click();
-  await viewer.locator('#rm-tab-browse').click();
+  await viewer.locator('#rooms-tab-browse').click();
   const names = () => viewer.locator('#rooms-list .room-name').allInnerTexts();
   await expect.poll(async () => (await names()).filter(name => name.includes(tag)).length).toBe(2);
 

@@ -37,7 +37,7 @@ assert.equal(gameOverPlayerStatus({ isWinner: true, cash: 5 }), 'WINNER');
 assert.equal(gameOverPlayerStatus({ bankrupt: true, cash: 1500 }), 'OUT', 'positive cash does not make an eliminated seat solvent');
 assert.equal(gameOverPlayerStatus({ disconnected: true }), 'LEFT');
 
-const presentationStyles = readFileSync(new URL('./ux-surfaces.css', import.meta.url), 'utf8');
+const presentationStyles = readFileSync(new URL('./dialogs-and-economy.css', import.meta.url), 'utf8');
 assert.match(presentationStyles, /#gameover-modal \.go-name\s*\{[^}]*text-align:\s*center/);
 assert.match(presentationStyles, /#gameover-modal \.go-summary\s*\{[^}]*width:\s*100%/);
 assert.match(presentationStyles, /#gameover-modal \.go-summary-row\s*\{[^}]*display:\s*grid[\s\S]*?width:\s*100%/);

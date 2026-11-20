@@ -1,4 +1,4 @@
-/* ux-surfaces: loaded after styles.css; owned by one workstream. */
+/* Dialog, trade, financing, market and lobby surfaces. Loaded after styles.css, so these rules win ties. */
 
 .ui-icon-definitions { position: absolute; width: 0; height: 0; overflow: hidden; }
 button.surface-close {
@@ -96,8 +96,8 @@ button.surface-close > svg { display: block; width: 16px; height: 16px; pointer-
   #right-rail-lobby .setting-row-num > .setting-select { max-width: 100%; }
   /* Start Round stays on one line; the host's name keeps its full text and the HOST tag drops below it. */
   #right-rail-lobby .lobby-start-btn .cta-text { font-size: 16px; white-space: nowrap; }
-  #view-game:has(#right-rail-lobby:not(.is-hidden)) .pr-nameline { flex-wrap: wrap; }
-  #view-game:has(#right-rail-lobby:not(.is-hidden)) .pr-name { flex: 0 1 auto; min-width: 0; }
+  #view-game:has(#right-rail-lobby:not(.is-hidden)) .player-row-nameline { flex-wrap: wrap; }
+  #view-game:has(#right-rail-lobby:not(.is-hidden)) .player-row-name { flex: 0 1 auto; min-width: 0; }
 }
 
 @media (forced-colors: active) {
@@ -594,47 +594,47 @@ button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: cen
 
 /* ==== Folded from ui-review-deeds.css (loaded after the rules above, unchanged order) ==== */
 /* Compact contextual controls for the deed manager. */
-.dd-primary-build { margin-top: 12px; }
-.dd-primary-build > .dd-build-btn { width: 100%; min-height: 48px; }
-.dd-primary-build .dd-build-msg { margin: 7px 0 0; padding: 7px 9px; }
+.deed-detail-primary-build { margin-top: 12px; }
+.deed-detail-primary-build > .deed-detail-build-btn { width: 100%; min-height: 48px; }
+.deed-detail-primary-build .deed-detail-build-msg { margin: 7px 0 0; padding: 7px 9px; }
 #deed-modal .deed-detail-card { max-height: calc(100dvh - 32px); overflow-y: auto; }
-.dd-body > .dd-ladder { margin-top: 12px; }
-.dd-airport-details { margin-top: 10px; border: 1px solid var(--line-dark); background: var(--surface-panel-deep); }
-.dd-airport-details > summary { padding: 9px 11px; color: var(--gold-300); cursor: pointer; font: 600 11px var(--font-body); letter-spacing: .08em; text-transform: uppercase; }
-.dd-airport-details[open] > summary { border-bottom: 1px solid var(--line-dark); }
-.dd-airport-details .fee-block { margin: 0; padding: 10px; }
-#deed-modal .dd-stats { grid-template-columns: minmax(0, 1fr); }
-#deed-modal .dd-stats > .pop-row { min-height: 24px; padding: 0; border: 0; background: transparent; }
+.deed-detail-body > .deed-detail-ladder { margin-top: 12px; }
+.deed-detail-airport-details { margin-top: 10px; border: 1px solid var(--line-dark); background: var(--surface-panel-deep); }
+.deed-detail-airport-details > summary { padding: 9px 11px; color: var(--gold-300); cursor: pointer; font: 600 11px var(--font-body); letter-spacing: .08em; text-transform: uppercase; }
+.deed-detail-airport-details[open] > summary { border-bottom: 1px solid var(--line-dark); }
+.deed-detail-airport-details .fee-block { margin: 0; padding: 10px; }
+#deed-modal .deed-detail-stats { grid-template-columns: minmax(0, 1fr); }
+#deed-modal .deed-detail-stats > .pop-row { min-height: 24px; padding: 0; border: 0; background: transparent; }
 
-.dd-deed-actions {
+.deed-detail-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: stretch;
   gap: 8px;
   margin-top: 12px;
 }
-.dd-deed-actions > #dd-mortgage,
-.dd-deed-actions > .dd-context-sell {
+.deed-detail-actions > #deed-detail-mortgage,
+.deed-detail-actions > .deed-detail-context-sell {
   width: 100%; min-width: 0; min-height: 46px; height: 100%; margin: 0; padding: 8px 11px;
   display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left;
 }
-.dd-deed-actions > #dd-mortgage { white-space: normal; }
-.dd-context-sell { border: 1px solid var(--line-default); }
-.dd-context-sell .t-micro { color: var(--green-status); }
-.dd-deed-actions .dd-context-note { grid-column: 1 / -1; margin: 0; }
-.dd-context-sell:focus-visible { outline: 2px solid var(--gold-300); outline-offset: 2px; }
-.dd-context-sell:disabled { opacity: .55; cursor: not-allowed; }
-.dd-context-note { color: var(--text-muted); font-size: 11px; line-height: 1.4; }
-.dd-context-sell .t-micro { color: var(--green-status); font-size: 11px; white-space: nowrap; }
+.deed-detail-actions > #deed-detail-mortgage { white-space: normal; }
+.deed-detail-context-sell { border: 1px solid var(--line-default); }
+.deed-detail-context-sell .t-micro { color: var(--green-status); }
+.deed-detail-actions .deed-detail-context-note { grid-column: 1 / -1; margin: 0; }
+.deed-detail-context-sell:focus-visible { outline: 2px solid var(--gold-300); outline-offset: 2px; }
+.deed-detail-context-sell:disabled { opacity: .55; cursor: not-allowed; }
+.deed-detail-context-note { color: var(--text-muted); font-size: 11px; line-height: 1.4; }
+.deed-detail-context-sell .t-micro { color: var(--green-status); font-size: 11px; white-space: nowrap; }
 /* Sell is destructive; redemption restores the deed's earning state. */
-#deed-modal #dd-sell:not(:disabled),
-#deed-modal .dd-is-mortgaged #dd-trade-deed:not(:disabled) { border-color: var(--red-bright); color: var(--red-bright); background: var(--surface-panel-deep); }
-#deed-modal #dd-sell:not(:disabled):hover,
-#deed-modal .dd-is-mortgaged #dd-trade-deed:not(:disabled):hover { background: var(--red-dark); color: var(--text-primary); }
-#deed-modal .dd-redeem:not(:disabled) { border-color: var(--green-status); color: var(--green-status); }
-#deed-modal .dd-redeem:not(:disabled):hover { background: var(--surface-panel-deep); color: var(--text-primary); }
-.dd-mortgage-status { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px; border: 1px dashed var(--gold-300); color: var(--gold-300); }
-.dd-is-mortgaged .dd-icon { border-style: dashed; }
+#deed-modal #deed-detail-sell:not(:disabled),
+#deed-modal .deed-detail-is-mortgaged #deed-detail-trade-deed:not(:disabled) { border-color: var(--red-bright); color: var(--red-bright); background: var(--surface-panel-deep); }
+#deed-modal #deed-detail-sell:not(:disabled):hover,
+#deed-modal .deed-detail-is-mortgaged #deed-detail-trade-deed:not(:disabled):hover { background: var(--red-dark); color: var(--text-primary); }
+#deed-modal .deed-detail-redeem:not(:disabled) { border-color: var(--green-status); color: var(--green-status); }
+#deed-modal .deed-detail-redeem:not(:disabled):hover { background: var(--surface-panel-deep); color: var(--text-primary); }
+.deed-detail-mortgage-status { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px; border: 1px dashed var(--gold-300); color: var(--gold-300); }
+.deed-detail-is-mortgaged .deed-detail-icon { border-style: dashed; }
 
 /* Request actions stay beside their sender, in either social surface. */
 #social-card .social-surface-body:has(> .social-request-row),
@@ -674,16 +674,16 @@ button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: cen
 /* Presentation refinements for the existing after-hours pixel parlor. */
 
 /* Card text carries the draw; the card's familiar frame and action remain. */
-#card-modal #card-reveal .cr-name {
+#card-modal #card-reveal .card-reveal-name {
   font-size: clamp(32px, 4.2vw, 44px);
   line-height: 1.2;
   padding: 8px 10px;
 }
 @media (min-width: 2200px) {
-  #card-modal #card-reveal .cr-name { font-size: 52px; }
+  #card-modal #card-reveal .card-reveal-name { font-size: 52px; }
 }
-#card-modal #card-reveal .cr-body { min-height: 0; }
-#card-modal #card-reveal .cr-name { overflow-y: auto; overscroll-behavior: contain; }
+#card-modal #card-reveal .card-reveal-body { min-height: 0; }
+#card-modal #card-reveal .card-reveal-name { overflow-y: auto; overscroll-behavior: contain; }
 
 /* The roll lands above the turn controls, in the board's open upper field. */
 #view-game .dice-roll-total {
@@ -822,8 +822,8 @@ button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: cen
   #view-game.is-left-rail-hidden .game-main { grid-template-columns: 0 minmax(0, 1fr) var(--review-right-rail); }
   #view-game.is-right-rail-hidden .game-main { grid-template-columns: var(--review-left-rail) minmax(0, 1fr) 0; }
   #view-game.is-left-rail-hidden.is-right-rail-hidden .game-main { grid-template-columns: 0 minmax(0, 1fr) 0; }
-  #view-game .rail-left .pr-name { font-size: 17px; }
-  #view-game .rail-left .pr-cash { font-size: 15px; }
+  #view-game .rail-left .player-row-name { font-size: 17px; }
+  #view-game .rail-left .player-row-cash { font-size: 15px; }
   #view-game .rail-left .player-row { min-height: 76px; }
   #view-game .rail-left .chat-line { font-size: 15px; line-height: 1.45; }
   #view-game .rail-left .chat-input { font-size: 14px; }
@@ -838,7 +838,7 @@ button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: cen
 #right-rail-game .holdings-deeds .prop-row { grid-template-columns: 8px minmax(0, 1fr) auto; }
 #right-rail-game .holdings-deeds .prop-meta { margin-left: auto; flex: 0 0 auto; }
 @media (min-width: 2400px) and (orientation: landscape) {
-  #right-rail-game .rr-body { padding: 18px; }
+  #right-rail-game .right-rail-body { padding: 18px; }
   #right-rail-game .rail-section-head { padding-bottom: 14px; }
   #right-rail-game .rail-section-head .t-micro { font-size: 14px; }
   #right-rail-game .holdings-deeds .prop-list { gap: 10px; }
@@ -899,7 +899,7 @@ button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: cen
 
 /* ==== Folded from ui-review-recovery.css (loaded after the rules above, unchanged order) ==== */
 /* Use the existing board bars glyph within the reference icon's square. */
-.dd-icon .pop-prison-mark, .choice-icon .pop-prison-mark { display: block; flex: 0 0 auto; width: 44px; height: 28px; max-width: 100%; color: var(--red-bright); }
+.deed-detail-icon .pop-prison-mark, .choice-icon .pop-prison-mark { display: block; flex: 0 0 auto; width: 44px; height: 28px; max-width: 100%; color: var(--red-bright); }
 
 /* Short route lists size the desk; only the list scrolls when space runs out. */
 #flight-modal .flight-card { max-height: calc(100dvh - 40px); }
@@ -910,5 +910,5 @@ button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: cen
 
 @media (forced-colors: active) {
 
-  .dd-icon .pop-prison-mark, .choice-icon .pop-prison-mark { color: CanvasText; }
+  .deed-detail-icon .pop-prison-mark, .choice-icon .pop-prison-mark { color: CanvasText; }
 }

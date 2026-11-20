@@ -8,10 +8,10 @@ async function createGameWithFlights(page, context, code) {
   await page.goto('/');
   await page.locator('#home-alias').fill('FLYHOST');
   await page.locator('#open-create-btn').click();
-  await page.locator('#rc-vis-selector [data-vis="private"]').click();
-  await page.locator('#rc-room-code').fill(code);
-  await page.locator('#rc-create-btn').click();
-  await page.locator('#su-start').click();
+  await page.locator('#room-create-visibility-selector [data-vis="private"]').click();
+  await page.locator('#room-create-code').fill(code);
+  await page.locator('#room-create-btn').click();
+  await page.locator('#setup-start-btn').click();
   // The host switch lives in the lobby rules rail.
   const toggle = page.locator('[data-setting="flights"]').first();
   await toggle.scrollIntoViewIfNeeded();
@@ -25,7 +25,7 @@ async function createGameWithFlights(page, context, code) {
   await guest.locator('#join-nickname').fill('FLYGUEST');
   await guest.locator('#join-room-submit').click();
   await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
-  if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
+  if (await guest.locator('#setup-start-btn').isVisible()) await guest.locator('#setup-start-btn').click();
   await expect(page.locator('#player-list')).toContainText('FLYGUEST');
   await page.locator('#lobby-start-btn').click();
   await expect(page.locator('#view-game')).toBeVisible();
@@ -166,7 +166,7 @@ test.describe('airport flights UI', () => {
     await expect(card.locator('.fee-row').nth(0)).toContainText('$60');
     await expect(card.locator('.fee-row').nth(1)).toContainText('$200');
     // Airport fees sit in a disclosure that starts closed; open it before stepping.
-    await card.locator('.dd-airport-details > summary').click();
+    await card.locator('.deed-detail-airport-details > summary').click();
     // The arrival fee is already at the maximum, so its plus button is disabled.
     await expect(card.locator('[data-airport-fee="arrival"][data-delta="10"]')).toBeDisabled();
     await card.locator('[data-airport-fee="departure"][data-delta="10"]').click();

@@ -49,8 +49,8 @@
 @media (orientation: portrait) and (min-width: 768px) and (max-width: 1100px) {
   #view-game { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
   #view-game .topnav { height: auto; min-height: 64px; flex-wrap: wrap; gap: 6px; padding: 6px 10px; }
-  #view-game .tn-lobby { display: none; }
-  #view-game .tn-right { width: 100%; margin-left: 0; gap: 6px; justify-content: flex-end; }
+  #view-game .topnav-lobby { display: none; }
+  #view-game .topnav-right { width: 100%; margin-left: 0; gap: 6px; justify-content: flex-end; }
   #view-game .game-main { flex: 1; height: auto; min-width: 0; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: minmax(0, 1.5fr) minmax(0, 1fr); gap: 8px; padding: 8px; overflow: hidden; }
   #view-game .rail-center { grid-column: 1 / -1; grid-row: 1; min-width: 0; min-height: 0; overflow: hidden; gap: 8px; }
   #view-game .board-area { min-width: 0; min-height: 0; overflow: hidden; container-type: size; }
@@ -60,7 +60,7 @@
   #view-game .chat-panel, #view-game .chat-body { min-height: 0; overflow: hidden; }
   #view-game .chat-body { overflow-y: auto; }
   #view-game .right-rail { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; overflow: hidden; }
-  #view-game .rr-body { min-height: 0; overflow-y: auto; }
+  #view-game .right-rail-body { min-height: 0; overflow-y: auto; }
   #view-game .hud { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
   #view-game .hud-primary-actions { grid-column: 1 / -1; min-width: 0; }
   #view-game .hud-cell, #view-game .hud-roll { min-height: 64px; height: 64px; padding: 6px; }
@@ -75,8 +75,8 @@
 @media (max-width: 767px) {
   #view-game { height: 100vh; height: 100dvh; min-height: 0; max-width: 100%; overflow: hidden; }
   #view-game .topnav { height: auto; min-height: 64px; flex-wrap: wrap; gap: 6px; padding: 6px; }
-  #view-game .tn-lobby { display: none; }
-  #view-game .tn-right { width: 100%; margin-left: 0; flex-wrap: wrap; gap: 4px; }
+  #view-game .topnav-lobby { display: none; }
+  #view-game .topnav-right { width: 100%; margin-left: 0; flex-wrap: wrap; gap: 4px; }
   #view-game .game-main { flex: 1; display: flex; height: auto; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; padding: 8px; }
   #view-game .rail-center { display: flex; flex: 0 0 auto; order: -1; min-width: 0; gap: 8px; }
   #view-game .board-area { flex: 0 0 auto; min-width: 0; min-height: 0; }
@@ -87,7 +87,7 @@
   #view-game .hud-name { font-size: 22px; }
   #view-game .rail-left, #view-game .right-rail { flex: 0 0 auto; min-width: 0; min-height: 0; height: 280px; overflow: hidden; }
   #view-game .rail-left > .panel:first-child { max-height: 100px; overflow-y: auto; flex: 0 0 auto; }
-  #view-game .chat-panel, #view-game .chat-body, #view-game .rr-body { min-height: 0; }
+  #view-game .chat-panel, #view-game .chat-body, #view-game .right-rail-body { min-height: 0; }
 }
 
 @media (orientation: landscape) and (min-width: 1100px) and (max-width: 1399px) and (hover: none) and (pointer: coarse) {

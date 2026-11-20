@@ -52,8 +52,8 @@ async function expectIconsInFrames(card, spriteText, ids) {
 
 test('a host can enable item rewards independently and preserve the choice between presets', async ({ page }, info) => {
   await page.goto('/'); await page.locator('#home-alias').fill('ITEMHOST');
-  await page.locator('#open-create-btn').click(); await page.locator('#rc-vis-selector [data-vis=private]').click(); const code = ('I' + Math.random().toString(36).slice(2, 7)).toUpperCase();
-  await page.locator('#rc-room-code').fill(code); await page.locator('#rc-create-btn').click(); await page.locator('#su-start').click();
+  await page.locator('#open-create-btn').click(); await page.locator('#room-create-visibility-selector [data-vis=private]').click(); const code = ('I' + Math.random().toString(36).slice(2, 7)).toUpperCase();
+  await page.locator('#room-create-code').fill(code); await page.locator('#room-create-btn').click(); await page.locator('#setup-start-btn').click();
   const profile = page.locator('[data-setting=rulesProfile]'), toggle = page.locator('[data-setting=itemRewards]');
   await expect(profile).toHaveValue('standard'); await expect(toggle).toBeEnabled(); await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await toggle.click(); await expect(toggle).toHaveAttribute('aria-pressed', 'true');

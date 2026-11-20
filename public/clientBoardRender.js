@@ -64,7 +64,7 @@ function surpriseIconHTML() {
 }
 
 function taxIconHTML() {
-  return `<span class="q-mark g400" style="font-size:13px;color:#c88f2e">$</span>`;
+  return `<span class="deck-glyph g400" style="font-size:13px;color:#c88f2e">$</span>`;
 }
 
 function railroadIconHTML(tile) {

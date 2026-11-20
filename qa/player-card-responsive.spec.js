@@ -17,11 +17,11 @@ test('in-game player card stays compact at desktop and iPad sizes', async ({ pag
   await page.goto('/');
   await page.locator('#home-alias').fill('UXHOST');
   await page.locator('#open-create-btn').click();
-  await page.locator('#rc-vis-selector [data-vis="private"]').click();
-  await page.locator('#rc-room-code').fill(roomCode);
-  await page.locator('#rc-create-btn').click();
+  await page.locator('#room-create-visibility-selector [data-vis="private"]').click();
+  await page.locator('#room-create-code').fill(roomCode);
+  await page.locator('#room-create-btn').click();
   await expect(page.locator('#setup-wrap')).not.toHaveAttribute('aria-hidden', 'true');
-  await page.locator('#su-start').click();
+  await page.locator('#setup-start-btn').click();
 
   await guest.goto('/');
   await guest.locator('#home-alias').fill('UXGUEST');
@@ -30,7 +30,7 @@ test('in-game player card stays compact at desktop and iPad sizes', async ({ pag
   await guest.locator('#join-nickname').fill('UXGUEST');
   await guest.locator('#join-room-submit').click();
   await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
-  if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
+  if (await guest.locator('#setup-start-btn').isVisible()) await guest.locator('#setup-start-btn').click();
   await expect(page.locator('#player-list')).toContainText('UXGUEST');
   await page.locator('#lobby-start-btn').click();
   await expect(page.locator('#view-game')).toBeVisible();

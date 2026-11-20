@@ -1,4 +1,4 @@
-/* Admin, maintenance, and standalone system-page refinements. */
+/* Operator console workspaces, the maintenance page and the standalone error pages. Loaded last. */
 
 /* The bots workspace grows into the available desktop height. Dense lists retain
    their own scrollbars so the panel does not push the document. */

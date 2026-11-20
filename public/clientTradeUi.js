@@ -1644,7 +1644,7 @@ export function tradeReviewSideHTML({ player, seed, heading, cash, deedIndexes }
   const rows = deeds.length
     ? `<ul class="trade-deed-list thin-scroll" tabindex="0" aria-label="${esc(heading)} deeds">${deeds.map(tile => tradeDeedRowHTML(tile, "", false, true)).join("")}</ul>`
     : '<p class="t-body trade-empty">No deeds</p>';
-  return `<section class="trade-side offer-side" aria-label="${esc(heading)}"><div class="trade-side-head"><div class="tp-av">${avatarHTML(player, 4, seed)}</div><div><h3 class="t-label f13 g100">${esc(heading)}</h3><span class="t-micro ink-2">${esc(player.name)}</span></div></div><div class="offer-cash"><span class="t-label f11 ink-2">CASH</span><strong class="t-label f20 g100">$${Math.max(0, Number(cash) || 0).toLocaleString()}</strong></div><div class="offer-deeds"><span class="t-label f11 ink-2">DEEDS · ${deeds.length}</span>${rows}</div></section>`;
+  return `<section class="trade-side offer-side" aria-label="${esc(heading)}"><div class="trade-side-head"><div class="trade-player-avatar">${avatarHTML(player, 4, seed)}</div><div><h3 class="t-label f13 g100">${esc(heading)}</h3><span class="t-micro ink-2">${esc(player.name)}</span></div></div><div class="offer-cash"><span class="t-label f11 ink-2">CASH</span><strong class="t-label f20 g100">$${Math.max(0, Number(cash) || 0).toLocaleString()}</strong></div><div class="offer-deeds"><span class="t-label f11 ink-2">DEEDS · ${deeds.length}</span>${rows}</div></section>`;
 }
 
 function tradeSummaryText(deedSet, cash) {
@@ -1665,7 +1665,7 @@ function tradeSideHTML({ player, seed, side, deeds, selectedSet, cashValue, cash
   return `
         <div class="trade-side">
           <div class="trade-side-head">
-            <div class="tp-av">${avatarHTML(player, 4, seed)}</div>
+            <div class="trade-player-avatar">${avatarHTML(player, 4, seed)}</div>
             <div>
               <span class="t-label f13" style="color:${player.textColor}">${esc(player.name)}</span>
               <span class="t-micro ink-3 trade-cash-label">CASH ON HAND <span class="num">$${player.cash.toLocaleString()}</span>

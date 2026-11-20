@@ -68,15 +68,15 @@ test('deed state has semantic actions and airport inspector shows exact configur
     s.owners={...s.owners,1:'p1',3:'p1'};s.houses={1:5,3:5};s.serverTiles=[{index:1,houseCount:5,currentRent:1250}];
     f.deed.openDeedDetail(1);
   });
-  await expect(page.locator('#dd-sell')).toContainText('SELL HOTEL');
-  const colors=await page.evaluate(()=>['#dd-mortgage','#dd-sell'].map(q=>getComputedStyle(document.querySelector(q)).color));
+  await expect(page.locator('#deed-detail-sell')).toContainText('SELL HOTEL');
+  const colors=await page.evaluate(()=>['#deed-detail-mortgage','#deed-detail-sell'].map(q=>getComputedStyle(document.querySelector(q)).color));
   expect(colors[0]).not.toBe(colors[1]);
   await page.evaluate(()=>{
     const f=window.__ipadModalCapture,s=f.state;f.deed.closeDeedDetail();
     s.houses={};s.mortgaged={1:true};s.serverTiles=[{index:1,houseCount:0,currentRent:0}];f.deed.openDeedDetail(1);
   });
   await expect(page.locator('#deed-card-detail')).toContainText('RENT PAUSED');
-  await expect(page.locator('#dd-mortgage')).toContainText('UNMORTGAGE');
+  await expect(page.locator('#deed-detail-mortgage')).toContainText('UNMORTGAGE');
   await page.evaluate(async()=>{
     const f=window.__ipadModalCapture;f.deed.closeDeedDetail();
     f.state.flights={enabled:true,defaultFare:130,maxFee:200,options:[]};

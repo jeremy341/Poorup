@@ -20,20 +20,20 @@ const LADDER_PADS = {
 
 function ladderLabelHTML(pips, label, isCurrent, pad) {
   const tone = isCurrent ? "g100" : "g-muted";
-  return `<span class="dd-row-pips">${pips}</span>
+  return `<span class="deed-detail-row-pips">${pips}</span>
 ${pad.pips}<span class="t-label f11 ${tone}">${label}</span>`;
 }
 
 function ladderRowHTML(labelInner, rent, isCurrent, pad) {
-  const rowClass = isCurrent ? "dd-row is-current" : "dd-row";
-  const now = isCurrent ? `<span class="t-micro dd-now">NOW</span>` : "";
+  const rowClass = isCurrent ? "deed-detail-row is-current" : "deed-detail-row";
+  const now = isCurrent ? `<span class="t-micro deed-detail-now">NOW</span>` : "";
   const rentLabel = typeof rent === "number" ? `$${rent}` : rent;
   return `<div class="${rowClass}">
-${pad.label}<span class="dd-row-label">
+${pad.label}<span class="deed-detail-row-label">
 ${pad.pips}${labelInner}
 ${pad.label}</span>
 ${pad.label}${now}
-${pad.label}<span class="dd-row-rent">${rentLabel}</span>
+${pad.label}<span class="deed-detail-row-rent">${rentLabel}</span>
 ${pad.close}</div>`;
 }
 

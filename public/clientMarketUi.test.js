@@ -62,7 +62,7 @@ test('missingHistoryQuotesAreGapsRatherThanFabricatedZeroPrices', () => {
 });
 
 test('marketWorkspaceKeepsHistoryAndOrderVisibleTogether', () => {
-  const stylesheet = new URL('./ux-surfaces.css', import.meta.url);
+  const stylesheet = new URL('./dialogs-and-economy.css', import.meta.url);
   assert.ok(fs.existsSync(stylesheet), 'persistent market workspace stylesheet exists');
   const css = fs.readFileSync(stylesheet, 'utf8');
   assert.match(css, /data-market-view[^}]+\.market-history\s*\{[^}]*display:\s*flex/s);

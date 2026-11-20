@@ -5,7 +5,7 @@ globalThis.window = { matchMedia: () => ({ matches: false }), addEventListener()
 const renderer = await import("./clientGlobalEventRender.js");
 const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
 const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
-const presentationStyles = readFileSync(new URL("./ux-surfaces.css", import.meta.url), "utf8");
+const presentationStyles = readFileSync(new URL("./dialogs-and-economy.css", import.meta.url), "utf8");
 
 const checks = [];
 function check(name, fn) {

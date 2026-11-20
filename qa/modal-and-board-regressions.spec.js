@@ -108,10 +108,10 @@ async function createRound(page, browser, boardVariant) {
   await page.goto('/');
   await page.locator('#home-alias').fill('LAYOUT HOST');
   await page.locator('#open-create-btn').click();
-  await page.locator('#rc-vis-selector [data-vis="private"]').click();
-  await page.locator('#rc-room-code').fill(code);
-  await page.locator('#rc-create-btn').click();
-  await page.locator('#su-start').click();
+  await page.locator('#room-create-visibility-selector [data-vis="private"]').click();
+  await page.locator('#room-create-code').fill(code);
+  await page.locator('#room-create-btn').click();
+  await page.locator('#setup-start-btn').click();
   await page.locator('[data-setting="boardVariant"]').selectOption(boardVariant);
   await guest.goto(new URL('/', page.url()).href);
   await guest.locator('#open-join-btn').click();
@@ -119,7 +119,7 @@ async function createRound(page, browser, boardVariant) {
   await guest.locator('#join-nickname').fill('LAYOUT GUEST');
   await guest.locator('#join-room-submit').click();
   await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
-  if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
+  if (await guest.locator('#setup-start-btn').isVisible()) await guest.locator('#setup-start-btn').click();
   await expect(page.locator('#player-list .player-row')).toHaveCount(2);
   await page.locator('#lobby-start-btn').click();
   await expect(page.locator('#view-game')).toBeVisible();

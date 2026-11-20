@@ -453,7 +453,7 @@ function emptyHistoryPanelHTML(account) {
   const message = account
     ? "NO COMPLETED ROUNDS YET. YOUR FIRST FINISH WILL APPEAR HERE."
     : "SIGN IN TO KEEP A SERVER-SYNCED ROUND HISTORY.";
-  return `<section class="panel noise pad16 profile-empty-panel"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2></div><p class="t-body ink-2">${message}</p><p class="t-micro ink-3">Only completed server rounds appear here. Guest play remains available without an account.</p></section>`;
+  return `<section class="panel noise pad-16 profile-empty-panel"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2></div><p class="t-body ink-2">${message}</p><p class="t-micro ink-3">Only completed server rounds appear here. Guest play remains available without an account.</p></section>`;
 }
 
 /* ---------- summary strip, filters, count ---------- */
@@ -561,7 +561,7 @@ export function historyPanelHTML(history, account) {
     : '<div class="profile-history-empty" role="status"><p class="t-body ink-2">NO ROUNDS MATCH THESE FILTERS.</p><button type="button" class="btn-dark" data-profile-history-filter="clear"><span class="t-label f11">CLEAR FILTERS</span></button></div>';
   const count = profileHistoryCountLabel({ shown: shown.length, saved: history.length, total, filtered });
   const older = total > history.length ? " Older rounds still count toward your statistics but are no longer listed." : "";
-  return `<section class="panel noise pad16"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2><span class="t-micro ink-3" role="status" aria-live="polite">${count}</span></div>${summaryStripHTML(summary)}${historyToolbarHTML(history, shown.length > 0)}${list}<p class="t-micro ink-3 profile-history-note">History is recorded when a server round finishes. Detailed participants, events, and economy results stay inside your private account record.${older}</p></section>`;
+  return `<section class="panel noise pad-16"><div class="section-title"><span data-sprite="diamond" data-size="3"></span><h2 class="t-section g300">Completed rounds</h2><span class="t-micro ink-3" role="status" aria-live="polite">${count}</span></div>${summaryStripHTML(summary)}${historyToolbarHTML(history, shown.length > 0)}${list}<p class="t-micro ink-3 profile-history-note">History is recorded when a server round finishes. Detailed participants, events, and economy results stay inside your private account record.${older}</p></section>`;
 }
 
 /** Filters live outside the markup so they survive every re-render, like the open rows. */

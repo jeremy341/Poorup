@@ -21,8 +21,8 @@ async function noPageOverflow(page){expect(await page.evaluate(()=>document.docu
 
 test('host can customize every module with either starting preset and preserve choices',async({page},info)=>{
   await page.goto('/');await page.locator('#home-alias').fill('RULESHOST');await page.locator('#open-create-btn').click();
-  await page.locator('#rc-vis-selector [data-vis=private]').click();
-  const code=('P'+Math.random().toString(36).slice(2,7)).toUpperCase();await page.locator('#rc-room-code').fill(code);await page.locator('#rc-create-btn').click();await page.locator('#su-start').click();
+  await page.locator('#room-create-visibility-selector [data-vis=private]').click();
+  const code=('P'+Math.random().toString(36).slice(2,7)).toUpperCase();await page.locator('#room-create-code').fill(code);await page.locator('#room-create-btn').click();await page.locator('#setup-start-btn').click();
   const profile=page.locator('[data-setting=rulesProfile]');await expect(profile).toHaveValue('standard');
   await expect(profile).toHaveAccessibleName('Starting Preset');
   const flags=['playerFinance','bankLoans','casino','market','flights','bankAccountUpgrades','globalEvents'];

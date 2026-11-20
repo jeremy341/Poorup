@@ -24,7 +24,7 @@ const sync = source("./clientStateSync.js");
 const rail = source("./clientRailRender.js");
 const responsive = source("./game-responsive.css");
 const styles = source("./styles.css");
-const deedStyles = source("./ux-surfaces.css");
+const deedStyles = source("./dialogs-and-economy.css");
 const dealUi = source("./clientDealUi.js");
 
 globalThis.window = { matchMedia: () => ({ matches: false }) };
@@ -57,15 +57,15 @@ check("corner tiles retain accessible presence and cannot invoke inspection", ()
 check("tile inspection and deed management share the rent ladder", () => {
   expectMatch(popup, /deedLadderHTML/);
   expectMatch(deeds, /deedLadderHTML/);
-  expectMatch(popup, /class="dd-body"/);
-  expectMatch(popup, /class="dd-head"/);
+  expectMatch(popup, /class="deed-detail-body"/);
+  expectMatch(popup, /class="deed-detail-head"/);
   assert.doesNotMatch(popup, /function rentRailroadRows/);
   assert.doesNotMatch(popup, /function rentUtilityRows/);
-  expectMatch(detail, /class="dd-ladder" role="group" aria-label="Rent schedule"/);
+  expectMatch(detail, /class="deed-detail-ladder" role="group" aria-label="Rent schedule"/);
 });
 
 check("deed trade action closes its inspector before opening the trade dialog", () => {
-  const listener = detail.match(/\$\("#dd-trade-deed"\)\?\.addEventListener\("click",\s*event\s*=>\s*\{([\s\S]*?)\n\s{2}\}\);/)?.[1] || "";
+  const listener = detail.match(/\$\("#deed-detail-trade-deed"\)\?\.addEventListener\("click",\s*event\s*=>\s*\{([\s\S]*?)\n\s{2}\}\);/)?.[1] || "";
   assert.ok(listener, "deed trade click handler exists");
   assert.ok(listener.indexOf("closeDeedDetail()") >= 0, "deed inspector closes");
   assert.ok(listener.indexOf("closeDeedDetail()") < listener.indexOf("openTradeModalForDeed("), "close happens before trade opens");
@@ -75,7 +75,7 @@ check("deed trade action closes its inspector before opening the trade dialog", 
 
 check("SELL DEED action fits beside mortgage without a redundant buyer sublabel", () => {
   const action = detail.match(/export function tradeDeedActionHTML\([\s\S]*?\n\}/)?.[0] || "";
-  assert.match(action, /id="dd-trade-deed"/);
+  assert.match(action, /id="deed-detail-trade-deed"/);
   assert.doesNotMatch(action, /AGREED WITH BUYER/);
 });
 
@@ -193,7 +193,7 @@ check("responsive board rules preserve the previous Poorup font tokens", () => {
     state.deedDetail = null;
     return markup;
   };
-  const buyTag = markup => markup.match(/<button[^>]*id="dd-buy"[^>]*>/)?.[0] || "";
+  const buyTag = markup => markup.match(/<button[^>]*id="deed-detail-buy"[^>]*>/)?.[0] || "";
   check("a blocked Buy house is disabled and not the red primary button", () => {
     const tag = buyTag(render({ [brown[0].i]: "p1" }));
     assert.ok(tag, "Buy house renders");
@@ -220,7 +220,7 @@ check("responsive board rules preserve the previous Poorup font tokens", () => {
     deedDetailUi.renderDeedDetail();
     globalThis.document.querySelector = realQuery;
     state.deedDetail = null;
-    assert.match(markup.match(/<button[^>]*id="dd-mortgage"[^>]*>/)?.[0] || "", / disabled(?: |>)/);
+    assert.match(markup.match(/<button[^>]*id="deed-detail-mortgage"[^>]*>/)?.[0] || "", / disabled(?: |>)/);
     assert.match(markup, /Sell all buildings in this color set before mortgaging/);
   });
 }
@@ -229,5 +229,5 @@ for (const result of checks) {
   if (result.passed) console.log(`PASS ${result.name}`);
   else console.error(`FAIL ${result.name}: ${result.error.message}`);
 }
-console.log(`in-game UX regression tests: ${checks.length - failures.length} passed, ${failures.length} failed`);
+console.log(`game screen contract tests: ${checks.length - failures.length} passed, ${failures.length} failed`);
 if (failures.length) throw failures[0].error;

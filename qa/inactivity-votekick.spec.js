@@ -76,7 +76,7 @@ test('inactive players show a countdown chip on their sidebar row', async ({ pag
     const ui = createInactivityUi({ listHost: list, now: () => now });
     window.__inactivityUi = ui;
     ui.update(players, now);
-    return [...list.querySelectorAll('.pr-timer')].map(badge => ({
+    return [...list.querySelectorAll('.player-row-timer')].map(badge => ({
       player: badge.dataset.timerPlayer,
       text: badge.textContent,
       width: badge.getBoundingClientRect().width,
@@ -143,7 +143,7 @@ test('lobby keeps Standard 40 and has no building-supply or turn-limit controls'
     state.settings = { ...state.settings, boardVariant: 'standard-40', maxPlayers: 4 };
     renderLobbyRail();
   });
-  await expect(page.locator('#rc-ruleset-preset')).toHaveCount(0);
+  await expect(page.locator('#room-create-ruleset-preset')).toHaveCount(0);
   await expect(page.locator('#lobby-settings-body [data-setting="boardVariant"]')).toHaveValue('standard-40');
   await expect(page.locator('#lobby-settings-body')).not.toContainText('Bankruptcy');
   await expect(page.locator('#lobby-settings-body')).not.toContainText('Turn Timer');
