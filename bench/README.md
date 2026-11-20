@@ -17,7 +17,8 @@ Always write to a scratch directory. The script's default output folder is
 `bench/baseline`, which would overwrite the oracle.
 
 ```bash
-node bench/baseline/campaign-baseline.mjs 5 1 /tmp/poorup-bench   # games, first index, output dir
+OUT=$(mktemp -d)
+node bench/baseline/campaign-baseline.mjs 5 1 "$OUT"    # games, first index, output dir
 ```
 
 Compare the fresh results with the oracle, matching by game index (the timing
@@ -26,11 +27,11 @@ file will differ and should):
 ```bash
 node -e "
 const fs = require('fs');
-const fresh = JSON.parse(fs.readFileSync('/tmp/poorup-bench/node-results.json', 'utf8'));
+const fresh = JSON.parse(fs.readFileSync(process.argv[1] + '/node-results.json', 'utf8'));
 const oracle = new Map(JSON.parse(fs.readFileSync('bench/baseline/node-results.json', 'utf8')).map(r => [r.index, r]));
 const bad = fresh.filter(r => JSON.stringify(r) !== JSON.stringify(oracle.get(r.index)));
 console.log(bad.length ? 'MISMATCH in games ' + bad.map(r => r.index).join(', ') : 'parity OK (' + fresh.length + ' games)');
-process.exit(bad.length ? 1 : 0);"
+process.exit(bad.length ? 1 : 0);" "$OUT"
 ```
 
 Five games take a few seconds; the full 60 take about a minute or more

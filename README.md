@@ -46,14 +46,14 @@ npm start
 
 Open <http://localhost:8080> (set `PORT` to change it). A game needs at least two players: open two tabs, enter different nicknames, create a room in one and join with the room code in the other. The host starts from the lobby once seats are filled; bots can fill empty seats.
 
-The server reads its configuration from the process environment only; it does not load `.env`. Local defaults are enough to play. Account, match and backup data are written to `server/data/` and `server/backups/` (git-ignored). [`.env.example`](.env.example) lists every setting the server reads; the production values are explained in [docs/production-hardening.md](docs/production-hardening.md).
+The server reads its configuration from the process environment only; it does not load `.env`. Local defaults are enough to play. Account and match data are written to `server/data/` (git-ignored); backups are only made when `POORUP_BACKUP_DIR` is set. [`.env.example`](.env.example) lists the server settings with comments (test and tooling variables are listed in [qa/README.md](qa/README.md)); the production values are explained in [docs/production-hardening.md](docs/production-hardening.md).
 
 ## Run the tests
 
 | Command | What it runs |
 | --- | --- |
-| `npm test` | The `core` group: most of the unit and wire tests in `server/`, `public/` and `scripts/`, plus a short seeded bot-campaign run. The usual check before a commit. |
-| `npm run test:full` | Every group in `scripts/test-manifest.mjs`: `core` plus the audit, timers, account, inactivity and UI-surface groups. CI runs this in four shards. Set `POORUP_TEST_PARALLELISM=4` to run suites concurrently. |
+| `npm test` | The `core` group: most of the unit and wire tests in `server/`, `public/` and `scripts/`, plus a short seeded bot-campaign run. The usual check before a commit; it takes about five minutes sequentially, or less with `POORUP_TEST_PARALLELISM=4`. |
+| `npm run test:full` | Every group in `scripts/test-manifest.mjs`: `core` plus the audit, timers, account, inactivity and UI-surface groups. CI runs this in four shards. The same `POORUP_TEST_PARALLELISM=4` applies. |
 | `npm run test:audit`, `test:account`, `test:inactivity` | One named group from the manifest. |
 | `npm run lint` / `npm run lint:client` | ESLint for `server scripts qa` / for `public`. |
 | `npm run test:browser` | Playwright browser specs in `qa/`. Starts `node server/server.js` on port 8080 unless `POORUP_QA_BASE_URL` points at a server you started yourself. First run: `npx playwright install chromium`. |
@@ -91,7 +91,7 @@ Players have unlimited turn time. A separate inactivity-removal clock and vote-k
 
 ## Deployment
 
-The Dockerfile builds a production image (`docker build -t poorup .`). The live host runs the release under PM2; see [docs/deployment/](docs/deployment/nest-live-runbook.md) and [docs/production-hardening.md](docs/production-hardening.md).
+The Dockerfile builds a production image (`docker build -t poorup .`). The live host runs the release under PM2; see the runbooks listed in [docs/README.md](docs/README.md) (start with [the live runbook](docs/deployment/nest-live-runbook.md)) and [docs/production-hardening.md](docs/production-hardening.md).
 
 ## License
 

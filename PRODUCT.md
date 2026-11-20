@@ -23,7 +23,7 @@ Poorup combines a complete server-authoritative property game with account-free 
 - Played in a desktop browser during a remote or in-person game night.
 - The host configures rules in the lobby and starts once at least 2 players are present.
 - Players repeatedly scan the board, current-turn state, cash, owned properties, chat, and contextual decisions.
-- The primary target is desktop, from 1440x900 up to 2560x1440 (the browser QA matrix in `qa/visual-capture/viewports.mjs` also covers 4K and landscape iPad sizes).
+- The target presentation is large desktop at 1920x1080 and 2560x1440.
 
 ## Capabilities and Constraints
 
@@ -32,7 +32,8 @@ Poorup combines a complete server-authoritative property game with account-free 
 - Server-side game logic remains the source of truth and existing Socket.IO contracts remain stable.
 - Frontend remains vanilla HTML, CSS, and JavaScript.
 - Board presentation uses the supplied pixel-parlor visual language in a 40/52-space HTML/CSS renderer while live Socket.IO state remains server-authoritative.
-- Phone-sized screens keep a functional fallback but are not part of the visual acceptance target.
+- Smaller screens keep the existing functional fallback but are not part of this redesign's visual acceptance target.
+- Onboarding (an October 2026 proposal, not built and not yet agreed with the owner): one-time contextual tips at the first purchase, auction, card and debt decision, stored per account and never blocking the action; then an optional, skippable guided first game on a fixed Standard setup with every optional system off. No tour that repeats on every visit. Measure the effect (share reaching round 3, first-game passes, early bankruptcies) before building the guided game.
 
 ## Brand Commitments
 
@@ -55,10 +56,6 @@ Poorup combines a complete server-authoritative property game with account-free 
 3. Secondary information stays available without covering the active play area.
 4. Real-time state changes are legible, accessible, and never decorative noise.
 5. A player can enter a room without an account or unnecessary ceremony.
-
-## Onboarding direction (not built)
-
-New players mostly miss the rules page and meet their first purchase prompt cold. The recommended direction (an October 2026 proposal, not yet agreed with the owner), in order: one-time contextual tips at the first purchase, auction, card and debt decision (stored per account, never blocking the action); then an optional, skippable guided first game on a fixed Standard setup with every optional system off. No tour that repeats on every visit. Measure the effect (share reaching round 3, first-game passes, early bankruptcies) before building the guided game.
 
 ## Accessibility & Inclusion
 
