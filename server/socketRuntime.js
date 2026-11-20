@@ -2,7 +2,7 @@
 // the empty-room garbage collector, seat detach and host reassignment, and the invite and cancel flows two domains share. One
 // createRuntime() per process: server.js builds the stores and io, then hands them here. Pinned by server/rooms.test.js and server/server.test.js.
 import { AUCTION_DURATION_MS } from './gameLogic.js';
-import { ensureRoomHost } from './rooms.js';
+import { ensureRoomHost } from './roomSeat.js';
 import { botPersonaStore } from './botPersonaStore.js';
 import { normalizeAvatarGrid, normalizeClientId, normalizeChatText, buildMatchRecordOptions } from './roomSetup.js';
 import { annotateMatchAchievements, noteBotFallback, recordMatchStalledTelemetry, recordMatchStartTelemetry, recordMatchTelemetryOnce, roomTelemetryVersions } from './matchTelemetry.js';
