@@ -80,7 +80,13 @@ const connectSources = configuredPublicOrigin
   : (productionRuntime ? ["'self'"] : ["'self'", 'ws:', 'wss:']);
 assertRateLimitConfig(process.env);
 // Security headers, method and Host guards, and the private-file guard run before anything else (static files included).
-app.use(...createSecurityMiddleware({ connectSources, allowedHosts: process.env.POORUP_ALLOWED_HOSTS, errorPage }));
+app.use(...createSecurityMiddleware({
+  connectSources,
+  allowedHosts: process.env.POORUP_ALLOWED_HOSTS,
+  errorPage,
+  // Same condition as before the header policy moved out of server.js: production or an explicit secure-cookie deployment.
+  forceHsts: productionRuntime || String(process.env.POORUP_COOKIE_SECURE || '').toLowerCase() === 'true'
+}));
 // Static files are served before the HTTP rate limiter: one cold load is over a
 // hundred requests, so counting them would 429 a third page load in a minute.
 // A path that is not a file falls through and is counted like any other.

@@ -8,7 +8,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { buildContentSecurityPolicy, hardenHttpServer, isAllowedMethod, isPrivateStaticPath, parseAllowedHosts } from './securityHeaders.js';
+import { buildContentSecurityPolicy, hardenHttpServer, securityHeaders, isAllowedMethod, isPrivateStaticPath, parseAllowedHosts } from './securityHeaders.js';
 
 let failures = 0;
 async function check(name, run) {
@@ -327,5 +327,16 @@ try {
 } finally {
   await proxied.stop();
 }
+
+await check('forceHsts sends HSTS even when the request is not seen as secure (production default), and the default does not', async () => {
+  const run = options => {
+    const headers = {};
+    const res = { setHeader: (name, value) => { headers[name.toLowerCase()] = value; } };
+    securityHeaders(options)({ secure: false }, res, () => {});
+    return headers['strict-transport-security'];
+  };
+  assert.match(run({ forceHsts: true }), /max-age=31536000/);
+  assert.equal(run({}), undefined);
+});
 
 console.log(failures ? `http security headers: ${failures} failed` : 'http security headers: all passed');

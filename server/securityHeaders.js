@@ -38,7 +38,7 @@ export function buildContentSecurityPolicy(connectSources = ["'self'"]) {
   ].join('; ');
 }
 
-export function securityHeaders({ connectSources } = {}) {
+export function securityHeaders({ connectSources, forceHsts = false } = {}) {
   const csp = buildContentSecurityPolicy(connectSources);
   return (req, res, next) => {
     res.setHeader('Content-Security-Policy', csp);
@@ -53,7 +53,8 @@ export function securityHeaders({ connectSources } = {}) {
     res.setHeader('Permissions-Policy', PERMISSIONS_POLICY);
     // HSTS is a claim about an HTTPS origin. req.secure is true only for a direct TLS connection or, with POORUP_TRUST_PROXY_HOPS set,
     // a proxy hop that reports https. Browsers ignore HSTS over plain HTTP anyway, so it is not sent there.
-    if (req.secure) res.setHeader('Strict-Transport-Security', HSTS);
+    // forceHsts keeps the production default: a deployment that serves HTTPS but forgets POORUP_TRUST_PROXY_HOPS still gets HSTS.
+    if (req.secure || forceHsts) res.setHeader('Strict-Transport-Security', HSTS);
     return next();
   };
 }
@@ -139,9 +140,9 @@ function guardPrivateStatic(errorPage) {
 }
 
 // Everything that runs before static files and routes, in order. Mount with app.use(...createSecurityMiddleware(...)).
-export function createSecurityMiddleware({ connectSources, allowedHosts = '', errorPage } = {}) {
+export function createSecurityMiddleware({ connectSources, allowedHosts = '', errorPage, forceHsts = false } = {}) {
   return [
-    securityHeaders({ connectSources }),
+    securityHeaders({ connectSources, forceHsts }),
     guardMethod(errorPage),
     guardHost({ allowedHosts: parseAllowedHosts(allowedHosts), errorPage }),
     guardPrivateStatic(errorPage),
