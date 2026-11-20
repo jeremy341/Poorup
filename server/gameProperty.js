@@ -1,5 +1,7 @@
-// Property ownership, building and mortgage rules, and group bookkeeping.
+// Deed bookkeeping on GameState: tile lookup, moving a deed between owners, colour-group queries and the last-place check.
+// Whether a deed may be built on, sold from or mortgaged is decided by propertyRules.js; the player actions are propertyApi.js.
 import { equityShareContractLive } from './contractLogic.js';
+import { HOTEL_LEVEL } from './gameData.js';
 import { canBuildOnTile, canMortgageTile, canSellFromTile, canUnmortgageTile, isTradeableTile } from './propertyRules.js';
 import { tileIndexById } from './boardRegistry.js';
 
@@ -17,8 +19,7 @@ export const gamePropertyApi = {
   },
 
   tileIndexForId(tileId) {
-    const index = tileIndexById(this.boardVariant, tileId);
-    return index == null ? null : index;
+    return tileIndexById(this.boardVariant, tileId) ?? null;
   },
 
   getGroupTiles(group) {
@@ -26,7 +27,7 @@ export const gamePropertyApi = {
   },
 
   totalBuildings() {
-    return this.tiles.reduce((sum, tile) => sum + Math.max(0, Math.min(5, Number(tile.houseCount) || 0)), 0);
+    return this.tiles.reduce((sum, tile) => sum + Math.max(0, Math.min(HOTEL_LEVEL, Number(tile.houseCount) || 0)), 0);
   },
 
   totalCash() {
@@ -112,16 +113,13 @@ export const gamePropertyApi = {
     this.refreshPlayerGroups(toPlayer);
   },
 
-  cashFor(player) {
-    return Number(player.cash) || 0;
-  },
-
+  // Catch-up rule: strictly last by cash among two or more live seats. Ties and solo tables pay no bonus.
   isLastPlaceByCash(player) {
     if (!player) return false;
-    const live = this.liveContestants();
+    const live = this.activePlayers();
     if (live.length < 2) return false;
-    const cash = this.cashFor(player);
-    return live.every(entry => entry.id === player.id || cash < this.cashFor(entry));
+    const cashOf = seat => Number(seat.cash) || 0;
+    return live.every(entry => entry.id === player.id || cashOf(player) < cashOf(entry));
   },
 
   hasFullSet(ownerId, group) {

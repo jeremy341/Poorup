@@ -1,7 +1,10 @@
-// Temporary rent rights share collected rent only; ownership stays with the deed holder.
+// Rules for the "rent share" contract: a temporary right to a percentage of the rent a deed collects. Ownership, building and
+// mortgage rights stay with the deed holder. Used by contractLogic.js and sponsorshipApi.js (offer validation) and propertyRules.js.
+// Contracts are stamped with these version numbers so offers saved under older rules are recognised and refused.
 export const RENT_SHARE_VERSION = 1;
 export const CONTRACT_RULES_VERSION = 2;
 export const DEFAULT_RENT_SHARE_ROUNDS = 3;
+const MAX_RENT_SHARE_ROUNDS = 20;
 export { PLAYER_FINANCE_DISABLED_REASON as FINANCE_DISABLED_ERROR } from './financeRules.js';
 export const LEGACY_PENDING_ERROR = 'This legacy offer must be rebuilt under the current rules or declined.';
 
@@ -20,7 +23,7 @@ function kindTermsError(offer) {
 }
 
 function structureTermsError(offer) {
-  if (offer.permanent != null && offer.permanent !== false) return 'Rent shares must be temporary, for 1 to 20 rounds.';
+  if (offer.permanent != null && offer.permanent !== false) return `Rent shares must be temporary, for 1 to ${MAX_RENT_SHARE_ROUNDS} rounds.`;
   if (offer.equityControl != null && offer.equityControl !== 'passive') return 'Rent shares are passive only; the owner keeps control of the deed.';
   return null;
 }
@@ -30,9 +33,9 @@ export function newContractTermsError(offer = {}) {
 }
 
 function rentShareTermsError(offer) {
-  if (Object.hasOwn(offer, 'expiresRound') && offer.expiresRound == null) return 'Rent shares must be temporary, for 1 to 20 rounds.';
+  if (Object.hasOwn(offer, 'expiresRound') && offer.expiresRound == null) return `Rent shares must be temporary, for 1 to ${MAX_RENT_SHARE_ROUNDS} rounds.`;
   const duration = offer.durationRounds == null ? DEFAULT_RENT_SHARE_ROUNDS : Number(offer.durationRounds);
-  if (!Number.isInteger(duration) || duration < 1 || duration > 20) return 'Rent share duration must be a whole number from 1 to 20 rounds.';
+  if (!Number.isInteger(duration) || duration < 1 || duration > MAX_RENT_SHARE_ROUNDS) return `Rent share duration must be a whole number from 1 to ${MAX_RENT_SHARE_ROUNDS} rounds.`;
   return null;
 }
 
@@ -43,7 +46,6 @@ function activeInterest(game, contract) {
   return true;
 }
 
-// Count actual entries plus agreements not yet materialized, preventing a second investor race.
 // A share entry blocks a new one unless it belongs to the ignored contract or is a rent share that has ended.
 function liveShareEntry(game, entry, contracts, ignoredContractId) {
   if (entry.contractId === ignoredContractId) return false;

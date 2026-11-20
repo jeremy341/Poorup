@@ -2,7 +2,13 @@
 // Pure: the order legs receive a context object and mutate only the GameState and player they are handed.
 import { randomFloat } from './random.js';
 
+// Share of an order's gross value charged as a trade fee (the engine rounds it up to at least $1).
 export const MARKET_FEE_RATE = 0.02;
+// Each round every quote moves by a random drift within +/- this fraction (scaled by an active volatility event).
+const MARKET_BASE_SPREAD = 0.06;
+const MARKET_MIN_QUOTE = 10;
+const MARKET_ORDER_MAX_QUANTITY = 1000;
+export const MARKET_HISTORY_MAX_POINTS = 128;
 const MARKET_SIDES = ['buy', 'sell'];
 export const MARKET_INSTRUMENTS = [
   ['brazil', 'HOUSING MARKET', 100], ['ghana', 'AGRICULTURE', 100], ['thailand', 'CONSUMER GOODS', 100],
@@ -49,7 +55,7 @@ export function marketQuoteHistorySnapshot(game) {
     if (!quotes || !Number.isInteger(point.round) || point.round < 0) return [];
     if (point.eventId !== null && typeof point.eventId !== 'string') return [];
     return [{ round: point.round, quotes, eventId: point.eventId }];
-  }).slice(-128);
+  }).slice(-MARKET_HISTORY_MAX_POINTS);
   if (validated.length) return validated;
 
   const current = freshMarketQuotes();
@@ -76,17 +82,13 @@ export function createMarketQuotePoint(game, round = game.marketRound, eventId =
 
 function marketSpread(game) {
   const volatility = Number(game.activeEventEffects().marketVolatility);
-  if (Number.isFinite(volatility)) {
-    if (volatility > 0) return 0.06 * volatility;
-  }
-  return 0.06;
+  if (Number.isFinite(volatility) && volatility > 0) return MARKET_BASE_SPREAD * volatility;
+  return MARKET_BASE_SPREAD;
 }
 
 function marketPriceModifier(game) {
   const eventMultiplier = Number(game.activeEventEffects().marketPriceMultiplier);
-  if (Number.isFinite(eventMultiplier)) {
-    if (eventMultiplier > 0) return eventMultiplier;
-  }
+  if (Number.isFinite(eventMultiplier) && eventMultiplier > 0) return eventMultiplier;
   return 1;
 }
 
@@ -100,7 +102,7 @@ export function advanceMarket(game) {
   game.marketModifierEventKey = eventKey;
   Object.keys(game.marketQuotes).forEach((id) => {
     const drift = (randomFloat() * (spread * 2)) - spread;
-    game.marketQuotes[id] = Math.max(10, Math.round(game.marketQuotes[id] * (1 + drift) * modifier));
+    game.marketQuotes[id] = Math.max(MARKET_MIN_QUOTE, Math.round(game.marketQuotes[id] * (1 + drift) * modifier));
   });
 }
 
@@ -112,7 +114,7 @@ function unknownMarketOrder(ctx) {
 function invalidMarketQuantity(amount) {
   if (!Number.isInteger(amount)) return true;
   if (amount < 1) return true;
-  return amount > 1000;
+  return amount > MARKET_ORDER_MAX_QUANTITY;
 }
 
 export function marketOrderRejection(ctx) {

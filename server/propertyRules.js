@@ -1,5 +1,7 @@
 // Board-tile eligibility rules: what a player may trade, build on, sell from, mortgage, or unmortgage. Pure: every predicate reads the
 // GameState it is handed (via its accessor methods) and never mutates. property-actions.test.js and rent.test.js pin every branch.
+// It answers "is this allowed?"; propertyApi.js performs the action and produces the error text.
+import { HOTEL_LEVEL } from './gameData.js';
 import { deedHasShareInterest, rentShareConstructionAllowed } from './rentShareRules.js';
 
 // Only deeds (properties, utilities, railroads) can be traded or mortgaged.
@@ -65,11 +67,12 @@ function buildGroupAllows(game, player, tile, groupTiles) {
 }
 
 function evenBuildAllows(game, player, tile, groupTiles) {
-  if (!game.settings.evenBuild) return (tile.houseCount || 0) < 5;
+  if (!game.settings.evenBuild) return (tile.houseCount || 0) < HOTEL_LEVEL;
+  // Even-build rule: only a tile at the group's lowest level may get the next house.
   const houseLevels = groupTiles.map(entry => entry.houseCount || 0);
   const minLevel = Math.min(...houseLevels);
   if ((tile.houseCount || 0) !== minLevel) return false;
-  return (tile.houseCount || 0) < 5;
+  return (tile.houseCount || 0) < HOTEL_LEVEL;
 }
 
 export function canBuildOnTile(game, player, tile) {
@@ -81,6 +84,7 @@ export function canBuildOnTile(game, player, tile) {
 
 function evenBuildAllowsSell(game, player, tile, groupTiles) {
   if (!game.settings.evenBuild) return (tile.houseCount || 0) > 0;
+  // Even-build rule: only a tile at the group's highest level may lose a house.
   const houseLevels = groupTiles.map(entry => entry.houseCount || 0);
   const maxLevel = Math.max(...houseLevels);
   if ((tile.houseCount || 0) !== maxLevel) return false;
@@ -167,6 +171,6 @@ export function canUnmortgageTile(game, player, tile) {
 // The price to lift a mortgage: the mortgage value plus 10 percent, scaled by the event value multiplier, rounded up to whole dollars.
 // The product is trimmed to micro-dollars first: 50 * 1.1 is 55.00000000000001 in floating point, and a bare ceil would charge $56, not $55.
 export function unmortgageCostFor(price, valueMultiplier = 1) {
-  const half = Math.floor((price || 0) / 2);
-  return Math.ceil(Number((half * 1.1 * valueMultiplier).toFixed(6)));
+  const mortgageValue = Math.floor((price || 0) / 2);
+  return Math.ceil(Number((mortgageValue * 1.1 * valueMultiplier).toFixed(6)));
 }

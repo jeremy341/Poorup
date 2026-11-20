@@ -1,4 +1,6 @@
 
+// GameState entry points for player-to-player contracts (loans and rent shares): thin wrappers over contractLogic.js,
+// plus the collateral questions ("is this deed pledged?") that property and bankruptcy rules ask. Rules live in contractLogic.js.
 import { playerContractSummary, processContracts, proposeContract, proposeEquityShareTransfer, counterContract, adjustContract, expireStaleContract, repayContract, respondContract, settleEquityShares } from './contractLogic.js';
 
 function activeCollateralContract(contract) {
@@ -65,16 +67,19 @@ export const gameContractApi = {
     settleEquityShares(this, tile, owner, amountPaid, payer);
   },
 
+  // True when the tile backs the player's open bank loan.
   isLoanCollateral(player, tile) {
-    return Boolean(player?.bankLoan?.status === 'active' || player?.bankLoan?.status === 'due')
-      && Number(player.bankLoan.collateralTileIndex) === Number(tile?.index);
+    const loanOpen = player?.bankLoan?.status === 'active' || player?.bankLoan?.status === 'due';
+    return loanOpen && Number(player.bankLoan.collateralTileIndex) === Number(tile?.index);
   },
 
+  // True when the tile backs a loan or hybrid contract the player took out from another player.
   isPlayerContractCollateral(player, tile) {
     if (!player || !tile) return false;
     return this.playerContracts?.some(contract => contractPledgesTile(contract, player, tile)) || false;
   },
 
+  // The most expensive deed the player could pledge for a bank loan.
   highestCollateralProperty(player) {
     if (!player?.properties) return null;
     const eligible = player.properties

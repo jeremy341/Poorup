@@ -1,6 +1,10 @@
-// Static board data and the pure helpers that only reshape it. The tile and deck texts
-// are pinned by server/gameLogic.test.js and the room suites.
+// Static rule numbers, the Standard-40 board (DEFAULT_TILES) and the two card decks, plus dice and shuffle helpers.
+// Tile and deck wording is asserted by server/gameLogic.test.js and the room suites. Tile types keep their historical
+// names: 'chance' draws from SURPRISE_DECK, 'chest' from TREASURE_DECK. Other board variants live in boardRegistry.js.
 import { randomInt } from './random.js';
+
+// A property's houseCount runs 0..4 for houses and 5 means a hotel; it never goes higher.
+const HOTEL_LEVEL = 5;
 
 const PROPERTY_HOUSE_COST_BY_GROUP = {
   Brown: 50,
@@ -132,6 +136,7 @@ function cloneTiles() {
 
 export {
   DEFAULT_TILES,
+  HOTEL_LEVEL,
   JAIL_FINE,
   JAIL_MAX_TURNS,
   LAST_PLACE_START_BONUS,
