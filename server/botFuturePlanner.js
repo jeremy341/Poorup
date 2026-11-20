@@ -118,16 +118,27 @@ function groupTarget(snapshot, group) {
   return (snapshot.board || []).filter(tile => tile.group === group).length;
 }
 
-// One pass per board: owned deeds per group (state) and full-set size per group (snapshot), instead of a scan per group.
+// Full-set size per group is a property of the snapshot board (its groups never change), so it is counted once per snapshot board.
+const TARGET_COUNTS = new WeakMap();
+
+function targetCounts(snapshot) {
+  const cached = TARGET_COUNTS.get(snapshot);
+  if (cached && cached.board === snapshot.board) return cached.target;
+  const target = new Map();
+  for (const tile of snapshot.board || []) {
+    if (tile.group) target.set(tile.group, (target.get(tile.group) || 0) + 1);
+  }
+  TARGET_COUNTS.set(snapshot, { board: snapshot.board, target });
+  return target;
+}
+
+// One pass over the projected board: owned deeds per group, plus the snapshot's full-set sizes and the distinct groups in board order.
 function groupCounts(snapshot, state) {
   const owned = new Map();
   for (const tile of state.board) {
     if (tile.group && tile.ownerSeat === 'self') owned.set(tile.group, (owned.get(tile.group) || 0) + 1);
   }
-  const target = new Map();
-  for (const tile of snapshot.board || []) {
-    if (tile.group) target.set(tile.group, (target.get(tile.group) || 0) + 1);
-  }
+  const target = targetCounts(snapshot);
   const groups = [...new Set(state.board.map(tile => tile.group).filter(Boolean))];
   return { owned, target, groups };
 }

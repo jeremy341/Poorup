@@ -133,14 +133,32 @@ function hitRent(board, tile, snapshot) {
 // Every tile field the hit reads (the rent facts and the group weights) goes into the key, so a memo hit can only return the
 // value the scan would compute. One snapshot prices its reserve once per distinct board, not once per candidate.
 const MAX_HIT_MEMO = new WeakMap();
+const HIT_FIELDS = 6;
 
-function maxHitKey(board) {
-  let key = '';
-  for (const tile of board) {
-    key += `${tile?.ownerSeat}|${tile?.houseCount}|${tile?.mortgaged}|${tile?.type}|${tile?.group}|${tile?.rent}
-`;
+function hitFieldsOf(board) {
+  const fields = new Array(board.length * HIT_FIELDS);
+  board.forEach((tile, index) => {
+    const at = index * HIT_FIELDS;
+    fields[at] = tile?.ownerSeat;
+    fields[at + 1] = tile?.houseCount;
+    fields[at + 2] = tile?.mortgaged;
+    fields[at + 3] = tile?.type;
+    fields[at + 4] = tile?.group;
+    fields[at + 5] = tile?.rent;
+  });
+  return fields;
+}
+
+// Strict equality on every field: any difference (even a string versus a number) is a miss, never a wrong hit.
+function sameHitFields(fields, board) {
+  if (fields.length !== board.length * HIT_FIELDS) return false;
+  for (let index = 0; index < board.length; index += 1) {
+    const tile = board[index];
+    const at = index * HIT_FIELDS;
+    if (fields[at] !== tile?.ownerSeat || fields[at + 1] !== tile?.houseCount || fields[at + 2] !== tile?.mortgaged
+      || fields[at + 3] !== tile?.type || fields[at + 4] !== tile?.group || fields[at + 5] !== tile?.rent) return false;
   }
-  return key;
+  return true;
 }
 
 function scanMaxHit(board, snapshot) {
@@ -158,12 +176,11 @@ function scanMaxHit(board, snapshot) {
 export function forecastMaxHit(board, snapshot = null) {
   const list = board || [];
   if (!snapshot || typeof snapshot !== 'object') return scanMaxHit(list, snapshot);
-  let memo = MAX_HIT_MEMO.get(snapshot);
-  if (!memo) { memo = new Map(); MAX_HIT_MEMO.set(snapshot, memo); }
-  const key = maxHitKey(list);
-  if (memo.has(key)) return memo.get(key);
+  // The last board priced for this snapshot, with the fields the scan reads. Planner candidates re-price one board many times.
+  const last = MAX_HIT_MEMO.get(snapshot);
+  if (last && sameHitFields(last.fields, list)) return last.value;
   const value = scanMaxHit(list, snapshot);
-  memo.set(key, value);
+  MAX_HIT_MEMO.set(snapshot, { fields: hitFieldsOf(list), value });
   return value;
 }
 
