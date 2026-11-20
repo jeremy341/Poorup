@@ -191,7 +191,7 @@ test('every add-on key is carry-forwardable', () => {
 
 test("an Advanced room's first marketComplexity write sticks", () => {
   const room = advancedRoomWithOptionalSystems();
-  assert.equal(room.rulesetExplicit, true, 'fixture uses explicit Advanced rules');
+  assert.equal(room.game.legacyRuleset, false, 'fixture uses explicit Advanced rules');
   assert.equal(room.settings.marketComplexity, 'basic');
 
   const result = room.setRoomSetting('marketComplexity', 'margin');
