@@ -1,5 +1,5 @@
 // Server-authored, agreement-time collateral quotes. Pure: defaults apply the returned plan through the existing settlement owners.
-export const COLLATERAL_CREDIT_VERSION = 1;
+const COLLATERAL_CREDIT_VERSION = 1;
 const COLLATERAL_TILE_TYPES = ['property', 'railroad', 'utility'];
 
 function wholeNonnegative(value) {

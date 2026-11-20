@@ -176,7 +176,7 @@ const auctionApi = {
   // The seat that wins the close. Bids must strictly rise, so equal top bids are rare, but a bid list
   // can still hold them. With bank accounts on, the higher bank tier takes an exact tie (Parlor Black
   // over Parlor Premium over Standard). Among equal tiers, and with the rule off, the earliest bid keeps
-  // the win, as before.
+  // the win.
   auctionWinnerId(auction) {
     const top = Number(auction.highestBid) || 0;
     // A tied bid from a seat that can no longer win (disconnected, bankrupt,
@@ -189,12 +189,6 @@ const auctionApi = {
       if (this.bankAccountOf(this.getPlayerById(bid.playerId)).tier > this.bankAccountOf(this.getPlayerById(best.playerId)).tier) best = bid;
     }
     return best.playerId;
-  },
-
-  closeAuctionWhilePaused(auction) {
-    this.feedMessage(`The auction for ${auction.propertyTile.name} was cancelled: the active global event pauses auctions until liquidity returns.`);
-    this.resolveAuctionTurn(auction);
-    this.auction = null;
   },
 
   auctionWinnerEligible(winner, amount) {
@@ -294,4 +288,4 @@ const auctionApi = {
   }
 };
 
-export { AuctionState, AUCTION_DURATION_MS, auctionApi };
+export { AUCTION_DURATION_MS, auctionApi };

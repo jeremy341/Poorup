@@ -3,14 +3,13 @@
 //   - no order the server would refuse right now (debt freeze, quota, pending obligation, loan-backed cash, empty borrow pool);
 //   - a margin long or short only where expected value after fees, borrow fee and reserve clears the hurdle;
 //   - a held short covered with what the seat can fund, a margin loan repaid in full when cash allows, and forced buy-in debt settled.
-import { MARKET_FEE_RATE } from './marketLogic.js';
 import {
   MARGIN_COLLATERAL_RATE,
   SHORT_COLLATERAL_RATE,
   complexityAllows,
   expansionGuard
 } from './marketExpansion.js';
-import { forecastLeveragedOpen } from './botMarketForecast.js';
+import { forecastLeveragedOpen, marketForecastContext, orderFee } from './botMarketForecast.js';
 
 // Cash a bot keeps after paying down forced buy-in debt (the static purchase reserve).
 const SETTLE_RESERVE = 120;
@@ -29,22 +28,6 @@ const GUARDED_KINDS = {
 function wholeNumber(value) {
   const parsed = Math.floor(Number(value));
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function forecastContext(game) {
-  const event = game.globalEvent?.phase === 'active' ? game.globalEvent : null;
-  const effects = game.activeEventEffects?.() || {};
-  return {
-    history: game.marketQuoteHistory,
-    marketVolatility: effects.marketVolatility,
-    activeEventId: event?.id || null,
-    activeEventStartedRound: event?.startedRound,
-    eventPriceMultiplier: effects.marketPriceMultiplier
-  };
-}
-
-function orderFee(gross) {
-  return Math.max(1, Math.ceil(gross * MARKET_FEE_RATE));
 }
 
 function integerQuotes(game) {
@@ -67,7 +50,7 @@ function openingCash(kind, quote) {
 
 // Best clearly-positive instrument for an opening order, or null.
 function bestOpening(game, player, candidate) {
-  const base = forecastContext(game);
+  const base = marketForecastContext(game);
   let best = null;
   integerQuotes(game).forEach(({ id, quote }) => {
     if (candidate.kind === 'open-short' && !borrowable(game, id)) return;

@@ -391,16 +391,6 @@ export function equitySharePayable(game, share) {
   return { contract, holder, sharePct: Math.min(100, sharePct) };
 }
 
-// The bank files a claim instead of eliminating the seat outright: the
-// player now chooses between raising funds and declaring bankruptcy (the
-// debt settlement path handles both).
-export function handleDebtSettlement(game, player, creditor) {
-  // Compatibility entry point for older callers. A debt is a temporary
-  // payment state; choosing bankruptcy always uses the authoritative
-  // elimination/spectator settlement path.
-  return game.handleBankruptcy(player, creditor);
-}
-
 export function resolveUnsecuredBankDefault(game, player, loan) {
   game.feedMessage(`${player.nickname} defaulted on an unsecured bank loan.`);
   const owed = Math.max(0, Math.floor(Number(loan.remaining) || 0));

@@ -1,4 +1,4 @@
-export const PUBLIC_ACTION_KINDS = Object.freeze([
+const PUBLIC_ACTION_KINDS = Object.freeze([
   'auction-bid',
   'purchase',
   'build',

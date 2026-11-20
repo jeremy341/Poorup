@@ -161,8 +161,7 @@ const economyApi = {
     return this.settleCasinoBet(player, choice, amount, key);
   },
 
-  // Guard ladder kept in the original precedence order: the session rules
-  // first, then the wager itself. Returns the exact client-facing error
+  // Guards run in precedence order: the session rules first, then the wager itself. Returns the exact client-facing error
   // string, or null when the bet may be settled.
   casinoBetRejection(player, choice, amount) {
     return this.casinoSessionRejection(player) || this.casinoWagerRejection(player, choice, amount);

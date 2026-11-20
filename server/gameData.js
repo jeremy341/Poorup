@@ -1,6 +1,5 @@
-// Static board data and the pure helpers that only reshape it. Every value
-// here is the verbatim board table;
-// server/gameLogic.test.js and the room suites pin the tile and deck texts.
+// Static board data and the pure helpers that only reshape it. The tile and deck texts
+// are pinned by server/gameLogic.test.js and the room suites.
 import { randomInt } from './random.js';
 
 const PROPERTY_HOUSE_COST_BY_GROUP = {
@@ -26,6 +25,10 @@ const UTILITY_DICE_MULTIPLIERS = [4, 10, 14, 18];
 const JAIL_FINE = 50;
 const JAIL_MAX_TURNS = 3;
 const START_TILE_INDEX = 0;
+// Cash for passing or landing on Start (doubled by the Double GO rule when landing exactly), and the extra
+// catch-up cash the last-place seat collects on top.
+const START_PASS_CASH = 200;
+const LAST_PLACE_START_BONUS = 100;
 // A table still running after this many rounds ends with the richest solvent
 // seat as the winner. Warnings are fed at ROUND_LIMIT - 50 and - 10.
 const ROUND_LIMIT = 300;
@@ -131,10 +134,12 @@ export {
   DEFAULT_TILES,
   JAIL_FINE,
   JAIL_MAX_TURNS,
+  LAST_PLACE_START_BONUS,
   PROPERTY_HOUSE_COST_BY_GROUP,
   PROPERTY_RENT_MULTIPLIERS,
   ROUND_LIMIT,
   RAILROAD_RENT,
+  START_PASS_CASH,
   START_TILE_INDEX,
   SURPRISE_DECK,
   TREASURE_DECK,

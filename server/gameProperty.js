@@ -21,11 +21,6 @@ export const gamePropertyApi = {
     return index == null ? null : index;
   },
 
-  getTileById(tileId) {
-    const index = this.tileIndexForId(tileId);
-    return index == null ? null : this.getTile(index);
-  },
-
   getGroupTiles(group) {
     return this.tiles.filter(tile => tile.group === group && tile.type === 'property');
   },

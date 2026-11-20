@@ -337,11 +337,6 @@ const bankruptcyApi = {
     contract.defaultedRound = this.roundNumber;
   },
 
-  collateralForContract(contract) {
-    if (contract.collateralTileIndex == null) return null;
-    return this.getTile(contract.collateralTileIndex);
-  },
-
   terminateContract(contract) {
     contract.status = 'terminated';
     contract.terminatedRound = this.roundNumber;

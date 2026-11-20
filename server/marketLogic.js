@@ -3,7 +3,7 @@
 import { randomFloat } from './random.js';
 
 export const MARKET_FEE_RATE = 0.02;
-export const MARKET_SIDES = ['buy', 'sell'];
+const MARKET_SIDES = ['buy', 'sell'];
 export const MARKET_INSTRUMENTS = [
   ['brazil', 'HOUSING MARKET', 100], ['ghana', 'AGRICULTURE', 100], ['thailand', 'CONSUMER GOODS', 100],
   ['japan', 'TECHNOLOGY', 100], ['netherlands', 'TRADE & LOGISTICS', 100], ['canada', 'ENERGY & RESOURCES', 100],
@@ -11,7 +11,7 @@ export const MARKET_INSTRUMENTS = [
   ['airports', 'AIR TRANSPORT', 100], ['utilities', 'PUBLIC UTILITIES', 100], ['property', 'CONSTRUCTION & MATERIALS', 100]
 ].map(([id, name, price]) => ({ id, name, price }));
 
-// Order gates run in the exact historical check order;
+// Order gates run in listed order, so the first failing check names the error;
 // server/contracts-market.test.js pins every string.
 export const MARKET_ORDER_GUARDS = [
   { test: game => !game.settings.market, error: 'Market access is off for this room.' },

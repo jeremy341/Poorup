@@ -219,13 +219,13 @@ class GameState {
     this.reset();
   }
 
-  reset() {
+  // Everything about the table except its seats: turn state, pending offers, ledgers, decks.
+  // Shared by the constructor (reset) and by a rematch (resetForNewGame).
+  resetTableState() {
     this.tiles = tilesForVariant(this.boardVariant);
-    this.players = [];
-    this.turnOrder = [];
     this.currentPlayerId = null;
+    this.turnOrder = [];
     this.lastDice = [0, 0];
-    this.diceRollSequence = 0;
     this.presentation = null;
     this._activePresentation = null;
     this.hasRolled = false;
@@ -236,7 +236,6 @@ class GameState {
     this.pendingPurchaseOffer = null;
     this.pendingSponsoredPurchase = null;
     this.started = false;
-    this.startedAt = null;
     this.feed = [];
     this.auction = null;
     this.pendingTrade = null;
@@ -256,7 +255,6 @@ class GameState {
     this.lastEndReason = null;
     this.finalNetWorthById = null;
     this.vacationPool = 0;
-    this.roundNumber = 0;
     this.globalEvent = null;
     this.globalEventHistory = [];
     this.globalEventCooldown = 0;
@@ -270,7 +268,6 @@ class GameState {
     this.marketQuotes = freshMarketQuotes();
     this.marketQuoteHistory = [createMarketQuotePoint(this, 0, null)];
     this.marketOptionReserve = 100_000;
-    this.marketShortInventory = {};
     this.marketInstruments = MARKET_INSTRUMENTS;
     this.marketRound = 0;
     this.marketModifierEventKey = null;
@@ -285,6 +282,15 @@ class GameState {
     const decks = decksForVariant(this.boardVariant);
     this.surpriseDeck = decks.surprise.map(card => ({ ...card }));
     this.treasureDeck = decks.treasure.map(card => ({ ...card }));
+  }
+
+  reset() {
+    this.resetTableState();
+    this.players = [];
+    this.diceRollSequence = 0;
+    this.startedAt = null;
+    this.roundNumber = 0;
+    this.marketShortInventory = {};
   }
 
   resetPlayerState(player) {
@@ -323,72 +329,13 @@ class GameState {
   }
 
   resetForNewGame() {
-    this.presentation = null;
-    this._activePresentation = null;
     this.boardVariant = this.settings.boardVariant || this.boardVariant || 'standard-40';
-    this.tiles = tilesForVariant(this.boardVariant);
-    this.currentPlayerId = null;
-    this.turnOrder = [];
-    this.lastDice = [0, 0];
-    this.hasRolled = false;
-    this.consecutiveDoubles = 0;
-    this.extraRollPending = false;
-    this.turnAllowsExtraRoll = false;
-    this.awaitingEndTurn = false;
-    this.pendingPurchaseOffer = null;
-    this.pendingSponsoredPurchase = null;
-    this.started = false;
+    this.resetTableState();
     this.startedAt = Date.now();
-    this.feed = [];
-    this.auction = null;
-    this.pendingTrade = null;
-    this.pendingPlayerContract = null;
-    this.playerContracts = [];
-    this.contractTransactions = new BoundedReplayMap();
-    this.tradeTransactions = new BoundedReplayMap();
-    this.tradesCompleted = 0;
-    this.auctionsCompleted = 0;
-    this.pendingPayment = null;
-    this.pendingPaymentQueue = [];
-    this.pendingPaymentTurnOptions = null;
-    this.pendingPaymentHooks = null;
-    this.syncDebtFlags();
-    this.defaultClaims = [];
-    this.borrowerNotices = [];
-    this.lastWinner = null;
-    this.lastEndReason = null;
-    this.finalNetWorthById = null;
-    this.vacationPool = 0;
     this.roundNumber = 1;
-    this.globalEvent = null;
-    this.globalEventHistory = [];
-    this.globalEventCooldown = 0;
-    this.globalEventsTriggered = 0;
-    this.globalEventTriggerSource = null;
-    this.midpointMarked = false;
-    this.casinoLastResult = null;
-    this.casinoLedger = [];
-    this.marketLedger = [];
     this.globalEventVoteTransactions = null;
-    this.economyTransactions = new BoundedReplayMap();
-    this.marketQuotes = freshMarketQuotes();
-    this.marketQuoteHistory = [createMarketQuotePoint(this, 0, null)];
-    this.marketOptionReserve = 100_000;
     this.marketShortInventory = Object.fromEntries(Object.keys(this.marketQuotes).map(id => [id, 50]));
-    this.marketInstruments = MARKET_INSTRUMENTS;
-    this.marketRound = 0;
-    this.marketModifierEventKey = null;
-    this.botDecisionSequence = 0;
-    this.botDecisionTrace = [];
-    this.publicActionHistory = [];
-    this.netWorthTimeline = [];
-    this.humanActionCount = 0;
-    this.afkTurnCount = 0;
-    this.telemetryLog = [];
-    this.itemTransactions = new Map();
-    const decks = decksForVariant(this.boardVariant);
-    this.surpriseDeck = decks.surprise.map(card => ({ ...card }));
-    this.treasureDeck = decks.treasure.map(card => ({ ...card }));
+    this.syncDebtFlags();
     this.players.forEach(player => {
       // A seat still inside its reconnect grace stays disconnected across a
       // rematch: its expiry timer is still armed, and clearing the flag here

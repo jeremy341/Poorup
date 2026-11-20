@@ -1,4 +1,4 @@
-// Shared cryptographic RNG helpers. Extracted so the game board, casino,
+// Shared cryptographic RNG helpers, so the game board, casino,
 // global events, and market all draw from one auditable source of randomness.
 import crypto from 'crypto';
 

@@ -1,5 +1,5 @@
-
-import { JAIL_FINE, JAIL_MAX_TURNS, START_TILE_INDEX, rollDice } from './gameData.js';
+// Turn flow for GameState: rolling, jail, movement, and handing the turn to the next seat.
+import { JAIL_FINE, JAIL_MAX_TURNS, LAST_PLACE_START_BONUS, START_PASS_CASH, START_TILE_INDEX, rollDice } from './gameData.js';
 import { recordPresentationCash } from './gamePresentation.js';
 
 function isCurrentTurnPlayer(player, currentPlayerId) {
@@ -45,8 +45,9 @@ export const gameTurnApi = {
   },
 
   sendRollerToJail(player) {
-    this.recordPresentationMove(player, this.tiles.find(tile => tile.type === 'jail').index, { cause: 'three-doubles', teleport: true });
-    player.position = this.tiles.find(tile => tile.type === 'jail').index;
+    const jailIndex = this.tiles.find(tile => tile.type === 'jail').index;
+    this.recordPresentationMove(player, jailIndex, { cause: 'three-doubles', teleport: true });
+    player.position = jailIndex;
     player.inJail = true;
     player.jailTurns = 0;
     this.consecutiveDoubles = 0;
@@ -153,8 +154,8 @@ export const gameTurnApi = {
   },
 
   startPassReward(exactStart) {
-    if (exactStart && this.settings.doubleGo) return 400;
-    return 200;
+    if (exactStart && this.settings.doubleGo) return START_PASS_CASH * 2;
+    return START_PASS_CASH;
   },
 
   awardStartPass(player, oldPosition, steps) {
@@ -162,7 +163,7 @@ export const gameTurnApi = {
     if (distanceToStart > steps) return;
     const exactStart = distanceToStart === steps;
     const reward = this.startPassReward(exactStart);
-    const bonus = this.isLastPlaceByCash(player) ? 100 : 0;
+    const bonus = this.isLastPlaceByCash(player) ? LAST_PLACE_START_BONUS : 0;
     player.cash += reward + bonus;
     recordPresentationCash(this, 'go', distanceToStart - 1);
     this.feedMessage(`${player.nickname} ${exactStart ? 'landed on' : 'passed'} Start and collected $${reward + bonus}.` + (bonus ? ' Last-place catch-up bonus included.' : ''));
@@ -358,7 +359,7 @@ export const gameTurnApi = {
     if (current.bankrupt) return;
     // A parked debt travels with the seat: route it through bankruptcy
     // instead of orphaning the creditor's claim until reconnect.
-    if (this.pendingPayment?.playerId === current.id && !current.bankrupt) {
+    if (this.pendingPayment?.playerId === current.id) {
       const creditor = this.pendingPayment.creditorId ? this.getPlayerById(this.pendingPayment.creditorId) : null;
       return this.handleBankruptcy(current, creditor);
     }

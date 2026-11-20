@@ -30,14 +30,10 @@
 //                             so its remaining principal is never counted twice.
 
 import { inventoryValue } from './itemApi.js';
-
-function number(value, fallback = 0) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
+import { finiteNumber } from './numberUtils.js';
 
 function whole(value) {
-  return Math.floor(number(value));
+  return Math.floor(finiteNumber(value));
 }
 
 function nonNegative(value) {
@@ -115,12 +111,12 @@ function shortEquity(game, player) {
 }
 
 function optionValue(game, player) {
-  const round = number(game?.roundNumber, 0);
+  const round = finiteNumber(game?.roundNumber, 0);
   return (player.optionPositions || []).reduce((sum, option) => {
     if (!option || option.status !== 'open' || option.role === 'writer') return sum;
     if (Number.isFinite(Number(option.expiryRound)) && round > Number(option.expiryRound)) return sum;
     const quote = quoteOf(game, option.instrumentId, option.strike);
-    const strike = number(option.strike);
+    const strike = finiteNumber(option.strike);
     const intrinsic = option.side === 'put' ? Math.max(0, strike - quote) : Math.max(0, quote - strike);
     return sum + Math.min(Math.floor(intrinsic * nonNegative(option.quantity)), nonNegative(option.reserveHeld));
   }, 0);

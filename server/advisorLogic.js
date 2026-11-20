@@ -1,6 +1,6 @@
 // Advisor-driven decision phases: choice candidates, identity snapshots that reject stale AI
 // answers after the async call, the room executors per phase, and the candidate runner pass-through.
-// The room is injected, never imported. Gates are verbatim moves from scheduleBotTurn, so bot balance is unchanged.
+// The room is injected, never imported.
 import { vetoTrade } from './botTradeValuation.js';
 import { DeterministicAdvisor } from './botAdvisor.js';
 import { lenderAcceptsCounter } from './botContractPolicy.js';
@@ -389,7 +389,7 @@ function runPostRollPhase(room, bot, game) {
 }
 
 // One small executor per phase, keyed by the state machine in botLogic. Each
-// returns the room action result, exactly as the original branches did.
+// returns the room action result.
 export const PHASE_EXECUTORS = {
   vote: (room, bot, game) => {
     const policy = selectGlobalEventPolicy(game.globalEvent, game, bot);
@@ -403,7 +403,7 @@ export const PHASE_EXECUTORS = {
   },
   sponsorship: runSponsorshipPhase,
   payment: botPaymentAction,
-  auction: (room, bot) => ({ success: true, noEmit: true, botDecision: { actionId: 'auction:wait', reasonCode: 'awaiting-bids' } }),
+  auction: () => ({ success: true, noEmit: true, botDecision: { actionId: 'auction:wait', reasonCode: 'awaiting-bids' } }),
   'end-turn': (room, bot) => room.runBotAction(bot.id, actor => room.endTurn(actor)),
   'post-roll': runPostRollPhase
 };
@@ -722,8 +722,8 @@ export async function runAdvisorTurn({ room, bot, advisor, decisionContext = {},
   });
   const { botDecision: safeDecision, evaluationTrace } = splitEvaluationTrace(decision);
   const trace = advisorTurnTrace({ decisionContext, safeDecision, decision, phase, candidates });
-  // The advisor call is async; if the seat moved on while it thought, the
-  // original code aborted the tick without emitting.
+  // The advisor call is async; if the seat moved on while it thought, abort
+  // the tick without emitting.
   if (game.getCurrentPlayer()?.id !== bot.id || !botSeatStillLive(game, bot)) {
     return { noEmit: true, botDecision: { ...trace, reasonCode: 'seat-changed' }, ...(evaluationTrace ? { evaluationTrace } : {}) };
   }

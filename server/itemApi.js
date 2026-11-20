@@ -64,7 +64,7 @@ function recordJailFreeGrant(player, source) {
   player.jailFreeOrigins = [...(player.jailFreeOrigins || []), source].slice(-player.jailFreeCards);
 }
 
-export function itemValue(game, item) {
+function itemValue(game, item) {
   if (!item || !Object.hasOwn(ITEM_CATALOG, item.catalogId)) return 0;
   if (item.catalogId === 'parlor-bond' && Number(game?.roundNumber || 0) >= item.maturesRound) return dollars(item.redeemValue);
   return dollars(item.bankSellValue);
@@ -102,7 +102,7 @@ function sellReason(game, player, item) {
   return actionReason(game, player) || (dollars(item.bankSellValue) > 0 ? null : 'This prison card cannot be sold under classic rules.');
 }
 
-export function itemSummaryFor(game, player, viewerId) {
+function itemSummaryFor(game, player, viewerId) {
   if (!player || viewerId !== player.id) return [];
   game.ensurePrisonItems?.(player);
   return inventory(player).filter(item => Object.hasOwn(ITEM_CATALOG, item.catalogId)).map(item => {

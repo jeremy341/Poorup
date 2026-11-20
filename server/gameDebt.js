@@ -323,9 +323,5 @@ export const gameDebtApi = {
     from.cash -= amount;
     to.cash += amount;
     this.feedMessage(message);
-  },
-
-  deductMoney(player, amount, message) {
-    this.chargePlayer({ player, amount, message, turnOptions: {} });
   }
 };

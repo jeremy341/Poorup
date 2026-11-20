@@ -148,13 +148,8 @@ export function portfolioValue(game, playerId, propertyIndexes) {
   return value;
 }
 
-// Kept as the historical name of the shared valuation.
-export function portfolioDeedValue(game, playerId, propertyIndexes) {
-  return portfolioValue(game, playerId, propertyIndexes);
-}
-
 // Cheapest house cost for a group (build-readiness threshold = 1 house).
-export function cheapestHouseCost(game, group) {
+function cheapestHouseCost(game, group) {
   const tiles = groupTiles(game, group);
   let cheapest = 0;
   for (const tile of tiles) {
@@ -169,7 +164,7 @@ export function cheapestHouseCost(game, group) {
 }
 
 // Deeds below this net valuation gain are noise: a swap that only reshuffles face
-// value ping-pongs between seats (388 accepted trades in one audited game), so a
+// value ping-pongs between seats (388 accepted trades in one simulated game), so a
 // bot neither proposes nor accepts a tile-for-tile swap that gains less than this.
 export const TRADE_MIN_NET_GAIN = 20;
 

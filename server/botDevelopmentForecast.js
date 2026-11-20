@@ -6,11 +6,7 @@ import { trafficPercent, groupDevelopmentGain, rentAtLevel as sharedRentAtLevel 
 // what a seat actually pays, so a forecast that ignores them over-states the
 // hit the reserve has to cover.
 import { rentFromSnapshot } from './botRentForecast.js';
-
-function number(value, fallback = 0) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
+import { finiteNumber } from './numberUtils.js';
 
 // Expected rent at a house level (level 0..5, 5 = hotel). The ladder itself
 // is the shared one in botTradeValuation, so the forecast and the trade
@@ -22,7 +18,7 @@ export function rentAtLevel(tile, level) {
 // Extra rent per full opponent circuit if this tile gains one house,
 // traffic-weighted. Abstract "circuits" currency shared with payback.
 export function houseDeltaPerCircuit(tile) {
-  const level = Math.max(0, Math.min(5, Math.floor(number(tile?.houseCount))));
+  const level = Math.max(0, Math.min(5, Math.floor(finiteNumber(tile?.houseCount))));
   if (level >= 5) return 0;
   const delta = Math.max(0, rentAtLevel(tile, level + 1) - rentAtLevel(tile, level));
   return Math.floor(delta * trafficPercent(tile?.group) / 100);
@@ -33,7 +29,7 @@ export function houseDeltaPerCircuit(tile) {
 export function buildPaybackRounds(tile, houseCost) {
   const gain = houseDeltaPerCircuit(tile);
   if (gain <= 0) return Number.MAX_SAFE_INTEGER;
-  return Math.max(1, Math.ceil(Math.max(0, Math.floor(number(houseCost))) / gain));
+  return Math.max(1, Math.ceil(Math.max(0, Math.floor(finiteNumber(houseCost))) / gain));
 }
 
 function ownGroupTiles(board, group, seat = 'self') {
@@ -59,10 +55,10 @@ export function groupBuildPlan(board, group, houseCostOf) {
   let buildRounds = 0;
   for (const tile of tiles) {
     if (tile?.mortgaged || tile?.constructionBlocked) return null;
-    const level = Math.max(0, Math.min(5, Math.floor(number(tile?.houseCount))));
+    const level = Math.max(0, Math.min(5, Math.floor(finiteNumber(tile?.houseCount))));
     const need = Math.max(0, 3 - level);
     if (!need) continue;
-    const unit = Math.max(0, Math.floor(number(houseCostOf?.(tile))));
+    const unit = Math.max(0, Math.floor(finiteNumber(houseCostOf?.(tile))));
     if (!unit) return null;
     cost += unit * need;
     housesToThree += need;
@@ -198,8 +194,8 @@ export function developmentStage(board) {
     for (const tile of tiles) {
       const seat = tile?.ownerSeat || 'bank';
       bySeat.set(seat, (bySeat.get(seat) || 0) + 1);
-      houses += Math.max(0, Math.min(4, Math.floor(number(tile?.houseCount))));
-      if (Math.floor(number(tile?.houseCount)) >= 5) hotels += 1;
+      houses += Math.max(0, Math.min(4, Math.floor(finiteNumber(tile?.houseCount))));
+      if (Math.floor(finiteNumber(tile?.houseCount)) >= 5) hotels += 1;
     }
     for (const [seat, count] of bySeat) {
       if (seat !== 'bank' && count >= tiles.length) monopolies += 1;
@@ -213,7 +209,7 @@ export function developmentStage(board) {
 // Dynamic liquidity target: cover the forecast max hit plus one house of headroom, bounded to sane whole dollars.
 // Replaces the static 120/180 in planning math. The snapshot, when present, prices the hit the way the engine charges it.
 export function dynamicReserve(board, houseCost = 100, snapshot = null) {
-  const target = forecastMaxHit(board, snapshot) + Math.max(0, Math.floor(number(houseCost)));
+  const target = forecastMaxHit(board, snapshot) + Math.max(0, Math.floor(finiteNumber(houseCost)));
   return Math.max(120, Math.min(1000, target));
 }
 

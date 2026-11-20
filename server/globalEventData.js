@@ -1,6 +1,6 @@
 // Global-event vocabulary as data: the definition table, curated combination pairs, and dispatch tables that mirror
 // CARD_ACTION_HANDLERS and RENT_EVENT_MODIFIERS (activation targets, activation hooks, vote-outcome effects, settlements).
-// Entries encode the exact conditions and mutations of the original if-ladders. Settlement order is observable, so the array is frozen.
+// Entries encode each event's exact conditions and mutations. Settlement order is observable, so the array is frozen.
 
 const GLOBAL_EVENT_COOLDOWN_ROUNDS = 3;
 const GLOBAL_EVENT_MIN_ROUND = 3;

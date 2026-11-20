@@ -1,8 +1,9 @@
-import { deedHasShareInterest, rentShareConstructionAllowed } from './rentShareRules.js';
 // Board-tile eligibility rules: what a player may trade, build on, sell from, mortgage, or unmortgage. Pure: every predicate reads the
 // GameState it is handed (via its accessor methods) and never mutates. property-actions.test.js and rent.test.js pin every branch.
+import { deedHasShareInterest, rentShareConstructionAllowed } from './rentShareRules.js';
 
-function tradeableTileType(tile) {
+// Only deeds (properties, utilities, railroads) can be traded or mortgaged.
+function isDeedTile(tile) {
   if (tile.type === 'property') return true;
   if (tile.type === 'utility') return true;
   if (tile.type === 'railroad') return true;
@@ -21,7 +22,7 @@ function tradeableTileUnencumbered(game, tile) {
   return true;
 }
 
-function groupHasBuildingsForTrade(game, tile) {
+function groupHasBuildings(game, tile) {
   if (tile.type !== 'property' || !tile.group) return false;
   return game.getGroupTiles(tile.group).some(entry => (entry.houseCount || 0) > 0);
 }
@@ -30,9 +31,9 @@ export function isTradeableTile(game, tile) {
   if (!tile) return false;
   if (!tile.ownerId) return false;
   if (!tradeableTileUnencumbered(game, tile)) return false;
-  if (!tradeableTileType(tile)) return false;
+  if (!isDeedTile(tile)) return false;
   if ((tile.houseCount || 0) > 0) return false;
-  return !groupHasBuildingsForTrade(game, tile);
+  return !groupHasBuildings(game, tile);
 }
 
 function ownedUnmortgagedProperty(game, player, tile) {
@@ -40,7 +41,7 @@ function ownedUnmortgagedProperty(game, player, tile) {
   if (tile.ownerId !== player.id) return false;
   if (tileEncumbered(game, player, tile)) return false;
   // A temporary rent share leaves construction and its costs with the owner.
-  // Legacy equity keeps its original construction restriction.
+  // Legacy equity keeps its construction restriction.
   if (!rentShareConstructionAllowed(game, tile)) return false;
   return !tile.mortgaged;
 }
@@ -92,7 +93,7 @@ function ownedPropertyTile(game, player, tile) {
   if (tile.type !== 'property') return false;
   if (tile.ownerId !== player.id) return false;
   // Building-sale proceeds belong to the temporary rent-share deed owner.
-  // Legacy equity and pledged collateral retain their original restrictions.
+  // Legacy equity and pledged collateral keep their restrictions.
   if (tileEncumbered(game, player, tile)) return false;
   return rentShareConstructionAllowed(game, tile);
 }
@@ -114,23 +115,6 @@ function mortgageBlockedByEvent(game) {
   return Boolean(game.activeEventEffects().mortgagesBlocked);
 }
 
-function mortgageableTileType(tile) {
-  if (tile.type === 'property') return true;
-  if (tile.type === 'utility') return true;
-  if (tile.type === 'railroad') return true;
-  return false;
-}
-
-function tileEncumberedForOwner(game, player, tile) {
-  if (game.isLoanCollateral(player, tile)) return true;
-  return game.isPlayerContractCollateral(player, tile);
-}
-
-function groupHasBuildings(game, player, tile) {
-  if (tile.type !== 'property') return false;
-  return game.getGroupTiles(tile.group).some(entry => (entry.houseCount || 0) > 0);
-}
-
 function mortgageOwnershipAllows(game, player, tile) {
   if (!player) return false;
   if (!tile) return false;
@@ -140,15 +124,15 @@ function mortgageOwnershipAllows(game, player, tile) {
 
 function mortgageSecurityAllows(game, player, tile) {
   if (mortgageBlockedByEvent(game)) return false;
-  if (tileEncumberedForOwner(game, player, tile)) return false;
+  if (tileEncumbered(game, player, tile)) return false;
   return !deedHasShareInterest(game, tile);
 }
 
 function mortgageTileShapeAllows(game, player, tile) {
-  if (!mortgageableTileType(tile)) return false;
+  if (!isDeedTile(tile)) return false;
   if ((tile.houseCount || 0) > 0) return false;
   if (tile.mortgaged) return false;
-  return !groupHasBuildings(game, player, tile);
+  return !groupHasBuildings(game, tile);
 }
 
 export function canMortgageTile(game, player, tile) {

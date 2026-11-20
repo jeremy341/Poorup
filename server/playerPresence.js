@@ -1,6 +1,13 @@
 export const IDLE_INPUT_GRACE_MS = 30_000;
 export const PLAYER_INACTIVITY_REMOVAL_MS = 180_000;
 
+// A seat that can still act or receive money: not bankrupt, not disconnected.
+export function isLivePlayer(player) {
+  if (!player) return false;
+  if (player.bankrupt) return false;
+  return !player.disconnected;
+}
+
 const validReasons = new Set(['hidden', 'idle']);
 
 function isTrackableHuman(player, stale) {

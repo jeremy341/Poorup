@@ -3,7 +3,7 @@ import { rentShareConstructionAllowed } from './rentShareRules.js';
 // Versioned, provider-safe bot projection. It only reshapes the authoritative GameState and never executes an action
 // or exposes stable account or socket identifiers. It stays separate from bot execution so a simulator and the AI adapter
 // can consume the same snapshot contract.
-import { JAIL_FINE, JAIL_MAX_TURNS, START_TILE_INDEX } from './gameData.js';
+import { JAIL_FINE, JAIL_MAX_TURNS, START_PASS_CASH, START_TILE_INDEX } from './gameData.js';
 import { decksForVariant } from './boardRegistry.js';
 import { MARKET_FEE_RATE, marketQuoteHistorySnapshot } from './marketLogic.js';
 import { COMPLEXITY_RANK, MARGIN_MAINTENANCE_RATE } from './marketExpansion.js';
@@ -479,7 +479,7 @@ function rulesDigest(game) {
     boardSize: Array.isArray(game.tiles) ? game.tiles.length : 40,
     ...rulesetMetadata(game),
     startTileIndex: START_TILE_INDEX,
-    passStartCash: 200,
+    passStartCash: START_PASS_CASH,
     doubleGo: settings.doubleGo === true,
     doubleRent: settings.doubleRent === true,
     jailFine: JAIL_FINE,
