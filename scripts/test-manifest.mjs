@@ -34,7 +34,7 @@ export const TEST_GROUPS = Object.freeze({
     'server/drainController.test.js', 'server/maintenance-wire.test.js', 'server/maintenance-persistence.test.js', 'server/metricsRegistry.test.js',
     'server/analyticsPrivacy.test.js', 'server/analyticsProjection.test.js', 'server/analyticsRollupStore.test.js',
     'server/analyticsApi.test.js', 'server/adminAuditLog.test.js', 'server/adminOpsReports.test.js', 'server/adminOpsRoutes.test.js', 'server/analytics-route-security.test.js', 'server/analyticsRuntime.test.js',
-    'server/metadata.test.js', 'server/release-wiring.test.js', 'server/docsFeatureStatus.test.js',
+    'server/metadata.test.js', 'server/seo-files.test.js', 'server/htmlToMarkdown.test.js', 'server/release-wiring.test.js', 'server/docsFeatureStatus.test.js',
     'server/docs-parity.test.js', 'public/clientUxContracts.test.js', 'public/clientTheme.test.js',
     'public/clientMusicPlayer.test.js', 'public/clientAdminAiProvider.test.js', 'public/themeAssets.test.js',
     'public/clientTransactionUi.test.js', 'public/clientResponsiveA11y.test.js', 'public/clientQuickTable.test.js',

@@ -26,6 +26,14 @@ const PAGE_COPY = {
   }
 };
 
+// The only pages that may be indexed. The sitemap, robots.txt and structured
+// data all read this list, so they cannot disagree about which pages are public.
+export const INDEXABLE_PATHS = Object.freeze(["/", "/about", "/rules"]);
+// Markdown copies of the indexable pages, advertised with rel="alternate". Served
+// by server.js only while indexing is approved.
+export const MARKDOWN_ALTERNATES = Object.freeze({ "/about": "/about.md", "/rules": "/rules.md" });
+const REPOSITORY_URL = "https://github.com/jeremy341/Poorup";
+
 const VERIFICATION_TOKEN = /^[A-Za-z0-9_-]{10,120}$/;
 
 function cleanText(value, fallback = "") {
@@ -63,7 +71,8 @@ function sourceOptions(options = {}) {
     origin: options.origin ?? env.POORUP_PUBLIC_ORIGIN ?? "",
     indexPolicy: options.indexPolicy ?? env.POORUP_INDEX_POLICY,
     previewPath: options.previewPath ?? env.POORUP_PREVIEW_PATH,
-    description: options.description ?? env.POORUP_META_DESCRIPTION,
+    // POORUP_META_DESCRIPTION is documented as the home-page description only.
+    description: options.description ?? (cleanPath(options.path ?? "/") === "/" ? env.POORUP_META_DESCRIPTION : undefined),
     path: options.path ?? "/",
     title: options.title,
     googleVerification: options.googleVerification ?? env.POORUP_GOOGLE_SITE_VERIFICATION,
@@ -111,27 +120,51 @@ function escapeAttribute(value) {
 
 // JSON-LD only goes out for indexable pages with a configured public origin, so a
 // private or unconfigured deploy never advertises itself to crawlers.
+// Every indexable page carries the same three entities with stable @ids, so they
+// merge into one site-wide description: the Organization that publishes the game,
+// the WebSite, and the game itself (a VideoGame that is also a WebApplication).
+// /about and /rules add their breadcrumb, and /rules adds its TechArticle. There is
+// no FAQPage on /rules: that page holds the rules book, not questions and answers.
 function structuredData(meta) {
   if (!meta.origin || meta.indexPolicy !== "index,follow") return "";
-  if (meta.path !== "/" && meta.path !== "/about" && meta.path !== "/rules") return "";
-  const webApplication = {
-    "@type": "WebApplication",
+  if (!INDEXABLE_PATHS.includes(meta.path)) return "";
+  const organizationId = `${meta.origin}/#organization`;
+  const organization = {
+    "@type": "Organization",
+    "@id": organizationId,
     name: "Poorup",
     url: `${meta.origin}/`,
-    description: meta.description,
+    sameAs: [REPOSITORY_URL],
+  };
+  const website = {
+    "@type": "WebSite",
+    "@id": `${meta.origin}/#website`,
+    name: "Poorup",
+    url: `${meta.origin}/`,
+    inLanguage: "en",
+    publisher: { "@id": organizationId },
+  };
+  const game = {
+    "@type": ["VideoGame", "WebApplication"],
+    "@id": `${meta.origin}/#game`,
+    name: "Poorup",
+    url: `${meta.origin}/`,
     applicationCategory: "GameApplication",
     genre: "Board game",
+    gamePlatform: "Web browser",
     operatingSystem: "Any (web browser)",
     browserRequirements: "Requires JavaScript",
     inLanguage: "en",
+    isAccessibleForFree: true,
     offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
     audience: { "@type": "PeopleAudience", suggestedMinAge: 10 },
     // 2-4 on the Standard-40 board, up to 6 on Metro-52 (see server/boardRegistry.js).
     numberOfPlayers: { "@type": "QuantitativeValue", minValue: 2, maxValue: 6 },
+    publisher: { "@id": organizationId },
   };
-  if (meta.previewUrl) webApplication.image = meta.previewUrl;
-  const graph = [webApplication];
-  if (meta.path === "/") graph.push({ "@type": "WebSite", name: "Poorup", url: `${meta.origin}/` });
+  if (meta.path === "/") game.description = meta.description;
+  if (meta.previewUrl) game.image = meta.previewUrl;
+  const graph = [organization, website, game];
   if (meta.path === "/about" || meta.path === "/rules") {
     graph.push({
       "@type": "BreadcrumbList",
@@ -148,6 +181,8 @@ function structuredData(meta) {
       description: meta.description,
       url: meta.canonicalUrl,
       inLanguage: "en",
+      publisher: { "@id": organizationId },
+      isPartOf: { "@id": `${meta.origin}/#website` },
     });
   }
   return JSON.stringify({ "@context": "https://schema.org", "@graph": graph }).replace(/</g, "\\u003c");
@@ -174,6 +209,10 @@ export function renderMetadata(options = {}) {
   if (meta.canonicalUrl && meta.origin) {
     tags.push(`<link rel="canonical" href="${escapeAttribute(meta.canonicalUrl)}">`);
     tags.push(`<meta property="og:url" content="${escapeAttribute(meta.canonicalUrl)}">`);
+    const markdown = MARKDOWN_ALTERNATES[meta.path];
+    if (markdown && meta.indexPolicy === "index,follow") {
+      tags.push(`<link rel="alternate" type="text/markdown" href="${escapeAttribute(`${meta.origin}${markdown}`)}">`);
+    }
   }
   if (meta.previewUrl && meta.origin) {
     tags.push(`<meta property="og:image" content="${escapeAttribute(meta.previewUrl)}">`);

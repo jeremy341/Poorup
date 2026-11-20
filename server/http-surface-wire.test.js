@@ -146,6 +146,9 @@ try {
       assert.doesNotMatch(body, /application\/ld\+json/, route);
     }
     assert.equal((await fetch(`${pending.base}/sitemap.xml`)).status, 404);
+    assert.equal((await fetch(`${pending.base}/about.md`)).status, 404, 'Markdown copies are gated like the sitemap');
+    assert.equal((await fetch(`${pending.base}/rules.md`)).status, 404);
+    assert.equal((await fetch(`${pending.base}/llms-full.txt`)).status, 200, 'llms-full.txt is served like llms.txt, without the indexing gate');
   });
 } finally {
   await pending.stop();
@@ -156,6 +159,50 @@ try {
   await check('with origin and policy both set, pages are indexable', async () => {
     assert.match(await (await fetch(`${approved.base}/robots.txt`)).text(), /Allow: \//);
     assert.match(await (await fetch(`${approved.base}/rules`)).text(), /name="robots" content="index,follow"/);
+  });
+
+  await check('crawler files have their types, cache policy and content from the pages', async () => {
+    const robots = await fetch(`${approved.base}/robots.txt`);
+    assert.equal(robots.headers.get('content-type'), 'text/plain; charset=utf-8');
+    assert.equal(robots.headers.get('cache-control'), 'public, max-age=3600');
+    const robotsText = await robots.text();
+    assert.match(robotsText, /User-agent: GPTBot\nAllow: \/\n/);
+    assert.match(robotsText, /User-agent: Googlebot\nAllow: \/\n/);
+    assert.match(robotsText, /Sitemap: https:\/\/play\.example\/sitemap\.xml\n$/);
+
+    const sitemap = await fetch(`${approved.base}/sitemap.xml`);
+    assert.equal(sitemap.headers.get('content-type'), 'application/xml; charset=utf-8');
+    assert.equal(sitemap.headers.get('cache-control'), 'public, max-age=3600');
+    const sitemapText = await sitemap.text();
+    assert.match(sitemapText, /<loc>https:\/\/play\.example\/<\/loc><lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
+    assert.match(sitemapText, /<loc>https:\/\/play\.example\/rules<\/loc><lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
+    assert.doesNotMatch(sitemapText, /<loc>https:\/\/play\.example\/(play|rooms|profile|rankings|social|admin|game)/, 'private pages are not listed');
+
+    const about = await fetch(`${approved.base}/about.md`);
+    assert.equal(about.status, 200);
+    assert.equal(about.headers.get('content-type'), 'text/markdown; charset=utf-8');
+    assert.equal(about.headers.get('cache-control'), 'no-cache');
+    assert.match(await about.text(), /^# About Poorup\n/);
+
+    const rulesMd = await fetch(`${approved.base}/rules.md`);
+    assert.equal(rulesMd.status, 200);
+    assert.match(await rulesMd.text(), /^# How to play Poorup\n/);
+
+    const full = await fetch(`${approved.base}/llms-full.txt`);
+    assert.equal(full.status, 200);
+    assert.equal(full.headers.get('content-type'), 'text/plain; charset=utf-8');
+    assert.equal(full.headers.get('cache-control'), 'public, max-age=3600');
+    assert.match(await full.text(), /^# Poorup: full text\n/);
+
+    const llms = await fetch(`${approved.base}/llms.txt`);
+    assert.equal(llms.status, 200);
+    assert.match(llms.headers.get('content-type') || '', /^text\/plain/);
+    assert.match(await llms.text(), /\(\/llms-full\.txt\)/);
+
+    const rulesPage = await (await fetch(`${approved.base}/rules`)).text();
+    assert.match(rulesPage, /<link rel="alternate" type="text\/markdown" href="https:\/\/play\.example\/rules\.md">/);
+    assert.match(rulesPage, /<script type="application\/ld\+json">[^<]*"@type":"Organization"/);
+    assert.doesNotMatch(rulesPage, /"@type":"FAQPage"/, 'the rules page carries no FAQ');
   });
 } finally {
   await approved.stop();

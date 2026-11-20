@@ -44,19 +44,46 @@ function structuredGraph(options) {
   return { data, types };
 }
 {
+  // One publisher (Organization), one WebSite and one game (VideoGame that is also a
+  // WebApplication) on every indexable page, with @ids that tie them together.
+  const entities = ["Organization", "WebSite", ["VideoGame", "WebApplication"]];
   const home = structuredGraph({ origin: "https://play.example", path: "/" });
-  assert.deepEqual(home.types, ["WebApplication", "WebSite"]);
-  assert.equal(home.data["@graph"][1].url, "https://play.example/");
-  const app = home.data["@graph"][0];
-  assert.deepEqual([app.numberOfPlayers.minValue, app.numberOfPlayers.maxValue], [2, 6], "player counts match boardRegistry (2-4 standard, up to 6 Metro-52)");
+  assert.deepEqual(home.types, entities);
+  const [organization, website, game] = home.data["@graph"];
+  assert.equal(organization["@id"], "https://play.example/#organization");
+  assert.equal(website.publisher["@id"], organization["@id"]);
+  assert.equal(game.publisher["@id"], organization["@id"]);
+  assert.equal(website.url, "https://play.example/");
+  assert.deepEqual([game.numberOfPlayers.minValue, game.numberOfPlayers.maxValue], [2, 6], "player counts match boardRegistry (2-4 standard, up to 6 Metro-52)");
+  assert.equal(game.isAccessibleForFree, true);
+  assert.equal(typeof game.description, "string", "the home page describes the game");
   const about = structuredGraph({ origin: "https://play.example", path: "/about" });
-  assert.deepEqual(about.types, ["WebApplication", "BreadcrumbList"]);
-  assert.equal(about.data["@graph"][1].itemListElement[0].item, "https://play.example/");
+  assert.deepEqual(about.types, [...entities, "BreadcrumbList"]);
+  assert.equal(about.data["@graph"][3].itemListElement[0].item, "https://play.example/");
+  assert.equal("description" in about.data["@graph"][2], false, "the game's description is the home page's, so other pages do not repeat it");
   const rules = structuredGraph({ origin: "https://play.example", path: "/rules" });
-  assert.deepEqual(rules.types, ["WebApplication", "BreadcrumbList", "TechArticle"]);
-  assert.match(rules.data["@graph"][2].url, /^https:\/\/play\.example\/rules$/);
+  assert.deepEqual(rules.types, [...entities, "BreadcrumbList", "TechArticle"]);
+  assert.match(rules.data["@graph"][4].url, /^https:\/\/play\.example\/rules$/);
+  assert.equal(rules.data["@graph"][4].publisher["@id"], organization["@id"]);
+  assert.ok(!about.types.includes("FAQPage") && !rules.types.includes("FAQPage"), "FAQPage is served only by /about, which holds the Q&A");
   const noindex = renderMetadata(metadataConfig({ origin: "https://play.example", path: "/", indexPolicy: "noindex,nofollow" }));
   assert.doesNotMatch(noindex, /application\/ld\+json/);
+}
+// POORUP_META_DESCRIPTION is the home-page description only; /about and /rules keep their own.
+{
+  const env = { POORUP_PUBLIC_ORIGIN: "https://play.example", POORUP_INDEX_POLICY: "index,follow", POORUP_META_DESCRIPTION: "A custom home description for the operator." };
+  assert.equal(metadataConfig({ env, path: "/" }).description, "A custom home description for the operator.");
+  assert.notEqual(metadataConfig({ env, path: "/about" }).description, env.POORUP_META_DESCRIPTION);
+  assert.notEqual(metadataConfig({ env, path: "/rules" }).description, env.POORUP_META_DESCRIPTION);
+  assert.equal(metadataConfig({ origin: "https://play.example", path: "/rules", description: "Explicit per-call text." }).description, "Explicit per-call text.", "an explicit option still applies to its own page");
+}
+// /about and /rules point at their Markdown copies only when indexing is approved.
+{
+  const approved = renderMetadata(metadataConfig({ origin: "https://play.example", path: "/about", indexPolicy: "index,follow" }));
+  assert.match(approved, /<link rel="alternate" type="text\/markdown" href="https:\/\/play\.example\/about\.md">/);
+  assert.match(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/rules", indexPolicy: "index,follow" })), /href="https:\/\/play\.example\/rules\.md"/);
+  assert.doesNotMatch(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/about", indexPolicy: "noindex,nofollow" })), /text\/markdown/);
+  assert.doesNotMatch(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/" , indexPolicy: "index,follow" })), /text\/markdown/);
 }
 assert.match(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/", googleVerification: "abcdefghij12345" })), /google-site-verification" content="abcdefghij12345"/);
 assert.doesNotMatch(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/", googleVerification: "<script>" })), /google-site-verification/);
