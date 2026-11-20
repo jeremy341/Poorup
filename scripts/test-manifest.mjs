@@ -1,3 +1,4 @@
+// The list of test suites, grouped for the npm test scripts (core, audit, timers, account, inactivity, surfaces). A suite must be listed in a group to run in CI.
 export const TEST_GROUPS = Object.freeze({
   core: [
     'server/patrol-authority.test.js', 'public/clientNightShift.test.js', 'public/clientPatrolProvenance.test.js', 'server/recap-fields.test.js',

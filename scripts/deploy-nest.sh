@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Deploy one release to the Nest host: drain, install the archive, reload PM2, health-gate, and roll back on failure.
+
 # Pin PM2 to the invoking user's daemon. A bare non-interactive SSH shell can
 # otherwise resolve a different PM2_HOME and reload the wrong process list.
 export PM2_HOME="${PM2_HOME:-$HOME/.pm2}"

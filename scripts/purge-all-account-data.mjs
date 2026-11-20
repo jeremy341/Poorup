@@ -1,3 +1,4 @@
+// Operator tool: erases every account and everything derived from it (stores and backup copies). Needs the exact confirmation phrase.
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { Buffer } from 'node:buffer';

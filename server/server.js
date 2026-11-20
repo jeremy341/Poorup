@@ -478,6 +478,7 @@ app.post('/account/logout', (req, res) => {
 });
 // Mail links land on a confirmation page first. Only the POST consumes the
 // single-use token, so a mail scanner that prefetches the link cannot burn it.
+const EXPIRED_LINK_MESSAGE = 'That single-use link is invalid or expired.';
 const recoveryFormParsers = [express.urlencoded({ extended: false, limit: '8kb' }), express.json({ limit: '8kb' })];
 function recoveryToken(req) {
   const source = req.method === 'GET' ? req.query : req.body;
@@ -491,7 +492,8 @@ app.get('/account/recovery/verify', (req, res) => {
 app.post('/account/recovery/verify', ...recoveryFormParsers, asyncRoute(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const verified = await accountRecovery.consumeEmailVerification(recoveryToken(req));
-  return res.status(verified ? 200 : 400).type('html').send(errorPage(verified ? 'Recovery email verified' : 'Recovery link expired', verified ? 'Your recovery email is now active. Return to the parlor.' : 'That single-use link is invalid or expired.'));
+  if (!verified) return res.status(400).type('html').send(errorPage('Recovery link expired', EXPIRED_LINK_MESSAGE));
+  return res.status(200).type('html').send(errorPage('Recovery email verified', 'Your recovery email is now active. Return to the parlor.'));
 }));
 app.post('/account/recovery/request', express.json({ limit: '8kb' }), asyncRoute(async (req, res) => {
   await accountRecovery.requestPasswordReset({ username: req.body?.username, email: req.body?.email });
@@ -506,10 +508,13 @@ app.get('/account/recovery/reset', (req, res) => {
 app.post('/account/recovery/reset', ...recoveryFormParsers, asyncRoute(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const reset = await accountRecovery.consumePasswordReset(recoveryToken(req), req.body?.newPassword);
+  // The mailed link posts a form and wants a page back; a script posting JSON wants JSON.
   if (req.is('application/x-www-form-urlencoded')) {
-    return res.status(reset ? 200 : 400).type('html').send(errorPage(reset ? 'Password updated' : 'Reset link expired', reset ? 'Your password is updated. Sign in from the parlor.' : 'That single-use link is invalid or expired.'));
+    if (!reset) return res.status(400).type('html').send(errorPage('Reset link expired', EXPIRED_LINK_MESSAGE));
+    return res.status(200).type('html').send(errorPage('Password updated', 'Your password is updated. Sign in from the parlor.'));
   }
-  return res.status(reset ? 200 : 400).json(reset ? { success: true } : { success: false, code: 'RECOVERY_TOKEN_INVALID', error: 'That reset link is invalid or expired.' });
+  if (!reset) return res.status(400).json({ success: false, code: 'RECOVERY_TOKEN_INVALID', error: 'That reset link is invalid or expired.' });
+  return res.status(200).json({ success: true });
 }));
 app.get('/healthz', (_req, res) => {
   res.status(200).json({ status: 'ok', service: 'poorup', releaseId: process.env.POORUP_RELEASE_ID || 'local' });

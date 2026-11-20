@@ -1,3 +1,4 @@
+// Command-line option parsing for run-test-manifest.mjs.
 function optionValue(args, name, fallback = null) {
   const prefix = `--${name}=`;
   const exactIndex = args.findIndex(value => value === `--${name}`);

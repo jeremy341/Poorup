@@ -1,3 +1,4 @@
+// Runs one group (or one shard) of the test manifest in scripts/test-manifest.mjs, each suite in its own node process.
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';

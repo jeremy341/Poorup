@@ -1,6 +1,6 @@
 // The in-game socket domain: dice, property, auction, trade, contract, jail, loan, economy, event-vote and bankruptcy wiring.
 // Repetitive room-verb handlers (resolve room, run verb, broadcast, ack) come from GAME_VERB_HANDLERS via socketHandlerSupport's
-// factory, the same table-installed pass-through as GAME_PASSTHROUGHS in rooms.js. Names, ack key order, emit sequence and text are wire-identical.
+// factory, the same table-installed pass-through as GAME_PASSTHROUGHS in rooms.js. Event names, ack key order, emit sequence and text are a contract with the client.
 import { emitResultMessage, makeRoomVerbHandler, reply, roomVerbAck } from './socketHandlerSupport.js';
 import { contractLastProposerId, contractResponderId } from './contractLogic.js';
 import { presentationRemainingMs } from '../public/gamePresentationTiming.js';
