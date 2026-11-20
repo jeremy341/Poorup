@@ -1,7 +1,9 @@
 # Documentation index
 
-Start with the [project README](../README.md) for setup, tests and a map of the
-repo. This folder holds the reference and runbook documents.
+Start with the [project README](../README.md): setup, how to run the tests, a map
+of the repo and a ten-minute architecture overview. This folder holds the
+reference and runbook documents behind it. To deploy, read the release runbook,
+then the live runbook; to roll back, the rollback runbook.
 
 ## Running and operating the service
 

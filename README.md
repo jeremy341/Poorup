@@ -75,13 +75,25 @@ Every test file is a plain Node script that exits non-zero on failure, so any si
 
 Root files: `PRODUCT.md` (product intent), `AGENTS.md` (rules for coding agents), `Dockerfile` and `ecosystem.config.cjs` (container and PM2 runtime), `.github/` (CI, deploy and maintenance workflows), `.codescene/` and `codecov.yml` (code-health and coverage settings).
 
-## Where to start reading
+## Architecture in ten minutes
 
-1. `server/server.js`: boots Express and Socket.IO, creates the stores and wires the socket handlers.
-2. `server/gameLogic.js`: the `RoomManager` and the game rules it builds on (`game*.js`, `*Logic.js`, `*Rules.js` modules beside it).
-3. `server/botLogic.js`: how bots decide; `server/botAdvisor.js` is the AI-advisor side.
-4. `public/index.html` and `public/main.js`: the client shell and its entry module; the `client*.js` modules beside them each own one surface (board, lobby, trade, market, profile and so on).
-5. `docs/security-audit.md` and `docs/security-headers.md` before changing anything that touches sessions, sockets or HTTP.
+Poorup is one Node.js process serving a static client and a Socket.IO API. The server owns every rule and every dollar; the client only sends intents and draws what it is told.
+
+**Entry points.** `server/server.js` builds Express and Socket.IO, loads the stores, and registers the socket handlers. `public/index.html` loads `public/main.js`, the client's entry module.
+
+**One action, end to end.** A click calls `emitServer(event, payload, ack)` in `public/main.js`. On the server a handler registered by one of three domain modules receives it: `serverSocketAccount.js` (accounts, rooms, lobby), `serverSocketGame.js` (dice, property, auctions, trades, loans, bankruptcy) or `serverSocketSocial.js` (chat, friends, invites, rankings, Parlor Patrol). Rate limits and session checks run first, then the handler calls a method on the room's game state, answers the client's `ack`, and `server/socketRuntime.js` broadcasts a fresh snapshot to every seat as an `update-state` event. The client applies it in `public/clientSocketListeners.js` and `public/clientStateSync.js` and re-renders. Nothing the client computes is trusted.
+
+**Game rules.** `server/gameLogic.js` defines the game state for one room (`rooms.js` holds the seats, tables and the room registry). Its behavior is split into topic modules mixed in by name: `propertyApi.js`, `auctionApi.js`, `tradeApi.js`, `bankruptcyApi.js`, `economyApi.js` and so on, with pure rule tables in files such as `gameData.js`, `boardRegistry.js`, `rulesetRegistry.js` and `financeRules.js`.
+
+**Bots.** Bots are ordinary seats that act through the same verbs as humans. `server/botLogic.js` is the pure, deterministic decision policy (no timers or I/O); `server/botAdvisor.js` is the optional AI layer that only ranks an already-legal list of choices and falls back to the deterministic policy on any failure. The timers that run bot turns live in `socketRuntime.js`.
+
+**Client.** There is no framework or build step. `public/main.js` wires events and the render loop; `client*.js` modules each own one surface (board, lobby, trade, market, profile, admin) and share one mutable state object in `clientState.js`. CSS lives in `public/*.css`; art, fonts and audio in `public/assets/`.
+
+**Persistence.** No database. Accounts, social data, match history, achievements and telemetry are JSON files written atomically (`server/storeIO.js`) and copied to checksummed backups (`backupStore.js`). Unstarted lobbies are snapshotted so they survive a restart (`roomStore.js`); a game in progress lives only in memory, so a restart ends it. That is why the service runs as a single process and drains before a deploy.
+
+**Operations.** HTTP security headers (`securityHeaders.js`), rate limits (`httpRateLimiter.js`, `socketRateLimiter.js`, `abuseBudgets.js`), maintenance and drain mode (`drainController.js`), and the admin console are all in `server/`; each has a document in [docs/](docs/README.md).
+
+**Tests.** Unit and wire tests sit beside the code and are run by `scripts/run-test-manifest.mjs` from the list in `scripts/test-manifest.mjs`; browser specs live in `qa/`. See [Run the tests](#run-the-tests).
 
 ## How to play
 
