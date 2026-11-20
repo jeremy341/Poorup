@@ -190,15 +190,20 @@ function periodComparison(current, previous, period) {
   return { value: previous, delta: current - previous, period };
 }
 
+// Every board starts from the same three things: the normalized query, the rollup window it selects, and that window's aggregate.
+function aggregatedWindow(rollup, queryInput) {
+  const query = normalizeAnalyticsQuery(queryInput);
+  const { snapshot, entries } = selectedDimensions(rollup, query);
+  return { query, snapshot, entries, data: aggregate(entries) };
+}
+
 // The six tiles of the Status tab, in display order. Live tiles read the
 // metrics registry (since the process started); match tiles read the rollup for
 // the selected window. A tile the server cannot compute carries value: null.
 export const OVERVIEW_KPI_IDS = Object.freeze(['online-now', 'error-rate', 'p95-action-latency', 'completion-rate', 'started', 'peak-24h']);
 
 export function buildOverview(rollup, queryInput = {}, { previous = null } = {}) {
-  const query = normalizeAnalyticsQuery(queryInput);
-  const { snapshot, entries } = selectedDimensions(rollup, query);
-  const data = aggregate(entries);
+  const { query, snapshot, data } = aggregatedWindow(rollup, queryInput);
   const live = snapshot?.quality?.live || {};
   const started = startedCount(data);
   const completion = measure(data.completed, started);
@@ -225,7 +230,7 @@ export function buildOverview(rollup, queryInput = {}, { previous = null } = {})
 }
 
 export function buildMatchHealth(rollup, queryInput = {}) {
-  const query = normalizeAnalyticsQuery(queryInput); const { snapshot, entries } = selectedDimensions(rollup, query); const data = aggregate(entries);
+  const { snapshot, data } = aggregatedWindow(rollup, queryInput);
   const started = startedCount(data);
   return { starts: started, completions: data.completed, stalls: data.stalled, startedMatches: started, completedMatches: data.completed, stalledMatches: data.stalled, completionRate: measure(data.completed, started), durationMedian: valueMeasure(median(data.durationSeconds), data.durationSeconds.count, { sampleSize: data.durationSeconds.count }), durationP95: valueMeasure(percentile(data.durationSeconds, 0.95), data.durationSeconds.count, { sampleSize: data.durationSeconds.count }), reconnectRate: measure(data.reconnects, started), afkRate: measure(data.afk, started), bankruptcies: valueMeasure(data.bankruptcies, started), comebacks: valueMeasure(data.comebacks, started), denominators: { startedMatches: started, completedRounds: data.completed }, generatedAt: generated(snapshot) };
 }
@@ -258,7 +263,8 @@ export function buildRulesetBoard(rollup, queryInput = {}) {
 }
 
 export function buildEconomy(rollup, queryInput = {}) {
-  const query = normalizeAnalyticsQuery(queryInput); const { snapshot, entries } = selectedDimensions(rollup, query); const data = aggregate(entries); const adoption = {};
+  const { query, snapshot, data } = aggregatedWindow(rollup, queryInput);
+  const adoption = {};
   Object.entries(data.features).forEach(([feature, item]) => { adoption[feature] = measure(item.used, item.eligible); });
   const liquidationRate = measure(data.market.liquidations, data.market.marginPositions);
   const shortDefaultRate = measure(data.market.shortDefaults, data.market.shortPositions);
@@ -268,7 +274,7 @@ export function buildEconomy(rollup, queryInput = {}) {
 }
 
 export function buildEventsRarity(rollup, queryInput = {}) {
-  const query = normalizeAnalyticsQuery(queryInput); const { snapshot, entries } = selectedDimensions(rollup, query); const data = aggregate(entries);
+  const { query, snapshot, data } = aggregatedWindow(rollup, queryInput);
   const rows = Object.entries(data.events).slice(0, 100).filter(([eventId]) => !query.eventId || eventId === query.eventId).map(([eventId, event]) => ({ eventId, eligibility: valueMeasure(event.eligible), warningToActive: measure(event.active, event.warnings || event.eligible), turnout: measure(event.voters, event.eligible), medianDuration: valueMeasure(median(event.durationSeconds), event.durationSeconds.count), recoveryRate: measure(event.recovered, event.active), combinations: event.combinations }));
   const competitiveCompleted = data.competitiveCompleted;
   const rarity = Object.keys(data.competitiveAchievements).length ? data.competitiveAchievements : data.achievements;
@@ -277,7 +283,7 @@ export function buildEventsRarity(rollup, queryInput = {}) {
 }
 
 export function buildBots(rollup, queryInput = {}) {
-  const query = normalizeAnalyticsQuery(queryInput); const { snapshot, entries } = selectedDimensions(rollup, query); const data = aggregate(entries);
+  const { query, snapshot, data } = aggregatedWindow(rollup, queryInput);
   const rows = Object.entries(data.bots).filter(([key, bot]) => query.botMode === 'all' || (bot.botMode || key.split('|')[0]) === query.botMode).slice(0, 100).map(([key, bot]) => ({ botMode: bot.botMode || key.split('|')[0] || 'human', provider: bot.provider || key.split('|')[1] || 'unknown', matches: bot.matches, completed: bot.completed, wins: bot.wins, winShare: measure(bot.wins, bot.matches), medianPlacement: valueMeasure(median({ values: bot.placements }), bot.placements.length), completionRate: measure(bot.completed, bot.matches), actionAdoption: bot.actions, auctionDecisions: bot.actions?.['auction:bid'] || 0, fallback: bot.fallback, fallbackRate: measure(bot.fallback, bot.decisions), legalActionTaxonomy: Object.keys(bot.actions || {}).sort() }));
   return { rows, generatedAt: generated(snapshot), filters: query, competitiveMetricsExcludeBotOnly: true };
 }
@@ -307,4 +313,4 @@ export function buildDataQuality(rollup, queryInput = {}) {
   return { fresh: empty || (quality.fresh !== false && quality.stale !== true), stale: !empty && (quality.stale === true || quality.fresh === false), empty, lagSeconds: number(quality.lagSeconds), eventCoverage: quality.eventCoverage ?? null, queueDepth: number(quality.queueDepth ?? quality.pendingWrites), pendingWrites: number(quality.pendingWrites), rejectedEvents: number(quality.rejectedEvents), suppressionCount: number(quality.suppressionCount), schemaVersion: number(snapshot.schemaVersion, 1), revisionCoverage: quality.revisionCoverage || revisions, generatedAt: generated(snapshot), filters: query };
 }
 
-export { RANGES, TABS };
+export { TABS };

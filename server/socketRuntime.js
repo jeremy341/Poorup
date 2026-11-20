@@ -481,10 +481,6 @@ function createRuntime(deps) {
     ? botAdvisor.subscribeProviderStatus(status => io.emit('bot-provider-status', safeBotProviderStatus(status)))
     : null;
 
-  function accountFromPayload(payload = {}) {
-    return accountStore.sessionAccount(payload.sessionToken);
-  }
-
   function getRoomForSocket(socket, callback) {
     const room = resolveRoomOrAck(runtime, socket, callback);
     if (room?.game) room.game.presentationClock = now;
@@ -1723,7 +1719,6 @@ function createRuntime(deps) {
 
   const runtime = {
     acceptRoomInvite,
-    accountFromPayload,
     accountStore,
     authoritativeStore,
     achievementStore,
@@ -1753,9 +1748,7 @@ function createRuntime(deps) {
     canJoinRoom,
     botProviderStatus,
     unsubscribeBotProviderStatus,
-    // Shutdown hook (server.js calls it by this name): stops every background
-    // interval, not only the auction watchdog it is named for.
-    stopAuctionWatchdog: stopBackgroundTimers,
+    // Shutdown hook: stops every background interval (rooms GC, auction watchdog, idle seats, trade expiry).
     dispose: stopBackgroundTimers,
     now,
     telemetryStore,

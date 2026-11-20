@@ -1,5 +1,6 @@
 // Server bootstrap: builds the HTTP and socket.io shell, the stores, and the shared socket runtime, then delegates every wire handler
 // to the domain registration modules (account and room lifecycle, in-game verbs, social). Static UI serving, PORT binding and crash guards live here only.
+// Read top to bottom: Express runs middleware and routes in registration order, and the stores must exist before the runtime that uses them.
 import express from 'express';
 import path from 'path';
 import http from 'http';
@@ -65,12 +66,9 @@ assertProductionStoragePaths(process.env);
 assertPersistenceMode(process.env);
 assertProductionCors(process.env);
 
+// ── 1. HTTP shell: security middleware, static files, rate limits ──
 const app = express();
 const server = hardenHttpServer(http.createServer(app));
-let httpAccountResolver = () => null;
-let httpAccountRights = null;
-let httpAccountRecovery = null;
-let httpRetentionJob = null;
 assertTrustedProxyConfig(process.env);
 // One trusted-proxy view for Express (req.ip) and the socket resolver, so HTTP and socket budgets count the same client.
 const trustedProxy = readTrustedProxy(process.env);
@@ -114,6 +112,7 @@ app.use((req, res, next) => {
 });
 // Route budgets for mail-sending, token-checking, export and admin-aggregation routes (see abuseBudgets.js). They sit behind the global IP budget.
 app.use(createHttpRouteBudgets({ limits: readAbuseLimits(process.env), trustProxy: trustedProxy.enabled }));
+// ── 2. Socket.IO server and its handshake admission ──
 const socketRateLimiter = createSocketRateLimiter(readSocketEventLimits(process.env));
 const socketAdmission = createSocketAdmission({
   maxConnections: process.env.POORUP_SOCKET_MAX_CONNECTIONS,
@@ -149,8 +148,7 @@ const io = new Server(server, {
 });
 attachSocketHttpHeaders(server);
 
-// The supplied plain-client project is the production static UI. Keep the
-// protected SVG references in public/assets and serve the HTML/CSS/JS directly.
+// ── 3. Shared state: rooms, metrics, maintenance/drain mode, lobby persistence, analytics ──
 const roomManager = new RoomManager();
 const metrics = createMetricsRegistry();
 metrics.initializeCounter('restore-failures', { source: 'room-session' });
@@ -246,6 +244,7 @@ const adminAuditLog = createAdminAuditLog({
 const roomActivity = createRoomActivityTracker();
 const roomActivityTimer = setInterval(() => roomActivity.observe(roomManager.rooms.values()), 5_000);
 roomActivityTimer.unref?.();
+// ── 4. HTTP routes: operator and admin, SEO pages, account, health ──
 let storesLoaded = false;
 let backupHealth = { configured: false, fresh: true, lastRunAt: null, failures: 0 };
 let backupIntervalMs = null;
@@ -330,7 +329,7 @@ registerMaintenanceAccessRoutes(app, {
 // An analytics call can be the first to trade a legacy bearer token for a cookie
 // session; the cookie must reach the caller or the token is spent for nothing.
 function analyticsAccount(req, res) {
-  const account = httpAccountResolver(req) || accountStore.sessionAccount(req.get('x-poorup-session-token') || '');
+  const account = requestAccount(req) || accountStore.sessionAccount(req.get('x-poorup-session-token') || '');
   if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);
   return account;
 }
@@ -409,7 +408,7 @@ app.get('/llms-full.txt', (_req, res) => {
 });
 app.get('/account/session', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  const account = httpAccountResolver(req);
+  const account = requestAccount(req);
   if (!account) return res.status(401).json({ success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in again.' });
   if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);
   return res.json({ success: true, account: withAdminFlag(accountStore.getAccountSnapshot(account.id), adminAccountIds) });
@@ -424,14 +423,14 @@ app.post('/internal/retention/run', asyncRoute(async (req, res) => {
   const token = resolveRetentionToken(process.env);
   const auth = isRetentionAuthorized(req, token);
   if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
-  const result = await httpRetentionJob?.runOnce?.();
+  const result = await retentionJob.runOnce();
   return res.status(200).json({ success: true, result: result || null });
 }));
 app.get('/account/export', (req, res) => {
-  const account = httpAccountResolver(req);
-  if (!account || !httpAccountRights?.export) return res.status(401).json({ success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in to download your account data.' });
+  const account = requestAccount(req);
+  if (!account) return res.status(401).json({ success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in to download your account data.' });
   try {
-    const result = httpAccountRights.export({ account, req });
+    const result = runtime.accountRights.export({ account, req });
     if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
@@ -444,7 +443,7 @@ app.get('/account/export', (req, res) => {
 // socket opened before sign-in can no longer prove who it is; this endpoint authenticates with the cookie. Only the two appearance
 // fields are accepted, and the JSON content type keeps it out of reach of cross-site form posts.
 app.post('/account/profile', express.json({ limit: '8kb' }), (req, res) => {
-  const account = httpAccountResolver(req);
+  const account = requestAccount(req);
   if (!account) return res.status(401).json({ success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in again.' });
   if (account.accountDeactivated === true) return res.status(403).json({ success: false, error: 'This account is restricted.' });
   if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);
@@ -491,14 +490,12 @@ app.get('/account/recovery/verify', (req, res) => {
 });
 app.post('/account/recovery/verify', ...recoveryFormParsers, asyncRoute(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  const verified = await httpAccountRecovery?.consumeEmailVerification?.(recoveryToken(req));
+  const verified = await accountRecovery.consumeEmailVerification(recoveryToken(req));
   return res.status(verified ? 200 : 400).type('html').send(errorPage(verified ? 'Recovery email verified' : 'Recovery link expired', verified ? 'Your recovery email is now active. Return to the parlor.' : 'That single-use link is invalid or expired.'));
 }));
 app.post('/account/recovery/request', express.json({ limit: '8kb' }), asyncRoute(async (req, res) => {
-  const result = await httpAccountRecovery?.requestPasswordReset?.({ username: req.body?.username, email: req.body?.email });
-  // Uniform response: the sent flag would otherwise oracle valid
-  // username+email pairs to enumerators.
-  void result;
+  await accountRecovery.requestPasswordReset({ username: req.body?.username, email: req.body?.email });
+  // Uniform response whatever the outcome: a differing "sent" flag would let enumerators confirm valid username+email pairs.
   return res.status(200).json({ success: true, sent: true });
 }));
 app.get('/account/recovery/reset', (req, res) => {
@@ -508,7 +505,7 @@ app.get('/account/recovery/reset', (req, res) => {
 });
 app.post('/account/recovery/reset', ...recoveryFormParsers, asyncRoute(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
-  const reset = await httpAccountRecovery?.consumePasswordReset?.(recoveryToken(req), req.body?.newPassword);
+  const reset = await accountRecovery.consumePasswordReset(recoveryToken(req), req.body?.newPassword);
   if (req.is('application/x-www-form-urlencoded')) {
     return res.status(reset ? 200 : 400).type('html').send(errorPage(reset ? 'Password updated' : 'Reset link expired', reset ? 'Your password is updated. Sign in from the parlor.' : 'That single-use link is invalid or expired.'));
   }
@@ -583,6 +580,7 @@ function escapeHtmlText(value) {
   return String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
 }
 
+// ── 5. Account/social stores, sessions, recovery mail, backups ──
 const storePaths = resolveStorePaths(process.env);
 const auxiliaryStorePaths = resolveAuxiliaryStorePaths(process.env);
 const retiredStorePaths = resolveRetiredStorePaths(process.env);
@@ -683,6 +681,7 @@ if (backupDirectory) {
   const backupTimer = setInterval(runBackup, intervalMs);
   backupTimer.unref?.();
 }
+// ── 6. Provider and admin routes, 404/error handlers, then the socket runtime and account rights ──
 const botAdvisor = createBotAdvisor();
 const aiProviderStore = createAiProviderStore({
   filePath: auxiliaryStorePaths.aiProviders || '',
@@ -804,7 +803,7 @@ function accountFromLegacyToken(req) {
   return { legacy, account };
 }
 
-function maybeExchangeLegacy(req, legacy, account) {
+function maybeExchangeLegacy(req, legacy) {
   const exchanged = sessionStore.exchangeLegacy(legacy, token => accountStore.sessionAccount(token)?.id || null);
   if (!exchanged) return;
   req.sessionCookie = sessionStore.cookie(exchanged.cookieValue);
@@ -816,16 +815,13 @@ function requestAccount(req) {
   if (cookieAccount) return cookieAccount;
   const legacyResult = accountFromLegacyToken(req);
   if (!legacyResult) return null;
-  maybeExchangeLegacy(req, legacyResult.legacy, legacyResult.account);
+  maybeExchangeLegacy(req, legacyResult.legacy);
   return legacyResult.account;
 }
-httpAccountResolver = requestAccount;
-httpAccountRights = runtime.accountRights;
-httpAccountRecovery = accountRecovery;
-httpRetentionJob = retentionJob;
 retentionJob.runOnce().catch(error => console.error('Retention job failed:', error?.message || 'unknown error'));
 retentionJob.start();
 
+// ── 7. Per-socket wiring ──
 io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);
 
@@ -856,6 +852,7 @@ io.on('connection', (socket) => {
   });
 });
 
+// ── 8. Listen, graceful shutdown, crash guards ──
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
   console.log('Server is running!');
@@ -876,7 +873,7 @@ function disposeRuntimeResources() {
   maintenance.dispose();
   retentionJob.stop();
   runtime.unsubscribeBotProviderStatus?.();
-  runtime.stopAuctionWatchdog?.();
+  runtime.dispose();
   pubsubAdapter.close?.();
 }
 
