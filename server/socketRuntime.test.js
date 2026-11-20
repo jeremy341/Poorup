@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { botChatPayload, createRuntime, noteBotFallback, recordLoggedTelemetry, recordMatchTelemetry, recordMatchTelemetryOnce } from './socketRuntime.js';
+import { botChatPayload, createRuntime } from './socketRuntime.js';
+import { noteBotFallback, recordLoggedTelemetry, recordMatchTelemetry, recordMatchTelemetryOnce } from './matchTelemetry.js';
 import { createSocialApi } from './socketSocialApi.js';
 import { createMetricsRegistry, summarizeRuntimeMetrics } from './metricsRegistry.js';
 import { RoomManager } from './gameLogic.js';

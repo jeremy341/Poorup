@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { processContracts } from './contractLogic.js';
 import * as marketExpansion from './marketExpansion.js';
-import * as socketRuntime from './socketRuntime.js';
+import * as seatDeparture from './seatDeparture.js';
 
 const failures = [];
 function check(name, run) {
@@ -82,8 +82,8 @@ check('AFK expiry settles or concludes an active payment instead of forgiving it
   const creditor = room.game.players[1];
   debtor.cash = 0;
   room.game.pendingPayment = { playerId: debtor.id, creditorId: creditor.id, amountRemaining: 500, reason: 'rent' };
-  assert.equal(typeof socketRuntime.settleAfkPayment, 'function');
-  socketRuntime.settleAfkPayment(room.game, debtor);
+  assert.equal(typeof seatDeparture.settleAfkPayment, 'function');
+  seatDeparture.settleAfkPayment(room.game, debtor);
   assert.equal(room.game.pendingPayment, null);
   assert.equal(debtor.bankrupt || debtor.inDebt, true);
   assert.equal(debtor.cash < 0, false);

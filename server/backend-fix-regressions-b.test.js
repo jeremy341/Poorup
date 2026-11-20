@@ -3,7 +3,7 @@
 // production recovery path.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
-import { settleAfkPayment } from './socketRuntime.js';
+import { settleAfkPayment } from './seatDeparture.js';
 
 const failures = [];
 function check(name, run) {
