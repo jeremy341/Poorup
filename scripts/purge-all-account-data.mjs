@@ -10,7 +10,7 @@ import { resolveAuxiliaryStorePaths, resolveStorePaths } from '../server/serverS
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, '..');
-export const ACCOUNT_PURGE_CONFIRMATION = 'DELETE ALL POORUP ACCOUNT DATA';
+const ACCOUNT_PURGE_CONFIRMATION = 'DELETE ALL POORUP ACCOUNT DATA';
 
 const STORE_NAMES = {
   accounts: 'accounts.json',
