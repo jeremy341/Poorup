@@ -14,10 +14,19 @@ export function asyncRoute(handler) {
 
 const API_PREFIX = /^\/(?:account|admin|internal)(?:\/|$)/;
 
+// Messages for JSON answers, and the HTML page copy where it differs. Nothing here echoes the request, the route or a stack trace.
+const CLIENT_ERROR_MESSAGES = Object.freeze({
+  404: 'Not found.',
+  405: 'This method is not allowed here.',
+  413: 'The request is too large.',
+  415: 'The request encoding is not supported.',
+  421: 'This host is not served here.',
+});
+const CLIENT_ERROR_HTML_MESSAGES = Object.freeze({ 404: 'That route is not part of this parlor.' });
+const CLIENT_ERROR_HTML_TITLES = Object.freeze({ 404: '404 · Table not found', 405: '405 · Method not allowed', 421: '421 · Wrong host' });
+
 function clientErrorMessage(status) {
-  if (status === 413) return 'The request is too large.';
-  if (status === 415) return 'The request encoding is not supported.';
-  return 'The request could not be read.';
+  return CLIENT_ERROR_MESSAGES[status] || 'The request could not be read.';
 }
 
 // Terminal error middleware. A 4xx the framework raised (bad JSON, oversized or wrongly encoded body, undecodable URL) is the
@@ -29,7 +38,14 @@ function isClientStatus(status) {
 
 function answerClientError(req, res, status, errorPage) {
   if (API_PREFIX.test(req.path || '')) return res.status(status).json({ success: false, error: clientErrorMessage(status) });
-  return res.status(status).type('html').send(errorPage(`${status} · Bad request`, clientErrorMessage(status)));
+  const title = CLIENT_ERROR_HTML_TITLES[status] || `${status} · Bad request`;
+  return res.status(status).type('html').send(errorPage(title, CLIENT_ERROR_HTML_MESSAGES[status] || clientErrorMessage(status)));
+}
+
+// A 4xx this app answers on purpose (unknown route, disallowed method, wrong host). API paths get the same JSON shape as every other
+// client error; everything else gets the HTML error page.
+export function answerHttpError(req, res, status, errorPage) {
+  return answerClientError(req, res, status, errorPage);
 }
 
 function answerServerError(metrics, log, error, res, errorPage) {
