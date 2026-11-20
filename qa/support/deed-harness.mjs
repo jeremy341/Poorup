@@ -35,7 +35,7 @@ export async function captureState(page, testInfo, surfaceId, label) {
   }
 }
 
-export async function captureDeedDetail(page, testInfo, fileName) {
+async function captureDeedDetail(page, testInfo, fileName) {
   const root = process.env.POORUP_VISUAL_CAPTURE_DIR;
   if (!root) return;
   const detailPath = path.join(path.resolve(root), testInfo.project.name, 'game', fileName);

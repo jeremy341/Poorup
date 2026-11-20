@@ -128,16 +128,6 @@ export function selectViewports(options = {}) {
   throw new Error(`Unknown viewport: ${options.viewport}`);
 }
 
-export function selectViewportsById(profileIds) {
-  const ids = new Set(profileIds);
-  const selected = supportedViewports.filter(profile => ids.has(profile.id));
-  if (selected.length !== ids.size) {
-    const unknown = [...ids].filter(id => !supportedViewports.some(profile => profile.id === id));
-    throw new Error(`Unknown supported viewport profile: ${unknown.join(', ')}`);
-  }
-  return selected;
-}
-
 export function playwrightUse(profile) {
   return {
     ...profile.device,
