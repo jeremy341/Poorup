@@ -43,7 +43,6 @@ then the live runbook; to roll back, the rollback runbook.
 | [../.env.example](../.env.example) | Every server environment variable, with comments. |
 | [../qa/README.md](../qa/README.md) | Browser specs: how to run them and what each group covers. |
 | [../qa/load/README.md](../qa/load/README.md) | The Socket.IO capacity harness for the testing deployment. |
-| [../bench/README.md](../bench/README.md) | The bot-campaign parity baseline. |
 | [../scripts/social/README.md](../scripts/social/README.md) | Regenerating the link-preview card image. |
 | [../public/assets/audio/README.md](../public/assets/audio/README.md) | Music credits and licenses. |
 | [../public/assets/fonts/README.md](../public/assets/fonts/README.md) | Font credits and licenses. |
