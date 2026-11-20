@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-const owners = ['clientRailEvents.js', 'clientAuctionUi.js', 'clientCasinoUi.js', 'clientDealUi.js', 'clientGameModalsUi.js', 'clientMarketUi.js', 'clientSponsorshipUi.js', 'clientTradeUi.js', 'clientDeedDetailUi.js', 'clientLobbyUi.js', 'clientRoomsUi.js'];
+const owners = ['clientRailEvents.js', 'clientAuctionUi.js', 'clientCasinoUi.js', 'clientDealUi.js', 'clientGameModalsUi.js', 'clientMarketUi.js', 'clientSponsorshipUi.js', 'clientFinancingUi.js', 'clientTradeModal.js', 'clientDeedDetailUi.js', 'clientLobbyUi.js', 'clientRoomsUi.js'];
 const [source, account, socketListeners, ...ownerSources] = await Promise.all([
   readFile(new URL('./main.js', import.meta.url), 'utf8'),
   readFile(new URL('./clientAccountIdentity.js', import.meta.url), 'utf8'),
