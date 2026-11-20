@@ -70,7 +70,11 @@ export function deedValue(game, tile) {
 // within a group: credit = groupValue * (after^2 - before^2) / total^2.
 // The completing deed is worth the most (Jev: quadratic).
 export function progressCredit(game, group, before, after) {
-  const tiles = groupTiles(game, group);
+  return progressCreditForTiles(game, groupTiles(game, group), before, after);
+}
+
+// progressCredit over an already-resolved tile list (the same arithmetic, without a second board scan).
+function progressCreditForTiles(game, tiles, before, after) {
   if (!tiles.length) return 0;
   const total = tiles.length;
   const cappedBefore = Math.max(0, Math.min(total, before));
@@ -78,6 +82,18 @@ export function progressCredit(game, group, before, after) {
   if (cappedAfter <= cappedBefore) return 0;
   const groupValue = tiles.reduce((sum, tile) => sum + deedValue(game, tile), 0);
   return Math.floor(groupValue * (cappedAfter * cappedAfter - cappedBefore * cappedBefore) / (total * total));
+}
+
+// Each colour group of the board with its tile list, in first-appearance order. Group and type never change after a
+// tile is created, so this is built once per game and reused by every valuation; it is rebuilt if game.tiles is replaced.
+const boardGroupCache = new WeakMap();
+function boardGroups(game) {
+  const cached = boardGroupCache.get(game);
+  if (cached && cached.tilesRef === game.tiles) return cached.groups;
+  const names = [...new Set((game.tiles || []).map(tile => tile?.group).filter(Boolean))];
+  const groups = names.map(group => ({ group, tiles: groupTiles(game, group) }));
+  boardGroupCache.set(game, { tilesRef: game.tiles, groups });
+  return groups;
 }
 
 // The rent a deed charges at one house level. The shared ladder: the
@@ -117,13 +133,11 @@ export function portfolioValue(game, playerId, propertyIndexes) {
   const owned = new Set(propertyIndexes.map(Number).filter(Number.isInteger));
   const properties = [...owned].map(index => typeof game.getTile === 'function' ? game.getTile(index) : null).filter(Boolean);
   let value = properties.reduce((sum, tile) => sum + deedValue(game, tile), 0);
-  const groups = [...new Set((game.tiles || []).map(tile => tile?.group).filter(Boolean))];
-  for (const group of groups) {
-    const tiles = groupTiles(game, group);
+  for (const { group, tiles } of boardGroups(game)) {
     const ownedTiles = tiles.filter(tile => owned.has(tile.index));
     const count = ownedTiles.length;
     if (!count) continue;
-    value += progressCredit(game, group, 0, count);
+    value += progressCreditForTiles(game, tiles, 0, count);
     // A finished set is worth the rent it would collect: three houses on
     // every deed, three circuits out.
     if (count !== tiles.length) continue;

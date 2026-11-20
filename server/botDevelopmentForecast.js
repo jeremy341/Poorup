@@ -5,7 +5,7 @@ import { trafficPercent, groupDevelopmentGain, rentAtLevel as sharedRentAtLevel 
 // The engine's own rent math: the event modifiers and the rent cap change
 // what a seat actually pays, so a forecast that ignores them over-states the
 // hit the reserve has to cover.
-import { calculateRentFromFacts, rentFactsFromSnapshot } from './botRentForecast.js';
+import { rentFromSnapshot } from './botRentForecast.js';
 
 function number(value, fallback = 0) {
   const parsed = Number(value);
@@ -122,7 +122,7 @@ function hitRent(board, tile, snapshot) {
     // A utility is the one tile whose rent grows with the dice, so the
     // worst case is the highest total.
     const diceTotal = type === 'utility' ? 12 : 7;
-    return calculateRentFromFacts(rentFactsFromSnapshot({ ...snapshot, board }, tile, diceTotal));
+    return rentFromSnapshot({ ...snapshot, board }, tile, diceTotal);
   }
   return rentAtLevel(tile, tile?.houseCount);
 }
@@ -130,9 +130,40 @@ function hitRent(board, tile, snapshot) {
 // Biggest single rent hit an opponent can deal next circuit: max over
 // opponent-owned, unmortgaged, developed tiles of traffic-weighted rent.
 // Drives the dynamic liquidity target (cover the max live hit).
-export function forecastMaxHit(board, snapshot = null) {
+// Every tile field the hit reads (the rent facts and the group weights) goes into the key, so a memo hit can only return the
+// value the scan would compute. One snapshot prices its reserve once per distinct board, not once per candidate.
+const MAX_HIT_MEMO = new WeakMap();
+const HIT_FIELDS = 6;
+
+function hitFieldsOf(board) {
+  const fields = new Array(board.length * HIT_FIELDS);
+  board.forEach((tile, index) => {
+    const at = index * HIT_FIELDS;
+    fields[at] = tile?.ownerSeat;
+    fields[at + 1] = tile?.houseCount;
+    fields[at + 2] = tile?.mortgaged;
+    fields[at + 3] = tile?.type;
+    fields[at + 4] = tile?.group;
+    fields[at + 5] = tile?.rent;
+  });
+  return fields;
+}
+
+// Strict equality on every field: any difference (even a string versus a number) is a miss, never a wrong hit.
+function sameHitFields(fields, board) {
+  if (fields.length !== board.length * HIT_FIELDS) return false;
+  for (let index = 0; index < board.length; index += 1) {
+    const tile = board[index];
+    const at = index * HIT_FIELDS;
+    if (fields[at] !== tile?.ownerSeat || fields[at + 1] !== tile?.houseCount || fields[at + 2] !== tile?.mortgaged
+      || fields[at + 3] !== tile?.type || fields[at + 4] !== tile?.group || fields[at + 5] !== tile?.rent) return false;
+  }
+  return true;
+}
+
+function scanMaxHit(board, snapshot) {
   let max = 0;
-  for (const tile of board || []) {
+  for (const tile of board) {
     const seat = tile?.ownerSeat || 'bank';
     if (!seat.startsWith('opponent') || tile?.mortgaged) continue;
     const rent = hitRent(board, tile, snapshot);
@@ -140,6 +171,17 @@ export function forecastMaxHit(board, snapshot = null) {
     if (weighted > max) max = weighted;
   }
   return max;
+}
+
+export function forecastMaxHit(board, snapshot = null) {
+  const list = board || [];
+  if (!snapshot || typeof snapshot !== 'object') return scanMaxHit(list, snapshot);
+  // The last board priced for this snapshot, with the fields the scan reads. Planner candidates re-price one board many times.
+  const last = MAX_HIT_MEMO.get(snapshot);
+  if (last && sameHitFields(last.fields, list)) return last.value;
+  const value = scanMaxHit(list, snapshot);
+  MAX_HIT_MEMO.set(snapshot, { fields: hitFieldsOf(list), value });
+  return value;
 }
 
 // Table stage from development facts: early (no monopolies yet), mid

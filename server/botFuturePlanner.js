@@ -15,7 +15,7 @@ import {
 } from './botMarketPositions.js';
 import { bestGainGroup, dynamicReserve } from './botDevelopmentForecast.js';
 import { trafficPercent } from './botTradeValuation.js';
-import { calculateRentFromFacts, rentFactsFromSnapshot } from './botRentForecast.js';
+import { calculateRentFromFacts, rentFactsFromSnapshot, rentFromSnapshot } from './botRentForecast.js';
 
 export const PLANNING_HORIZONS = { house: 0, table: 1, expert: 3 };
 export const NO_AI_POLICY_VERSION = 'no-ai-outcome-v2';
@@ -110,17 +110,38 @@ function stateClone(snapshot) {
   };
 }
 
-function propertyGroupCount(state, group) {
-  return state.board.filter(tile => tile.group === group && tile.ownerSeat === 'self').length;
+// Full-set size per group is a property of the snapshot board (its groups never change), so it is counted once per snapshot board.
+const TARGET_COUNTS = new WeakMap();
+
+function targetCounts(snapshot) {
+  const cached = TARGET_COUNTS.get(snapshot);
+  if (cached && cached.board === snapshot.board) return cached.target;
+  const target = new Map();
+  for (const tile of snapshot.board || []) {
+    if (tile.group) target.set(tile.group, (target.get(tile.group) || 0) + 1);
+  }
+  TARGET_COUNTS.set(snapshot, { board: snapshot.board, target });
+  return target;
 }
 
-function groupTarget(snapshot, group) {
-  return (snapshot.board || []).filter(tile => tile.group === group).length;
+// One pass over the projected board: owned deeds per group, plus the snapshot's full-set sizes and the distinct groups in board order.
+function groupCounts(snapshot, state) {
+  const owned = new Map();
+  for (const tile of state.board) {
+    if (tile.group && tile.ownerSeat === 'self') owned.set(tile.group, (owned.get(tile.group) || 0) + 1);
+  }
+  const target = targetCounts(snapshot);
+  const groups = [...new Set(state.board.map(tile => tile.group).filter(Boolean))];
+  return { owned, target, groups };
 }
 
 function completeGroupCount(snapshot, state) {
-  const groups = new Set(state.board.map(tile => tile.group).filter(Boolean));
-  return [...groups].filter(group => propertyGroupCount(state, group) >= groupTarget(snapshot, group)).length;
+  const { owned, target, groups } = groupCounts(snapshot, state);
+  let complete = 0;
+  for (const group of groups) {
+    if ((owned.get(group) || 0) >= (target.get(group) || 0)) complete += 1;
+  }
+  return complete;
 }
 
 // Liquidity target: the static purchase floor or the dynamic reserve (live opponent hit plus one house), whichever is higher.
@@ -387,8 +408,7 @@ function passStartValue(snapshot, position, move, boardLength) {
 }
 
 function landingRent(snapshot, board, tile, diceTotal, ownerSeat = tileOwner(tile)) {
-  const facts = rentFactsFromSnapshot({ ...snapshot, board }, { ...tile, ownerSeat }, diceTotal);
-  return calculateRentFromFacts(facts);
+  return rentFromSnapshot({ ...snapshot, board }, { ...tile, ownerSeat }, diceTotal);
 }
 
 // Sell and unmortgage edit the projected board entry, never the snapshot's
@@ -1022,10 +1042,16 @@ function expectedOpponentRent({ snapshot, state, horizon, boardLength, options =
 }
 
 function groupPotential(snapshot, state) {
-  const completed = completeGroupCount(snapshot, state);
-  const partial = [...new Set(state.board.map(tile => tile.group).filter(Boolean))]
-    .reduce((sum, group) => sum + Math.min(propertyGroupCount(state, group), groupTarget(snapshot, group)) / Math.max(1, groupTarget(snapshot, group)), 0);
-  return completed * 80 + partial * 8;
+  const { owned, target, groups } = groupCounts(snapshot, state);
+  let complete = 0;
+  let partial = 0;
+  for (const group of groups) {
+    const have = owned.get(group) || 0;
+    const need = target.get(group) || 0;
+    if (have >= need) complete += 1;
+    partial += Math.min(have, need) / Math.max(1, need);
+  }
+  return complete * 80 + partial * 8;
 }
 
 function liquidityValue(snapshot, state) {
@@ -1187,7 +1213,12 @@ function buildPathRentGain(snapshot, state, candidate) {
   return (rentPerRound(snapshot, path) - rentPerRound(snapshot, state)) / steps;
 }
 
+// The stand-still board is the snapshot board, so its memo key is read straight from the snapshot: a hit clones nothing.
+// boardSignature of a stateClone equals boardSignature of its source board, so the key matches what rentPerRound stores.
 function baselineRentPerRound(snapshot) {
+  const cache = ROUND_RENT_CACHE.get(snapshot);
+  const key = boardSignature({ board: snapshot.board || [] });
+  if (cache?.has(key)) return cache.get(key);
   return rentPerRound(snapshot, stateClone(snapshot));
 }
 
