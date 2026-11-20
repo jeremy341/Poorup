@@ -118,3 +118,13 @@ export function assertProductionCors(env = process.env) {
   if (production && (!origins.length || origins.includes('*') || hasMalformedOriginList(env))) throw new Error('POORUP_ALLOWED_ORIGINS must be configured with valid origins in production.');
   return true;
 }
+
+// With no trusted hop, the address every pre-auth budget is keyed on is the TCP peer. Behind a reverse proxy that peer is the proxy, so
+// all clients share one sign-in, username-check and join budget. The hop count cannot be detected here, so production says so at boot.
+export function proxyTrustAdvisory(env = process.env) {
+  const production = String(env?.NODE_ENV || '').trim().toLowerCase() === 'production';
+  if (!production) return null;
+  const hops = Math.floor(Number(String(env?.POORUP_TRUST_PROXY_HOPS ?? '').trim())) || 0;
+  if (hops >= 1) return null;
+  return 'POORUP_TRUST_PROXY_HOPS is unset or 0. If a reverse proxy sits in front of Poorup, every client shares one sign-in and join budget: set POORUP_TRUST_PROXY_HOPS to the number of proxies (the production runbook uses 1 for a single Caddy hop).';
+}

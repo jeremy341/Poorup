@@ -28,6 +28,7 @@ export const TEST_GROUPS = Object.freeze({
     'server/hybrid-contract-achievements.test.js', 'server/match-history-schema.test.js', 'server/net-worth-timeline.test.js', 'server/bot-contract-policy.test.js', 'server/reconnect-turn-wait.test.js', 'server/bot-engine-contracts.test.js', 'server/bot-economics.test.js', 'server/bot-trade-rework.test.js', 'server/bot-market-accounting.test.js', 
     'server/matchHistoryAdapter.test.js', 'server/match-store-trace-cap.test.js', 'server/serverSocketAccount.test.js', 'server/serverSocketGame.test.js',
     'server/serverSocketSocial.test.js', 'server/accountStore-rollback.test.js', 'server/accountStore-rights.test.js',
+    'server/socket-logout-session.test.js', 'server/trust-proxy-advisory.test.js', 'server/dockerfile-hardening.test.js',
     'server/accountLifecycleStores.test.js', 'server/sessionStore.test.js', 'server/accountExport.test.js',
     'server/mailAdapter.test.js', 'server/accountRecovery.test.js', 'server/accountDeletion.test.js',
     'server/account-auth-abuse.test.js', 'server/account-erasure-completeness.test.js', 'server/accountStore-load-quarantine.test.js', 'server/retentionJob.test.js', 'server/room-host-lifecycle.test.js', 'server/host-election-repair.test.js', 'server/seat-identity.test.js', 'server/seat-identity-wire.test.js', 'server/maintenanceState.test.js', 'server/maintenance-lockout.test.js', 'server/maintenanceAccess.test.js',
@@ -77,6 +78,7 @@ export const TEST_GROUPS = Object.freeze({
   ],
   timers: ['server/player-lifecycle-timers.test.js'],
   account: [
+    'server/socket-logout-session.test.js',
     'server/accountStore-id-lookup.test.js', 'server/accountStore-privacy-patch.test.js',
     'server/accountStore-rights.test.js', 'server/accountLifecycleStores.test.js', 'server/accountRightsSocket.test.js',
     'server/sessionStore.test.js', 'server/accountExport.test.js', 'server/mailAdapter.test.js',

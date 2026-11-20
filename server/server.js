@@ -19,7 +19,7 @@ import { registerGameSocketHandlers } from './serverSocketGame.js';
 import { registerSocialSocketHandlers } from './serverSocketSocial.js';
 import { assertProductionStoragePaths, resolveAuxiliaryStorePaths, resolveBackupDirectory, resolveDataDirectory, resolveRetiredStorePaths, resolveStorePaths } from './serverStorePaths.js';
 import { TelemetryStore } from './telemetryModule.js';
-import { assertProductionCors, createCorsOrigin, isAllowedSocketOrigin, parseAllowedOrigins, resolveClientAddress, resolveHandshakeSession, resolveRetentionToken, tokensMatch } from './serverConfig.js';
+import { assertProductionCors, createCorsOrigin, isAllowedSocketOrigin, parseAllowedOrigins, proxyTrustAdvisory, resolveClientAddress, resolveHandshakeSession, resolveRetentionToken, tokensMatch } from './serverConfig.js';
 import { createSocketAdmission, createSocketRateLimiter } from './socketRateLimiter.js';
 import { assertRateLimitConfig, createHttpRateLimiter } from './httpRateLimiter.js';
 import { backupJsonStores, isBackupStoreCandidate } from './backupStore.js';
@@ -191,6 +191,8 @@ const maintenanceAccess = createMaintenanceAccess({
 if (maintenanceAccess.enabled && String(process.env.POORUP_MAINTENANCE_PASSWORD).trim().length < 12) {
   console.warn('POORUP_MAINTENANCE_PASSWORD is shorter than 12 characters; choose a longer one.');
 }
+const trustProxyNote = proxyTrustAdvisory(process.env);
+if (trustProxyNote) console.warn(trustProxyNote);
 const bootMode = bootMaintenanceMode(persistedMaintenanceStore, process.env.POORUP_MAINTENANCE_MODE);
 // Each socket gets its own copy of the state with its own bypass flag, so the
 // broadcast is per socket. Until the runtime exists nobody has a bypass.

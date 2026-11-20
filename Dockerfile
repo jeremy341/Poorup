@@ -1,4 +1,6 @@
-FROM node:22-bookworm-slim
+# Pinned by digest (the multi-arch index of node:22-bookworm-slim) so a re-pushed tag cannot change the base under a build. Bump the digest
+# deliberately when the Node patch or Debian security update is wanted.
+FROM node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee
 
 WORKDIR /app
 
