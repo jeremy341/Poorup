@@ -28,7 +28,6 @@ import {
   setAchievementFilter,
   setAchievementDateFilter,
   setAchievementRarityFilter,
-  updateAccountFromResponse,
   openAccountModal,
   closeAccountModal,
   logoutAccount,
@@ -466,7 +465,7 @@ export function bindProfileUi() {
   });
   $("#profile-tabs")?.addEventListener("keydown", onProfileTabsKeydown);
   $("#chair-edit-btn")?.addEventListener("click", onActiveProfileEditClick);
-  $("#pl-new-btn")?.addEventListener("click", onPlNewClick);
+  $("#profile-library-new-btn")?.addEventListener("click", onPlNewClick);
   $("#achievements-filters")?.addEventListener("click", (e) => {
     const toggle = e.target.closest("[data-achievement-filter-toggle]");
     if (toggle) {
@@ -485,10 +484,10 @@ export function bindProfileUi() {
     if (card) openAchievementModal(card.dataset.achievementId, card);
   });
   $("#achievement-scrim")?.addEventListener("click", closeAchievementModal);
-  $("#pl-save-btn")?.addEventListener("click", () => {
+  $("#profile-library-save-btn")?.addEventListener("click", () => {
     saveProfileDesign({ asNew: !state.editingProfileId, stay: true });
   });
-  $("#pl-list")?.addEventListener("click", onProfileListClick);
+  $("#profile-library-list")?.addEventListener("click", onProfileListClick);
   $("#account-register-btn")?.addEventListener("click", (event) => openAccountModal("register", event.currentTarget));
   $("#account-login-btn")?.addEventListener("click", (event) => openAccountModal("login", event.currentTarget));
   $("#account-edit-btn")?.addEventListener("click", (event) => openAccountModal("edit", event.currentTarget));

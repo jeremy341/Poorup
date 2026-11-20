@@ -161,7 +161,7 @@ export async function fetchOps(kind, { range = 'day', signal, fetcher } = {}) {
 
 // What the server accepts (see parseReleaseId / parseDeadline in adminOpsRoutes.js): the same
 // rules here only save the operator a round trip; the server stays the authority.
-export const RELEASE_ID_PATTERN = /^[A-Za-z0-9._-]{1,80}$/;
+const RELEASE_ID_PATTERN = /^[A-Za-z0-9._-]{1,80}$/;
 export const MAX_DEADLINE_MINUTES = 14 * 24 * 60;
 const RELEASE_ID_ERROR = 'The release ID may use letters, digits, dots, dashes and underscores, up to 80 characters.';
 const MINUTE_MS = 60_000;

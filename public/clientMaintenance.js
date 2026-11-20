@@ -293,7 +293,7 @@ function manageFocus(panel, visible) {
   }
 }
 
-export function renderMaintenanceState() {
+function renderMaintenanceState() {
   const snapshot = normalizeMaintenanceSnapshot(state.maintenance);
   state.maintenance = snapshot;
   updateHomePanel(query('#maintenance-home'), snapshot);

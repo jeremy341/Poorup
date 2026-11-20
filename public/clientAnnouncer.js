@@ -3,7 +3,7 @@
 // ANNOUNCE_GAP_MS; none are dropped (a repeat of the line just spoken is skipped). An idle queue
 // writes immediately, so a single line is never delayed. Only the polite channel is queued:
 // #error-announcer is assertive and must interrupt, so errors keep writing to it directly.
-export const ANNOUNCE_GAP_MS = 800;
+const ANNOUNCE_GAP_MS = 800;
 const announceQueue = [];
 let announceTimer = null;
 let lastAnnouncedLine = null;

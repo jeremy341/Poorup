@@ -21,7 +21,7 @@ export function renderErrorPage(title, message, extraHtml = '') {
     <title>${safeTitle} · Poorup</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css">
-    <link rel="stylesheet" href="/ui-review-system.css">
+    <link rel="stylesheet" href="/admin-and-system-pages.css">
   </head>
   <body class="ui-error-page">
     <main class="ui-error-card noise${safeExtra ? ' has-form' : ''}">

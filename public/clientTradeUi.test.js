@@ -9,8 +9,8 @@ globalThis.sessionStorage = storage;
 
 const { equityTransferControlsHTML, equityTransferPayload, tradeDeedRowHTML, beginTradeFromDeed, financingActiveContractDetailHTML } = await import("./clientTradeUi.js");
 const { state } = await import("./clientState.js");
-const tradeUiSource = await readFile(new URL("./clientTradeUi.js", import.meta.url), "utf8");
-const economyStyles = await readFile(new URL("./ux-surfaces.css", import.meta.url), "utf8");
+const tradeUiSource = (await Promise.all(["./clientFinancingUi.js", "./clientTradeModal.js"].map((name) => readFile(new URL(name, import.meta.url), "utf8")))).join("\n");
+const economyStyles = await readFile(new URL("./dialogs-and-economy.css", import.meta.url), "utf8");
 
 test("mortgaged deeds remain selectable and retain their mortgage label", () => {
   const tile = { i: 1, name: "MEDITERRANEAN AVENUE", price: 60, group: "brown", kind: "property" };

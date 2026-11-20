@@ -607,15 +607,15 @@ export function openVoluntaryExitModal() {
 }
 
 function openCardReveal(tile, ev, options = {}) {
-  $("#card-reveal").innerHTML = cardFaceHTML(tile, ev, { buttonId: "cr-ok" });
-  openSurface("#card-modal", "#cr-ok", options);
+  $("#card-reveal").innerHTML = cardFaceHTML(tile, ev, { buttonId: "card-reveal-ok" });
+  openSurface("#card-modal", "#card-reveal-ok", options);
   const dismiss = () => {
     state.card = null;
     closeSurface("#card-modal");
   };
-  // The whole card is the dismiss target; #cr-ok stays a real button for keyboards and screen readers.
-  $("#cr-ok").addEventListener("click", dismiss);
-  $("#card-reveal .cr-card")?.addEventListener("click", dismiss);
+  // The whole card is the dismiss target; #card-reveal-ok stays a real button for keyboards and screen readers.
+  $("#card-reveal-ok").addEventListener("click", dismiss);
+  $("#card-reveal .card-reveal-card")?.addEventListener("click", dismiss);
 }
 
 function closeCardGallery() {

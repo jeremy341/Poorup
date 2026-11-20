@@ -44,15 +44,15 @@ async function activateOwnedTile(page, index, activation) {
 async function expectOwnedDeedOpened(page) {
   await expect(page.locator('#deed-modal')).toBeVisible();
   await expect(page.locator('#popup')).toBeHidden();
-  await expect(page.locator('#dd-mortgage')).toBeVisible();
-  await expect(page.locator('#dd-close')).toBeFocused();
+  await expect(page.locator('#deed-detail-mortgage')).toBeVisible();
+  await expect(page.locator('#deed-detail-close')).toBeFocused();
   await expect(page.locator('#log-drawer')).toHaveClass(/is-open/);
 }
 
 async function expectPlayerOwnedActions(page) {
-  await expect(page.locator('#dd-buy')).toBeVisible();
-  await expect(page.locator('#dd-trade-deed')).toBeVisible();
-  await expect(page.locator('#dd-bank-sale')).toHaveCount(0);
+  await expect(page.locator('#deed-detail-buy')).toBeVisible();
+  await expect(page.locator('#deed-detail-trade-deed')).toBeVisible();
+  await expect(page.locator('#deed-detail-bank-sale')).toHaveCount(0);
 }
 
 async function captureOwnedDeedCard(page, testInfo) {
@@ -64,7 +64,7 @@ async function captureOwnedDeedCard(page, testInfo) {
 
 async function closeOwnedDeed(page, activation) {
   if (activation === 'Space') await page.keyboard.press('Escape');
-  else await page.locator('#dd-close').click();
+  else await page.locator('#deed-detail-close').click();
   await expect(page.locator('#deed-modal')).toBeHidden();
 }
 
@@ -99,16 +99,16 @@ test('owned board deeds open management directly and return focus without an int
   await page.locator('#board-grid .tile[data-tile="3"]').click();
   await expect(page.locator('#deed-modal')).toBeVisible();
   await expect(page.locator('#popup')).toBeHidden();
-  await page.locator('#dd-close').click();
+  await page.locator('#deed-detail-close').click();
 
   await page.evaluate(() => { window.__ownedDeedNavigation.state.mortgaged[12] = true; });
   await page.locator('#board-grid .tile[data-tile="12"]').click();
-  await expect(page.locator('#dd-mortgage')).toContainText('UNMORTGAGE');
-  await page.locator('#dd-mortgage').click();
+  await expect(page.locator('#deed-detail-mortgage')).toContainText('UNMORTGAGE');
+  await page.locator('#deed-detail-mortgage').click();
   expect(await page.evaluate(() => window.__deedRequests)).toEqual([
     { event: 'manage-property', payload: { tileIndex: 12, action: 'unmortgage' } },
   ]);
-  await page.locator('#dd-close').click();
+  await page.locator('#deed-detail-close').click();
   await page.locator('#board-grid .tile[data-tile="0"]').focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('#deed-modal')).toBeHidden();

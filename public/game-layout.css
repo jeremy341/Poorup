@@ -113,8 +113,8 @@
 /* ---- short landscape screens: slimmer top bar, more height for the board ---- */
 @media (min-width: 768px) and (max-height: 820px) {
   #view-game .topnav { min-height: 0; height: 52px; padding-block: 4px; }
-  #view-game .topnav .hdr-sub, #view-game .topnav .tn-lobby { display: none; }
-  #view-game .topnav .tn-word { font-size: 26px; }
+  #view-game .topnav .hdr-sub, #view-game .topnav .topnav-lobby { display: none; }
+  #view-game .topnav .topnav-wordmark { font-size: 26px; }
   #view-game .topnav .hdr-rules, #view-game .topnav .audio-toggle, #view-game .topnav .room-badge { min-height: 34px; height: 34px; }
   #view-game .topnav .audio-toggle { width: 34px; }
 }
@@ -125,7 +125,7 @@
 #view-game .hud-choice-btn { width: auto; min-width: 0; }
 
 /* ---- inactivity countdown on the player row (pixel chip, next to the status dot) ---- */
-.pr-timer {
+.player-row-timer {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 2px 6px 2px 5px; min-width: 44px; justify-content: center;
   background: var(--surface-panel-deep, #061416);
@@ -134,17 +134,17 @@
   color: var(--gold-300, #e5a52d);
   font: 700 10px/1 var(--font-numeric-display); font-variant-numeric: tabular-nums; letter-spacing: .04em;
 }
-.pr-timer::before { content: ""; width: 5px; height: 5px; background: currentColor; box-shadow: 0 0 4px currentColor; }
-.pr-timer[data-urgent="true"] { color: var(--red-bright, #ff6a55); border-color: var(--red-bright, #ff6a55); }
-.pr-timer[data-urgent="true"]::before { animation: pr-timer-blink 1s steps(2, end) infinite; }
-@keyframes pr-timer-blink { 50% { opacity: .15; } }
-@media (prefers-reduced-motion: reduce) { .pr-timer[data-urgent="true"]::before { animation: none; } }
-#view-game .pr-nameline .pr-timer { margin-left: auto; flex: 0 0 auto; }
+.player-row-timer::before { content: ""; width: 5px; height: 5px; background: currentColor; box-shadow: 0 0 4px currentColor; }
+.player-row-timer[data-urgent="true"] { color: var(--red-bright, #ff6a55); border-color: var(--red-bright, #ff6a55); }
+.player-row-timer[data-urgent="true"]::before { animation: player-row-timer-blink 1s steps(2, end) infinite; }
+@keyframes player-row-timer-blink { 50% { opacity: .15; } }
+@media (prefers-reduced-motion: reduce) { .player-row-timer[data-urgent="true"]::before { animation: none; } }
+#view-game .player-row-nameline .player-row-timer { margin-left: auto; flex: 0 0 auto; }
 
 /* ---- seat tags in the left rail (host / cpu) ---- */
-.pr-tag { padding: 1px 5px; color: var(--gold-300); border: 1px solid color-mix(in srgb, var(--gold-300) 50%, transparent); border-radius: 2px; letter-spacing: 0.14em; font-size: 11px; line-height: 1.4; }
-.pr-tag-host { color: var(--gold-050); background: color-mix(in srgb, var(--gold-300) 22%, transparent); }
-.pr-tag-computer { color: var(--gold-050); border-color: var(--gold-300); font-size: 12px; padding: 2px 7px; letter-spacing: 0.1em; }
+.player-row-tag { padding: 1px 5px; color: var(--gold-300); border: 1px solid color-mix(in srgb, var(--gold-300) 50%, transparent); border-radius: 2px; letter-spacing: 0.14em; font-size: 11px; line-height: 1.4; }
+.player-row-tag-host { color: var(--gold-050); background: color-mix(in srgb, var(--gold-300) 22%, transparent); }
+.player-row-tag-computer { color: var(--gold-050); border-color: var(--gold-300); font-size: 12px; padding: 2px 7px; letter-spacing: 0.1em; }
 .player-add-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; margin-top: 6px; padding: 6px 10px; background: transparent; border: 1px dashed var(--gold-300); color: var(--gold-100); text-align: left; cursor: pointer; }
 .player-add-row:hover, .player-add-row:focus-visible { background: var(--surface-hover); }
 
@@ -208,7 +208,7 @@
 .pop-manage { width: 100%; min-height: 44px; }
 
 /* ---- shared dialog entrance/exit: defined once in styles.css (parlor-modal-enter/-exit); only the scrim fade-in lives here ---- */
-.popup:not(.is-hidden) > .popup-scrim { animation: cr-scrim-in var(--modal-enter-duration, 200ms) var(--ease-out) both; }
+.popup:not(.is-hidden) > .popup-scrim { animation: card-reveal-scrim-in var(--modal-enter-duration, 200ms) var(--ease-out) both; }
 @media (prefers-reduced-motion: reduce) { .popup:not(.is-hidden) > .popup-scrim { animation: none; } }
 
 /* ---- toasts sit in the bottom-right corner, out of the way of the board and top bar ---- */
@@ -274,8 +274,8 @@
 }
 
 /* ---- crawlable home links and the no-JavaScript note ---- */
-.tk-link { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
-.tk-link:hover, .tk-link:focus-visible { color: var(--gold-300, #e5a52d); }
+.ticker-link { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.ticker-link:hover, .ticker-link:focus-visible { color: var(--gold-300, #e5a52d); }
 .noscript-note { padding: 24px; max-width: 640px; margin: 40px auto; color: var(--gold-100, #e8d3ab); font: 16px/1.6 var(--font-body); }
 .noscript-note h1 { color: var(--gold-300, #e5a52d); font-size: 24px; margin: 0 0 12px; }
 
@@ -301,18 +301,14 @@
 #view-home .chair-av-btn { width: 52px; min-height: 52px; padding: 0; cursor: pointer; background: var(--surface-inset); border: 1px solid var(--line-active); }
 #view-home .chair-av-btn:hover, #view-home .chair-av-btn:focus-visible { border-color: var(--gold-300, #e5a52d); }
 #view-home #home-alias { flex: 1; min-height: 52px; font-size: 18px; }
-#view-home .home-entry-desk .ts-actions { margin: 0; gap: 12px; }
-#view-home .home-entry-desk .ts-play { min-height: 84px; }
-#view-home .home-entry-desk .ts-play .cta-text { font-size: 20px; }
-#view-home .home-entry-desk .ts-secondary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-#view-home .home-entry-desk .ts-secondary .ts-quick { min-height: 48px; width: 100%; }
+#view-home .home-entry-desk .title-screen-actions { margin: 0; gap: 12px; }
+#view-home .home-entry-desk .title-screen-play { min-height: 84px; }
+#view-home .home-entry-desk .title-screen-play .cta-text { font-size: 20px; }
+#view-home .home-entry-desk .title-screen-secondary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 #view-home .chair-name[hidden] { display: none; }
 #view-home .home-alias-error:empty { display: none; }
-#view-home .ts-kicker { display: none; }
+#view-home .title-screen-kicker { display: none; }
 
-/* Create / Join keep the chunky red pixel look, one step below Play */
-#view-home .home-entry-desk .ts-secondary .ts-cta-sm { min-height: 60px; padding: 0 14px; width: 100%; gap: 10px; }
-#view-home .home-entry-desk .ts-secondary .ts-cta-sm .cta-text { font-size: 12px; }
 @media (max-width: 640px) {
   #view-rules .rules-intro { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; }
   #view-rules .rules-intro-copy { flex: 1 1 180px; min-width: 180px; }
@@ -367,7 +363,6 @@
 .slip-head h2 { margin: 4px 0 0; color: var(--gold-100); }
 .sponsorship-head .slip-head { flex: 1 1 auto; }
 .slip-icon { width: 64px; height: 64px; flex: 0 0 64px; display: flex; align-items: center; justify-content: center; background: var(--surface-panel-deep); border: 1px solid var(--line-default); }
-.slip-hero { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 16px; padding: 14px 16px 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-active); border-bottom: 0; }
 .slip-amount { font-family: var(--font-numeric-display); font-size: 44px; line-height: 1; letter-spacing: 0.02em; }
 
 /* dotted-leader rows: the same row shape on the loan slip and the financing preview */
@@ -431,8 +426,6 @@
 .financing-mode-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 /* WALLET: the bank account card and the upgrade row */
-.slip-meter { height: 16px; padding: 2px; background: var(--surface-panel-deep); border: 1px solid var(--line-default); }
-.slip-meter > span { display: block; width: var(--fill, 0%); height: 100%; background: repeating-linear-gradient(90deg, var(--gold-300) 0 10px, transparent 10px 12px); }
 .wallet-account-card { display: grid; gap: 10px; margin-top: 12px; padding: 14px; background: var(--surface-panel-deep); border: 1px solid var(--line-active); }
 .wallet-account-card.is-off { border-color: var(--line-subtle); }
 .wallet-account-card .slip-icon { width: 52px; height: 52px; flex-basis: 52px; }

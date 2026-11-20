@@ -97,15 +97,15 @@ async function openOwnedDeed(page,{houses,mortgaged,rent}) {
 
 async function expectSemanticDeedActions(page) {
   await openOwnedDeed(page,{houses:{1:5,3:5},mortgaged:{},rent:{houseCount:5,currentRent:1250}});
-  await expect(page.locator('#dd-sell')).toContainText('SELL HOTEL');
-  const colors=await page.evaluate(()=>['#dd-mortgage','#dd-sell'].map(q=>getComputedStyle(document.querySelector(q)).color));
+  await expect(page.locator('#deed-detail-sell')).toContainText('SELL HOTEL');
+  const colors=await page.evaluate(()=>['#deed-detail-mortgage','#deed-detail-sell'].map(q=>getComputedStyle(document.querySelector(q)).color));
   expect(colors[0]).not.toBe(colors[1]);
 }
 
 async function expectRentPausedDeed(page) {
   await openOwnedDeed(page,{houses:{},mortgaged:{1:true},rent:{houseCount:0,currentRent:0}});
   await expect(page.locator('#deed-card-detail')).toContainText('RENT PAUSED');
-  await expect(page.locator('#dd-mortgage')).toContainText('UNMORTGAGE');
+  await expect(page.locator('#deed-detail-mortgage')).toContainText('UNMORTGAGE');
 }
 
 async function expectAirportFares(page) {

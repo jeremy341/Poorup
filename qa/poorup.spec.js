@@ -40,10 +40,10 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await page.goto('/');
     await page.locator('#home-alias').fill('ALPHA');
     await page.locator('#open-create-btn').click();
-    await expect(page.locator('#rc-ruleset-preset')).toHaveCount(0);
-    await expect(page.locator('#rc-board-variant')).toHaveCount(0);
-    await page.locator('#rc-create-btn').click();
-    await page.locator('#su-start').click();
+    await expect(page.locator('#room-create-ruleset-preset')).toHaveCount(0);
+    await expect(page.locator('#room-create-board-variant')).toHaveCount(0);
+    await page.locator('#room-create-btn').click();
+    await page.locator('#setup-start-btn').click();
     const boardVariant = page.locator('#lobby-settings-body [data-setting="boardVariant"]');
     await expect(boardVariant).toHaveValue('standard-40');
     await boardVariant.selectOption('metro-52');
@@ -72,7 +72,7 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await page.locator('#view-social [data-home-tab="profile"]').click();
     await expect(page.locator('#view-profile')).toBeVisible();
     await expect(page.locator('#profile-panel-designs .profile-editor-actions')).toHaveCount(0);
-    await expect(page.locator('#profile-panel-designs #pl-save-btn')).toHaveCount(1);
+    await expect(page.locator('#profile-panel-designs #profile-library-save-btn')).toHaveCount(1);
     await expect(page.locator('#profile-panel-designs #profile-cancel-btn')).toBeVisible();
     await expect(page.locator('#profile-tab-collection, #profile-panel-collection')).toHaveCount(0);
     await page.locator('#profile-tab-designs').click();
@@ -175,11 +175,11 @@ test.describe('Poorup ruleset and social surfaces', () => {
 
     await page.locator('#view-social [data-home-tab="play"]').click();
     await page.locator('#open-create-btn').click();
-    await page.locator('#rc-create-btn').click();
-    await page.locator('#su-start').click();
+    await page.locator('#room-create-btn').click();
+    await page.locator('#setup-start-btn').click();
     await expect(page.locator('#lobby-settings-body .lobby-player-row')).toHaveCount(0);
     await expect(page.locator('#player-list .player-row')).toHaveCount(1);
-    await expect(page.locator('#player-list .pr-tag-host')).toHaveCount(1);
+    await expect(page.locator('#player-list .player-row-tag-host')).toHaveCount(1);
     await expect(page.locator('#lobby-settings-body [data-setting="boardVariant"]')).toHaveValue('standard-40');
     await expect(page.locator('#player-list .player-row')).not.toContainText('BOT');
     await expect(page.locator('#focus-btn')).toHaveCount(0);
@@ -210,10 +210,10 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await page.locator('#home-alias').fill('ALPHA');
     await page.locator('#open-create-btn').click();
-    await page.locator('#rc-vis-selector [data-vis="private"]').click();
-    await page.locator('#rc-room-code').fill(metroCode);
-    await page.locator('#rc-create-btn').click();
-    await page.locator('#su-start').click();
+    await page.locator('#room-create-visibility-selector [data-vis="private"]').click();
+    await page.locator('#room-create-code').fill(metroCode);
+    await page.locator('#room-create-btn').click();
+    await page.locator('#setup-start-btn').click();
     await page.locator('#lobby-settings-body [data-setting="boardVariant"]').selectOption('metro-52');
     await expect(page.locator('#lobby-settings-body')).toContainText('METRO · 52');
 
@@ -224,7 +224,7 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await guest.locator('#join-nickname').fill('BETA');
     await guest.locator('#join-room-submit').click();
     await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
-    if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
+    if (await guest.locator('#setup-start-btn').isVisible()) await guest.locator('#setup-start-btn').click();
     await expect(page.locator('#player-list')).toContainText('BETA');
     const marketToggle = page.locator('#lobby-settings-body [data-setting="market"]');
     if (!await marketToggle.evaluate((node) => node.classList.contains('is-on'))) await marketToggle.click();
@@ -245,9 +245,9 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await page.keyboard.press('Escape');
     await expect(page.locator('#log-drawer')).not.toHaveClass(/is-open/);
     await page.locator('#tab-activity').click();
-    await expect(page.locator('#rr-body')).toContainText('FICTIONAL EXCHANGE');
-    await expect(page.locator('#rr-body')).toContainText('DERIVATIVES');
-    await page.locator('#rr-body [data-market-desk]').click();
+    await expect(page.locator('#right-rail-body')).toContainText('FICTIONAL EXCHANGE');
+    await expect(page.locator('#right-rail-body')).toContainText('DERIVATIVES');
+    await page.locator('#right-rail-body [data-market-desk]').click();
     await expect(page.locator('#market-modal')).not.toHaveClass(/is-hidden/);
     await expect(page.locator('#market-card .market-derivatives-unavailable')).toHaveCount(1);
     await page.locator('#market-card .market-advanced-settings > summary').click();
@@ -255,8 +255,8 @@ test.describe('Poorup ruleset and social surfaces', () => {
     await expect(page.locator('#market-card .market-derivatives-unavailable')).toContainText("Options aren't available on this table yet.");
     await expect(page.locator('#market-card [data-market-advanced="open-option"]')).toHaveCount(0);
     await page.locator('#market-modal-close').click();
-    await page.locator('#rr-body #activity-mode-casino').click();
-    await page.locator('#rr-body [data-casino-desk]').click();
+    await page.locator('#right-rail-body #activity-mode-casino').click();
+    await page.locator('#right-rail-body [data-casino-desk]').click();
     await page.locator('#casino-card [name="casino-desk-stake"]').fill('1');
     await page.locator('#casino-card [data-casino-desk-form] button[type="submit"]').click();
     await expect(page.locator('#casino-card [data-casino-reel]')).toHaveCount(1);
@@ -450,10 +450,10 @@ test.describe('Landscape iPad desk contract', () => {
     await page.goto('/');
     await page.locator('#home-alias').fill('ALPHA');
     await page.locator('#open-create-btn').click();
-    await page.locator('#rc-vis-selector [data-vis="private"]').click();
-    await page.locator('#rc-room-code').fill(code);
-    await page.locator('#rc-create-btn').click();
-    await page.locator('#su-start').click();
+    await page.locator('#room-create-visibility-selector [data-vis="private"]').click();
+    await page.locator('#room-create-code').fill(code);
+    await page.locator('#room-create-btn').click();
+    await page.locator('#setup-start-btn').click();
 
     await guest.goto('/');
     await guest.locator('#home-alias').fill('BETA');
@@ -462,7 +462,7 @@ test.describe('Landscape iPad desk contract', () => {
     await guest.locator('#join-nickname').fill('BETA');
     await guest.locator('#join-room-submit').click();
     await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
-    if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
+    if (await guest.locator('#setup-start-btn').isVisible()) await guest.locator('#setup-start-btn').click();
     await page.locator('#lobby-start-btn').click();
     await expect(page.locator('#view-game')).toBeVisible();
 

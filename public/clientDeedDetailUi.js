@@ -29,8 +29,8 @@ function manageProperty(tileIndex, action) {
     host.renderAll();
     if (restoreFocus && state.deedDetail === tileIndex && !$("#deed-modal")?.classList.contains("is-hidden")) {
       const target = triggerId && document.getElementById(triggerId);
-      const nextSell = action === "sell-house" ? $("#dd-trade-deed") : null;
-      const focusTarget = target && !target.disabled ? target : nextSell && !nextSell.disabled ? nextSell : $("#dd-close");
+      const nextSell = action === "sell-house" ? $("#deed-detail-trade-deed") : null;
+      const focusTarget = target && !target.disabled ? target : nextSell && !nextSell.disabled ? nextSell : $("#deed-detail-close");
       focusTarget?.focus();
     }
   });
@@ -51,14 +51,14 @@ function sellHouse(tile) {
 export function tradeDeedActionHTML({ mine, action, label = "SELL DEED" }) {
   if (!mine) return "";
   const reason = action?.reason || "Property trade is unavailable right now.";
-  return `<button class="btn-dark dd-context-sell" id="dd-trade-deed" ${!action?.enabled ? "disabled" : ""} aria-describedby="dd-trade-deed-note">
+  return `<button class="btn-dark deed-detail-context-sell" id="deed-detail-trade-deed" ${!action?.enabled ? "disabled" : ""} aria-describedby="deed-detail-trade-deed-note">
       <span class="t-label">${label}</span>
     </button>
-    <p class="dd-context-note" id="dd-trade-deed-note">${action?.enabled ? "Offer this deed in a trade and agree on the price." : esc(reason)}</p>`;
+    <p class="deed-detail-context-note" id="deed-detail-trade-deed-note">${action?.enabled ? "Offer this deed in a trade and agree on the price." : esc(reason)}</p>`;
 }
 
 export function deedManagementActionsHTML(mortgageBtn, sellBtn) {
-  return `<div class="dd-deed-actions">${mortgageBtn}${sellBtn}</div>`;
+  return `<div class="deed-detail-actions">${mortgageBtn}${sellBtn}</div>`;
 }
 
 export function authoritativeBuildingLevel(serverTile, fallbackLevel = 0) {
@@ -93,7 +93,7 @@ function groupEvenOk(tile, targetLevel, selling) {
 function openDeedDetail(tileIdx, trigger = null) {
   state.deedDetail = tileIdx;
   renderDeedDetail();
-  openSurface("#deed-modal", "#dd-close", { trigger });
+  openSurface("#deed-modal", "#deed-detail-close", { trigger });
 }
 
 function closeDeedDetail() {
@@ -151,9 +151,9 @@ function renderDeedDetail() {
     const sellLabel = sellMode === "sell-house" ? (level === HOTEL_LEVEL ? "SELL HOTEL" : "SELL HOUSE") : "SELL DEED";
     sellControlHTML = sellMode === "sell-deed"
       ? tradeDeedActionHTML({ mine, action: tradeDeedAction, label: "SELL DEED" })
-      : `<button class="btn-dark dd-context-sell" id="dd-sell" ${canSell ? "" : "disabled"} ${sellReason ? 'aria-describedby="dd-sell-note"' : ''}>
+      : `<button class="btn-dark deed-detail-context-sell" id="deed-detail-sell" ${canSell ? "" : "disabled"} ${sellReason ? 'aria-describedby="deed-detail-sell-note"' : ''}>
           <span class="t-label">${sellLabel}</span><span class="t-micro">+$${projectedActions?.sellHouse?.cost ?? Math.floor(houseCost / 2)}</span>
-        </button>${sellReason ? `<span class="dd-context-note" id="dd-sell-note">${esc(sellReason)}</span>` : ''}`;
+        </button>${sellReason ? `<span class="deed-detail-context-note" id="deed-detail-sell-note">${esc(sellReason)}</span>` : ''}`;
   }
 
   const mortgageAction = isMortgaged ? projectedActions?.unmortgage : projectedActions?.mortgage;
@@ -167,56 +167,56 @@ function renderDeedDetail() {
     : "";
   const mortgageDisabled = mortgageAction ? !mortgageAction.enabled : (!isMortgaged && colorSetHasBuildings);
   const mortgageBtn = mine
-    ? `<button class="btn-dark dd-close${isMortgaged ? " dd-redeem" : ""}" id="dd-mortgage" ${mortgageDisabled ? "disabled" : ""} ${mortgageReason ? 'aria-describedby="dd-mortgage-reason"' : ""}>
+    ? `<button class="btn-dark deed-detail-close${isMortgaged ? " deed-detail-redeem" : ""}" id="deed-detail-mortgage" ${mortgageDisabled ? "disabled" : ""} ${mortgageReason ? 'aria-describedby="deed-detail-mortgage-reason"' : ""}>
         <span class="t-label f11">${isMortgaged ? `UNMORTGAGE $${mortgageAction?.cost ?? unmortgageCost(tile)}` : `MORTGAGE +$${mortgageAction?.cost ?? mortgageValue(tile)}`}</span>
       </button>`
     : "";
   const sellButton = isProperty && mine ? "" : tradeDeedActionHTML({ mine, action: tradeDeedAction });
 
   $("#deed-card-detail").innerHTML = `
-    <div class="dd-rail" style="background:${accentOf(tile)}"></div>
-    <div class="dd-body${isMortgaged ? " dd-is-mortgaged" : ""}">
-      <div class="dd-head">
-        <div class="dd-icon">${popIconHTML(tile)}</div>
+    <div class="deed-detail-rail" style="background:${accentOf(tile)}"></div>
+    <div class="deed-detail-body${isMortgaged ? " deed-detail-is-mortgaged" : ""}">
+      <div class="deed-detail-head">
+        <div class="deed-detail-icon">${popIconHTML(tile)}</div>
         <div class="pop-headtext">
           <div class="t-micro g400">${isProperty ? `${tile.group.toUpperCase()} SET` : tile.kind === 'utility' ? 'UTILITY DEED' : kindLabel(tile)} · $${Number(tile.price).toLocaleString()}${isMortgaged ? " · MORTGAGED" : ""}</div>
-          <h3 class="t-section dd-title" id="deed-card-title">${tile.name}</h3>
+          <h3 class="t-section deed-detail-title" id="deed-card-title">${tile.name}</h3>
         </div>
-        ${closeButtonHTML({ id: "dd-close", label: "Close deed details", className: "dd-close" })}
+        ${closeButtonHTML({ id: "deed-detail-close", label: "Close deed details", className: "deed-detail-close" })}
       </div>
 
-      ${isMortgaged ? `<div class="dd-mortgage-status"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 8V5a4 4 0 0 1 8 0v3M3 8h12v9H3z"/><path d="M9 11v3"/></svg><span class="t-label f11">MORTGAGED · RENT PAUSED</span></div>` : ""}
-      <div class="dd-stats">
+      ${isMortgaged ? `<div class="deed-detail-mortgage-status"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 8V5a4 4 0 0 1 8 0v3M3 8h12v9H3z"/><path d="M9 11v3"/></svg><span class="t-label f11">MORTGAGED · RENT PAUSED</span></div>` : ""}
+      <div class="deed-detail-stats">
         ${popRow(isProperty ? "CURRENT RENT" : (tile.kind === "utility" ? "RENT MULTIPLIER" : "CURRENT RENT"), deedCurrentRentLabel(tile, level), "green")}
       </div>
 
-      <div class="dd-ladder" role="group" aria-label="Rent schedule">${deedLadderHTML(tile, level)}</div>
+      <div class="deed-detail-ladder" role="group" aria-label="Rent schedule">${deedLadderHTML(tile, level)}</div>
 
-      <div class="dd-primary-build">${isProperty && mine ? `<button class="${canBuildPrimary ? "cta-red" : "btn-dark dd-buy-blocked"} dd-build-btn" id="dd-buy" ${canBuildPrimary ? "" : "disabled"}>
+      <div class="deed-detail-primary-build">${isProperty && mine ? `<button class="${canBuildPrimary ? "cta-red" : "btn-dark deed-detail-buy-blocked"} deed-detail-build-btn" id="deed-detail-buy" ${canBuildPrimary ? "" : "disabled"}>
         <span class="t-label">${primaryBuyLabel}</span><span class="t-micro">$${houseCost}</span>
-      </button>${!canBuildPrimary && buildReason ? `<p class="dd-build-msg">${esc(buildReason)}</p>` : ""}` : ""}</div>
+      </button>${!canBuildPrimary && buildReason ? `<p class="deed-detail-build-msg">${esc(buildReason)}</p>` : ""}` : ""}</div>
 
-      ${tile.kind === "railroad" && /AIRPORT/i.test(tile.name) ? `<details class="dd-airport-details"><summary>Airport fees</summary>${airportFeesHTML(tile, mine)}</details>` : airportFeesHTML(tile, mine)}
+      ${tile.kind === "railroad" && /AIRPORT/i.test(tile.name) ? `<details class="deed-detail-airport-details"><summary>Airport fees</summary>${airportFeesHTML(tile, mine)}</details>` : airportFeesHTML(tile, mine)}
 
       ${deedManagementActionsHTML(mortgageBtn, isProperty && mine ? sellControlHTML : sellButton)}
-      ${mortgageReason ? `<p class="t-body ink-2" id="dd-mortgage-reason">${esc(mortgageReason)}</p>` : ""}
+      ${mortgageReason ? `<p class="t-body ink-2" id="deed-detail-mortgage-reason">${esc(mortgageReason)}</p>` : ""}
     </div>`;
 
   // these all funnel through renderAll(), which re-renders this modal in place
-  $("#dd-close").addEventListener("click", closeDeedDetail);
+  $("#deed-detail-close").addEventListener("click", closeDeedDetail);
   if (mine) bindAirportFees($("#deed-card-detail"), tile);
-  $("#dd-buy")?.addEventListener("click", event => { host.captureActionStatusNode(event.currentTarget); buildNextHouse(tile); });
-  $("#dd-sell")?.addEventListener("click", event => {
+  $("#deed-detail-buy")?.addEventListener("click", event => { host.captureActionStatusNode(event.currentTarget); buildNextHouse(tile); });
+  $("#deed-detail-sell")?.addEventListener("click", event => {
     host.captureActionStatusNode(event.currentTarget);
     sellHouse(tile);
   });
-  $("#dd-trade-deed")?.addEventListener("click", event => {
+  $("#deed-detail-trade-deed")?.addEventListener("click", event => {
     host.captureActionStatusNode(event.currentTarget);
     closeDeedDetail();
     const returnTrigger = document.activeElement === document.body ? null : document.activeElement;
     openTradeModalForDeed(tile.i, returnTrigger);
   });
-  $("#dd-mortgage")?.addEventListener("click", event => {
+  $("#deed-detail-mortgage")?.addEventListener("click", event => {
     host.captureActionStatusNode(event.currentTarget);
     if (state.mortgaged[tile.i]) unmortgageTile(tile.i);
     else mortgageTile(tile.i);
@@ -246,7 +246,7 @@ function onRailDeedClick(e) {
 
 export function bindDeedDetail() {
   // open the deed / house manager from a MY DEEDS card
-  $("#rr-body")?.addEventListener("click", onRailDeedClick);
+  $("#right-rail-body")?.addEventListener("click", onRailDeedClick);
   $("#deed-scrim")?.addEventListener("click", closeDeedDetail);
 }
 

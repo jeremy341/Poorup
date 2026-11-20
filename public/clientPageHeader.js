@@ -1,5 +1,5 @@
 // Shared, static page chrome. The existing controllers own navigation and state.
-export const PAGE_HEADER_VIEWS = Object.freeze(['home', 'profile', 'rankings', 'social', 'rules', 'about']);
+const PAGE_HEADER_VIEWS = Object.freeze(['home', 'profile', 'rankings', 'social', 'rules', 'about']);
 
 const DESTINATIONS = Object.freeze([
   ['play', 'PLAY', 'home-tab'], ['rooms', 'ROOMS', 'home-tab'], ['profile', 'PROFILE', 'home-tab'],
@@ -20,7 +20,7 @@ function audioButton(view, kind, label) {
   return `<button class="btn-dark audio-toggle" type="button" id="${id}" title="${label}" aria-label="${label}" aria-pressed="false"><img${iconId} src="/assets/${kind}-off.svg" alt="" width="24" height="24"></button>`;
 }
 
-export function renderPageHeader(view) {
+function renderPageHeader(view) {
   if (!PAGE_HEADER_VIEWS.includes(view)) throw new RangeError('Unknown page header');
   const home = view === 'home';
   const active = home ? 'play' : view;

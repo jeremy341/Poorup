@@ -173,7 +173,7 @@ check("inGameRankingsAndSocialShareThePageContentAndReturnToTheTable", () => {
 });
 
 check("inGameReturnBarIsPinnedInsideAFixedCardWithInternalScroll", () => {
-  const ux = readFileSync(new URL("./ux-surfaces.css", import.meta.url), "utf8");
+  const ux = readFileSync(new URL("./dialogs-and-economy.css", import.meta.url), "utf8");
   assert.match(ux, /#rankings-modal \.social-surface-card,\s*#social-modal \.social-surface-card\s*\{[^}]*height:\s*min\(860px/);
   assert.match(ux, /\.table-return-bar\s*\{[^}]*flex-shrink:\s*0/);
   assert.match(ux, /\.table-return-btn\s*\{[^}]*min-height:\s*44px/);

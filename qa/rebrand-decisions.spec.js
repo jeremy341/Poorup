@@ -33,9 +33,9 @@ test('rankings page uses ten readable rows and rules and settings omit removed c
   await expect(page.locator('#rules-book-page-scroll')).toBeVisible();
 });
 
-// The bank deed buyback (the #dd-bank-sale control and the server `sell-deed` payout) is
+// The bank deed buyback (the #deed-detail-bank-sale control and the server `sell-deed` payout) is
 // removed: the server rejects it with BANK_DEED_BUYBACK_UNAVAILABLE. A cleared
-// deed leaves through a negotiated player trade (#dd-trade-deed, labelled SELL DEED). This
+// deed leaves through a negotiated player trade (#deed-detail-trade-deed, labelled SELL DEED). This
 // spec pins that contract.
 // Runs in the page: opens the owned deed with a deed-detail harness that forwards sales to the server.
 async function openSaleDeed(summary) {
@@ -89,12 +89,12 @@ test('owned deed offers a player trade, not a bank sale, and the server refuses 
   await page.addScriptTag({ url: new URL('/qa/sale-fixture.js', page.url()).href, type: 'module' });
   await page.evaluate(openSaleDeed, game.getGameSummary(owner.id));
   await expect(page.locator('#deed-card-detail').getByText('YOUR CASH', { exact: true })).toHaveCount(0);
-  await expect(page.locator('#dd-bank-sale')).toHaveCount(0);
-  await expect(page.locator('#dd-trade-deed')).toBeEnabled();
-  await expect(page.locator('#dd-trade-deed')).toContainText('SELL DEED');
+  await expect(page.locator('#deed-detail-bank-sale')).toHaveCount(0);
+  await expect(page.locator('#deed-detail-trade-deed')).toBeEnabled();
+  await expect(page.locator('#deed-detail-trade-deed')).toContainText('SELL DEED');
   await expect(page.locator('#deed-card-detail')).toContainText(/agree on the price/i);
   await expect(page.locator('#deed-card-detail')).not.toContainText(/50%|CONFIRM BANK SALE/);
-  await expect(page.locator('#dd-trade-deed')).not.toContainText(/\+\$/);
+  await expect(page.locator('#deed-detail-trade-deed')).not.toContainText(/\+\$/);
   const refused = game.manageProperty('sale-host', { tileIndex: 5, action: 'sell-deed', requestId: 'bank-buyback-refused' });
   expect(refused).toMatchObject({ success: false, error: expect.stringMatching(/Bank deed buyback is unavailable/) });
   expect(owner.cash).toBe(startingCash);

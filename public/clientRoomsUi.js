@@ -141,22 +141,22 @@ function syncRoomsFilterButtons() {
 function updateCreateRoomUI() {
   const settings = lobbyState.createRoomSettings;
   const isPrivate = settings.visibility === "private";
-  const codeField = $("#rc-private-code-field");
+  const codeField = $("#room-create-private-code-field");
   if (codeField) codeField.classList.toggle("is-hidden", !isPrivate);
-  const codeInput = $("#rc-room-code");
+  const codeInput = $("#room-create-code");
   syncCreateRoomCode(codeInput, settings);
   const codeValid = /^[A-Z0-9]{6}$/.test(settings.code);
-  paintCreateCodeStatus(isPrivate, codeValid, settings);
+  paintCreateCodeStatus(isPrivate, codeValid);
   // The field is only flagged after the player has tried to leave it or submit with a bad code,
   // never the moment it appears empty.
   if (codeInput) codeInput.setAttribute("aria-invalid", String(isPrivate && !codeValid && createCodeAttempted));
-  const createButton = $("#rc-create-btn");
+  const createButton = $("#room-create-btn");
   if (createButton) {
     createButton.disabled = isPrivate && !codeValid;
-    if (createButton.disabled) createButton.setAttribute("aria-describedby", "rc-code-status");
+    if (createButton.disabled) createButton.setAttribute("aria-describedby", "room-create-code-status");
     else createButton.removeAttribute("aria-describedby");
   }
-  document.querySelectorAll("#rc-vis-selector .rc-vis-opt").forEach((btn) => {
+  document.querySelectorAll("#room-create-visibility-selector .room-create-visibility-option").forEach((btn) => {
     const active = btn.dataset.vis === lobbyState.createRoomSettings.visibility;
     btn.classList.toggle("is-active", active);
     btn.setAttribute("aria-pressed", String(active));
@@ -178,8 +178,8 @@ function syncCreateRoomCode(codeInput, settings) {
   codeInput.value = settings.code;
 }
 
-function paintCreateCodeStatus(isPrivate, codeValid, settings) {
-  const codeStatus = $("#rc-code-status");
+function paintCreateCodeStatus(isPrivate, codeValid) {
+  const codeStatus = $("#room-create-code-status");
   if (!codeStatus) return;
   codeStatus.textContent = !isPrivate ? "NOT NEEDED FOR PUBLIC TABLES" : codeValid ? "READY" : `${lobbyState.createRoomSettings.code.length}/6 CHARACTERS`;
   codeStatus.classList.toggle("is-valid", isPrivate && codeValid);
@@ -191,12 +191,12 @@ function switchRoomModalTab(tab) {
   const isBrowse = tab === "browse";
   const isCreate = tab === "create";
   const isJoin = tab === "join";
-  paintRoomTabButton("#rm-tab-browse", isBrowse);
-  paintRoomTabButton("#rm-tab-create", isCreate);
-  paintRoomTabButton("#rm-tab-join", isJoin);
-  setRoomPanel("#rm-panel-browse", !isBrowse);
-  setRoomPanel("#rm-panel-create", !isCreate);
-  setRoomPanel("#rm-panel-join", !isJoin);
+  paintRoomTabButton("#rooms-tab-browse", isBrowse);
+  paintRoomTabButton("#rooms-tab-create", isCreate);
+  paintRoomTabButton("#rooms-tab-join", isJoin);
+  setRoomPanel("#rooms-panel-browse", !isBrowse);
+  setRoomPanel("#rooms-panel-create", !isCreate);
+  setRoomPanel("#rooms-panel-join", !isJoin);
   paintRoomModalTitle(isBrowse, isJoin);
   selectRoomModalPanel(isBrowse, isCreate, isJoin);
 }
@@ -511,7 +511,7 @@ function onCreateRoomClick() {
   if (invalidPrivateCode()) {
     createCodeAttempted = true;
     updateCreateRoomUI();
-    $("#rc-room-code")?.focus();
+    $("#room-create-code")?.focus();
     return;
   }
   state.alias = createRoomAlias();
@@ -523,7 +523,7 @@ function onCreateRoomClick() {
 }
 
 function createRoomName() {
-  const nameInput = $("#rc-name");
+  const nameInput = $("#room-create-name");
   return (nameInput?.value || "").trim().toUpperCase().slice(0, 18) || `AFTER HOURS #${10 + Math.floor(Math.random() * 90)}`;
 }
 
@@ -641,7 +641,7 @@ function bindRoomsOpeners() {
 
 function bindRoomsModal() {
   // modal tab switching
-  $("#rm-tabs")?.addEventListener("click", onRoomTabsClick);
+  $("#rooms-tabs")?.addEventListener("click", onRoomTabsClick);
 
   // rooms directory list interactions
   $("#rooms-list")?.addEventListener("click", onRoomsListClick);
@@ -656,13 +656,13 @@ function bindRoomsModal() {
   });
 
   // room creation form interactions
-  $("#rc-vis-selector")?.addEventListener("click", onVisibilityPick);
-  $("#rc-room-code")?.addEventListener("input", onRoomCodeInput);
-  $("#rc-room-code")?.addEventListener("blur", markCreateCodeAttempted);
-  $("#rc-room-code")?.addEventListener("keydown", (event) => {
+  $("#room-create-visibility-selector")?.addEventListener("click", onVisibilityPick);
+  $("#room-create-code")?.addEventListener("input", onRoomCodeInput);
+  $("#room-create-code")?.addEventListener("blur", markCreateCodeAttempted);
+  $("#room-create-code")?.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && invalidPrivateCode()) markCreateCodeAttempted();
   });
-  $("#rc-create-btn")?.addEventListener("click", onCreateRoomClick);
+  $("#room-create-btn")?.addEventListener("click", onCreateRoomClick);
 }
 
 export function bindRoomsUi() {

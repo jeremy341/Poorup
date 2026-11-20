@@ -45,7 +45,7 @@ assert.equal(timeoutMs, 900, "the announcement holds for the 900ms review window
 timeoutCallback();
 assert.equal(classes.has("is-visible"), false, "the announcement clears at the end of its lifetime");
 
-const presentationStyles = readFileSync(new URL("./ux-surfaces.css", import.meta.url), "utf8");
+const presentationStyles = readFileSync(new URL("./dialogs-and-economy.css", import.meta.url), "utf8");
 assert.match(presentationStyles, /dice-roll-total\.is-visible\s*\{\s*animation:\s*dice-total-review 900ms/);
 assert.match(presentationStyles, /prefers-reduced-motion:\s*reduce[\s\S]*?dice-roll-total\.is-visible\s*\{[^}]*animation:\s*none/);
 

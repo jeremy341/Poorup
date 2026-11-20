@@ -145,4 +145,4 @@ export function setDocumentMeta({ view = "home", status = "", roomCode = "" } = 
   return { title, announcement };
 }
 
-export { PREVIEW_PATH, PREVIEW_WIDTH, PREVIEW_HEIGHT, PREVIEW_TYPE, VIEW_TITLES };
+export { PREVIEW_PATH, PREVIEW_WIDTH, PREVIEW_HEIGHT, PREVIEW_TYPE };

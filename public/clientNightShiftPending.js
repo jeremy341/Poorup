@@ -2,7 +2,7 @@
 // is written to sessionStorage (localStorage as the durable fallback) under a
 // per-account, per-run key until the server acknowledges it or it expires.
 // Nothing here touches the live run state; clientNightShift.js owns that.
-export const NIGHT_SHIFT_PENDING_TTL_MS = 6 * 60_000;
+const NIGHT_SHIFT_PENDING_TTL_MS = 6 * 60_000;
 const NIGHT_SHIFT_PENDING_KEY_PREFIX = "poorup.night-shift.pending.v1.";
 
 function pendingSettlementAccountKey(accountId) {

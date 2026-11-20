@@ -3,7 +3,6 @@
 import { DEFAULT_THEME_ID, getTheme, MUSIC_TOKEN_SETS } from "./clientThemeData.js";
 
 const VIEW_SELECTORS = ["#view-home", "#view-game", "#view-profile", "#view-rankings", "#view-social", "#view-rules", "#view-about"];
-const DEFAULT_SKYLINE = { far: "#123634", near: "#0d2725", light: "#78894f" };
 let transitionTimer = null;
 let motionQuery = null;
 
@@ -79,27 +78,6 @@ export function themeSceneMarkup(themeOrId, surface = "page") {
   return `<img class="theme-scene" src="${escAttr(scene)}" alt="" aria-hidden="true" width="640" height="360">${propMarkupHTML}`;
 }
 
-function skylineMarkup(data, palette = DEFAULT_SKYLINE) {
-  if (!Array.isArray(data)) return "";
-  const far = palette.far || DEFAULT_SKYLINE.far;
-  const near = palette.near || DEFAULT_SKYLINE.near;
-  const light = palette.light || DEFAULT_SKYLINE.light;
-  return data.map(([x, y, width, height], index) => {
-    let output = `<rect x="${x}" y="${y}" width="${width}" height="${height}" fill="${far}"/>`;
-    for (let row = 0; row < Math.floor((height - 2) / 3); row += 1) {
-      for (let column = 0; column < Math.floor((width - 1) / 2); column += 1) {
-        const lit = (row + column + index) % 3 === 0;
-        output += `<rect x="${x + 1 + column * 2}" y="${y + 2 + row * 3}" width="1" height="1" fill="${lit ? light : near}"/>`;
-      }
-    }
-    return output;
-  }).join("");
-}
-
-export function paintThemeSkyline(element, data, palette) {
-  if (element) element.innerHTML = skylineMarkup(data, palette);
-}
-
 function clearThemeVariables() {
   const body = document.body;
   const known = new Set([
@@ -156,19 +134,12 @@ function transitionAllowed(animate) {
   return Boolean(document.body);
 }
 
-export function renderThemeScene(themeId, surface = "page", options = {}) {
+function renderThemeScene(themeId, surface = "page", options = {}) {
   const theme = getTheme(themeId);
   const animate = options.animate !== false;
   if (surface === "home") renderLayer("#theme-home-world", theme, "home", animate);
   else if (surface === "board") renderLayer("#theme-board-world", theme, "board", animate);
   else renderLayer("#theme-page-world", theme, "page", animate);
-}
-
-export function clearThemeTransition() {
-  if (typeof document === "undefined") return;
-  delete document.body?.dataset.themeTransition;
-  if (transitionTimer) clearTimeout(transitionTimer);
-  transitionTimer = null;
 }
 
 export function renderTheme(themeId, { animate = true } = {}) {

@@ -95,7 +95,7 @@ export async function installClient(page, snapshot, propertyBridge = null) {
     const renderAll = () => {
       board.renderBoardState(); hud.renderHud(); rail.renderRightRail(); topNav.renderTopNav();
       document.querySelector('#player-list').innerHTML = state.players.map((player, index) =>
-        `<button class="player-row player-row-action" type="button" data-player-id="${dom.esc(player.serverId || player.id)}"><div class="pr-av">${sprites.avatarHTML(player, 4, index)}</div><div class="pr-mid"><div class="pr-nameline"><span class="pr-name">${dom.esc(player.name)}</span></div><div class="pr-cash">$${Number(player.cash).toLocaleString()}</div></div></button>`,
+        `<button class="player-row player-row-action" type="button" data-player-id="${dom.esc(player.serverId || player.id)}"><div class="player-row-avatar">${sprites.avatarHTML(player, 4, index)}</div><div class="player-row-main"><div class="player-row-nameline"><span class="player-row-name">${dom.esc(player.name)}</span></div><div class="player-row-cash">$${Number(player.cash).toLocaleString()}</div></div></button>`,
       ).join('');
       deeds.renderDeedDetail();
     };

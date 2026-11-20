@@ -203,7 +203,7 @@ function onPreferenceChange(event) {
   if (track) applyTrackPreference(track.dataset.themeTrackId);
 }
 
-export function bindThemePopover() {
+function bindThemePopover() {
   const host = preferences();
   if (host && !preferencesBound) {
     preferencesBound = true;

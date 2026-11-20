@@ -5,7 +5,7 @@ export function formatInactiveTime(milliseconds) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-export function inactivePlayerId(player) {
+function inactivePlayerId(player) {
   return String(player?.serverId || player?.id || player?.name || "player");
 }
 
@@ -17,7 +17,7 @@ export function inactiveBadgeHTML(player, serverNow) {
   const remaining = Math.max(0, Number(player.presence.inactiveUntil) - Number(serverNow));
   const urgent = remaining <= URGENT_MS ? "true" : "false";
   const time = formatInactiveTime(remaining);
-  return `<span class="pr-timer" data-timer-player="${escapeText(inactivePlayerId(player))}" data-urgent="${urgent}" role="timer" title="${escapeText(player.name)} is inactive and will be removed when this reaches 0:00" aria-label="${escapeText(player.name)} inactive, ${time} left">${time}</span>`;
+  return `<span class="player-row-timer" data-timer-player="${escapeText(inactivePlayerId(player))}" data-urgent="${urgent}" role="timer" title="${escapeText(player.name)} is inactive and will be removed when this reaches 0:00" aria-label="${escapeText(player.name)} inactive, ${time} left">${time}</span>`;
 }
 
 function escapeText(value) {

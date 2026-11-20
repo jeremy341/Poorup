@@ -51,7 +51,7 @@ check("lobby player preview does not manufacture bot rows", () => {
   assert.match(lobby, /state\.players\s*=\s*buildPlayers\(activeAppearance\(\), state\.alias\)\.slice\(0, 1\)/);
   assert.match(stateSync, /isHost:\s*Boolean\(player\.isHost\)/);
   assert.equal(lobby.includes("Players At Table"), false, "the settings rail no longer lists players");
-  assert.match(main, /pr-tag-host/);
+  assert.match(main, /player-row-tag-host/);
 });
 
 check("guest social gate gives a clear account message and inert content contract", () => {
@@ -67,9 +67,9 @@ check("social search control aligns to the input row", () => {
 });
 
 check("board variant is selected only after entering the lobby", () => {
-  assert.equal(index.includes('id="rc-board-variant"'), false);
-  assert.equal(roomsUi.includes('id === "rc-board-variant"'), false);
-  assert.equal(roomsUi.includes("#rc-board-variant"), false);
+  assert.equal(index.includes('id="room-create-board-variant"'), false);
+  assert.equal(roomsUi.includes('id === "room-create-board-variant"'), false);
+  assert.equal(roomsUi.includes("#room-create-board-variant"), false);
   assert.match(lobby, /settingRow\("Board Variant"/);
   assert.match(lobby, /Standard: 40 spaces/);
   assert.match(lobby, /\[\["standard-40", "STANDARD · 40"\], \["metro-52", "METRO · 52 \/ 6 SEATS"\]\]/);

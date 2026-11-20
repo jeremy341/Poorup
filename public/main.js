@@ -714,7 +714,7 @@ function lobbyAddSeatAvailable(seatedCount) {
 
 function lobbyAddSeatHTML() {
   return `<button class="player-add-row" type="button" data-add-computer>
-    <span class="pr-av" aria-hidden="true">+</span>
+    <span class="player-row-avatar" aria-hidden="true">+</span>
     <span class="t-label">Add computer player</span>
   </button>`;
 }
@@ -726,19 +726,19 @@ function playerRowHTML(p, i, serverNow = currentServerTime()) {
   const playerId = p.serverId || p.id;
   const status = spectating ? "SPECTATING" : playerStatusLabel(p);
   return `<button class="player-row player-row-action${active ? " is-active" : ""}${spectating ? " is-spectating" : ""}${eliminated ? " is-eliminated" : ""}" type="button" data-player-id="${esc(playerId)}" aria-label="Open player card for ${esc(p.name)}${spectating ? ", spectating" : eliminated ? ", bankrupt" : ""}">
-        ${active ? `<span class="pr-arrow">${spriteHTML("arrow", 3)}</span>` : ""}
-        <div class="pr-av${spectating ? " pr-av-spectating" : ""}">${avatarHTML(p, 4, i)}</div>
-        <div class="pr-mid">
-          <div class="pr-nameline">
+        ${active ? `<span class="player-row-arrow">${spriteHTML("arrow", 3)}</span>` : ""}
+        <div class="player-row-avatar${spectating ? " player-row-avatar-spectating" : ""}">${avatarHTML(p, 4, i)}</div>
+        <div class="player-row-main">
+          <div class="player-row-nameline">
             ${active ? spriteHTML("crown", 2) : ""}
-            <span class="t-label pr-name" style="color:${p.textColor}">${esc(p.name)}</span>
+            <span class="t-label player-row-name" style="color:${p.textColor}">${esc(p.name)}</span>
             ${lobbyTagHTML(p)}
             ${state.phase === "playing" ? inactiveBadgeHTML(p, serverNow) : ""}
           </div>
-          ${spectating ? `<span class="t-micro pr-spectating-label">SPECTATING</span>` : ""}
-          <div class="t-label pr-cash numeric">$${Number(p.visualCash ?? p.cash ?? 0).toLocaleString()}</div>
+          ${spectating ? `<span class="t-micro player-row-spectating-label">SPECTATING</span>` : ""}
+          <div class="t-label player-row-cash numeric">$${Number(p.visualCash ?? p.cash ?? 0).toLocaleString()}</div>
         </div>
-        <div class="pr-right">
+        <div class="player-row-right">
           ${playerDotHTML(p)}
           <span class="t-micro ink-3">${status}</span>
         </div>
@@ -750,17 +750,17 @@ function playerRowHTML(p, i, serverNow = currentServerTime()) {
 function lobbyTagHTML(p) {
   if (state.phase === "playing") return "";
   const isHost = Boolean(p.isHost) || Boolean(p.serverId && p.serverId === state.hostId);
-  if (isHost) return `<span class="pr-tag pr-tag-host t-micro">HOST</span>`;
-  if (p.bot) return `<span class="pr-tag pr-tag-computer t-micro">COMPUTER</span>`;
+  if (isHost) return `<span class="player-row-tag player-row-tag-host t-micro">HOST</span>`;
+  if (p.bot) return `<span class="player-row-tag player-row-tag-computer t-micro">COMPUTER</span>`;
   return "";
 }
 
 function playerDotHTML(p) {
-  if (p.bankrupt) return `<span class="pr-dot pr-dot-spectating"></span>`;
+  if (p.bankrupt) return `<span class="player-row-dot player-row-dot-spectating"></span>`;
   const on = Boolean(p.online);
   const background = on ? "#35a653" : "#3a382a";
   const boxShadow = on ? "0 0 5px rgb(53 166 83 / 60%)" : "none";
-  return `<span class="pr-dot" style="background:${background};box-shadow:${boxShadow}"></span>`;
+  return `<span class="player-row-dot" style="background:${background};box-shadow:${boxShadow}"></span>`;
 }
 
 function isSpectatingPlayer(p) {
@@ -1319,7 +1319,7 @@ function onGlobalEventVoteClick(event) {
 function bindGameActions() {
   // game to home
   $("#brand-home").addEventListener("click", leaveRoomForHome);
-  $("#tn-room-copy").addEventListener("click", copyRoomCode);
+  $("#topnav-room-copy").addEventListener("click", copyRoomCode);
   $("#hud-cash-action")?.addEventListener("click", (event) => {
     if (event.currentTarget.disabled) return;
     openWalletModal("account", event.currentTarget);
@@ -1424,10 +1424,10 @@ function bindRail() {
   $("#tabs").addEventListener("keydown", onRailTabKeyDown);
 
   // Holdings, Deals, and Activity actions are delegated from the rail body.
-  $("#rr-body").addEventListener("click", onRailClick);
-  $("#rr-body").addEventListener("keydown", onRailTabKeyDown);
-  $("#rr-body").addEventListener("submit", onRailSubmit);
-  $("#rr-body").addEventListener("toggle", (event) => {
+  $("#right-rail-body").addEventListener("click", onRailClick);
+  $("#right-rail-body").addEventListener("keydown", onRailTabKeyDown);
+  $("#right-rail-body").addEventListener("submit", onRailSubmit);
+  $("#right-rail-body").addEventListener("toggle", (event) => {
     if (event.target.matches("details.finance-bank")) state.financeBankOpen = event.target.open;
   }, true);
 

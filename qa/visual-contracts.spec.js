@@ -33,8 +33,8 @@ async function hostLobby(page, bots = 3) {
   await page.fill("#home-alias", "Cora");
   await page.locator("#home-alias-form").evaluate((form) => form.requestSubmit());
   await page.click("#open-create-btn");
-  await page.fill("#rc-name", "U2 contracts");
-  await page.click("#rc-create-btn");
+  await page.fill("#room-create-name", "U2 contracts");
+  await page.click("#room-create-btn");
   await page.waitForSelector("#lobby-start-btn", { state: "visible" });
   for (const [key, value] of [["bots", bots], ["botBrain", "no-ai"]]) {
     await page.evaluate(([k, v]) => new Promise((resolve) => window.__sock.emit("set-setting", { key: k, value: v }, resolve)), [key, value]);

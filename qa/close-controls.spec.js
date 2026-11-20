@@ -10,7 +10,7 @@ const cases = [
   ['trade-builder', '#trade-close', '#trade-modal', '#trade-card', 'openTradeBuilder', [], 'closeTradeBuilder'],
   ['financing', '#financing-close', '#financing-modal', '#financing-card', 'openFinancing', [], 'closeFinancing'],
   ['property-inspector', '#pop-close', '#popup', '#popup-card', 'openTile', [1], 'closeTile'],
-  ['deed-manager', '#dd-close', '#deed-modal', '#deed-card-detail', 'openDeed', [1], 'closeDeed'],
+  ['deed-manager', '#deed-detail-close', '#deed-modal', '#deed-card-detail', 'openDeed', [1], 'closeDeed'],
   ['deal-details', '#deal-detail-close', '#deal-detail-modal', '#deal-detail-card', 'openPendingDeal', [], 'closePendingDeal'],
   ['wallet', '#wallet-modal-close', '#wallet-modal', '#wallet-card', 'openWallet', ['account'], 'closeWallet'],
   ['market', '#market-modal-close', '#market-modal', '#market-card', 'openMarket', [], 'closeMarket'],
@@ -30,17 +30,17 @@ async function prepare(page, context, code) {
   await page.goto('/');
   await page.locator('#home-alias').fill('CLOSEHOST');
   await page.locator('#open-create-btn').click();
-  await page.locator('#rc-vis-selector [data-vis="private"]').click();
-  await page.locator('#rc-room-code').fill(code);
-  await page.locator('#rc-create-btn').click();
-  await page.locator('#su-start').click();
+  await page.locator('#room-create-visibility-selector [data-vis="private"]').click();
+  await page.locator('#room-create-code').fill(code);
+  await page.locator('#room-create-btn').click();
+  await page.locator('#setup-start-btn').click();
   await guest.goto('/');
   await guest.locator('#open-join-btn').click();
   await guest.locator('#room-join').fill(code);
   await guest.locator('#join-nickname').fill('CLOSEGUEST');
   await guest.locator('#join-room-submit').click();
   await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
-  if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
+  if (await guest.locator('#setup-start-btn').isVisible()) await guest.locator('#setup-start-btn').click();
   await expect(page.locator('#player-list .player-row')).toHaveCount(2);
   await page.locator('#lobby-start-btn').click();
   await expect(page.locator('#view-game')).toBeVisible();

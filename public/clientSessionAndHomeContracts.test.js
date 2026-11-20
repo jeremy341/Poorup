@@ -60,4 +60,4 @@ assert.equal(values.has("poorup.account.session.v1"), false);
 assert.equal(values.has("poorup.profile.v1"), false);
 assert.equal(values.get("other-app.preference"), "keep");
 
-console.log("client interaction regression tests: passed");
+console.log("client session and home contract tests: passed");

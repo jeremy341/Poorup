@@ -103,7 +103,7 @@ check("home hero uses theme text tokens instead of fixed dark-on-scene colours",
 check("CTA labels and sublabels come from opaque tokens, not translucent literals", () => {
   assert.match(rule(".cta-red"), /color:\s*var\(--cta-label\)/);
   assert.match(rule(".cta-red:disabled"), /color:\s*var\(--cta-label-disabled\)/);
-  for (const selector of [".choice-buy .t-micro", ".dd-build-btn .t-micro"]) {
+  for (const selector of [".choice-buy .t-micro", ".deed-detail-build-btn .t-micro"]) {
     const body = rule(selector);
     assert.match(body, /color:\s*var\(--cta-label-muted\)/, `${selector} must use --cta-label-muted`);
     assert.doesNotMatch(body, /\/\s*\d+%/, `${selector} must not use alpha`);

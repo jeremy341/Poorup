@@ -22,7 +22,7 @@ export const SKYLINE = [
   [33, 6, 7, 30], [41, 15, 5, 21], [47, 2, 8, 34], [56, 18, 5, 18], [62, 10, 6, 26],
   [69, 22, 5, 14], [75, 15, 6, 21], [82, 25, 5, 11],
 ];
-export const BOARD_SKYLINE = [
+const BOARD_SKYLINE = [
   [4, 22, 6, 12], [11, 16, 5, 18], [17, 25, 4, 9], [22, 12, 6, 22], [29, 20, 5, 14],
   [35, 6, 7, 28], [43, 14, 5, 20], [49, 2, 8, 32], [58, 17, 5, 17], [64, 10, 6, 24],
   [71, 21, 5, 13], [77, 15, 6, 19],
@@ -64,7 +64,7 @@ function surpriseIconHTML() {
 }
 
 function taxIconHTML() {
-  return `<span class="q-mark g400" style="font-size:13px;color:#c88f2e">$</span>`;
+  return `<span class="deck-glyph g400" style="font-size:13px;color:#c88f2e">$</span>`;
 }
 
 function railroadIconHTML(tile) {
@@ -102,7 +102,7 @@ const STRIP_EDGES = {
   right: "top:0;bottom:0;left:0;width:var(--tile-strip-size);border-right:1px solid var(--edge-0)",
 };
 
-export function stripStyle(tile) {
+function stripStyle(tile) {
   const c = GROUP_COLOR[tile.group];
   if (!c) return "";
   const edge = STRIP_EDGES[tile.side];
@@ -439,7 +439,7 @@ function walkZoneFor(player, i) {
   return "passing";
 }
 
-export function playerTileCenter(player, i = player?.pos) {
+function playerTileCenter(player, i = player?.pos) {
   return tileCenter(i, walkZoneFor(player, i));
 }
 
@@ -573,7 +573,7 @@ export function startPieceWalk(playerId, from, to, options = {}) {
   return movementComplete;
 }
 
-export function reconcilePieceWalks(timestamp = motionNow()) {
+function reconcilePieceWalks(timestamp = motionNow()) {
   pieceWalks.forEach((walk, playerId) => {
     const el = pieceElement(playerId);
     if (!el) {

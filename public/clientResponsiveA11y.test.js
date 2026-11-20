@@ -92,8 +92,8 @@ check("event summaries wrap at narrow widths", () => {
 
 check("static duplicate status nodes are removed", () => {
   assert.ok(!/class="chair-flag"/.test(index), "static chair status remains");
-  assert.ok(!/id="tn-connection-note"/.test(index), "static game connection note remains");
-  assert.ok(!/<div class="online">[\s\S]*id="tn-online"/.test(index), "static game online status remains");
+  assert.ok(!/id="topnav-connection-note"/.test(index), "static game connection note remains");
+  assert.ok(!/<div class="online">[\s\S]*id="topnav-online"/.test(index), "static game online status remains");
   assert.ok(!/#view-home \.hdr-right > \.online/.test(styles), "global duplicate-status suppression remains");
 });
 
