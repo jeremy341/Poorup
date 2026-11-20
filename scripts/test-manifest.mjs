@@ -8,7 +8,7 @@ export const TEST_GROUPS = Object.freeze({
     'server/secured-exit-retry.test.js',
     'server/rulesetRegistry.test.js', 'server/boardRegistry.test.js', 'server/retiredAccountStore.test.js',
     'server/turnAuctionRules.test.js', 'server/gamePresentation.test.js', 'public/clientPresentation.test.js', 'server/telemetryModule.test.js', 'server/marketExpansion.test.js',
-    'server/backupStore.test.js', 'server/backup-wire.test.js', 'server/storage-permissions.test.js', 'server/httpRateLimiter.test.js', 'server/httpErrors.test.js', 'server/requestId.test.js', 'server/persistenceMode.test.js',
+    'server/backupStore.test.js', 'server/backup-wire.test.js', 'server/storage-permissions.test.js', 'server/httpRateLimiter.test.js', 'server/rate-limit-coverage.test.js', 'server/httpErrors.test.js', 'server/requestId.test.js', 'server/persistenceMode.test.js',
     'server/authoritativeStore.test.js', 'server/pubsubAdapter.test.js', 'server/balanceMetrics.test.js',
     'server/gameLogic.test.js', 'server/applyCard.test.js', 'server/rent.test.js', 'server/metro-rent-tiers.test.js', 'server/margin-carry-rule.test.js', 'server/round-limit.test.js', 'server/persistence.test.js',
     'server/leaderboard.test.js', 'server/game-results.test.js', 'server/property-actions.test.js', 'server/hotel-sale-supply.test.js', 'server/bot-trade-counter.test.js', 'server/trade-expiry.test.js', 'server/airport-flights.test.js', 'server/bank-account.test.js', 'server/bank-tier-perks.test.js', 'server/about-page.test.js', 'server/rules-page.test.js', 'server/staticAssets.test.js',

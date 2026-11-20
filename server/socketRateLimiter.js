@@ -1,4 +1,4 @@
-import { peerBucketKey, pruneWindowBuckets, windowBucket } from './rateBuckets.js';
+import { RATE_LIMITED_CODE, peerBucketKey, pruneWindowBuckets, windowBucket } from './rateBuckets.js';
 
 // A blank env var (POORUP_SOCKET_RATE_LIMIT=) is unset, not zero: Number('')
 // is 0, which would deny every event or collapse the window to its floor.
@@ -12,40 +12,107 @@ function normalizedLimit(value, fallback) {
   return Number.isFinite(parsed) ? Math.min(100_000, Math.max(0, Math.floor(parsed))) : fallback;
 }
 
+function positiveSetting(value, fallback, max) {
+  if (isUnset(value)) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 1 ? Math.min(max, Math.floor(parsed)) : fallback;
+}
+
+const DEFAULT_BLOCK_THRESHOLD = 300;
+const DEFAULT_BLOCK_MS = 60_000;
+const MAX_BLOCKED_PEERS = 10_000;
+
 // Small process-local ingress guard. Game actions stay server-authoritative; this only rejects abusive event volume before handlers run.
 // Two budgets apply to every event: one per socket, and one per resolved peer address. The socket budget resets on every reconnect
 // (new socket id), so the peer budget is what actually bounds a client that reconnects in a loop.
-export function createSocketRateLimiter({ max = 240, peerMax, windowMs = 10_000, now = () => Date.now() } = {}) {
+// A peer that keeps hitting the budget is escalated: after `blockThreshold` refusals inside one window its events are refused for
+// `blockMs`. Refused events get a RATE_LIMITED answer and the socket stays connected, so a legitimate player sharing that address is
+// slowed rather than dropped.
+export function createSocketRateLimiter({ max = 240, peerMax, windowMs = 10_000, blockThreshold, blockMs, now = () => Date.now() } = {}) {
   const buckets = new Map();
   const peerBuckets = new Map();
+  const refusals = new Map();
+  const blocked = new Map();
   const limit = normalizedLimit(max, 240);
   const peerLimit = normalizedLimit(peerMax, Math.min(100_000, limit * 4));
   const parsedWindow = isUnset(windowMs) ? Number.NaN : Number(windowMs);
   const window = Number.isFinite(parsedWindow) ? Math.min(86_400_000, Math.max(100, Math.floor(parsedWindow))) : 10_000;
+  const threshold = positiveSetting(blockThreshold, DEFAULT_BLOCK_THRESHOLD, 1_000_000);
+  const blockWindow = positiveSetting(blockMs, DEFAULT_BLOCK_MS, 86_400_000);
 
-  function takeFrom(map, key, cap, current) {
+  // Returns the milliseconds to wait when the budget is spent, or 0 after spending one unit.
+  function spend(map, key, cap, current) {
     const bucket = windowBucket(map, key, current, window);
-    if (bucket.count >= cap) return false;
-    bucket.count += 1;
-    return true;
+    if (bucket.count < cap) {
+      bucket.count += 1;
+      return 0;
+    }
+    return Math.max(1, bucket.startedAt + window - current);
   }
 
-  function allow(socketId, peerKey = '') {
-    if (!socketId) return false;
-    if (!limit || !peerLimit) return false;
+  function refusal(retryAfterMs, blockedPeer = false) {
+    return blockedPeer
+      ? { code: RATE_LIMITED_CODE, retryAfterMs, blocked: true }
+      : { code: RATE_LIMITED_CODE, retryAfterMs };
+  }
+
+  // Blocks expire in insertion order, so expired entries sit at the front and are dropped first. At the cap the oldest live block goes:
+  // it would have expired first anyway.
+  function remember(peer, current) {
+    if (!blocked.has(peer)) {
+      while (blocked.size >= MAX_BLOCKED_PEERS) {
+        const oldest = blocked.keys().next().value;
+        blocked.delete(oldest);
+      }
+    }
+    blocked.delete(peer);
+    blocked.set(peer, current + blockWindow);
+  }
+
+  function refuse(peer, retryAfterMs, current) {
+    if (!peer) return refusal(retryAfterMs);
+    const strikes = windowBucket(refusals, peer, current, window);
+    strikes.count += 1;
+    if (strikes.count < threshold) return refusal(retryAfterMs);
+    refusals.delete(peer);
+    remember(peer, current);
+    return refusal(blockWindow, true);
+  }
+
+  function activeBlock(peer, current) {
+    if (!peer) return 0;
+    const until = blocked.get(peer);
+    if (until === undefined) return 0;
+    if (until > current) return until - current;
+    blocked.delete(peer);
+    return 0;
+  }
+
+  // Returns null when the event may run, or { code, retryAfterMs, blocked? } when it must be refused.
+  function check(socketId, peerKey = '') {
+    if (!socketId || !limit || !peerLimit) return refusal(window);
     const current = now();
     pruneWindowBuckets(buckets, current, window);
     pruneWindowBuckets(peerBuckets, current, window);
-    if (!takeFrom(buckets, socketId, limit, current)) return false;
-    if (!peerKey) return true;
-    return takeFrom(peerBuckets, peerBucketKey(peerKey), peerLimit, current);
+    const peer = peerKey ? peerBucketKey(peerKey) : '';
+    const blockedFor = activeBlock(peer, current);
+    if (blockedFor) return refusal(blockedFor, true);
+    const socketWait = spend(buckets, socketId, limit, current);
+    if (socketWait) return refuse(peer, socketWait, current);
+    if (!peer) return null;
+    const peerWait = spend(peerBuckets, peer, peerLimit, current);
+    return peerWait ? refuse(peer, peerWait, current) : null;
+  }
+
+  function allow(socketId, peerKey = '') {
+    return check(socketId, peerKey) === null;
   }
 
   function forget(socketId) {
     if (socketId) buckets.delete(socketId);
   }
 
-  return { allow, forget, size: () => buckets.size + peerBuckets.size };
+  return { allow, check, forget, size: () => buckets.size + peerBuckets.size, blockedPeers: () => blocked.size };
 }
 
 // Connection admission is a separate, pre-socket guard. The per-socket limiter protects event volume after a connection exists; this
