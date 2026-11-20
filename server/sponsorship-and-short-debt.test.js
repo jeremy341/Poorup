@@ -1,5 +1,4 @@
-// Regression suite for sponsorship and economy repairs. Each check pins one audited defect:
-// loan-backed bots are never scheduled or counted as funders, short-default settlement stays a forced
+// Sponsorship and short-debt rules: loan-backed bots are never scheduled or counted as funders, short-default settlement stays a forced
 // obligation, an overfunded escrow returns the exact excess, and rounding dust goes to the sponsors.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
@@ -59,7 +58,7 @@ function botSponsorshipRoom(options = {}) {
   return { room, game, buyer, sponsor, sponsorship: game.pendingSponsoredPurchase };
 }
 
-check('a loan-backed bot is never scheduled or counted as a sponsorship funder (B-08)', () => {
+check('a loan-backed bot is never scheduled or counted as a sponsorship funder', () => {
   const { room, game, buyer, sponsor, sponsorship } = botSponsorshipRoom();
   sponsor.bankLoan = { status: 'active', remaining: 300, collateralTileIndex: null };
 
@@ -106,7 +105,7 @@ check('a bot never funds an equity sponsorship request as if it were a gift', ()
   assert.equal(isSponsorshipActor(game, sponsor), false);
 });
 
-check('short buy-in debt settlement shares the market guard ladder (B-10)', () => {
+check('short buy-in debt settlement shares the market guard ladder', () => {
   const room = seats(2, { rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }, marketComplexity: 'shorting' });
   const game = room.game;
   const player = game.players[0];
@@ -143,7 +142,7 @@ check('short buy-in debt settlement shares the market guard ladder (B-10)', () =
   game.pendingPayment = null;
 });
 
-check('short buy-in debt stays a forced obligation: off-turn, quota-exempt, tradeable in bank-run (B-10 intent)', () => {
+check('short buy-in debt stays a forced obligation: off-turn, quota-exempt, tradeable in bank-run (intended)', () => {
   // marketExpansion.js:419-421 documents this path as reachable "on a later
   // turn or before opening another market position", so neither the turn gate
   // nor the per-turn market quota may apply to it.
@@ -172,7 +171,7 @@ check('short buy-in debt stays a forced obligation: off-turn, quota-exempt, trad
   });
 });
 
-check('an overfunded escrow returns the exact excess instead of gifting the buyer the dust (B-22)', () => {
+check('an overfunded escrow returns the exact excess instead of gifting the buyer the dust', () => {
   const room = seats(4, { rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
   const game = room.game;
   const [buyer, first, second, third] = game.players;
@@ -206,7 +205,7 @@ check('an overfunded escrow returns the exact excess instead of gifting the buye
   assert.deepEqual(refunded, [3, 3, 4], 'largest-remainder shares: the sponsors absorb the rounding');
 });
 
-check('overfunded escrow conservation holds for every contributor split (B-22)', () => {
+check('overfunded escrow conservation holds for every contributor split', () => {
   for (const shares of [[1, 1], [3, 4], [10, 10, 10], [1, 2, 3, 4], [7, 11, 13], [50, 25, 25], [2, 2, 2, 2, 1]]) {
     const room = seats(shares.length + 1, { rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }, maxPlayers: shares.length + 1 });
     const game = room.game;
@@ -235,8 +234,8 @@ check('overfunded escrow conservation holds for every contributor split (B-22)',
 });
 
 if (failures.length) {
-  console.error(`\nbackend audit regressions (C): ${failures.length} failed`);
+  console.error(`\nsponsorship and short debt: ${failures.length} failed`);
   process.exitCode = 1;
 } else {
-  console.log('backend audit regressions (C): all passed');
+  console.log('sponsorship and short debt: all passed');
 }

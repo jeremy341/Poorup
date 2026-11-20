@@ -63,7 +63,7 @@ function rollCandidate() {
   return { id: 'roll', kind: 'roll' };
 }
 
-check('the market digest reports the live short-inventory pool keyed by instrument (B-30a)', () => {
+check('the market digest reports the live short-inventory pool keyed by instrument', () => {
   const room = marketRoom('shorting');
   const game = room.game;
   const market = buildBotStrategicContext(game, game.players[0], 'pre-roll', 1).rulesDigest.market;
@@ -84,7 +84,7 @@ check('the market digest reports the live short-inventory pool keyed by instrume
   );
 });
 
-check('marketExpansion.shorts ships the {reservedCash, positions} the planner reads (B-30b)', () => {
+check('marketExpansion.shorts ships the {reservedCash, positions} the planner reads', () => {
   const { room, game, bot } = botMarketRoom('shorting');
   assert.equal(room.openShort('a', 'brazil', 1, 'b30b-open').success, true);
   const live = bot.shortPositions.brazil;
@@ -97,7 +97,7 @@ check('marketExpansion.shorts ships the {reservedCash, positions} the planner re
     'the reserved bucket must equal the collateral actually held against the short book');
 });
 
-check('the short book reserves only the collateral its own positions hold (B-30b)', () => {
+check('the short book reserves only the collateral its own positions hold', () => {
   const room = marketRoom('shorting');
   const game = room.game;
   const bot = game.players[0];
@@ -111,7 +111,7 @@ check('the short book reserves only the collateral its own positions hold (B-30b
   assert.equal(shorts.reservedCash, shorts.positions.brazil.collateral);
 });
 
-check('a real cover-short candidate projects instead of scoring unsupported (B-30b)', () => {
+check('a real cover-short candidate projects instead of scoring unsupported', () => {
   const room = marketRoom('shorting');
   const game = room.game;
   const bot = game.players[0];
@@ -134,7 +134,7 @@ check('a real cover-short candidate projects instead of scoring unsupported (B-3
   assert.equal(project({ id: 'margin:brazil', kind: 'open-margin', instrumentId: 'brazil', quantity: 1 }).projectionStatus, 'projected');
 });
 
-check('every opponent seat resolves to one canonical label (B-32)', () => {
+check('every opponent seat resolves to one canonical label', () => {
   const room = fourSeatRoom();
   const game = room.game;
   const [first, , bot, rival] = game.players;
@@ -160,7 +160,7 @@ check('every opponent seat resolves to one canonical label (B-32)', () => {
   });
 });
 
-check('a jailed opponent owner is charged no rent risk from any seat (B-32)', () => {
+check('a jailed opponent owner is charged no rent risk from any seat', () => {
   const room = fourSeatRoom();
   const game = room.game;
   const bot = game.players[2];

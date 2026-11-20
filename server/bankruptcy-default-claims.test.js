@@ -53,7 +53,7 @@ function advanceUntilDefaulted(game, contract, maxRounds = 8) {
   assert.equal(contract.status, 'defaulted', 'the loan defaults within a few round advances');
 }
 
-check('retired hybrids are rejected; loans and rent shares revalidate their deeds at acceptance (B-03)', () => {
+check('retired hybrids are rejected; loans and rent shares revalidate their deeds at acceptance', () => {
   const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
   const game = room.game;
   const [lender, borrower] = game.players;
@@ -96,7 +96,7 @@ check('retired hybrids are rejected; loans and rent shares revalidate their deed
   assert.equal(game.playerContracts[0].collateralTileIndices.length, 1);
 });
 
-check('a padded response requestId replays the same settlement (B-22)', () => {
+check('a padded response requestId replays the same settlement', () => {
   const room = startedRoom();
   const game = room.game;
   const [a, b] = game.players;
@@ -116,7 +116,7 @@ check('a padded response requestId replays the same settlement (B-22)', () => {
   assert.equal(b.cash, 1500 + 100);
 });
 
-check('an AFK-forced bankruptcy releases the dead seat\'s table obligations (B-04)', () => {
+check('an AFK-forced bankruptcy releases the dead seat\'s table obligations', () => {
   const room = threeSeatRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
   const game = room.game;
   const [, b, c] = game.players;
@@ -137,7 +137,7 @@ check('an AFK-forced bankruptcy releases the dead seat\'s table obligations (B-0
     'survivors are not blocked by the departed seat\'s obligations');
 });
 
-check('an unsettled-payment bankruptcy releases the dead seat\'s pending contract (B-04)', () => {
+check('an unsettled-payment bankruptcy releases the dead seat\'s pending contract', () => {
   const room = threeSeatRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
   const game = room.game;
   const [, b, c] = game.players;
@@ -159,7 +159,7 @@ check('an unsettled-payment bankruptcy releases the dead seat\'s pending contrac
   assert.equal(survivor.success, true, 'survivors can negotiate again after a forced bankruptcy');
 });
 
-check('a plain player-loan bankruptcy records the lender\'s default claim (B-16)', () => {
+check('a plain player-loan bankruptcy records the lender\'s default claim', () => {
   const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
   const game = room.game;
   const [lender, borrower] = game.players;
@@ -194,7 +194,7 @@ check('a plain player-loan bankruptcy records the lender\'s default claim (B-16)
   assert.equal(lender.cash, lenderCashBefore, 'bankruptcy itself moves no cash for the claim');
 });
 
-check('a matured default claim is collected the next time the table resolves a debt (B-17)', () => {
+check('a matured default claim is collected the next time the table resolves a debt', () => {
   const room = startedRoom();
   const game = room.game;
   const [lender, borrower] = game.players;
@@ -238,7 +238,7 @@ check('a matured default claim is collected the next time the table resolves a d
   assert.equal(lenderAfterFunding + borrowerAfterFunding, 3000);
 });
 
-check('a matured claim is also collected by the next bankruptcy on the table (B-17)', () => {
+check('a matured claim is also collected by the next bankruptcy on the table', () => {
   const room = threeSeatRoom();
   const game = room.game;
   const [lender, borrower, other] = game.players;
@@ -263,7 +263,7 @@ check('a matured claim is also collected by the next bankruptcy on the table (B-
   assert.equal(borrower.bankrupt, false);
 });
 
-check('an unaffordable default claim stays open and never forces a payment (B-17)', () => {
+check('an unaffordable default claim stays open and never forces a payment', () => {
   const room = threeSeatRoom();
   const game = room.game;
   const [lender, borrower, other] = game.players;
@@ -297,8 +297,8 @@ check('an unaffordable default claim stays open and never forces a payment (B-17
 });
 
 if (failures.length) {
-  console.error(`\nbackend audit regressions B: ${failures.length} failed`);
+  console.error(`\nbankruptcy default claims: ${failures.length} failed`);
   process.exitCode = 1;
 } else {
-  console.log('backend audit regressions B: all passed');
+  console.log('bankruptcy default claims: all passed');
 }

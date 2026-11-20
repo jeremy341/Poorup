@@ -683,7 +683,7 @@ check('bankruptcy: no creditor releases deeds (mortgage and houses cleared)', ()
 // Owner decision: keep. A bankruptcy hands every deed over unbuilt and unmortgaged, whichever way it goes: to a solvent creditor,
 // to a bankrupt creditor, or to no creditor. Houses return to the supply and nothing is paid for them or the cleared mortgage.
 // A bank seizure is pinned separately and liquidates houses at the half rate. Changing this needs a new owner decision.
-check('A7-08 pin: a solvent creditor takes a built, mortgaged deed unbuilt and unmortgaged, paying nothing for either', () => {
+check('a solvent creditor takes a built, mortgaged deed unbuilt and unmortgaged, paying nothing for either', () => {
   const { room, game } = withGame(trioRoom());
   const { a, b } = seatsOf(game);
   const deed = game.getTile(1);
@@ -702,7 +702,7 @@ check('A7-08 pin: a solvent creditor takes a built, mortgaged deed unbuilt and u
   assert.equal(feedTexts(room).some(text => text.includes('forfeits')), false);
 });
 
-check('A7-08 pin: a bankruptcy with no creditor returns built, mortgaged deeds to the market unbuilt and unmortgaged', () => {
+check('a bankruptcy with no creditor returns built, mortgaged deeds to the market unbuilt and unmortgaged', () => {
   const { room, game } = withGame(trioRoom());
   const { c } = seatsOf(game);
   const deed = game.getTile(5);
@@ -719,7 +719,7 @@ check('A7-08 pin: a bankruptcy with no creditor returns built, mortgaged deeds t
   assert.equal(c.cash, 0, 'no cash is paid for the wiped houses or the cleared mortgage');
 });
 
-check('A7-08 pin: a bankrupt creditor gets nothing, so the deed is released like a no-creditor bankruptcy', () => {
+check('a bankrupt creditor gets nothing, so the deed is released like a no-creditor bankruptcy', () => {
   const { room, game } = withGame(trioRoom());
   const { a, b, c } = seatsOf(game);
   const deed = game.getTile(1);

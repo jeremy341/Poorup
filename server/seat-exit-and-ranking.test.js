@@ -1,6 +1,5 @@
-// Regression suite for the second backend audit pass. Each check pins one verified defect: a voluntary
-// leave that froze the bank loan on a dead seat, a disconnected ghost seat that could take 1st place,
-// and a board-variant downgrade that started an over-capacity table.
+// Seat exit, final ranking and board capacity: a voluntary leave settles the bank loan on the dead seat,
+// a disconnected ghost seat cannot take 1st place, and a board-variant downgrade may not start an over-capacity table.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -33,7 +32,7 @@ function startedThreeSeatRoom(options = {}) {
   return { manager, room };
 }
 
-check('a voluntary leave settles the bank loan on the dead seat (B-05)', () => {
+check('a voluntary leave settles the bank loan on the dead seat', () => {
   // advanceBankLoan skips bankrupt players, so a leave that only ran the old
   // ladder froze the loan at active/remaining forever: the departed seat kept
   // the principal and never paid (or lost) the premium.
@@ -53,7 +52,7 @@ check('a voluntary leave settles the bank loan on the dead seat (B-05)', () => {
   assert.equal(leaver.properties.includes(tile.index), false);
 });
 
-check('an unsecured loan the leaver cannot pledge is written off, not frozen (B-05)', () => {
+check('an unsecured loan the leaver cannot pledge is written off, not frozen', () => {
   const { manager, room } = startedThreeSeatRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
   const leaver = room.game.players[0];
   leaver.bankLoan = { status: 'due', remaining: 500, collateralTileIndex: null };
@@ -62,7 +61,7 @@ check('an unsecured loan the leaver cannot pledge is written off, not frozen (B-
   assert.equal(leaver.bankLoan.remaining, 0);
 });
 
-check('a disconnected ghost seat cannot take 1st place (B-06)', () => {
+check('a disconnected ghost seat cannot take 1st place', () => {
   const dir = tempDir('poorup-ghost-placement-');
   const store = new AccountStore(path.join(dir, 'accounts.json'));
   ['ghost_rival', 'ghost_seat'].forEach(username => {
@@ -87,7 +86,7 @@ check('a disconnected ghost seat cannot take 1st place (B-06)', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-check('bankrupt seats still rank after solvent ones once ghosts are excluded (B-06)', () => {
+check('bankrupt seats still rank after solvent ones once ghosts are excluded', () => {
   const dir = tempDir('poorup-ghost-ordering-');
   const store = new AccountStore(path.join(dir, 'accounts.json'));
   ['order_solo', 'order_broke', 'order_ghost'].forEach(username => {
@@ -108,7 +107,7 @@ check('bankrupt seats still rank after solvent ones once ghosts are excluded (B-
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-check('a board downgrade that would strand a seat is refused (B-09)', () => {
+check('a board downgrade that would strand a seat is refused', () => {
   const manager = new RoomManager();
   const room = manager.createRoom({
     socketId: 'a', clientId: 'a', nickname: 'A', boardVariant: 'metro-52', rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }
@@ -133,7 +132,7 @@ check('a board downgrade that would strand a seat is refused (B-09)', () => {
   assert.equal(room.game.turnOrder.length, 5);
 });
 
-check('a board downgrade that still fits the table is allowed (B-09)', () => {
+check('a board downgrade that still fits the table is allowed', () => {
   const manager = new RoomManager();
   const room = manager.createRoom({
     socketId: 'a', clientId: 'a', nickname: 'A', boardVariant: 'metro-52', rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }
@@ -154,8 +153,8 @@ check('a board downgrade that still fits the table is allowed (B-09)', () => {
 });
 
 if (failures.length) {
-  console.error(`\nbackend audit regressions (pass 2): ${failures.length} failed`);
+  console.error(`\nseat exit and ranking: ${failures.length} failed`);
   process.exitCode = 1;
 } else {
-  console.log('backend audit regressions (pass 2): all passed');
+  console.log('seat exit and ranking: all passed');
 }

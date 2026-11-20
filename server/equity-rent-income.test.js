@@ -37,7 +37,7 @@ function equityRoom(sharePct) {
 
 // the defect itself
 
-test('B-18 the equity holder scores the rent it receives', () => {
+test('the equity holder scores the rent it receives', () => {
   const ctx = equityRoom(50);
   const baseRent = ctx.game.calculateRent(ctx.tile);
   const share = Math.floor(baseRent * 0.5);
@@ -46,12 +46,12 @@ test('B-18 the equity holder scores the rent it receives', () => {
   ctx.game.handleBuyableTile(ctx.lender, ctx.tile, { allowExtraRoll: false });
 
   assert.equal(ctx.lender.rentCollected, share,
-    'the holder scored zero rent for real cash it received (B-18)');
+    'the holder scored zero rent for real cash it received');
   assert.equal(ctx.owner.rentCollected, baseRent - share,
     'the owner is scored only on the rent it kept, not the rent it gave away');
 });
 
-test('B-18 a fully-sold deed scores the holder and leaves the owner nothing', () => {
+test('a fully-sold deed scores the holder and leaves the owner nothing', () => {
   const ctx = equityRoom(100);
   const baseRent = ctx.game.calculateRent(ctx.tile);
 
@@ -61,7 +61,7 @@ test('B-18 a fully-sold deed scores the holder and leaves the owner nothing', ()
   assert.equal(ctx.owner.rentCollected, 0, 'the owner keeps none of it, so it scores none of it');
 });
 
-test('B-18 the per-contract ledger still accrues the payout', () => {
+test('the per-contract ledger still accrues the payout', () => {
   const ctx = equityRoom(50);
   const baseRent = ctx.game.calculateRent(ctx.tile);
   ctx.game.handleBuyableTile(ctx.lender, ctx.tile, { allowExtraRoll: false });
@@ -72,7 +72,7 @@ test('B-18 the per-contract ledger still accrues the payout', () => {
 
 // conservation
 
-test('B-18 player rent totals still add up to the rent charged', () => {
+test('player rent totals still add up to the rent charged', () => {
   const ctx = equityRoom(50);
   const baseRent = ctx.game.calculateRent(ctx.tile);
   ctx.game.handleBuyableTile(ctx.lender, ctx.tile, { allowExtraRoll: false });
@@ -80,7 +80,7 @@ test('B-18 player rent totals still add up to the rent charged', () => {
     'attribution moved, it did not create or destroy rent');
 });
 
-test('B-18 scoring the holder did not change the cash that moved', () => {
+test('scoring the holder did not change the cash that moved', () => {
   const ctx = equityRoom(50);
   const baseRent = ctx.game.calculateRent(ctx.tile);
   const share = Math.floor(baseRent * 0.5);
@@ -96,7 +96,7 @@ test('B-18 scoring the holder did not change the cash that moved', () => {
 
 // the achievements / leaderboard consumers
 
-test('B-18 equity rent counts toward the payer sets and the rent-reaper max', () => {
+test('equity rent counts toward the payer sets and the rent-reaper max', () => {
   const ctx = equityRoom(50);
   ctx.game.handleBuyableTile(ctx.lender, ctx.tile, { allowExtraRoll: false });
   // achievementStore.js gates 'rent-reaper' on maxRentPayersInRound >= 3, which
@@ -109,7 +109,7 @@ test('B-18 equity rent counts toward the payer sets and the rent-reaper max', ()
 
 // Carry-forward still holds, and stays consistent.
 
-test('B-18 a short owner carries the share without driving rent scoring negative', () => {
+test('a short owner carries the share without driving rent scoring negative', () => {
   const ctx = equityRoom(100);
   const baseRent = ctx.game.calculateRent(ctx.tile);
   // Starve the owner so the share cannot be paid in full: this is the carry-forward path.
@@ -124,7 +124,7 @@ test('B-18 a short owner carries the share without driving rent scoring negative
   assert.ok(Number.isInteger(ctx.lender.rentCollected), 'rent scoring stays integer');
 });
 
-test('B-18 a later full payment settles the carry and balances the books', () => {
+test('a later full payment settles the carry and balances the books', () => {
   const ctx = equityRoom(100);
   const owed = 100;
   // Drive the share settlement directly with a broke owner. Going through handleBuyableTile would credit the owner the rent first,
@@ -148,7 +148,7 @@ test('B-18 a later full payment settles the carry and balances the books', () =>
 
 // controls
 
-test('B-18 a tile with no equity share is untouched', () => {
+test('a tile with no equity share is untouched', () => {
   const room = makeRoom();
   const game = room.game;
   const [payer, owner] = game.players;
@@ -163,7 +163,7 @@ test('B-18 a tile with no equity share is untouched', () => {
   assert.equal(payer.rentCollected || 0, 0, 'the payer still scores no rent');
 });
 
-test('B-18 a direct settle with no identified payer still books the holder', () => {
+test('a direct settle with no identified payer still books the holder', () => {
   const ctx = equityRoom(50);
   const baseRent = ctx.game.calculateRent(ctx.tile);
   // The internal entry point used where no payer is tracked: cash must move and

@@ -62,24 +62,24 @@ function moveOntoStart(ctx, card = { action: 'moveTo', tileIndex: 0 }) {
 
 // Tests
 
-test('B-12 collectStart pays salary plus the catch-up bonus for the strictly-last seat', () => {
+test('collectStart pays salary plus the catch-up bonus for the strictly-last seat', () => {
   const last = cardFixture({ playerCash: 100, rivalCash: 2000 });
   assert.equal(collectStart(last), 100 + SALARY + CATCH_UP, 'strictly last by cash collects salary + $100');
   assert.deepEqual(startFeed(last.game), ['Ada landed on Start and collected $300. Last-place catch-up bonus included.']);
 });
 
-test('B-12 moveTo across GO pays salary plus the catch-up bonus for the strictly-last seat', () => {
+test('moveTo across GO pays salary plus the catch-up bonus for the strictly-last seat', () => {
   const last = cardFixture({ playerCash: 100, rivalCash: 2000 });
   assert.equal(moveAcrossStart(last), 100 + SALARY + CATCH_UP, 'passing GO on a movement card carries the bonus');
   assert.deepEqual(startFeed(last.game), ['Ada passed Start and collected $300. Last-place catch-up bonus included.']);
 });
 
-test('B-12 moveTo landing on Start pays salary plus the catch-up bonus for the strictly-last seat', () => {
+test('moveTo landing on Start pays salary plus the catch-up bonus for the strictly-last seat', () => {
   const last = cardFixture({ playerCash: 100, rivalCash: 2000 });
   assert.equal(moveOntoStart(last), 100 + SALARY + CATCH_UP);
 });
 
-test('B-12 a tied table pays salary only on both card paths', () => {
+test('a tied table pays salary only on both card paths', () => {
   const collectTie = cardFixture({ playerCash: 1000, rivalCash: 1000 });
   assert.equal(collectStart(collectTie), 1000 + SALARY, 'ties never pay the catch-up bonus');
   assert.deepEqual(startFeed(collectTie.game), ['Ada landed on Start and collected $200.']);
@@ -89,7 +89,7 @@ test('B-12 a tied table pays salary only on both card paths', () => {
   assert.deepEqual(startFeed(moveTie.game), ['Ada passed Start and collected $200.']);
 });
 
-test('B-12 the leading seat pays salary only on both card paths', () => {
+test('the leading seat pays salary only on both card paths', () => {
   const collectLeader = cardFixture({ playerCash: 2000, rivalCash: 100 });
   assert.equal(collectStart(collectLeader), 2000 + SALARY, 'not-last collects salary with no bonus');
 
@@ -97,7 +97,7 @@ test('B-12 the leading seat pays salary only on both card paths', () => {
   assert.equal(moveAcrossStart(moveLeader), 2000 + SALARY, 'not-last collects salary with no bonus');
 });
 
-test('B-12 a solo table pays no catch-up bonus', () => {
+test('a solo table pays no catch-up bonus', () => {
   const solo = cardFixture({ playerCash: 100, rivalCash: 2000 });
   solo.rival.bankrupt = true;
   assert.equal(collectStart(solo), 100 + SALARY, 'the rule needs 2+ live contestants');
@@ -105,7 +105,7 @@ test('B-12 a solo table pays no catch-up bonus', () => {
 
 // The invariant: the same outcome and the same cash position must pay the same
 // amount whichever way GO was crossed, and say the same thing about it.
-test('B-12 dice and card paths agree for the identical outcome and cash position', () => {
+test('dice and card paths agree for the identical outcome and cash position', () => {
   const byDice = cardFixture({ playerCash: 100, rivalCash: 2000 });
   byDice.player.position = 35;
   byDice.game.movePlayer(byDice.player, 5); // 35 + 5 wraps onto Start.
@@ -120,7 +120,7 @@ test('B-12 dice and card paths agree for the identical outcome and cash position
   assert.deepEqual(startFeed(byCard.game), startFeed(byDice.game), 'both paths report the same Start line');
 });
 
-test('B-12 dice and card paths agree with no bonus on a tied table', () => {
+test('dice and card paths agree with no bonus on a tied table', () => {
   const byDice = cardFixture({ playerCash: 1000, rivalCash: 1000 });
   byDice.player.position = 35;
   byDice.game.movePlayer(byDice.player, 5);
@@ -135,7 +135,7 @@ test('B-12 dice and card paths agree with no bonus on a tied table', () => {
 
 // The cardReveal figure is the same defect surface: it must carry the bonus so
 // the popup cannot disagree with the feed.
-test('B-12 the collectStart card reveal reports salary plus bonus', () => {
+test('the collectStart card reveal reports salary plus bonus', () => {
   const last = cardFixture({ playerCash: 100, rivalCash: 2000 });
   const card = { action: 'collectStart', amount: SALARY, text: 'Advance to GO' };
   const before = last.player.cash;
@@ -145,7 +145,7 @@ test('B-12 the collectStart card reveal reports salary plus bonus', () => {
   assert.equal(last.player.cash - before, revealed, 'the reveal matches the money actually paid');
 });
 
-test('B-12 Double GO still yields the $400 card salary', () => {
+test('Double GO still yields the $400 card salary', () => {
   // moveTo onto Start under Double GO, mirroring server/double-go.test.js.
   const ontoStart = cardFixture({ playerCash: 1000, rivalCash: 1000, doubleGo: true });
   assert.equal(moveOntoStart(ontoStart), 1000 + DOUBLE_GO_SALARY, 'landing on Start via a card uses the Double GO reward');
@@ -163,7 +163,7 @@ test('B-12 Double GO still yields the $400 card salary', () => {
   assert.equal(collectStart(namedAmount, { action: 'collectStart', amount: 150 }), 1000 + 150);
 });
 
-test('B-12 Double GO plus the catch-up bonus stack on both card paths', () => {
+test('Double GO plus the catch-up bonus stack on both card paths', () => {
   const collect = cardFixture({ playerCash: 100, rivalCash: 2000, doubleGo: true });
   assert.equal(collectStart(collect, { action: 'collectStart' }), 100 + DOUBLE_GO_SALARY + CATCH_UP);
 
@@ -171,7 +171,7 @@ test('B-12 Double GO plus the catch-up bonus stack on both card paths', () => {
   assert.equal(moveOntoStart(move), 100 + DOUBLE_GO_SALARY + CATCH_UP);
 });
 
-test('B-12 low-tax election still applies the x0.8 discount, bonus on top', () => {
+test('low-tax election still applies the x0.8 discount, bonus on top', () => {
   const tied = cardFixture({ playerCash: 1000, rivalCash: 1000 });
   lowTax(tied.game);
   assert.equal(collectStart(tied), 1000 + Math.floor(SALARY * 0.8), '200 -> 160');
@@ -252,7 +252,7 @@ function withLoanCollateral() {
 
 // Tests
 
-test('B-13 an outstanding equity share blocks building', () => {
+test('an outstanding equity share blocks building', () => {
   const ctx = withEquityShare();
   assert.equal(ctx.game.canBuildOnTile(ctx.owner, ctx.tile), false);
   // Trade and mortgage already refused it; all four verbs agree.
@@ -260,20 +260,20 @@ test('B-13 an outstanding equity share blocks building', () => {
   assert.equal(ctx.game.canMortgageTile(ctx.owner, ctx.tile), false);
 });
 
-test('B-13 an outstanding equity share blocks selling', () => {
+test('an outstanding equity share blocks selling', () => {
   const ctx = withEquityShare();
   ctx.tile.houseCount = 2;
   assert.equal(ctx.game.canSellFromTile(ctx.owner, ctx.tile), false);
 });
 
-test('B-13 loan and contract collateral still block building and selling', () => {
+test('loan and contract collateral still block building and selling', () => {
   const ctx = withLoanCollateral();
   ctx.tile.houseCount = 2;
   assert.equal(ctx.game.canBuildOnTile(ctx.owner, ctx.tile), false, 'no regression of the existing encumbrance guard');
   assert.equal(ctx.game.canSellFromTile(ctx.owner, ctx.tile), false);
 });
 
-test('B-13 a clean, wholly-owned deed can still be built on and sold from', () => {
+test('a clean, wholly-owned deed can still be built on and sold from', () => {
   const ctx = ownBrownGroup(equityFixture());
   assert.deepEqual(ctx.tile.equityShares, [], 'the fixture has no equity outstanding');
   assert.equal(ctx.game.isPlayerContractCollateral(ctx.owner, ctx.tile), false);
@@ -282,7 +282,7 @@ test('B-13 a clean, wholly-owned deed can still be built on and sold from', () =
   assert.equal(ctx.game.canSellFromTile(ctx.owner, ctx.tile), true);
 });
 
-test('B-13 manageProperty build-house refuses a part-sold deed without side effects', () => {
+test('manageProperty build-house refuses a part-sold deed without side effects', () => {
   const ctx = withEquityShare();
   const cashBefore = ctx.owner.cash;
   const feedBefore = ctx.game.feed.length;
@@ -294,7 +294,7 @@ test('B-13 manageProperty build-house refuses a part-sold deed without side effe
   assert.equal(ctx.owner.buildActionsThisTurn || 0, 0);
 });
 
-test('B-13 manageProperty sell-house refuses a part-sold deed without side effects', () => {
+test('manageProperty sell-house refuses a part-sold deed without side effects', () => {
   const ctx = withEquityShare();
   ctx.tile.houseCount = 3;
   const cashBefore = ctx.owner.cash;
@@ -306,7 +306,7 @@ test('B-13 manageProperty sell-house refuses a part-sold deed without side effec
   assert.equal(ctx.game.feed.length, feedBefore, 'no sale feed message');
 });
 
-test('B-13 the end-to-end refusals use the pre-existing error strings only', () => {
+test('the end-to-end refusals use the pre-existing error strings only', () => {
   // The client is untouched: both rejections reuse the strings propertyApi.js
   // already shipped, so no new UI copy is introduced.
   const build = withEquityShare();

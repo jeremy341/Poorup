@@ -1,3 +1,5 @@
+// Debt queue and settlement invariants: parked and queued debts, rent-funded collection, AFK settlement,
+// short-default and option guards, and rematch resets.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 import { processContracts } from './contractLogic.js';
@@ -381,7 +383,7 @@ check('the published global event omits the internal settlement latch', () => {
 });
 
 if (failures.length) {
-  console.log(`\ngame invariant regressions: ${failures.length} failed`);
+  console.log(`\ndebt queue and settlement invariants: ${failures.length} failed`);
   process.exit(1);
 }
-console.log('\ngame invariant regressions: all passed');
+console.log('\ndebt queue and settlement invariants: all passed');

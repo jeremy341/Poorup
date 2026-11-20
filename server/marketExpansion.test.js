@@ -9,7 +9,7 @@ function roomAt(complexity) {
   room.setRoomSetting('marketComplexity', complexity);
   assert.equal(room.startGame().success, true);
   // Existing market vectors model an approved pricing-policy deployment. The
-  // default no-policy path is covered by game-invariant-regressions.test.js.
+  // default no-policy path is covered by debt-queue-and-settlement-invariants.test.js.
   room.game.optionPricingPolicy = { mode: 'approved-test-policy' };
   room.game.currentPlayerId = room.game.players[0].id;
   return room;
