@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { assertProductionCors, isOriginAllowed, parseAllowedOrigins, resolveClientAddress } from './serverConfig.js';
+import { assertProductionCors, parseAllowedOrigins, resolveClientAddress } from './serverConfig.js';
 import * as serverConfig from './serverConfig.js';
 import * as httpRateLimiter from './httpRateLimiter.js';
 import { createSocketAdmission, createSocketRateLimiter } from './socketRateLimiter.js';
@@ -8,7 +8,6 @@ assert.equal(typeof serverConfig.isAllowedSocketOrigin, 'function');
 assert.equal(serverConfig.isAllowedSocketOrigin('https://play.example', ['https://play.example']), true);
 assert.equal(serverConfig.isAllowedSocketOrigin('https://evil.example', ['https://play.example']), false);
 assert.equal(serverConfig.isAllowedSocketOrigin('ws://play.example', ['https://play.example']), false);
-assert.equal(isOriginAllowed('https://evil.example', ['https://play.example']), false);
 assert.equal(resolveClientAddress({ address: '127.0.0.1', headers: { 'x-forwarded-for': '10.0.0.2, 10.0.0.1' } }, 0), '127.0.0.1');
 // One trusted hop: the rightmost entry is the address the proxy appended, the
 // same entry Express picks for req.ip. The leftmost entry is client-supplied.
