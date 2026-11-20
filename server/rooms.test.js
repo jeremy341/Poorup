@@ -1,6 +1,6 @@
-// Characterization suite for the room lifecycle handlers in server.js: create-room, join-room, respond-room-invite and get-match-history.
-// These tests pin the exact ack payloads (error strings included), the check ordering and the public and private ack shapes, so the
-// Code Health refactor can be proven behavior-preserving. Wire-level only: no store internals are imported.
+// Room lifecycle socket handlers: create-room, join-room, respond-room-invite and get-match-history.
+// These tests pin the exact ack payloads (error strings included), the check ordering and the public and private ack shapes.
+// Wire-level only: no store internals are imported.
 import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';

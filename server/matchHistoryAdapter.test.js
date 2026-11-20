@@ -3,7 +3,7 @@ import { listMatchRecordsForAccount, mergeMatchRecords } from './matchHistoryAda
 import { createSocialApi } from './socketSocialApi.js';
 import { registerSocialSocketHandlers } from './serverSocketSocial.js';
 
-// Characterization seam: both social history entry points must treat MatchStore as the newer source, keeping AccountStore history
+// Both social history entry points must treat MatchStore as the newer source, keeping AccountStore history
 // as a compatibility fallback. This test drives the public socket handler and records the wire-visible merge and projection behavior.
 function registeredHandlers({ accountStore, socialStore, matchStore, viewer = null }) {
   const handlers = new Map();
@@ -189,4 +189,4 @@ assert.deepEqual(socialApi.recentPlayers(target.id).map(player => [player.id, pl
   ['stored-player', 'recent-duplicate'],
   ['legacy-player', 'recent-legacy']
 ]);
-console.log('match history adapter characterization: 15 passed, 0 failed');
+console.log('match history adapter: 15 passed, 0 failed');

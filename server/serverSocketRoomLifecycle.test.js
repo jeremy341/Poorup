@@ -1,5 +1,5 @@
 // Room-lifecycle socket handlers against the real runtime and RoomManager, with fake timers: create-room from a seated socket,
-// moving a live seat between rooms, restore-session and set-player-appearance. Scenarios come from the audit reports.
+// moving a live seat between rooms, restore-session and set-player-appearance.
 import assert from 'node:assert/strict';
 import { createRuntime } from './socketRuntime.js';
 import { RoomManager } from './gameLogic.js';

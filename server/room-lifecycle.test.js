@@ -43,4 +43,4 @@ leaveManager.leaveRoomByClient(leaving.clientId, leaving.socketId);
 assert.equal(leaveGame.started, false);
 assert.equal(leaveGame.lastWinner.id, leaveGame.players[0].id);
 
-console.log('lifecycle audit: 2 passed, 0 failed');
+console.log('room lifecycle: 2 passed, 0 failed');

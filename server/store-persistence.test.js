@@ -1,4 +1,4 @@
-// Persistence seam characterization: the behaviors that can combine into silent data loss are pinned. A corrupt store file keeps
+// Store persistence: the behaviors that could combine into silent data loss. A corrupt store file keeps
 // its bytes in a quarantine sibling, the store opens empty beside it, and the next successful persist() never touches the quarantined original.
 import assert from 'assert';
 import fs from 'fs';

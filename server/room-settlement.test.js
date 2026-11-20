@@ -1,6 +1,5 @@
-// Audit fixes for rooms settle and appearance: reconnect identity, bot identity,
-// obligation parity and face validation. Mirrors the check() style of contracts-market.test.js:
-// sync asserts run on load, counts are printed, and a non-zero exit signals failure.
+// Room settlement and appearance: reconnect identity, bot identity, obligation parity and face validation.
+// Same check() style as contracts-market.test.js: sync asserts run on load, counts are printed, and a non-zero exit signals failure.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 
@@ -299,5 +298,5 @@ check('a face with no color cannot duplicate another seat icon', () => {
 });
 
 const failed = results.filter(r => !r).length;
-console.log(`\naudit-rooms-settle tests: ${results.length - failed} passed, ${failed} failed`);
+console.log(`\nroom settlement tests: ${results.length - failed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
