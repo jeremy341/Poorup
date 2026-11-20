@@ -6,6 +6,7 @@ import { ensureRoomHost } from './rooms.js';
 import { botPersonaStore } from './botPersonaStore.js';
 import { normalizeAvatarGrid, normalizeClientId, normalizeChatText, buildMatchRecordOptions } from './roomSetup.js';
 import { annotateMatchAchievements, noteBotFallback, recordMatchStalledTelemetry, recordMatchStartTelemetry, recordMatchTelemetryOnce, roomTelemetryVersions } from './matchTelemetry.js';
+import { botStatusPayload, readBotProviderStatus, safeBotProviderStatus } from './botStatus.js';
 import { passPendingPurchaseForSeatRemoval, settleAfkPayment } from './seatDeparture.js';
 import { createRoomPresenceRuntime } from './roomPresenceRuntime.js';
 import { createRoomVoteKickRuntime } from './roomVoteKickRuntime.js';
@@ -94,21 +95,6 @@ export function reassignHostIfNeeded(room, departedPlayerId) {
   ensureRoomHost(room, departedPlayerId);
 }
 
-// Keep provider credentials, billing/quota details, and raw error text out
-// of the room-wide event. The private match trace retains the exact reason.
-const PUBLIC_FALLBACK_REASONS = new Map([
-  ['no-ai-mode', 'no-ai-mode'],
-  ['auction-policy', 'house-policy'],
-  ['phase-resolution', 'house-policy'],
-  ['deterministic-advisor', 'house-policy'],
-  ['quota', 'credits-exhausted'],
-  ['quota-exhausted', 'credits-exhausted'],
-  ['game-budget', 'game-budget'],
-  ['process-budget', 'process-budget'],
-  ['circuit-open', 'provider-cooldown'],
-  ['rate-limit', 'provider-cooldown']
-]);
-
 function createRuntime(deps) {
   const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, telemetryStore, botAdvisor, social, maintenance, maintenanceAccess, metrics, authoritativeStore, pubsubAdapter } = deps;
   const setTimeoutFn = deps.setTimeout || globalThis.setTimeout;
@@ -153,31 +139,8 @@ function createRuntime(deps) {
   }
   let roomsUpdatedTimer = null;
 
-  function safeBotProviderStatus(status = {}) {
-    const states = new Set(['healthy', 'unconfigured', 'quota-exhausted', 'cooldown']);
-    const state = states.has(status.state) ? status.state : 'unconfigured';
-    const reasons = new Set(['credits-exhausted', 'missing-credentials', 'provider-cooldown']);
-    const reason = reasons.has(status.reason) ? status.reason : null;
-    const revision = Number.isFinite(Number(status.revision)) ? Math.max(0, Math.floor(Number(status.revision))) : 0;
-    return { state, revision, reason };
-  }
-
-  function legacyProviderHealth() {
-    if (typeof botAdvisor?.getHealth !== 'function') return null;
-    return botAdvisor.getHealth();
-  }
-
-  function legacyProviderReason(health) {
-    if (health?.state === 'quota-exhausted') return 'credits-exhausted';
-    if (health?.state === 'unconfigured') return 'missing-credentials';
-    if (health?.state === 'open') return 'provider-cooldown';
-    return null;
-  }
-
   function botProviderStatus() {
-    if (typeof botAdvisor?.getPublicStatus === 'function') return safeBotProviderStatus(botAdvisor.getPublicStatus());
-    const health = legacyProviderHealth();
-    return safeBotProviderStatus({ state: health?.state, reason: legacyProviderReason(health), revision: 0 });
+    return readBotProviderStatus(botAdvisor);
   }
 
   const unsubscribeBotProviderStatus = typeof botAdvisor?.subscribeProviderStatus === 'function'
@@ -801,37 +764,8 @@ function createRuntime(deps) {
     applyBotDecisionOutcome(room, bot, result);
   }
 
-  function botStatusHealthState(health) {
-    if (health?.state === 'healthy') return 'ready';
-    return 'fallback';
-  }
-
-  function botStatusPayload(room, bot, state, details) {
-    const health = typeof botAdvisor.getHealth === 'function' ? botAdvisor.getHealth() : null;
-    return {
-      playerId: bot.id,
-      nickname: bot.nickname,
-      state,
-      brain: details.brain || room.settings.botBrain || 'auto',
-      difficulty: details.difficulty || room.settings.botDifficulty || 'table',
-      provider: details.provider === 'ai' ? 'ai' : 'deterministic',
-      fallback: details.fallback === true,
-      fallbackReason: publicBotFallbackReason(details.fallbackReason),
-      actionId: details.actionId || null,
-      decisionSequence: details.sequence || details.decisionSequence || null,
-      latencyMs: details.latencyMs || 0,
-      healthState: botStatusHealthState(health)
-    };
-  }
-
   function emitBotStatus(room, bot, state, details = {}) {
-    io.in(room.roomCode).emit('bot-status', botStatusPayload(room, bot, state, details));
-  }
-
-  function publicBotFallbackReason(reason) {
-    const key = String(reason || '').toLowerCase();
-    if (!key) return null;
-    return PUBLIC_FALLBACK_REASONS.get(key) || 'provider-unavailable';
+    io.in(room.roomCode).emit('bot-status', botStatusPayload(botAdvisor, room, bot, state, details));
   }
 
   function finishBotTurn(room, token, movementDelayMs = 0) {
