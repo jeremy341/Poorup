@@ -45,6 +45,35 @@ export function pruneWindowBuckets(buckets, now, windowMs, cap = MAX_TRACKED_BUC
   dropExpiredBuckets(buckets, now, windowMs);
 }
 
+// Stable wire contract for every refusal caused by a rate limit. Clients match on `code`; `error` is human text only.
+export const RATE_LIMITED_CODE = 'RATE_LIMITED';
+export const RATE_LIMITED_MESSAGE = 'Too many requests. Try again shortly.';
+
+// A fixed-window budget for one identity (an account, a peer address or a socket). It shares the bounded bucket map, so rotating keys
+// can never grow it past MAX_TRACKED_BUCKETS. A limit of 0 disables the budget. take() returns null when the action is allowed, or
+// the milliseconds until the window reopens when it is not.
+export function createActionBudget({ limit, windowMs, cap = MAX_TRACKED_BUCKETS, now = () => Date.now() } = {}) {
+  const max = Math.max(0, Math.floor(Number(limit) || 0));
+  const window = Math.max(1, Math.floor(Number(windowMs) || 60_000));
+  const buckets = new Map();
+  return {
+    limit: max,
+    windowMs: window,
+    take(key, at = now()) {
+      if (!max) return null;
+      const identity = String(key ?? '').slice(0, 120) || 'unknown';
+      const bucket = windowBucket(buckets, identity, at, window, cap);
+      if (bucket.count < max) {
+        bucket.count += 1;
+        pruneWindowBuckets(buckets, at, window, cap);
+        return null;
+      }
+      return Math.max(1, bucket.startedAt + window - at);
+    },
+    size: () => buckets.size,
+  };
+}
+
 // The key a peer address is limited under. An IPv4-mapped IPv6 address is its
 // IPv4, and any other IPv6 address collapses to its /64 prefix (the smallest
 // normal allocation), so one client cannot mint a fresh budget per address.

@@ -19,9 +19,10 @@ import { registerGameSocketHandlers } from './serverSocketGame.js';
 import { registerSocialSocketHandlers } from './serverSocketSocial.js';
 import { assertProductionStoragePaths, resolveAuxiliaryStorePaths, resolveBackupDirectory, resolveDataDirectory, resolveRetiredStorePaths, resolveStorePaths } from './serverStorePaths.js';
 import { TelemetryStore } from './telemetryModule.js';
-import { assertProductionCors, createCorsOrigin, isAllowedSocketOrigin, parseAllowedOrigins, resolveClientAddress, resolveHandshakeSession, resolveRetentionToken, tokensMatch } from './serverConfig.js';
+import { assertProductionCors, assertTrustedProxyConfig, createCorsOrigin, expressTrustProxy, isAllowedSocketOrigin, parseAllowedOrigins, readAbuseLimits, readSocketEventLimits, readTrustedProxy, resolveClientAddress, resolveHandshakeSession, resolveRetentionToken, tokensMatch } from './serverConfig.js';
 import { createSocketAdmission, createSocketRateLimiter } from './socketRateLimiter.js';
 import { assertRateLimitConfig, createHttpRateLimiter } from './httpRateLimiter.js';
+import { createHttpRouteBudgets } from './abuseBudgets.js';
 import { backupJsonStores, isBackupStoreCandidate } from './backupStore.js';
 import { assertPersistenceMode } from './persistenceMode.js';
 import { bootMaintenanceMode, bootMaintenanceRecord, corruptMaintenanceMarker, createDrainController, SHUTDOWN_RELEASE_ID, shutdownDrainMessage } from './drainController.js';
@@ -68,8 +69,10 @@ let httpAccountResolver = () => null;
 let httpAccountRights = null;
 let httpAccountRecovery = null;
 let httpRetentionJob = null;
-const trustedProxyHops = Math.max(0, Math.floor(Number(process.env.POORUP_TRUST_PROXY_HOPS) || 0));
-if (trustedProxyHops > 0) app.set('trust proxy', trustedProxyHops);
+assertTrustedProxyConfig(process.env);
+// One trusted-proxy view for Express (req.ip) and the socket resolver, so HTTP and socket budgets count the same client.
+const trustedProxy = readTrustedProxy(process.env);
+if (trustedProxy.enabled) app.set('trust proxy', expressTrustProxy(trustedProxy));
 app.disable('x-powered-by');
 const configuredSocketOrigins = parseAllowedOrigins(process.env);
 const productionRuntime = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
@@ -109,17 +112,16 @@ app.use(express.static(publicPath, {
   index: false,
   setHeaders: (response, filePath, stat) => staticAssets.setStaticHeaders(response, filePath, stat)
 }));
-const httpRateLimit = createHttpRateLimiter({ max: process.env.POORUP_HTTP_RATE_LIMIT, windowMs: process.env.POORUP_HTTP_RATE_WINDOW_MS, trustProxy: trustedProxyHops > 0 });
+const httpRateLimit = createHttpRateLimiter({ max: process.env.POORUP_HTTP_RATE_LIMIT, windowMs: process.env.POORUP_HTTP_RATE_WINDOW_MS, trustProxy: trustedProxy.enabled });
 app.use((req, res, next) => {
   // Health probes bypass the limiter: a traffic burst must never make the
   // orchestrator restart a healthy pod with 429s.
   if (req.path === '/healthz' || req.path === '/readyz') return next();
   return httpRateLimit(req, res, next);
 });
-const socketRateLimiter = createSocketRateLimiter({
-  max: process.env.POORUP_SOCKET_RATE_LIMIT,
-  windowMs: process.env.POORUP_SOCKET_RATE_WINDOW_MS
-});
+// Route budgets for mail-sending, token-checking, export and admin-aggregation routes (see abuseBudgets.js). They sit behind the global IP budget.
+app.use(createHttpRouteBudgets({ limits: readAbuseLimits(process.env), trustProxy: trustedProxy.enabled }));
+const socketRateLimiter = createSocketRateLimiter(readSocketEventLimits(process.env));
 const socketAdmission = createSocketAdmission({
   maxConnections: process.env.POORUP_SOCKET_MAX_CONNECTIONS,
   maxHandshakes: process.env.POORUP_SOCKET_HANDSHAKE_RATE,
@@ -135,7 +137,7 @@ function isOriginAllowedForSocket(origin) {
 }
 
 function isPeerAllowedForSocket(request) {
-  const peerKey = resolveClientAddress({ request }, trustedProxyHops);
+  const peerKey = resolveClientAddress({ request }, trustedProxy);
   return socketAdmission.allow(peerKey, io?.engine?.clientsCount || 0);
 }
 
@@ -327,7 +329,7 @@ registerMaintenanceAccessRoutes(app, {
   access: maintenanceAccess,
   publicOrigin: configuredPublicOrigin,
   forceSecure: productionRuntime || String(process.env.POORUP_COOKIE_SECURE || '').toLowerCase() === 'true',
-  trustProxy: trustedProxyHops > 0
+  trustProxy: trustedProxy.enabled
 });
 // An analytics call can be the first to trade a legacy bearer token for a cookie
 // session; the cookie must reach the caller or the token is spent for nothing.
@@ -816,9 +818,9 @@ io.on('connection', (socket) => {
 
   // The peer key outlives the socket: a reconnect gets a new socket id but the
   // same address, so the peer budget keeps counting across reconnects.
-  const peerKey = resolveClientAddress({ address: socket.handshake?.address, headers: socket.handshake?.headers, request: socket.request }, trustedProxyHops);
+  const peerKey = resolveClientAddress({ address: socket.handshake?.address, headers: socket.handshake?.headers, request: socket.request }, trustedProxy);
   const safeOn = createSafeEmitter(socket, {
-    allow: socketId => socketRateLimiter.allow(socketId, peerKey),
+    check: socketId => socketRateLimiter.check(socketId, peerKey),
     onAccepted: (socketId, eventName) => runtime.noteSocketEvent(socketId, eventName),
   });
   // Times every handler for the admin status (P95 latency) and counts the ones

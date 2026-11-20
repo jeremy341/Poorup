@@ -201,6 +201,8 @@ function registerSocialSocketHandlers(on, socket, runtime) {
 
   // A computer player's public page: its own record and its most recent matches. Computer players have no privacy settings to honour.
   on('get-computer-profile', (payload = {}, callback) => {
+    // Each call scans every stored match, and the caller may be anonymous, so the budget is per peer.
+    if (!allowAnonymousAction(authAttemptKey(socket), 'computer-profile')) return reply(callback, TOO_MANY_REQUESTS);
     const persona = BOT_PERSONAS.find(entry => entry.id === payload.personaId);
     if (!persona) return reply(callback, { success: false, error: 'Computer player not found.' });
     const stats = botPersonaStore.profileFor(persona.id);
@@ -240,6 +242,9 @@ function registerSocialSocketHandlers(on, socket, runtime) {
 
   on('get-match-history', (payload = {}, callback) => {
     const viewer = accountForSocket(socket, payload);
+    // A history read walks the target's stored records, so it has a per-viewer budget like the other read-heavy social lookups.
+    const historyAllowed = viewer ? allowSocialAction(viewer.id, 'match-history') : allowAnonymousAction(authAttemptKey(socket), 'match-history');
+    if (!historyAllowed) return reply(callback, TOO_MANY_REQUESTS);
     if (restricted(viewer)) return reply(callback, ACCOUNT_DELETION_PENDING);
     const target = lookupAccountTarget(payload.accountId, viewer);
     if (!target || (target.accountDeactivated === true && target.id !== viewer?.id)) return reply(callback, PLAYER_NOT_FOUND);
