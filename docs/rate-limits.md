@@ -70,7 +70,7 @@ Memory: every map above is bounded at 10 000 live keys (`MAX_TRACKED_BUCKETS`). 
 
 | Route class | Limiter now | Key | Window | Budget | Status |
 | --- | --- | --- | --- | --- | --- |
-| Static files under `public/` (`/assets`, `/themes`, `/client`, `/styles.css`, `/favicon.svg`, other files) | none | n/a | n/a | n/a | **Intentional.** Served before the limiter so one page load (100+ requests) is not counted. A CDN or edge should cap these. |
+| Static files under `public/` (`/assets`, `/themes`, `/client`, `/css`, `/favicon.svg`, other files) | none | n/a | n/a | n/a | **Intentional.** Served before the limiter so one page load (100+ requests) is not counted. A CDN or edge should cap these. |
 | `/healthz`, `/readyz` | bypass | n/a | n/a | n/a | **Intentional.** A burst must not make an orchestrator restart a healthy instance. |
 | SPA pages (`/`, `/play`, `/rooms`, `/profile`, `/rankings`, `/social`, `/rules`, `/admin/analytics`), `/about`, `/rules`, `/robots.txt`, `/sitemap.xml`, `/maintenance/*` | global HTTP per IP | IP | `POORUP_HTTP_RATE_WINDOW_MS` | `POORUP_HTTP_RATE_LIMIT` | Covered. SEO and metadata routes are owned by another change and are not modified here. |
 | `GET /account/session`, `POST /account/logout` | global HTTP per IP | IP | as above | as above | **Global only.** Cheap, no secret checked. |

@@ -1,0 +1,58 @@
+/* Layout-invariance fallbacks for home and rules. */
+
+/* ===== Layout-invariance fallbacks (home + rules) ===========================
+   Targets are large desktops; these keep smaller windows usable without the
+   body or document ever becoming the scroller. */
+
+/* Short wide windows (e.g. a 1366x768 laptop's ~657px viewport): bound the home
+   view so the ticker stays on screen and any overflow scrolls inside .home-main. */
+@media (min-width: 1280px) and (max-height: 759px) {
+  #view-home { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
+  #view-home .home-main { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  #view-home .title-screen { flex: 0 0 auto; min-height: 0; }
+}
+
+/* Mouse-driven small desktop windows (900-1279 wide): the desk sits beside the
+   statement, as on large desktops, so Create / Join / Play vs computer stay on
+   the first screen instead of stacking below it. */
+@media (min-width: 900px) and (max-width: 1279px) and (orientation: landscape) and (not ((hover: none) and (pointer: coarse))) {
+  #view-home .home-main { display: flex; flex-direction: column; }
+  #view-home .title-screen { display: flex; flex: 1 0 auto; }
+  #view-home .parlor-desk-grid {
+    display: grid;
+    flex: 1;
+    grid-template-columns: minmax(0, 1.08fr) minmax(360px, .92fr);
+    align-items: center;
+    gap: 18px;
+    /* top band keeps the clock / score / Night Shift hint clear of the desk */
+    padding: 132px 22px 18px;
+  }
+  #view-home .parlor-statement { max-width: 620px; }
+  #view-home .parlor-statement .wm-hero { font-size: clamp(52px, 7vw, 78px); }
+  #view-home .home-entry-desk { max-width: clamp(360px, 40vw, 440px); justify-self: end; }
+}
+
+/* Phones: the name field and the four entry buttons come first; the wordmark,
+   blurb and status row follow and scroll inside .home-main. */
+@media (max-width: 767px) {
+  #view-home .home-entry-desk { order: -1; }
+}
+
+/* Phones: the 21-chapter contents list collapses behind the CHAPTERS toggle
+   (same disclosure the portrait tablet uses), leaving the room to the reader.
+   Scoped to the client markup that carries the toggle; the static no-JS page
+   keeps its plain scrollable list. */
+@media (max-width: 767px) {
+  #view-rules .rules-index:has(.rules-chapters-toggle) { flex: 0 0 auto; max-height: none; overflow: visible; padding: 8px 10px; }
+  #view-rules .rules-index:has(.rules-chapters-toggle) .rules-index-head { align-items: center; padding: 0; border: 0; }
+  #view-rules .rules-index:has(.rules-chapters-toggle) .rules-index-head > span { display: none; }
+  #view-rules .rules-chapters-toggle { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 44px; padding-inline: 10px; }
+  #view-rules .rules-index:has(.rules-chapters-toggle) .rules-index-nav { display: none; max-height: min(240px, 30dvh); margin-top: 8px; overflow-y: auto; overscroll-behavior: contain; }
+  #view-rules .rules-index.is-index-open:has(.rules-chapters-toggle) .rules-index-nav { display: grid; }
+}
+
+/* Static contents links are anchors, not buttons: no default underline. */
+a.rules-index-link { text-decoration: none; }
+#view-rules .rules-index > p { padding: 8px 7px 2px; }
+#view-rules .rules-index > p a { color: var(--gold-400); }
+

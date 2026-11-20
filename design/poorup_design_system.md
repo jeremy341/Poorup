@@ -1,6 +1,6 @@
 # Poorup: Visual Design System
 
-The visual language of the Poorup client. The colors, spacing and type below are the design tokens the client's CSS implements (`public/styles.css` defines the `--bg-*`, `--surface-*` and `--font-*` custom properties); measurements are targets for a 1672×941 desktop layout. When this document and the CSS disagree, the CSS is what ships.
+The visual language of the Poorup client. The colors, spacing and type below are the design tokens the client's CSS implements (`public/css/01-tokens-and-fonts.css` defines the `--bg-*`, `--surface-*` and `--font-*` custom properties); measurements are targets for a 1672×941 desktop layout. When this document and the CSS disagree, the CSS is what ships.
 
 ## 1. Design DNA
 

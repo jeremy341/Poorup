@@ -268,7 +268,7 @@ function isStaticRequest(requestPath) {
   return requestPath.startsWith('/assets/')
     || requestPath.startsWith('/themes/')
     || requestPath.startsWith('/client')
-    || requestPath === '/styles.css'
+    || requestPath.startsWith('/css/')
     || requestPath === '/favicon.svg';
 }
 app.get('*', (req, res, next) => {

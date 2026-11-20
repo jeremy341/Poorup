@@ -5,12 +5,12 @@ import { dirname, join } from "node:path";
 import { defaultStackOffset, startTileStackOffset } from "./clientBoardStack.js";
 import { tileAriaLabel } from "./clientTileLabel.js";
 import { fileURLToPath } from "node:url";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 // Source-level contracts for the visual layer (typography, targets, shell
 // bounds). Browser-measured behaviour lives in qa/visual-contracts.spec.js.
 const root = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(root, "styles.css"), "utf8");
-const responsiveCss = readFileSync(join(root, "game-responsive.css"), "utf8");
+const css = siteCss();
 const html = readFileSync(join(root, "index.html"), "utf8");
 
 export function rule(selector, source = css) {
@@ -128,6 +128,6 @@ for (const result of checks) {
   if (result.ok) console.log(`ok - ${result.name}`);
   else { failed += 1; console.error(`not ok - ${result.name}\n  ${result.error?.message || result.error}`); }
 }
-void responsiveCss; void html;
+void html;
 if (failed) process.exit(1);
 console.log(`${checks.length} visual contract checks passed`);

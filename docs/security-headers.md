@@ -48,8 +48,8 @@ Why each non-obvious directive is there:
 - **`script-src-attr 'none'`.** Blocks inline event-handler attributes (`onclick=` and the like). None exist in the client; the client attaches listeners in JavaScript.
 - **`style-src` split into element and attribute.** The markup and some JavaScript use `style="..."` attributes, so `'unsafe-inline'` stays for attributes. There are no `<style>` elements in the client or in server-rendered pages, so `style-src-elem 'self'` blocks injected style blocks. `style-src 'self' 'unsafe-inline'` is kept as a fallback for browsers that do not understand the `-elem`/`-attr` split.
 - **`connect-src`.** Same origin covers the Socket.IO polling and WebSocket connections (`'self'` matches `ws:`/`wss:` for the same host). When `POORUP_PUBLIC_ORIGIN` is set, that origin is added explicitly. Outside production with no public origin, `ws:` and `wss:` stay open for local development.
-- **`img-src 'self' data:`.** `styles.css` uses an inline SVG `data:` URI for its grain texture.
-- **`font-src 'self'`.** Fonts are served from `/assets/fonts/` (`@font-face` sources in `styles.css`); no external font host.
+- **`img-src 'self' data:`.** `public/css/02-base-and-helpers.css` uses an inline SVG `data:` URI for its grain texture.
+- **`font-src 'self'`.** Fonts are served from `/assets/fonts/` (`@font-face` sources in `public/css/01-tokens-and-fonts.css`); no external font host.
 - **`frame-src 'none'`, `worker-src 'none'`, `object-src 'none'`.** The client has no iframes, workers or plugins.
 - **`frame-ancestors 'none'`, `base-uri 'self'`, `form-action 'self'`.** Anti-clickjacking, base-tag injection, and forms posting only to this origin (the recovery and maintenance forms post to same-origin paths).
 

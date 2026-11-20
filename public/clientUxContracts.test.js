@@ -1,6 +1,7 @@
 /* global process */
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 globalThis.window = { matchMedia: () => ({ matches: false }) };
 globalThis.document = { querySelector: () => null, querySelectorAll: () => [] };
@@ -21,7 +22,7 @@ const stateSync = fs.readFileSync(new URL("./clientStateSync.js", import.meta.ur
 const rules = fs.readFileSync(new URL("./clientSocialSurfaces.js", import.meta.url), "utf8")
   + fs.readFileSync(new URL("./rulesSections.js", import.meta.url), "utf8");
 const gameModalsSource = fs.readFileSync(new URL("./clientGameModalsUi.js", import.meta.url), "utf8");
-const styles = fs.readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+const styles = siteCss();
 const { state: liveState } = await import("./clientState.js");
 const { turnTagText } = await import("./clientTopNavRender.js");
 

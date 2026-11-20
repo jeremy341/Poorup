@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 globalThis.window = { matchMedia: () => ({ matches: false }) };
 globalThis.document = { querySelector: () => null, querySelectorAll: () => [] };
@@ -10,7 +11,7 @@ globalThis.sessionStorage = storage;
 const { equityTransferControlsHTML, equityTransferPayload, tradeDeedRowHTML, beginTradeFromDeed, financingActiveContractDetailHTML } = await import("./clientTradeUi.js");
 const { state } = await import("./clientState.js");
 const tradeUiSource = (await Promise.all(["./clientFinancingUi.js", "./clientTradeModal.js"].map((name) => readFile(new URL(name, import.meta.url), "utf8")))).join("\n");
-const economyStyles = await readFile(new URL("./dialogs-and-economy.css", import.meta.url), "utf8");
+const economyStyles = siteCss();
 
 test("mortgaged deeds remain selectable and retain their mortgage label", () => {
   const tile = { i: 1, name: "MEDITERRANEAN AVENUE", price: 60, group: "brown", kind: "property" };

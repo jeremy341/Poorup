@@ -1,0 +1,288 @@
+/* Landscape tablet (iPad-first) game composition. */
+
+/* LANDSCAPE TABLET DESK: iPad-first composition
+ * The board is the primary surface on landscape iPad touch profiles through 1399px.
+ * Rails and focused work scroll internally, so the live round stays in the viewport.
+ */
+@media (orientation: landscape) and (min-width: 768px) and (max-width: 1399px) and (hover: none) and (pointer: coarse) {
+  html,
+  body { min-height: 100%; overflow-x: hidden; }
+
+  .hdr,
+  .topnav {
+    height: 64px;
+    min-height: 64px;
+    padding-inline: max(10px, env(safe-area-inset-left)) max(10px, env(safe-area-inset-right));
+    gap: 8px;
+  }
+  .hdr-brand,
+  .topnav-brand { gap: 8px; flex-shrink: 0; }
+  .hdr-brand {
+    box-sizing: border-box;
+    width: 180px;
+    min-width: 180px;
+    flex: 0 0 180px;
+    margin-right: 0;
+  }
+  #view-rankings .hdr-brand,
+  #view-social .hdr-brand,
+  #view-rules .hdr-brand { margin-right: 0; }
+  .hdr-brand-text { flex: 1; min-width: 0; }
+  .hdr-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hdr-wordmark { font-size: 28px; }
+  .topnav-wordmark { font-size: 28px; }
+  .home-nav { margin-left: 4px; }
+  .hdr .home-nav { height: 50px; min-height: 50px; }
+  .home-nav-tab { min-height: 44px; padding-inline: 8px; }
+  .hdr-right,
+  .topnav-right { gap: 6px; }
+  .hdr-rules { height: 44px; min-height: 44px; padding-inline: 8px; }
+  .audio-toggle { width: 44px; min-width: 44px; height: 44px; padding: 6px; }
+
+  /* Home stays a desk, not a page. The ticker remains in the first viewport. */
+  #view-home {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+  #view-home .home-main {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    max-width: none;
+    padding: 10px 14px 12px;
+  }
+  #view-home .title-screen {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+  #view-home .parlor-desk-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(360px, .92fr);
+    align-items: center;
+    gap: 18px;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    padding: 18px 22px;
+  }
+  #view-home .parlor-statement { max-width: 620px; }
+  #view-home .parlor-statement .wm-hero { font-size: clamp(52px, 7vw, 78px); }
+  #view-home .home-entry-desk { max-width: clamp(360px, 34vw, 440px); justify-self: end; padding: 18px; }
+  #view-home .home-entry-desk .title-screen-actions { gap: 8px; margin-top: 14px; }
+  #view-home .home-entry-desk .title-screen-cta { min-height: 58px; }
+  #view-home .home-entry-desk .title-screen-cta .cta-text { font-size: 15px; }
+  #view-home .home-entry-desk #resume-btn { min-height: 44px; }
+  #view-home .ticker { flex-shrink: 0; }
+
+  /* Rankings and Social retain a readable multi-panel desk at Mini width. */
+  #view-rankings,
+  #view-social,
+  #view-rules {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+  }
+  #view-rankings .social-page-main,
+  #view-social .social-page-main,
+  #view-rules .rules-page-main {
+    height: calc(100vh - 64px);
+    height: calc(100dvh - 64px);
+    min-height: 0;
+    padding: 10px 14px 14px;
+  }
+  #view-rankings .social-page-shell,
+  #view-social .social-page-shell,
+  #view-rules .rules-shell { height: 100%; min-height: 0; }
+  #view-rankings .rankings-main-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    min-height: 0;
+  }
+  #view-rankings .rankings-stage,
+  #view-rankings .rankings-stage .ranking-list { min-height: 0; }
+  #view-social .social-network-grid {
+    grid-template-columns: minmax(190px, .75fr) minmax(0, 1.8fr) minmax(220px, .9fr);
+    gap: 10px;
+    min-height: 0;
+  }
+  #view-social .social-network-rail,
+  #view-social .social-feed,
+  #view-social .social-context { grid-column: auto; height: 100%; min-height: 0; }
+  #view-social .social-context { max-height: none; }
+
+  /* Rules remains a book: the index and article are the only scroll regions. */
+  #view-rules .rules-intro { padding: 14px 18px; }
+  #view-rules .rules-toolbar { padding: 10px 14px; }
+  #view-rules .rules-book-spread { flex: 1; min-height: 0; }
+
+  /* Profile is a long editor, so keep its navigation reachable while it scrolls. */
+  #view-profile .hdr { position: sticky; top: 0; z-index: 50; }
+  #view-profile .profile-main { max-width: none; padding: 14px 24px 32px; }
+
+  /* Board-first live round. CSS variables let Mini and Pro breathe differently. */
+  #view-game {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+  #view-game .game-main {
+    --ipad-left-rail: 164px;
+    --ipad-right-rail: 220px;
+    display: grid;
+    grid-template-columns: var(--ipad-left-rail) minmax(0, 1fr) var(--ipad-right-rail);
+    grid-template-rows: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 8px;
+    height: calc(100vh - 64px);
+    height: calc(100dvh - 64px);
+    min-height: 0;
+    padding: 8px 10px max(10px, env(safe-area-inset-bottom));
+    overflow: hidden;
+  }
+  #view-game .rail-left {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 0;
+    overflow: hidden;
+    gap: 8px;
+  }
+  #view-game .rail-left > .panel:first-child {
+    flex: 0 0 auto;
+    max-height: 206px;
+    overflow: hidden;
+  }
+  #view-game .rail-left > .panel:first-child .player-list {
+    max-height: 144px;
+    overflow-y: auto;
+  }
+  #view-game .chat-panel { min-height: 0; overflow: hidden; }
+  #view-game .chat-body { min-height: 0; }
+  #view-game .rail-center {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    min-height: 0;
+    gap: 8px;
+    overflow: hidden;
+  }
+  #view-game .board-area { min-width: 0; min-height: 0; overflow: hidden; container-type: size; }
+  #view-game .board-holder {
+    width: min(100%, 68vh);
+    width: min(100%, 68dvh);
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+  }
+  #view-game .board-holder.is-metro {
+    width: min(100%, 68vh);
+    width: min(100%, 68dvh);
+    min-width: 0;
+    min-height: 0;
+  }
+  #view-game .hud {
+    grid-template-columns: minmax(0, .96fr) minmax(0, .9fr) minmax(104px, 1.1fr) minmax(0, 1.04fr) minmax(0, 1.1fr);
+    gap: 6px;
+    height: 86px;
+    min-height: 86px;
+  }
+  #view-game .hud-roll { grid-column: span 1; }
+  #view-game .hud-cell,
+  #view-game .hud-roll { min-height: 86px; height: 86px; padding: 8px; overflow: hidden; }
+  #view-game .hud-cell:first-child { overflow-y: auto; overscroll-behavior: contain; }
+  #view-game .hud-body { min-width: 0; gap: 6px; }
+  #view-game .hud-body > div { min-width: 0; }
+  #view-game #hud-cash-action { gap: 4px; }
+  #view-game #hud-cash-action #hud-cash { flex: 1 1 auto; min-width: 0; font-size: clamp(16px, 1.5vw, 18px); }
+  #view-game #hud-cash-action [data-sprite="note"] { display: none; }
+  #view-game .hud-name { font-size: 20px; }
+  #view-game .hud-note { margin-top: 4px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #view-game .t-money { font-size: 24px; }
+  #view-game .pool-val { font-size: 20px; }
+  #view-game .go-big { font-size: 20px; }
+  #view-game .airport-mark { width: clamp(14px, 3.3cqw, 30px); }
+  #view-game .board-icon-chest,
+  #view-game .board-icon-surprise,
+  #view-game .tile-icon-large .board-icon-mark { width: clamp(24px, 6cqw, 72px); }
+  #view-game .piece { width: 22px; height: 22px; }
+  #view-game .die,
+  #view-game .die-blank { width: 42px; height: 42px; padding: 7px; gap: 2px; }
+  #view-game .die { width: 42px; height: 42px; padding: 7px; gap: 2px; }
+  #view-game .hud-roll { padding-inline: 10px; }
+  #view-game .hud-roll .cta-text { font-size: 12px; }
+  #view-game .right-rail {
+    grid-column: 3;
+    grid-row: 1;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+  #view-game .right-rail-body { min-height: 0; overflow-y: auto; }
+
+  #view-game.is-left-rail-hidden .game-main { grid-template-columns: 0 minmax(0, 1fr) var(--ipad-right-rail); }
+  #view-game.is-right-rail-hidden .game-main { grid-template-columns: var(--ipad-left-rail) minmax(0, 1fr) 0; }
+  #view-game.is-left-rail-hidden.is-right-rail-hidden .game-main { grid-template-columns: 0 minmax(0, 1fr) 0; }
+
+  @media (min-width: 1100px) {
+    #view-game .game-main { --ipad-left-rail: 184px; --ipad-right-rail: 250px; gap: 10px; }
+    #view-game .hud { grid-template-columns: minmax(0, .96fr) minmax(0, .9fr) minmax(112px, 1.1fr) minmax(0, 1.04fr) minmax(0, 1.1fr); }
+  }
+  @media (min-width: 1150px) {
+    #view-game .board-holder,
+    #view-game .board-holder.is-metro {
+      width: min(100%, 72vh);
+      width: min(100%, 72dvh);
+    }
+  }
+
+  /* Mini-class landscape still has room for context. Keep a compact avatar
+     and connection signal instead of removing identity from the shared bar. */
+  @media (min-width: 900px) and (max-width: 1100px) {
+    .hdr > .hdr-right .you-chip {
+      display: flex;
+      width: 40px;
+      min-width: 40px;
+      height: 40px;
+      padding: 0;
+      justify-content: center;
+    }
+    .hdr > .hdr-right .you-chip-text { display: none; }
+  }
+
+  /* Tablet touch contract: AA minimum everywhere, comfortable size for chrome. */
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [role="button"],
+  [role="tab"] { touch-action: manipulation; -webkit-tap-highlight-color: rgb(200 143 46 / 24%); }
+  .home-nav-tab { min-height: 44px; }
+  .rooms-tab,
+  .rules-index-link { min-height: 40px; }
+  .profile-tab { min-height: 44px; }
+  .popup-card .btn-dark,
+  .log-drawer .btn-dark,
+  #panel-menu .panel-menu-head button { min-height: 40px; }
+  #panel-menu .panel-option input[type="checkbox"] { width: 24px; height: 24px; }
+  .parlor-toast-close { width: 40px; height: 40px; top: 4px; right: 4px; }
+  #view-home .chair-edit { min-height: 44px; height: 44px; }
+  .field { font-size: 16px; }
+  .social-search-label .field { height: 44px; min-height: 44px; flex-basis: 44px; }
+  .setting-select { height: 40px; font-size: 16px; }
+
+  /* Coarse pointers do not get sticky desktop hover states. */
+  @media (hover: none) and (pointer: coarse) {
+    .btn-dark:hover:not(:disabled) { border-color: var(--line-default); color: var(--gold-300); background: var(--surface-button-dark); }
+    .cta-red:hover:not(:disabled) { background: var(--red-action); }
+    .home-nav-tab:hover,
+    .home-signal:hover,
+    .social-tab:hover,
+    .profile-tab:hover { color: inherit; background: transparent; }
+  }
+}
+

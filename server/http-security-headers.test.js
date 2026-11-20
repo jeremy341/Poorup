@@ -59,7 +59,8 @@ await check('connect-src carries the configured origin and the same-origin defau
 // ---- The policy must not break the client: scan the shipped markup and styles ------------------------------------------------------
 
 function clientFiles() {
-  return fs.readdirSync(publicDirectory)
+  return ['', 'css']
+    .flatMap(folder => fs.readdirSync(path.join(publicDirectory, folder)).map(name => path.join(folder, name)))
     .filter(name => !/\.test\.m?js$/.test(name))
     .filter(name => /\.(?:html|js|css)$/.test(name))
     .map(name => ({ name, text: fs.readFileSync(path.join(publicDirectory, name), 'utf8') }));

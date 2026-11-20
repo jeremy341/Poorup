@@ -1520,7 +1520,7 @@ function bindEvents() {
 
 // INIT
 document.documentElement.style.setProperty('--dice-shake-cycle', `${DICE_SHAKE_CYCLE_MS}ms`);
-// Dialogs rise over 200ms and fall away faster (see clientSurfaces.js MODAL_EXIT_MS); styles.css owns the keyframes.
+// Dialogs rise over 200ms and fall away faster (see clientSurfaces.js MODAL_EXIT_MS); public/css/17-popups-rules-social-and-rankings.css owns the keyframes.
 document.documentElement.style.setProperty('--modal-enter-duration', `${MODAL_ENTER_MS}ms`);
 document.documentElement.style.setProperty('--modal-exit-duration', `${MODAL_EXIT_MS}ms`);
 configureBoardSound(playSound);

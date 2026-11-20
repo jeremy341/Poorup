@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import process from 'node:process';
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 const marketUi = fs.readFileSync(new URL('./clientMarketUi.js', import.meta.url), 'utf8');
 const railRender = fs.readFileSync(new URL('./clientRailRender.js', import.meta.url), 'utf8');
@@ -62,9 +63,7 @@ test('missingHistoryQuotesAreGapsRatherThanFabricatedZeroPrices', () => {
 });
 
 test('marketWorkspaceKeepsHistoryAndOrderVisibleTogether', () => {
-  const stylesheet = new URL('./dialogs-and-economy.css', import.meta.url);
-  assert.ok(fs.existsSync(stylesheet), 'persistent market workspace stylesheet exists');
-  const css = fs.readFileSync(stylesheet, 'utf8');
+  const css = siteCss();
   assert.match(css, /data-market-view[^}]+\.market-history\s*\{[^}]*display:\s*flex/s);
   assert.match(css, /data-market-view[^}]+\.market-trade-ticket\s*\{[^}]*display:\s*flex/s);
   assert.match(css, /\.market-trade-ticket[^}]+overflow-y:\s*auto/s);
