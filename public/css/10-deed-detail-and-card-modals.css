@@ -1,0 +1,154 @@
+/* Deed detail / house manager, card reveal and gallery, game-over results. */
+
+/* DEED DETAIL / HOUSE MANAGER */
+.deed-detail-card { max-width: min(520px, calc(100vw - 32px)); }
+.deed-detail-rail { height: 10px; width: 100%; }
+.deed-detail-body { padding: 16px; }
+.deed-detail-head { display: flex; align-items: flex-start; gap: 14px; }
+.deed-detail-icon {
+  width: 60px; height: 60px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); border-radius: 2px;
+}
+.deed-detail-title { margin-top: 6px; font-size: 17px; line-height: 1.2; color: var(--gold-100); }
+.deed-detail-close { height: 32px; padding: 0 12px; flex-shrink: 0; }
+.deed-detail-mortgage { height: 32px; padding: 0 12px; flex-shrink: 0; }
+
+.deed-detail-stats { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.deed-detail-ladder { margin-top: 14px; display: flex; flex-direction: column; gap: 4px; }
+.deed-detail-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px;
+  background: var(--surface-panel-deep);
+  border: 1px solid var(--line-dark);
+  border-radius: 2px;
+}
+.deed-detail-row.is-current {
+  background: var(--surface-selected);
+  border-color: var(--line-active);
+  box-shadow: var(--shadow-active);
+}
+.deed-detail-row-label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.deed-detail-row-pips { display: flex; gap: 2px; align-items: center; min-width: 46px; }
+.deed-detail-row-rent { font-family: var(--font-numeric); font-size: 13px; font-weight: 700; color: var(--green-status); font-variant-numeric: tabular-nums; }
+.deed-detail-row.is-current .deed-detail-row-rent { color: var(--gold-050); }
+.deed-detail-now { font-size: 11px; color: var(--gold-300); }
+.deed-detail-build-msg {
+  padding: 10px;
+  background: var(--surface-panel-deep);
+  border: 1px solid var(--line-dark);
+  border-radius: 2px;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+.deed-detail-build-btn { height: 54px; flex-direction: column; gap: 3px; }
+.deed-detail-build-btn .t-label { font-size: 13px; }
+.deed-detail-build-btn .t-micro { color: var(--cta-label-muted); }
+.deed-detail-buy-blocked .t-micro { color: var(--text-muted); }
+.deed-detail-foot { margin-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* card reveal: a landscape card. Header strip, centred text, footer strip. */
+#card-modal .card-reveal { max-width: 480px; overflow: visible; background: none; border: 0; box-shadow: none; padding: 0; }
+.card-reveal-card { --cr-accent: var(--gold-500); position: relative; overflow: hidden; border: 1px solid color-mix(in srgb, var(--cr-accent) 45%, var(--line-default)); border-radius: 4px; background: linear-gradient(160deg, var(--surface-card-highlight) 0%, var(--surface-card) 58%, var(--surface-board-tile) 100%); box-shadow: 0 22px 64px rgb(0 0 0 / 62%), 0 0 0 1px rgb(1 7 10 / 70%); }
+.card-reveal-card::before { content: ""; position: absolute; inset: 7px; z-index: 0; pointer-events: none; border: 1px solid color-mix(in srgb, var(--cr-accent) 26%, transparent); border-radius: 2px; }
+.card-reveal-rail { height: 6px; width: 100%; background: var(--cr-accent); box-shadow: 0 0 18px color-mix(in srgb, var(--cr-accent) 40%, transparent); }
+.card-reveal-body { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 12px; padding: 16px 24px 18px; }
+.card-reveal-top { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid color-mix(in srgb, var(--cr-accent) 30%, transparent); }
+.card-reveal-icon { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: none; }
+.card-reveal-icon .board-icon-mark { width: 30px; height: auto; }
+.card-reveal-icon .airport-mark { width: 28px; }
+.card-reveal-kind { padding: 0; border: 0; color: var(--cr-accent); letter-spacing: 0.22em; font-size: 11px; }
+.card-reveal-sequence { letter-spacing: 0.12em; margin-left: auto; }
+.card-reveal-name { flex: 1; display: flex; align-items: center; justify-content: center; margin: 0; padding: 6px 4px; text-align: center; font-family: var(--font-display); font-size: clamp(20px, 3.6vw, 28px); line-height: 1.22; letter-spacing: 0.02em; color: var(--gold-100); text-wrap: balance; }
+.card-reveal-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; min-height: 30px; padding-top: 10px; border-top: 1px solid var(--line-dark); }
+.card-reveal-outcome { display: grid; gap: 3px; justify-items: start; }
+.card-reveal-outcome-label { letter-spacing: 0.16em; }
+.card-reveal-amount { font-family: var(--font-numeric-display); font-size: 26px; line-height: 1; font-weight: 700; letter-spacing: 0.04em; }
+.card-reveal-amount.positive { color: var(--green-status); }
+.card-reveal-amount.negative { color: var(--red-bright); }
+.card-reveal-amount.neutral { color: var(--gold-050); font-size: 16px; }
+.card-reveal-btn { margin-left: auto; min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: flex-end; padding: 4px 0 0; background: none; border: 0; color: var(--text-muted); letter-spacing: 0.18em; cursor: pointer; }
+.card-reveal-btn:hover, .card-reveal-btn:focus-visible { color: var(--gold-300); outline: none; text-decoration: underline; text-underline-offset: 4px; }
+#card-reveal .card-reveal-card { aspect-ratio: 3 / 2; display: flex; flex-direction: column; cursor: pointer; }
+.card-reveal-btn:focus-visible { outline: 2px solid var(--theme-focus); outline-offset: 1px; }
+#card-reveal .card-reveal-body { flex: 1; }
+@keyframes card-reveal-slide-in {
+  0% { opacity: 0; transform: translate(56px, -72px) rotate(7deg) scale(.9); }
+  62% { opacity: 1; transform: translate(-4px, 6px) rotate(-1deg) scale(1.01); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes card-reveal-medal-pop { 0% { opacity: 0; transform: scale(.4); } 62% { opacity: 1; transform: scale(1.12); } 100% { opacity: 1; transform: none; } }
+@keyframes card-reveal-fade-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes card-reveal-scrim-in { from { opacity: 0; } to { opacity: 1; } }
+#card-modal:not(.is-hidden) > .popup-card { animation: card-reveal-slide-in var(--dur-l) var(--ease-out) both; }
+#card-modal:not(.is-hidden) > .popup-scrim { animation: card-reveal-scrim-in var(--dur-m) var(--ease-out) both; }
+#card-reveal .card-reveal-icon { animation: card-reveal-medal-pop 440ms 240ms cubic-bezier(.2, 1.4, .3, 1) both; }
+#card-reveal .card-reveal-name { animation: card-reveal-fade-up 360ms 320ms var(--ease-out) both; }
+#card-reveal .card-reveal-foot { animation: card-reveal-fade-up 360ms 460ms var(--ease-out) both; }
+@media (prefers-reduced-motion: reduce) {
+  #card-modal:not(.is-hidden) > .popup-card,
+  #card-modal:not(.is-hidden) > .popup-scrim,
+  #card-reveal .card-reveal-icon, #card-reveal .card-reveal-name, #card-reveal .card-reveal-foot { animation: none; }
+}
+
+/* all-card design gallery (visual-only ?preview=cards route) */
+.card-gallery { position: fixed; inset: 0; z-index: 72; display: flex; align-items: center; justify-content: center; padding: clamp(10px, 2vw, 28px); }
+.card-gallery-scrim { position: absolute; inset: 0; background: var(--theme-gallery-scrim); }
+.card-gallery-shell { position: relative; z-index: 1; width: min(1180px, 100%); max-height: min(94vh, 980px); max-height: min(94dvh, 980px); display: flex; flex-direction: column; overflow: hidden; border-color: var(--line-board); box-shadow: 0 18px 70px rgb(0 0 0 / 65%); }
+.card-gallery-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 20px 22px 16px; border-bottom: 1px solid var(--line-dark); background: rgb(8 24 24 / 80%); }
+.card-gallery-head h2 { margin-top: 7px; color: var(--gold-100); }
+.card-gallery-head p { margin-top: 7px; max-width: 58ch; }
+.card-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); grid-auto-rows: max-content; align-content: start; gap: 12px; padding: 16px; overflow: auto; }
+.card-gallery-grid .card-reveal-card { min-width: 0; border: 1px solid var(--line-dark); }
+.card-gallery-grid .card-reveal-card:hover { border-color: color-mix(in srgb, var(--cr-accent) 70%, var(--line-default)); }
+.card-gallery-grid .card-reveal-card::before { inset: 7px; }
+.card-gallery-grid .card-reveal-body { gap: 8px; padding: 12px 14px 14px; }
+.card-gallery-grid .card-reveal-icon { width: 26px; height: 26px; }
+.card-gallery-grid .card-reveal-icon .board-icon-mark { width: 22px; }
+.card-gallery-grid .card-reveal-icon .airport-mark { width: 21px; }
+.card-gallery-grid .card-reveal-name { min-height: 3.6em; padding: 2px 0; font-size: 15px; line-height: 1.22; }
+.card-gallery-grid .card-reveal-foot { min-height: 40px; padding-top: 8px; }
+.card-gallery-grid .card-reveal-amount { font-size: 18px; }
+.card-gallery-grid .card-reveal-amount.neutral { font-size: 13px; }
+
+@media (max-width: 620px) {
+  .card-gallery { padding: 0; align-items: stretch; }
+  .card-gallery-shell { max-height: 100vh; max-height: 100dvh; border-left: 0; border-right: 0; }
+  .card-gallery-head { padding: 15px; }
+  .card-gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 10px; }
+  .card-gallery-grid .card-reveal-body { padding: 12px 10px; }
+  .card-gallery-grid .card-reveal-name { font-size: 13px; }
+  .card-gallery-grid .card-reveal-sequence { font-size: 11px; }
+}
+
+/* game over */
+.go-name { font-family: var(--font-display); font-size: 34px; font-weight: 700; line-height: 1; color: var(--gold-050); text-shadow: 0 2px 0 var(--go-shadow-1), 0 4px 0 var(--go-shadow-2); }
+.go-kicker { font-family: var(--font-pixel); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+.go-verdict { margin: 10px auto 0; max-width: 34ch; color: var(--text-primary); text-wrap: balance; }
+.go-summary { margin-top: 16px; display: flex; flex-direction: column; gap: 6px; }
+.go-summary-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--surface-panel-raised); border: 1px solid var(--line-subtle); border-radius: 2px; }
+.go-summary-row.is-winner { border-color: var(--line-active); box-shadow: var(--shadow-active); }
+.go-actions { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+
+.profile-delete { margin-right: auto; height: 40px; padding: 0 16px; }
+.profile-delete .t-label { color: var(--red-bright); }
+.profile-delete:hover { border-color: var(--red-bright); color: var(--red-bright); }
+.mini-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  gap: 2px;
+  aspect-ratio: 1 / 1;
+  width: 100%;
+}
+.mini-cell { position: relative; background: var(--surface-board-tile); border: 1px solid var(--line-default); }
+.mini-cell.is-corner { border-color: var(--line-board); display: flex; align-items: center; justify-content: center; }
+.mini-cell .strip { position: absolute; left: 0; right: 0; top: 0; height: 26%; }
+
+.st-dot { display: block; width: 8px; height: 8px; border-radius: 999px; }
+

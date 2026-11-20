@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 const render = ["./clientProfileRender.js", "./clientProfileHistory.js", "./clientProfileHistoryDetails.js"].map(file => readFileSync(new URL(file, import.meta.url), "utf8")).join("\n");
 const bindings = readFileSync(new URL("./clientProfileBindings.js", import.meta.url), "utf8");
-const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+const styles = siteCss();
 globalThis.window = { matchMedia: () => ({ matches: false }) };
 globalThis.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 globalThis.sessionStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };

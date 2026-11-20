@@ -1,14 +1,11 @@
 import assert from "node:assert/strict";
 import process from "node:process";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { THEME_IDS, getTheme } from "./clientThemeData.js";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 // Contrast guard computed from
-// the per-theme token maps (original = the :root block in styles.css).
-const root = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(root, "styles.css"), "utf8");
+// the per-theme token maps (original = the :root block in public/css/01-tokens-and-fonts.css).
+const css = siteCss();
 const rootStart = css.indexOf(":root {");
 const baseTokens = {};
 for (const m of css.slice(rootStart, css.indexOf("\n}", rootStart)).matchAll(/(--[\w-]+):\s*([^;]+);/g)) baseTokens[m[1]] = m[2].trim();

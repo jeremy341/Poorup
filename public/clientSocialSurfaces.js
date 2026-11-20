@@ -179,7 +179,7 @@ function bindToastPause(toast, dismissToast) {
   });
 }
 
-// Keep in step with the 150ms parlor-toast-out animation in styles.css. The node is removed on
+// Keep in step with the 150ms parlor-toast-out animation in public/css/17-popups-rules-social-and-rankings.css. The node is removed on
 // animationend; the timer is the safety net for reduced motion, background tabs and no-CSS runs.
 const TOAST_EXIT_SAFETY_MS = 220;
 

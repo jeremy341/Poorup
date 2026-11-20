@@ -1,0 +1,189 @@
+/* POORUP: design system tokens */
+@font-face {
+  font-family: "Pixelify Sans";
+  src: url("/assets/fonts/pixelify-sans-400.woff2") format("woff2");
+  font-display: swap;
+  font-weight: 400;
+}
+@font-face {
+  font-family: "Pixelify Sans";
+  src: url("/assets/fonts/pixelify-sans-700.woff2") format("woff2");
+  font-display: swap;
+  font-weight: 700;
+}
+@font-face {
+  font-family: "Jersey 15";
+  src: url("/assets/fonts/jersey15-regular.woff2") format("woff2");
+  font-display: swap;
+  font-weight: 400;
+}
+@font-face {
+  font-family: "Silkscreen";
+  src: url("/assets/fonts/silkscreen-regular.ttf") format("truetype");
+  font-display: swap;
+  font-weight: 400;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/assets/fonts/ibm-plex-mono-500.woff2") format("woff2");
+  font-display: swap;
+  font-weight: 500;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/assets/fonts/ibm-plex-mono-600.woff2") format("woff2");
+  font-display: swap;
+  font-weight: 600;
+}
+:root {
+  /* Motion tokens. Snap = pixel-UI state changes, out = entrances, move = travel (piece slide AND hop share
+     one stepped family so a walk reads as one motion). card-reveal-medal-pop and modal exit keep deliberate curves. */
+  --ease-snap: steps(2, end);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-move: steps(6, end);
+  --dur-xs: 80ms;
+  --dur-s: 160ms;
+  --dur-m: 240ms;
+  --dur-l: 520ms;
+  --analytics-primary: var(--gold-300);
+  --analytics-comparison: var(--blue-player, #6c9fd8);
+  --analytics-human: var(--blue-player, #6c9fd8);
+  --analytics-ai: var(--green-player, #6da36c);
+  --analytics-bot: var(--gold-400);
+  --analytics-positive: var(--green-status, #79c579);
+  --analytics-negative: var(--red-action, #e06b5f);
+  --analytics-warning: var(--gold-100);
+  --analytics-neutral: var(--line-default);
+  --analytics-grid: var(--line-subtle);
+  --bg-canvas: #01070a;
+  --bg-chrome: #020a0d;
+
+  --surface-panel: #11282b;
+  --surface-panel-raised: #1b3638;
+  --surface-panel-deep: #030c10;
+  --surface-board-tile: #061011;
+  --surface-board-center: #031d1e;
+  --surface-input: #061216;
+  --surface-button-dark: #081516;
+  --surface-error: #170807;
+  --line-error: #af2a21;
+  --text-error: #f0b1a6;
+
+  --gold-050: #f0d9ac;
+  --gold-100: #e8d3ab;
+  --gold-300: #cfa75f;
+  --gold-400: #c88f2e;
+  --gold-500: #9b783d;
+  --gold-800: #a08d63;
+  --gold-muted: #a79d7d;
+
+  --text-primary: #e8d3ab;
+  --text-secondary: #a79d7d;
+  --text-muted: #a79d7d;
+
+  --red-action: #af2a21;
+  --red-action-hover: #be3126;
+  --red-action-pressed: #98231c;
+  /* Opaque CTA label tokens: every theme keeps >= 4.5:1 on action fill, hover, pressed and disabled (see clientThemeContrast.test.js). */
+  --cta-label: #fff8e0;
+  --cta-label-muted: #fff8e0;
+  --cta-label-disabled: #c5b6a4;
+  /* Control borders (fields, dark buttons): >= 3:1 non-text contrast on input/button/panel surfaces. */
+  --line-control: #887a59;
+  --red-bright: #e36b5f;
+  --red-dark: #87231e;
+
+  --green-status: #35a653;
+  --blue-player: #286ea1;
+
+  --line-dark: #1d2927;
+  --line-subtle: #3a382a;
+  --line-default: #5c5033;
+  --line-strong: #6b5a36;
+  --line-active: var(--gold-400);
+  --line-board: #9b783d;
+  --line-shadow: #101916;
+
+  /* Cosmetic theme hooks. Original values preserve the baseline exactly. */
+  --theme-focus: var(--gold-100);
+  --theme-scanline: rgb(255 255 255 / 1.6%);
+  --theme-scrim: rgb(1 7 10 / 72%);
+  --theme-setup-scrim: rgb(1 7 10 / 65%);
+  --theme-gallery-scrim: rgb(1 7 10 / 90%);
+  --theme-logo-primary: #9b783d;
+  --theme-logo-secondary: #cfa75f;
+  --theme-icon-primary: #cfa75f;
+  --theme-icon-secondary: #f0d9ac;
+  --surface-inset: #04100f;
+  --surface-button-hover: #0c1c1d;
+  --surface-button-pressed: #050f10;
+  --surface-disabled: #071011;
+  --surface-selected: #0c1f1c;
+  --surface-hover: #0b1c1d;
+  --surface-board-hover: #0a1a1a;
+  --surface-avatar: #0a1416;
+  --surface-card: #071516;
+  --surface-active: #0d211f;
+  --surface-special: #0c2524;
+  --surface-board-frame: #020c0d;
+  --field-placeholder: #a79d7d;
+  --wordmark-color: #e0b972;
+  --wordmark-shadow-1: #b8863a;
+  --wordmark-shadow-2: #8a6321;
+  --wordmark-shadow-3: #4a3512;
+  --theme-action-edge: #d05a49;
+  --theme-action-shadow: #721c18;
+  --theme-action-shadow-muted: #3d1c19;
+  --music-surface: #071314;
+  --music-border: #5c5033;
+  --music-accent: var(--gold-400);
+  --music-text: #e8d3ab;
+  --music-muted: #a79d7d;
+  --music-meter: var(--gold-400);
+  --surface-card-highlight: #0b2020;
+  --go-shadow-1: #b8863a;
+  --go-shadow-2: #8a6321;
+  --night-shadow: #8a6321;
+
+  --shadow-panel: 0 2px 8px rgb(0 0 0 / 45%);
+  --shadow-inset: inset 0 1px 0 rgb(240 217 172 / 5%);
+  --shadow-active: 0 0 8px rgb(200 143 46 / 12%);
+
+  /* Pixelify Sans fills the uppercase C aperture (reads as O); headings and CTAs use Jersey 15, the logotype keeps Pixelify. */
+  --font-display: "Jersey 15", "Pixelify Sans", "Courier New", monospace;
+  --font-brand: "Pixelify Sans", "Courier New", monospace;
+  --font-ui: "Pixelify Sans", "Courier New", monospace;
+  --font-pixel: "Silkscreen", "Courier New", monospace;
+  --font-body: "Pixelify Sans", "Courier New", monospace;
+  --font-numeric: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace; /* small numbers: readable */
+  --font-numeric-display: "Silkscreen", "Courier New", monospace; /* big money and counters keep the pixel face */
+  --cursor-reticle: url("/assets/parlor-patrol/crosshair.svg") 16 16;
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; overflow-x: hidden; }
+
+body {
+  /* Map each theme's palette to the canvas, panels, and raised cards. */
+  --surface-0: var(--bg-canvas);
+  --surface-1: var(--surface-panel);
+  --surface-2: var(--surface-panel-raised);
+  --edge-0: var(--line-dark);
+  --edge-1: var(--line-default);
+  --edge-2: var(--line-control);
+
+  margin: 0;
+  isolation: isolate;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: none;
+  text-rendering: geometricPrecision;
+  font-synthesis: none;
+}
+
+body[data-theme-id="light"] { --surface-0: var(--surface-panel-deep); }
+

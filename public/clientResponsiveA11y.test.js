@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 const index = readFileSync(new URL("./index.html", import.meta.url), "utf8");
-const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+const styles = siteCss();
 const profileBindings = readFileSync(new URL("./clientProfileBindings.js", import.meta.url), "utf8");
 
 const checks = [];

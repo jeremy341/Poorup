@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 const index = readFileSync(new URL("./index.html", import.meta.url), "utf8");
-const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+const styles = siteCss();
 const analytics = readFileSync(new URL("./clientAnalytics.js", import.meta.url), "utf8");
 const auction = readFileSync(new URL("./clientAuctionUi.js", import.meta.url), "utf8");
 const gameModals = readFileSync(new URL("./clientGameModalsUi.js", import.meta.url), "utf8");

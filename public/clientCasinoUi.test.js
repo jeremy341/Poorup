@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 globalThis.window = { matchMedia: () => ({ matches: false }) };
 const { casinoResultCopy } = await import('./clientCasinoUi.js');
@@ -17,7 +18,7 @@ assert.match(source, /18\/37 · 1:1/);
 assert.match(source, /1\/37 · 35:1/);
 assert.match(source, /limits\.lastResult \? "" : " hidden"/, 'hide only the empty result');
 assert.match(source, /removeAttribute\("hidden"\)/, 'a settled result becomes visible');
-const css = fs.readFileSync(new URL('./dialogs-and-economy.css', import.meta.url), 'utf8');
+const css = siteCss();
 assert.match(css, /#casino-modal \.casino-choice\s*\{[^}]*min-height: 60px/, 'the bet choices provide a taller target');
 assert.match(css, /input:focus-visible/, 'radio choices retain keyboard focus');
 assert.match(css, /button\[type="submit"\][^}]+min-height: 54px/s, 'the spin action has a comfortable height');

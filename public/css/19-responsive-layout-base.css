@@ -1,0 +1,247 @@
+/* Viewport-range layout overrides for the header, home, game shell and board (wide, tablet, short windows). */
+
+/* responsive */
+@media (min-width: 640px) {
+  .ticker-right { display: flex; }
+  .trade-cols { grid-template-columns: 1fr 1fr; }
+  .hdr > .hdr-right .online { display: flex; }
+}
+
+@media (min-width: 768px) {
+  .title-grid { padding: 32px; }
+  .you-chip { display: flex; }
+  .topnav-divider { display: block; }
+}
+
+@media (min-width: 1024px) {
+  .topnav-turn { display: flex; }
+  .deck { display: flex; }
+  .hud { grid-template-columns: 1fr 1fr; }
+  .hud-primary-actions { grid-column: span 2; }
+  .hud-roll { grid-column: span 2; }
+  .room-row { grid-template-columns: 1fr auto; }
+}
+
+@media (min-width: 900px) {
+  .piece { width: 30px; height: 30px; }
+}
+
+@media (min-width: 1280px) {
+  .hdr-meta { display: flex; }
+  .topnav-lobby { display: flex; }
+  .title-grid { grid-template-columns: 1.15fr 0.85fr; gap: 32px; }
+
+  .home-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-width: 2240px;
+  }
+  .title-screen {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+  }
+  .title-grid {
+    width: 100%;
+    min-height: 100%;
+  }
+  .title-screen-join { min-height: 60px; }
+  #quick-table-btn { min-height: 44px; }
+
+  #view-game { height: 100vh; overflow: hidden; }
+  .game-main {
+    display: grid;
+    grid-template-columns: 272px minmax(0, 1fr) 304px;
+    align-items: stretch;
+    height: calc(100vh - 68px);
+    overflow: hidden;
+  }
+  .rail-left { min-height: 0; overflow: hidden; }
+  .rail-center { min-height: 0; overflow: hidden; }
+  .board-area { min-height: 0; overflow: hidden; container-type: size; }
+  /* Size the board from the center stage's actual width and height. */
+  .board-holder {
+    width: min(100%, 100vh, 1600px);
+    width: min(100cqw, 100cqh, 1600px);
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    max-width: 100%;
+    max-height: 100%;
+    flex: 0 0 auto;
+  }
+  .board-holder.is-metro { min-width: 0; min-height: 0; }
+  .right-rail { min-height: 0; }
+  /* let the players panel size to content and the chat panel take the rest and scroll */
+  .rail-left > .panel:first-child { flex: 0 0 auto; }
+  .chat-panel { min-height: 0; }
+}
+
+@media (max-width: 1399px) and (min-width: 768px) {
+  .board-area:has(.board-holder.is-metro) { overflow: auto; align-items: flex-start; padding: 8px; }
+}
+
+@media (min-width: 1536px) {
+  .hud { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.1fr); }
+  .hud-roll { grid-column: span 1; }
+}
+
+@media (min-width: 1800px) {
+  .game-main {
+    width: calc(100% - 20px);
+    margin-inline: 10px;
+    grid-template-columns: 282px minmax(0, 1fr) 334px;
+    gap: 14px;
+  }
+  .board-holder { max-width: min(1600px, 100%); }
+  .rail-left, .right-rail { height: calc(100% - 4px); }
+}
+
+/* Home in the same window range: the desk fills the viewport and any overflow
+   scrolls inside .home-main, so the document itself never scrolls. */
+@media (min-width: 768px) and (max-width: 1279px) and (orientation: landscape) and (not ((hover: none) and (pointer: coarse))) {
+  #view-home { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
+  #view-home .home-main { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  #view-home .title-screen { flex: 0 0 auto; min-height: 0; }
+}
+
+/* Non-touch landscape windows between 768 and 1279 px get the same bounded
+   three-column shell as desktop: the document never scrolls, the rails scroll
+   internally, and the board and Roll stay on the first screen. */
+@media (min-width: 768px) and (max-width: 1279px) and (orientation: landscape) and (not ((hover: none) and (pointer: coarse))) {
+  #view-game { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
+  #view-game .topnav { flex: 0 0 auto; }
+  #view-game .game-main {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: minmax(148px, 196px) minmax(0, 1fr) minmax(188px, 236px);
+    align-items: stretch;
+    gap: 8px;
+    height: auto;
+    min-height: 0;
+    padding: 8px;
+    overflow: hidden;
+  }
+  #view-game .rail-left { gap: 8px; min-height: 0; overflow: hidden; }
+  #view-game .rail-left > .panel:first-child { flex: 0 1 auto; max-height: 48%; overflow-y: auto; }
+  #view-game .rail-center { min-width: 0; min-height: 0; gap: 8px; overflow: hidden; }
+  #view-game .board-area { min-width: 0; min-height: 0; overflow: hidden; container-type: size; }
+  #view-game .board-holder, #view-game .board-holder.is-metro {
+    width: min(100cqw, 100cqh);
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    max-width: 100%;
+    max-height: 100%;
+    flex: 0 0 auto;
+  }
+  #view-game .right-rail { min-width: 0; min-height: 0; overflow: hidden; }
+  #view-game .chat-panel, #view-game .chat-body, #view-game .right-rail-body { min-height: 0; }
+  #view-game .right-rail-body { overflow-y: auto; }
+  #view-game .hud { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, .9fr) minmax(0, 1fr) minmax(0, 1.16fr); gap: 6px; }
+  #view-game .hud-primary-actions { grid-column: span 1; min-width: 0; }
+  #view-game .hud-cell, #view-game .hud-roll { min-height: 72px; padding: 6px; }
+  #view-game .hud-name { font-size: 18px; }
+  #view-game .hud .t-money { font-size: 20px; }
+  #view-game .hud .die { width: 32px; height: 32px; padding: 5px; }
+  #view-game .hud-dice { gap: 6px; }
+  #view-game .hud-roll .cta-text { font-size: 11px; }
+}
+@media (min-width: 768px) and (max-width: 991px) and (orientation: landscape) and (not ((hover: none) and (pointer: coarse))) {
+  /* Below 992 px the centre column is ~400 px: Roll gets its own full-width HUD row. */
+  #view-game .game-main { grid-template-columns: minmax(132px, 168px) minmax(0, 1fr) minmax(168px, 200px); }
+  #view-game .hud { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #view-game .hud-primary-actions { grid-column: 1 / -1; }
+  #view-game .hud-cell { min-height: 64px; }
+  #view-game .hud-roll { min-height: 52px; }
+  #view-game .hud-name { font-size: 15px; }
+  #view-game .hud .t-money { font-size: 17px; }
+  #view-game .hud .die { width: 28px; height: 28px; padding: 4px; }
+}
+
+/* Board tile captions: at the 1920x1080 design target the board has room for larger captions. */
+@media (min-width: 1800px) {
+  .tile-name { font-size: clamp(9px, 1.3cqw, 14px); }
+  .tile-price { font-size: clamp(10px, 1.35cqw, 15px); }
+  .tile-face-special .tile-name { font-size: clamp(9px, 1.3cqw, 14px); }
+}
+
+@media (min-width: 2200px) {
+  .game-main {
+    --game-rail-width: clamp(320px, 11vw, 420px);
+    width: min(calc(100% - 28px), calc(min(1600px, calc(100dvh - 160px)) + var(--game-rail-width) + var(--game-rail-width) + 72px));
+    margin-inline: auto;
+    grid-template-columns: var(--game-rail-width) minmax(0, 1fr) var(--game-rail-width);
+    gap: 18px;
+  }
+  .board-holder { max-width: min(1600px, 100%); }
+  .hud {
+    grid-template-columns:
+      minmax(0, 1fr)
+      minmax(0, 1fr)
+      minmax(0, 0.8fr)
+      minmax(0, 1fr)
+      minmax(0, 1fr);
+  }
+  .hud-roll {
+    width: 100%;
+    justify-self: stretch;
+    margin-left: 0;
+  }
+  .lobby-start-btn {
+    width: 100%;
+    align-self: stretch;
+  }
+}
+
+@media (min-width: 1400px) {
+  #view-game .rail-center { min-width: 0; gap: 10px; }
+  #view-game .hud {
+    grid-template-columns: minmax(0, 1.08fr) minmax(0, 1.1fr) minmax(108px, .85fr) minmax(0, .92fr) minmax(0, 1.16fr);
+    gap: 8px;
+  }
+  #view-game .hud-primary-actions { grid-column: span 1; }
+  #view-game .hud-cell,
+  #view-game .hud-roll {
+    min-width: 0;
+    min-height: 96px;
+    height: 96px;
+    padding: 9px;
+  }
+  #view-game .hud-roll { grid-column: span 1; }
+  #view-game .hud-cell:first-child {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  #view-game .hud-cell:first-child:has(.hud-jail-action:not(.is-hidden)),
+  #view-game .hud-cell:first-child:has(.hud-loan-status:not(.is-hidden)) {
+    height: auto;
+    min-height: 116px;
+  }
+  #view-game .hud-name { font-size: clamp(18px, 1.25vw, 24px); }
+  #view-game .hud-roll .cta-text { font-size: clamp(11px, 0.95vw, 14px); }
+  #view-game .t-money { font-size: clamp(19px, 1.4vw, 26px); }
+  #view-game .pool-val { font-size: clamp(18px, 1.2vw, 24px); }
+}
+
+/* The panel menu collapses the corresponding grid tracks as well as hiding
+   their contents, so board space is reclaimed instead of becoming a blank
+   gutter. */
+@media (min-width: 1280px) {
+  #view-game.is-left-rail-hidden .game-main { grid-template-columns: 0 minmax(0, 1fr) 304px; }
+  #view-game.is-right-rail-hidden .game-main { grid-template-columns: 272px minmax(0, 1fr) 0; }
+  #view-game.is-left-rail-hidden.is-right-rail-hidden .game-main { grid-template-columns: 0 minmax(0, 1fr) 0; }
+}
+@media (min-width: 1800px) {
+  #view-game.is-left-rail-hidden .game-main { grid-template-columns: 0 minmax(0, 1fr) 334px; }
+  #view-game.is-right-rail-hidden .game-main { grid-template-columns: 282px minmax(0, 1fr) 0; }
+  #view-game.is-left-rail-hidden.is-right-rail-hidden .game-main { grid-template-columns: 0 minmax(0, 1fr) 0; }
+}
+@media (min-width: 2200px) {
+  #view-game.is-left-rail-hidden .game-main { grid-template-columns: 0 minmax(0, 1fr) var(--game-rail-width); }
+  #view-game.is-right-rail-hidden .game-main { grid-template-columns: var(--game-rail-width) minmax(0, 1fr) 0; }
+  #view-game.is-left-rail-hidden.is-right-rail-hidden .game-main { grid-template-columns: 0 minmax(0, 1fr) 0; }
+}
+

@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const index = readFileSync(join(root, 'index.html'), 'utf8');
-const styles = readFileSync(join(root, 'styles.css'), 'utf8');
+const styles = siteCss();
 const source = readFileSync(join(root, 'clientAdminAiProvider.js'), 'utf8');
 const main = readFileSync(join(root, 'main.js'), 'utf8');
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import process from "node:process";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 globalThis.window = { matchMedia: () => ({ matches: false }) };
 globalThis.document = { querySelector: () => null };
@@ -11,7 +12,7 @@ const source = readFileSync(new URL("./clientSocialSurfaces.js", import.meta.url
 const rulesSource = readFileSync(new URL("./rulesSections.js", import.meta.url), "utf8");
 const responsiveSource = readFileSync(new URL("./clientResponsiveSocialSurfaces.js", import.meta.url), "utf8");
 const bindings = readFileSync(new URL("./clientParlorBindings.js", import.meta.url), "utf8");
-const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+const styles = siteCss();
 
 function check(name, assertion) {
   try {
@@ -173,7 +174,7 @@ check("inGameRankingsAndSocialShareThePageContentAndReturnToTheTable", () => {
 });
 
 check("inGameReturnBarIsPinnedInsideAFixedCardWithInternalScroll", () => {
-  const ux = readFileSync(new URL("./dialogs-and-economy.css", import.meta.url), "utf8");
+  const ux = siteCss();
   assert.match(ux, /#rankings-modal \.social-surface-card,\s*#social-modal \.social-surface-card\s*\{[^}]*height:\s*min\(860px/);
   assert.match(ux, /\.table-return-bar\s*\{[^}]*flex-shrink:\s*0/);
   assert.match(ux, /\.table-return-btn\s*\{[^}]*min-height:\s*44px/);

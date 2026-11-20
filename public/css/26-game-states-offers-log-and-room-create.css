@@ -1,0 +1,153 @@
+/* Mortgage and build states, auction bidders, offers, bankruptcy, retire control, log drawer and the create-room panel. */
+
+/* MORTGAGE + TILE STATE VISUALS */
+.tile.is-mortgaged .tile-name,
+.tile.is-mortgaged .tile-price,
+.tile.is-mortgaged .tile-icon { opacity: 0.45; }
+.tile.is-mortgaged::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(45deg, rgb(1 7 10 / 55%) 0 4px, transparent 4px 9px);
+  pointer-events: none;
+}
+.tile-build {
+  position: absolute;
+  display: flex; gap: 1px;
+  pointer-events: none;
+}
+.tile-build.side-bottom { bottom: 2px; left: 0; right: 0; justify-content: center; }
+.tile-build.side-top { top: 2px; left: 0; right: 0; justify-content: center; }
+.tile-build.side-left { left: 2px; top: 0; bottom: 0; flex-direction: column; justify-content: center; }
+.tile-build.side-right { right: 2px; top: 0; bottom: 0; flex-direction: column; justify-content: center; }
+/* money-loop feedback: the newest house/hotel pops in (stepped, 160ms), set by clientBoardRender when a level rises */
+.tile-build.is-popping > :last-child { animation: tile-build-pop 160ms steps(3, end) both; }
+@keyframes tile-build-pop { from { transform: scale(.8); opacity: .6; } to { transform: none; opacity: 1; } }
+/* cash readout: 300ms stepped flash plus a rising +$/-$ chip (clientHudRender); viewer's own cash only */
+.hud-cash-action { position: relative; }
+#hud-cash.is-cash-up { animation: cash-flash-up 300ms steps(4, end) both; }
+#hud-cash.is-cash-down { animation: cash-flash-down 300ms steps(4, end) both; }
+@keyframes cash-flash-up { from { color: color-mix(in srgb, var(--green-status) 55%, #fff); text-shadow: 0 0 8px rgb(53 166 83 / 70%); } }
+@keyframes cash-flash-down { from { color: var(--red-bright); text-shadow: 0 0 8px rgb(227 107 95 / 60%); } }
+.cash-chip { position: absolute; z-index: 3; top: -2px; left: 4px; padding: 1px 5px; font: 700 12px/1.3 var(--font-numeric, monospace); font-variant-numeric: tabular-nums; letter-spacing: 0; color: var(--green-status); background: var(--surface-panel-deep, #030c10); border: 1px solid currentColor; pointer-events: none; white-space: nowrap; animation: cash-chip-rise 900ms steps(9, end) both; }
+.cash-chip.is-loss { color: var(--red-bright); }
+@keyframes cash-chip-rise { from { opacity: 1; transform: translateY(0); } 70% { opacity: 1; } to { opacity: 0; transform: translateY(-28px); } }
+
+/* AUCTION BIDDER LIST */
+.auction-players { margin-top: 12px; display: flex; flex-direction: column; gap: 4px; }
+.auction-player {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px;
+  background: var(--surface-panel-raised);
+  border: 1px solid var(--line-subtle);
+  border-radius: 2px;
+}
+.auction-player.is-leading { border-color: var(--line-active); box-shadow: var(--shadow-active); }
+.auction-player-avatar { width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: var(--surface-inset); border: 1px solid var(--line-subtle); flex-shrink: 0; }
+.auction-player-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.auction-player-status { font-size: 11px; }
+
+/* OFFER INBOX */
+.offer-card { max-width: 460px; overflow: hidden; }
+.offer-rows { margin-top: 14px; display: block; line-height: 1.55; }
+.offer-actions { margin-top: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.offer-btn { height: 50px; }
+.offer-note { margin-top: 12px; text-align: center; }
+@media (max-width: 480px) { .offer-actions { grid-template-columns: 1fr; } }
+
+/* BANKRUPTCY */
+.bank-body { position: relative; padding: 16px; }
+.bank-dismiss { position: absolute; top: 14px; right: 14px; min-height: 36px; padding: 0 10px; }
+.bank-head { display: flex; align-items: center; gap: 12px; padding-right: 72px; }
+.bank-icon { font-family: var(--font-display); font-size: 34px; color: var(--red-bright); line-height: 1; }
+.bank-title { margin-top: 6px; font-size: 17px; color: var(--gold-100); }
+.bank-copy { margin-top: 14px; }
+.bank-actions { margin-top: 16px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.bank-btn { height: 52px; width: 100%; }
+@media (max-width: 480px) { .bank-actions { grid-template-columns: 1fr; } }
+
+/* In-game retire control (topbar): danger tint from the existing red token
+   ramp. Press feedback comes from .btn-dark:active; nothing new animates. */
+.hdr-retire { border-color: var(--red-dark); }
+.hdr-retire .t-label { color: var(--red-bright); }
+.hdr-retire:hover:not(:disabled) { border-color: var(--red-action-hover); }
+.hdr-retire:active:not(:disabled) { background: var(--red-action-pressed); }
+
+/* LOG DRAWER */
+.log-drawer {
+  position: absolute; inset: 0; z-index: 4;
+  width: auto;
+  display: flex; flex-direction: column;
+  padding: 14px;
+  background: var(--surface-panel);
+  border: 1px solid var(--line-default);
+  box-shadow: var(--shadow-panel);
+  transform: translateX(105%);
+  transition: transform 130ms steps(3, end);
+  visibility: hidden; pointer-events: none;
+}
+.log-drawer.is-open { transform: none; visibility: visible; pointer-events: auto; }
+.log-drawer:not(.is-open) { display: none; }
+.log-drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.log-drawer-body { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; display: flex; flex-direction: column; gap: 6px; }
+.log-drawer-body .log-line { flex-shrink: 0; }
+.log-drawer-foot { margin-top: 10px; text-align: right; }
+@media (max-width: 640px) {
+  /* On touch widths (including an effective 200% zoom viewport), keep the
+     closed fixed drawer inside the viewport so it cannot create page
+     overflow. Opening uses a restrained opacity transition. */
+  .log-drawer { position: absolute; inset: 0; width: auto; transform: none; opacity: 0; pointer-events: none; }
+  .log-drawer.is-open { opacity: 1; pointer-events: auto; }
+}
+@media (max-width: 320px) {
+  .hdr { gap: 6px; padding-inline: 8px; }
+  .hdr-brand { min-width: 0; flex: 1 1 110px; gap: 6px; }
+  .hdr-brand-text { min-width: 0; }
+  .hdr-wordmark { font-size: 24px; }
+  .hdr-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hdr-right { gap: 6px; min-width: 0; }
+}
+
+/* CREATE ROOM PANEL */
+.room-create-form { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; }
+.room-create-field { display: block; }
+.room-create-field .t-label { display: block; margin-bottom: 6px; }
+.room-create-input { width: 100%; }
+.room-create-visibility-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+.room-create-visibility-option {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 12px; text-align: left;
+  background: var(--surface-1);
+  border: 1px solid var(--line-subtle);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background var(--dur-xs) var(--ease-snap), border-color var(--dur-xs) var(--ease-snap);
+}
+.room-create-visibility-option:hover { background: var(--surface-hover); }
+.room-create-visibility-option.is-active { background: var(--surface-active); border-color: var(--line-active); box-shadow: var(--shadow-active); }
+.room-create-code-entry { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.room-create-code { flex: 1; min-width: 0; letter-spacing: 0.16em; text-transform: uppercase; }
+.room-create-code-status { min-width: 118px; color: var(--text-muted); text-align: right; }
+.room-create-code-status.is-valid { color: color-mix(in srgb, var(--green-status) 75%, var(--text-primary)); }
+.room-create-code-status.is-invalid { color: color-mix(in srgb, var(--red-bright) 75%, var(--text-primary)); }
+.room-create-code-help { display: block; margin-top: 6px; }
+.room-create-btn { margin-top: 8px; width: 100%; height: 52px; }
+.room-create-local { margin-top: 10px; text-align: center; line-height: 1.6; }
+
+/* reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .dice-rolling, .chest, .blink, .piece.is-hopping, .face-cell:hover, .cash-chip, #hud-cash.is-cash-up, #hud-cash.is-cash-down, .tile-build.is-popping > *, #board-grid .tile.is-stamping { animation: none !important; }
+  .piece.is-moving, .piece.is-landing, .tile, .tile::before, .log-drawer { transition: none !important; }
+  .hud-cash-action:active:not(:disabled) { transform: none; }
+}
+
+@media (forced-colors: active) {
+  .panel, .popup-card, .field, button, .room-badge, .hud-cell, .board-frame,
+  .tile, .player-row, .room-row { forced-color-adjust: none; border-color: CanvasText; }
+  button:focus-visible, input:focus-visible, select:focus-visible,
+  textarea:focus-visible, a:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+  .dot, .st-dot, .player-row-dot, .tile-owner { background: currentColor !important; box-shadow: none !important; }
+  .cta-red { background: ButtonFace; color: ButtonText; border-color: CanvasText; }
+  /* Dim authored ink (signals, wordmark) is unreadable on the white canvas. */
+  .home-signal-line, .page-header .hdr-wordmark { forced-color-adjust: auto; }
+}
+

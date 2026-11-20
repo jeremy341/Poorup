@@ -1,6 +1,7 @@
 /* global process */
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { siteCss } from "../qa/support/siteSource.mjs";
 
 const read = (name) => fs.readFileSync(new URL(`./${name}`, import.meta.url), "utf8");
 const modals = read("clientGameModalsUi.js");
@@ -10,7 +11,7 @@ const auction = read("clientAuctionUi.js");
 const trade = read("clientFinancingUi.js") + read("clientTradeModal.js");
 const deal = read("clientDealUi.js");
 const rail = read("clientRailRender.js");
-const styles = read("styles.css");
+const styles = siteCss();
 const hud = read("clientHudRender.js");
 const logDrawer = read("clientLogDrawer.js");
 const main = read("main.js");

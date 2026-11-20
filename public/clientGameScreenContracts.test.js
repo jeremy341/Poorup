@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { siteCss } from "../qa/support/siteSource.mjs";
 
 const source = name => readFileSync(new URL(name, import.meta.url), "utf8");
 const checks = [];
@@ -22,9 +23,8 @@ const detail = source("./clientDeedDetailUi.js");
 const modals = source("./clientGameModalsUi.js");
 const sync = source("./clientStateSync.js");
 const rail = source("./clientRailRender.js");
-const responsive = source("./game-responsive.css");
-const styles = source("./styles.css");
-const deedStyles = source("./dialogs-and-economy.css");
+const styles = siteCss();
+const deedStyles = styles;
 const dealUi = source("./clientDealUi.js");
 
 globalThis.window = { matchMedia: () => ({ matches: false }) };
@@ -168,10 +168,11 @@ check("Emergency Liquidity collateral spans the terms grid and the modal scrolls
 });
 
 check("responsive board rules preserve the previous Poorup font tokens", () => {
-  assert.doesNotMatch(responsive, /IBM Plex Sans/);
-  assert.doesNotMatch(responsive, /--font-ui\s*:/);
-  expectMatch(source("./styles.css"), /--font-ui:\s*"Pixelify Sans"/);
-  expectMatch(source("./styles.css"), /--font-pixel:\s*"Silkscreen"/);
+  assert.doesNotMatch(styles, /--font-[a-z]+:[^;]*IBM Plex Sans/);
+  const gameResponsiveCss = readFileSync(new URL("./css/34-game-responsive.css", import.meta.url), "utf8");
+  assert.doesNotMatch(gameResponsiveCss, /--font-ui\s*:/);
+  expectMatch(styles, /--font-ui:\s*"Pixelify Sans"/);
+  expectMatch(styles, /--font-pixel:\s*"Silkscreen"/);
   for (const asset of ["./assets/fonts/ibm-plex-sans-400.woff2", "./assets/fonts/ibm-plex-sans-600.woff2", "./assets/fonts/LICENSE-IBM-Plex-Sans.txt"]) {
     assert.equal(existsSync(new URL(asset, import.meta.url)), false, `${asset} was introduced with the temporary font pass`);
   }

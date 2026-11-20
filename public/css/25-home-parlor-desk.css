@@ -1,0 +1,74 @@
+/* The home parlor desk composition. */
+
+/* PARLOR DESK HOMEPAGE COMPOSITION */
+.parlor-desk-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  padding: 20px;
+}
+.parlor-statement { width: 100%; min-width: 0; }
+.home-entry-desk {
+  position: relative;
+  width: 100%;
+  padding: 16px;
+}
+.home-entry-desk .title-screen-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
+.home-entry-desk .title-screen-cta,
+.home-entry-desk #resume-btn { width: 100%; }
+.home-entry-desk .title-screen-cta { min-height: 70px; }
+.home-entry-desk #resume-btn { min-height: 44px; }
+.home-entry-desk .home-alias-form { width: 100%; max-width: none; }
+
+#view-home .home-entry-desk .title-screen-actions .title-screen-play { min-height: 88px; }
+#view-home .home-entry-desk .title-screen-actions .title-screen-play .cta-text { font-size: 24px; }
+#view-home .home-entry-desk .title-screen-actions > .title-screen-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.title-screen-secondary .btn-dark {
+  flex: 1 0 auto;
+  min-height: 40px;
+  padding: 0 4px;
+  color: var(--text-secondary);
+}
+.title-screen-secondary [data-sprite] { display: none; }
+.title-screen-secondary .cta-text {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  letter-spacing: normal;
+  text-shadow: none;
+}
+
+@media (min-width: 1280px) {
+  .title-screen { flex-direction: column; }
+  .parlor-desk-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.12fr) minmax(420px, 0.88fr);
+    align-items: center;
+    align-content: center;
+    flex: 1;
+    min-height: 0;
+    gap: clamp(28px, 5vw, 96px);
+    padding: 34px clamp(32px, 5vw, 88px) 44px;
+  }
+  .parlor-statement { max-width: 760px; justify-self: start; }
+  .parlor-statement .wm-hero { font-size: clamp(52px, 6vw, 88px); }
+  .home-entry-desk { max-width: 440px; justify-self: end; align-self: center; padding: 24px; }
+}
+
+@media (min-width: 2200px) {
+  .parlor-desk-grid { padding-inline: 88px; }
+  .home-entry-desk { padding: 28px; }
+}
+
+@media (min-width: 2200px) and (min-height: 1000px) {
+  #view-home .hdr,
+  #view-home .ticker,
+  #view-home .home-local-time,
+  #view-home .parlor-statement,
+  #view-home .home-entry-desk { zoom: 1.25; }
+}
+
