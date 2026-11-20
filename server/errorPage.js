@@ -1,4 +1,4 @@
-function escapeHtmlText(value) {
+export function escapeHtmlText(value) {
   return String(value ?? '').replace(/[&<>"']/g, character => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   })[character]);

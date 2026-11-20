@@ -1618,7 +1618,7 @@ function createRuntime(deps) {
     if (!key) return null;
     if (!room.game.contractTransactions?.has(key)) return null;
     const memo = room.game.contractTransactions.get(key);
-    // An evicted id answers with the map's terminal rejection, as before.
+    // An evicted id answers with the map's terminal rejection.
     if (memo && memo.result === undefined && memo.error) return memo;
     const pendingId = room.game.pendingPlayerContract?.id || null;
     const named = payload?.contractId ? String(payload.contractId) : null;

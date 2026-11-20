@@ -42,7 +42,7 @@ import { attachSocketHttpHeaders, createSecurityMiddleware, hardenHttpServer } f
 import { renderAboutPage } from './aboutPage.js';
 import { renderRulesPage } from './rulesPage.js';
 import { aboutMarkdown, llmsFullText, robotsTxt, rulesMarkdown, sitemapXml } from './seoFiles.js';
-import { renderErrorPage as errorPage } from './errorPage.js';
+import { escapeHtmlText, renderErrorPage as errorPage } from './errorPage.js';
 import { isQuarantinedStore, loadJson, writeJson } from './storeIO.js';
 import { createAuthoritativeStore } from './authoritativeStore.js';
 import { createRoomPersistence } from './roomStore.js';
@@ -76,6 +76,8 @@ if (trustedProxy.enabled) app.set('trust proxy', expressTrustProxy(trustedProxy)
 app.disable('x-powered-by');
 const configuredSocketOrigins = parseAllowedOrigins(process.env);
 const productionRuntime = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+// HTTPS-only behaviour (HSTS, Secure cookies): production, or an explicit secure-cookie deployment behind a TLS proxy.
+const httpsDeployment = productionRuntime || String(process.env.POORUP_COOKIE_SECURE || '').toLowerCase() === 'true';
 const configuredPublicOrigin = metadataConfig({ env: process.env, path: '/' }).origin;
 const connectSources = configuredPublicOrigin
   ? ["'self'", configuredPublicOrigin]
@@ -86,8 +88,7 @@ app.use(...createSecurityMiddleware({
   connectSources,
   allowedHosts: process.env.POORUP_ALLOWED_HOSTS,
   errorPage,
-  // Same condition as before the header policy moved out of server.js: production or an explicit secure-cookie deployment.
-  forceHsts: productionRuntime || String(process.env.POORUP_COOKIE_SECURE || '').toLowerCase() === 'true'
+  forceHsts: httpsDeployment
 }));
 // Static files are served before the HTTP rate limiter: one cold load is over a
 // hundred requests, so counting them would 429 a third page load in a minute.
@@ -323,7 +324,7 @@ app.post('/internal/maintenance', requireMaintenanceToken, express.json({ limit:
 registerMaintenanceAccessRoutes(app, {
   access: maintenanceAccess,
   publicOrigin: configuredPublicOrigin,
-  forceSecure: productionRuntime || String(process.env.POORUP_COOKIE_SECURE || '').toLowerCase() === 'true',
+  forceSecure: httpsDeployment,
   trustProxy: trustedProxy.enabled
 });
 // An analytics call can be the first to trade a legacy bearer token for a cookie
@@ -380,7 +381,6 @@ app.get('/rules', (_req, res) => {
   res.type('html').send(renderRulesPage({ env: pageEnv }));
 });
 
-const metadataOrigin = metadataConfig({ env: process.env, path: '/' }).origin;
 const indexingApproved = isIndexingApproved(process.env);
 // robots.txt, the sitemap and the crawler text files are public, shared by every
 // client, and only change on a restart, so an hour of shared caching is safe.
@@ -388,7 +388,7 @@ const CRAWLER_TEXT_CACHE = 'public, max-age=3600';
 app.get('/sitemap.xml', (_req, res, next) => {
   if (!indexingApproved) return next();
   res.setHeader('Cache-Control', CRAWLER_TEXT_CACHE);
-  return res.type('application/xml').send(sitemapXml({ origin: metadataOrigin }));
+  return res.type('application/xml').send(sitemapXml({ origin: configuredPublicOrigin }));
 });
 // Markdown copies of the indexable pages exist only with indexing on, like the
 // sitemap; the full-text file describes the game, so it is served like llms.txt.
@@ -559,7 +559,7 @@ app.get('/readyz', (_req, res) => {
 });
 app.get('/robots.txt', (_req, res) => {
   res.setHeader('Cache-Control', CRAWLER_TEXT_CACHE);
-  return res.type('text').send(robotsTxt({ approved: indexingApproved, origin: metadataOrigin }));
+  return res.type('text').send(robotsTxt({ approved: indexingApproved, origin: configuredPublicOrigin }));
 });
 const SPA_PATHS = new Set(['/', '/play', '/rooms', '/profile', '/rankings', '/social', '/rules', '/admin/analytics']);
 function isStaticRequest(requestPath) {
@@ -576,9 +576,6 @@ app.get('*', (req, res, next) => {
     if (err) next(err);
   });
 });
-function escapeHtmlText(value) {
-  return String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
-}
 
 // ── 5. Account/social stores, sessions, recovery mail, backups ──
 const storePaths = resolveStorePaths(process.env);
@@ -605,7 +602,7 @@ const telemetryStore = new TelemetryStore(auxiliaryStorePaths.telemetry, { rollu
 storesLoaded = true;
 const sessionStore = createSessionStore({
   filePath: dataDirectory ? path.join(dataDirectory, 'sessions.json') : '',
-  secure: productionRuntime || String(process.env.POORUP_COOKIE_SECURE || '').toLowerCase() === 'true'
+  secure: httpsDeployment
 });
 io.use((socket, next) => {
   const cookies = parseCookieHeader(socket.handshake?.headers?.cookie || socket.request?.headers?.cookie || '');

@@ -1,6 +1,6 @@
 // The social socket domain: chat, friends and blocks, invites, notifications, player cards, search, match history, leaderboards and Parlor Patrol.
-// Every ack payload, error string and emit order is wire-identical to the original server.js handlers. The high-cc handlers
-// (friend-request privacy, player-card visibility, search, history, invites) became guard chains in the propertyApi.js style.
+// Ack payloads, error strings and emit order are a wire contract with the client. The branchy handlers (friend-request privacy,
+// player-card visibility, search, history, invites) are written as guard chains in the propertyApi.js style.
 import crypto from 'crypto';
 import { listMatchRecordsForAccount } from './matchHistoryAdapter.js';
 import { PARLOR_PATROL_ENABLED, PARLOR_PATROL_OFF_MESSAGE } from './accountStore.js';
