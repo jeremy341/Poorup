@@ -33,47 +33,66 @@ Development-time AI assistance is separate from the bots available in-game: dete
 - **Visual identity:** custom player designs, theme worlds with original Poorup SVG artwork, and an optional music player.
 - **Persistence:** no database; account and match records use local JSON stores.
 
-## How to run
+## Quick start
+
+Requires Node.js 22 (see `engines` in `package.json`; CI and the Dockerfile use 22).
 
 ```bash
 git clone https://github.com/jeremy341/Poorup.git
 cd Poorup
-npm install
+npm ci
 npm start
 ```
 
-Then open `http://localhost:8080` in your browser (two tabs for a local multiplayer test). A full game needs at least two players; the host starts from the lobby once seats are filled.
+Open <http://localhost:8080> (set `PORT` to change it). A game needs at least two players: open two tabs, enter different nicknames, create a room in one and join with the room code in the other. The host starts from the lobby once seats are filled; bots can fill empty seats.
 
-Read the complete rules in the in-game **Rules** surface. Poorup uses Node.js,
-Express, Socket.IO, and a vanilla HTML/CSS/JavaScript client.
+The server reads its configuration from the process environment only; it does not load `.env`. Local defaults are enough to play. Account, match and backup data are written to `server/data/` and `server/backups/` (git-ignored). [`.env.example`](.env.example) lists every setting the server reads; the production values are explained in [docs/production-hardening.md](docs/production-hardening.md).
+
+## Run the tests
+
+| Command | What it runs |
+| --- | --- |
+| `npm test` | The `core` group: most of the unit and wire tests in `server/`, `public/` and `scripts/`, plus a short seeded bot-campaign run. The usual check before a commit. |
+| `npm run test:full` | Every group in `scripts/test-manifest.mjs`: `core` plus the audit, timers, account, inactivity and UI-surface groups. CI runs this in four shards. Set `POORUP_TEST_PARALLELISM=4` to run suites concurrently. |
+| `npm run test:audit`, `test:account`, `test:inactivity` | One named group from the manifest. |
+| `npm run lint` / `npm run lint:client` | ESLint for `server scripts qa` / for `public`. |
+| `npm run test:browser` | Playwright browser specs in `qa/`. Starts `node server/server.js` on port 8080 unless `POORUP_QA_BASE_URL` points at a server you started yourself. First run: `npx playwright install chromium`. |
+| `npm run coverage` | The full suite under c8 (server coverage). |
+
+Every test file is a plain Node script that exits non-zero on failure, so any single one can be run directly, for example `node server/rooms.test.js`. A new test file must be added to a group in `scripts/test-manifest.mjs` or CI will not run it. More on the browser specs in [qa/README.md](qa/README.md).
+
+## Repo map
+
+| Path | What lives there |
+| --- | --- |
+| `server/` | The Node.js server: Express HTTP, Socket.IO handlers, game rules, bots, account and match stores, security and ops code. Tests sit beside the code as `*.test.js`. |
+| `public/` | The static client: vanilla HTML, CSS and ES modules (no build step), plus SVG art, fonts and audio under `public/assets/`. Tests sit beside the code as `*.test.js`. |
+| `qa/` | Playwright browser specs, the screenshot-capture tooling (`qa/visual-capture/`) and the socket load harness (`qa/load/`). |
+| `scripts/` | Test runner and manifest, CI timing tools, deploy and rollback scripts for the host, and backup restore and data-purge tools. |
+| `docs/` | Runbooks and reference docs; start at [docs/README.md](docs/README.md). |
+| `design/` | The visual design system. |
+| `bench/` | Bot-campaign parity baseline; see [bench/README.md](bench/README.md). |
+
+Root files: `PRODUCT.md` (product intent), `AGENTS.md` (rules for coding agents), `Dockerfile` and `ecosystem.config.cjs` (container and PM2 runtime), `.github/` (CI, deploy and maintenance workflows), `.codescene/` and `codecov.yml` (code-health and coverage settings).
+
+## Where to start reading
+
+1. `server/server.js`: boots Express and Socket.IO, creates the stores and wires the socket handlers.
+2. `server/gameLogic.js`: the `RoomManager` and the game rules it builds on (`game*.js`, `*Logic.js`, `*Rules.js` modules beside it).
+3. `server/botLogic.js`: how bots decide; `server/botAdvisor.js` is the AI-advisor side.
+4. `public/index.html` and `public/main.js`: the client shell and its entry module; the `client*.js` modules beside them each own one surface (board, lobby, trade, market, profile and so on).
+5. `docs/security-audit.md` and `docs/security-headers.md` before changing anything that touches sessions, sockets or HTTP.
 
 ## How to play
 
-Guest play requires no account. Roll, resolve the landed space, and complete any
-required purchase, auction, card, or payment before ending your turn. Build
-evenly across a color group, and use trades or mortgages to manage cash.
+Guest play requires no account. Roll, resolve the landed space, and complete any required purchase, auction, card, or payment before ending your turn. Build evenly across a color group, and use trades or mortgages to manage cash. The full rules are in the in-game **Rules** surface.
 
-Players have unlimited turn time. A separate inactivity-removal clock and
-vote-kick flow operate during a game.
+Players have unlimited turn time. A separate inactivity-removal clock and vote-kick flow operate during a game.
 
-MIT License
+## Deployment
 
-Copyright (c) 2026 jeremy341
+The Dockerfile builds a production image (`docker build -t poorup .`). The live host runs the release under PM2; see [docs/deployment/](docs/deployment/nest-live-runbook.md) and [docs/production-hardening.md](docs/production-hardening.md).
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+## License
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+MIT, see [LICENSE](LICENSE).
