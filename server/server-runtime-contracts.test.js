@@ -1,3 +1,5 @@
+// Cross-module contracts of the server runtime: persistence mode, provider status, seat restore, invites, host reassignment,
+// replay-cache pressure and match telemetry.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -306,5 +308,5 @@ try {
 
 // The exit code is evaluated at the exit call from every recorded failure, so
 // a trailing exit(0) can never mask a failure that check() has recorded.
-console.log(failures.length ? `\nserver follow-ups: ${failures.length} failed` : '\nserver follow-ups: all passed');
+console.log(failures.length ? `\nserver runtime contracts: ${failures.length} failed` : '\nserver runtime contracts: all passed');
 process.exit(failures.length ? 1 : 0);

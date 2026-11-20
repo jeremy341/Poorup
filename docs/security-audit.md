@@ -17,7 +17,7 @@ server or browser run was done. Findings are ordered by severity.
 | F-04 | Low | `ACCOUNT_LOCKED` reveals that a username exists, and the locked path skips the scrypt that unknown names pay | **Fixed**: unknown and known names get the same lock answer; the all-sources cap answers generically |
 | F-05 | Low | Password hashing uses Node's default scrypt cost (N=16384), below current guidance, with no rehash on login | **Fixed**: per-record cost (N=32768, r=8, p=3), rehash on the next correct sign-in |
 | F-06 | Low | Dockerfile base image referenced by a floating tag | **Fixed**: pinned to a digest |
-| F-07 | Info | `server/socialSocketAudit.test.js` fails, and it is not registered in the manifest | **Fixed**: stale fixtures corrected, test registered in the core manifest |
+| F-07 | Info | `server/social-socket-guards.test.js` fails, and it is not registered in the manifest | **Fixed**: stale fixtures corrected, test registered in the core manifest |
 
 Dependency audit (`npm audit --omit=dev`): 0 vulnerabilities (info 0, low 0, moderate 0, high 0, critical 0). No upgrades were needed.
 
@@ -162,7 +162,7 @@ so bump it on a schedule.
 
 ## F-07 · Info · Stale social audit fixtures
 
-`server/socialSocketAudit.test.js` failed with `warm snapshot contains both public accounts (0 !== 2)`. The server was changed on purpose to
+`server/social-socket-guards.test.js` failed with `warm snapshot contains both public accounts (0 !== 2)`. The server was changed on purpose to
 hide friends-only achievements from signed-out viewers (`withAchievementPrivacy`), but the test's default account fixture still used
 `achievements: 'friends'` and expected those accounts in public rankings. The fixture default is now `'public'`, and the suite is registered
 in the core manifest so it runs in `npm test`.
@@ -255,7 +255,7 @@ in the core manifest so it runs in `npm test`.
 | `node --test server/socket-logout-session.test.js` | 2/2 pass (red before the fix) |
 | `node --test server/trust-proxy-advisory.test.js` | 3/3 pass (red before the function existed) |
 | `node --test server/dockerfile-hardening.test.js` | 3/3 pass (digest check red before the pin) |
-| `node server/serverSocketAccount.test.js`, `account-auth-abuse`, `socket-admission`, `release-hardening`, `serverSocketSocial`, `server`, `rooms`, `social-socket`, `accountRightsSocket` | exit 0 |
+| `node server/serverSocketAccount.test.js`, `account-auth-abuse`, `socket-admission`, `serverConfig`, `serverSocketSocial`, `server`, `rooms`, `social-socket`, `accountRightsSocket` | exit 0 |
 | `node scripts/ops-wiring.test.mjs`, `server/serverStorePaths.test.js` | exit 0 |
-| `node server/socialSocketAudit.test.js` | 16 scenarios passed (F-07 fixed) |
+| `node server/social-socket-guards.test.js` | 16 scenarios passed (F-07 fixed) |
 | `npx eslint` on all changed `.js`/`.mjs` files | no output (clean) |

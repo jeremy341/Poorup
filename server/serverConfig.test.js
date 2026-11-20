@@ -1,3 +1,4 @@
+// Server configuration helpers: operator token comparison, CORS origins, trusted proxy and socket rate-limit settings.
 import assert from 'node:assert/strict';
 import { assertProductionCors, createCorsOrigin, parseAllowedOrigins, resolveRetentionToken, tokensMatch } from './serverConfig.js';
 import { createSocketRateLimiter } from './socketRateLimiter.js';
@@ -39,4 +40,4 @@ assert.equal(limiter.allow('socket-a'), true);
 limiter.forget('socket-a');
 assert.equal(limiter.allow('socket-a'), true);
 
-console.log('release hardening tests: 28 passed, 0 failed');
+console.log('server config tests: 28 passed, 0 failed');

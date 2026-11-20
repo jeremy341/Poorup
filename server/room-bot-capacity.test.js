@@ -1,3 +1,4 @@
+// Bot seats are reconciled against retained human seats without exceeding room capacity.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
 
@@ -42,4 +43,4 @@ assert.equal(room.game.players.filter(player => player.isBot).length, 1);
   assert.equal(room.game.turnOrder.length, capacity, 'the rematch never exceeds maxPlayers');
 }
 
-console.log('capacity follow-up: 4 assertions passed, 0 failed');
+console.log('room bot capacity: 4 assertions passed, 0 failed');

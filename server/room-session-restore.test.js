@@ -1,3 +1,5 @@
+// Seat restore and lobby identity: reconnecting to a live or account-owned seat, capacity and host reassignment with bots,
+// rematch pruning, account registration binding, and invite expiry.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -127,5 +129,5 @@ check('invites bind immutable room identity and prune expired rows on reads', ()
 
 // The exit code is evaluated at the exit call from every recorded failure, so
 // a trailing exit(0) can never mask a failure that check() has recorded.
-console.log(failures.length ? `\nsession-room regressions: ${failures.length} failed` : '\nsession-room regressions: all passed');
+console.log(failures.length ? `\nroom session restore: ${failures.length} failed` : '\nroom session restore: all passed');
 process.exit(failures.length ? 1 : 0);

@@ -221,7 +221,7 @@ await check('returns an hourly activity series and the oldest stored hour', () =
 
 const sumStarted = result => Object.values(result.dimensions).reduce((sum, dimension) => sum + dimension.started, 0);
 
-await check('S15-01: distinct bot action ids do not each take a dimension slot', () => {
+await check('distinct bot action ids do not each take a dimension slot', () => {
   const store = createAnalyticsRollupStore({ now: () => clock, maxDimensionsPerBucket: 8 });
   for (let index = 0; index < 40; index += 1) {
     const result = store.record({ kind: 'bot-outcome', createdAt: new Date(clock).toISOString(), botMode: 'ai', provider: 'ai', actionId: `buy:${index}`, data: { decisions: 1 } });
@@ -235,7 +235,7 @@ await check('S15-01: distinct bot action ids do not each take a dimension slot',
   store.close();
 });
 
-await check('S15-02: the window includes the partial hour at its start', () => {
+await check('the window includes the partial hour at its start', () => {
   const origin = Date.parse('2026-09-13T10:10:00.000Z');
   const store = createAnalyticsRollupStore({ now: () => origin });
   const at = iso => ({ kind: 'match-start', createdAt: iso, data: {} });
@@ -248,7 +248,7 @@ await check('S15-02: the window includes the partial hour at its start', () => {
   store.close();
 });
 
-await check('S15-04: prototype-like names are counted as ordinary keys', () => {
+await check('prototype-like names are counted as ordinary keys', () => {
   const store = createAnalyticsRollupStore({ now: () => clock });
   const stamp = new Date(clock).toISOString();
   try {
@@ -271,7 +271,7 @@ await check('S15-04: prototype-like names are counted as ordinary keys', () => {
   store.close();
 });
 
-await check('S15-06: a full actor table does not drop the aggregate counters', async () => {
+await check('a full actor table does not drop the aggregate counters', async () => {
   const { createPseudonymizer } = await import('./analyticsPrivacy.js');
   const store = createAnalyticsRollupStore({ now: () => clock, maxActorsPerBucket: 1, pseudonymizer: createPseudonymizer({ key: 'actor-cap-test-key-0123456789' }) });
   const stamp = new Date(clock).toISOString();
@@ -283,7 +283,7 @@ await check('S15-06: a full actor table does not drop the aggregate counters', a
   store.close();
 });
 
-await check('S15-07: event times are validated and the caller\'s Date is left alone', () => {
+await check('event times are validated and the caller\'s Date is left alone', () => {
   const store = createAnalyticsRollupStore({ now: () => clock });
   const created = new Date('2026-09-13T12:34:56.789Z');
   assert.equal(store.record({ kind: 'match-start', createdAt: created, data: {} }).accepted, true);
@@ -295,7 +295,7 @@ await check('S15-07: event times are validated and the caller\'s Date is left al
   store.close();
 });
 
-await check('S15-08: a schema mismatch is quarantined and damaged buckets are dropped', () => {
+await check('a schema mismatch is quarantined and damaged buckets are dropped', () => {
   const schemaRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-analytics-schema-'));
   const mismatched = path.join(schemaRoot, 'schema-mismatch.json');
   const original = JSON.stringify({ schemaVersion: 99, buckets: { '2026-09-13T12:00:00.000Z': { dimensions: {}, actorRollups: {} } } });

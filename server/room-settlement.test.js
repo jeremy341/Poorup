@@ -284,7 +284,7 @@ check('FIX4 reconnect accepts valid grid', () => {
   assert.deepEqual(room.game.getPlayerByClient('client-b').avatarGrid, custom);
 });
 
-check('S08-03 a face with no color cannot duplicate another seat icon', () => {
+check('a face with no color cannot duplicate another seat icon', () => {
   const ctx = startedWith([SEAT_B]);
   const a = ctx.game.getPlayerBySocket('socket-a');
   const b = ctx.game.getPlayerBySocket('socket-b');

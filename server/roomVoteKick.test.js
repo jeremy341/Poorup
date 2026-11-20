@@ -59,7 +59,7 @@ test('strict majority passes, no vote fails, target and new players cannot vote'
   assert.equal(noVote.vote.status, 'failed');
 });
 
-test('a seat eliminated mid-vote stops counting, and its earlier yes ballot goes with it (F-070)', () => {
+test('a seat eliminated mid-vote stops counting, and its earlier yes ballot goes with it', () => {
   const roster = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }, { id: 'target' }];
   const vote = startRoomVoteKick({ players: roster, initiatorId: 'a', targetPlayerId: 'target', now: 0 });
   assert.equal(vote.requiredYes, 3, 'threshold is a strict majority of the electorate frozen at start');
@@ -76,7 +76,7 @@ test('a seat eliminated mid-vote stops counting, and its earlier yes ballot goes
   assert.equal(dYes.vote.status, 'passed');
 });
 
-test('an elimination that leaves the vote unable to reach its threshold closes it as failed (F-070)', () => {
+test('an elimination that leaves the vote unable to reach its threshold closes it as failed', () => {
   const roster = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'target' }];
   const vote = startRoomVoteKick({ players: roster, initiatorId: 'a', targetPlayerId: 'target', now: 0 });
   assert.deepEqual(vote.electorate, ['a', 'b', 'c']);
