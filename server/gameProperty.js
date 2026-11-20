@@ -9,6 +9,10 @@ function hasRecordedPurchasePrice(tile) {
 
 export const gamePropertyApi = {
   getTile(index) {
+    // Board tiles are built positionally (boardRegistry sets tile.index to its array slot) and never reordered,
+    // so the slot is the answer; the scan is only a fallback for an index that does not match its slot.
+    const direct = this.tiles[index];
+    if (direct && direct.index === index) return direct;
     return this.tiles.find(tile => tile.index === index);
   },
 

@@ -5,7 +5,7 @@ import { trafficPercent, groupDevelopmentGain, rentAtLevel as sharedRentAtLevel 
 // The engine's own rent math: the event modifiers and the rent cap change
 // what a seat actually pays, so a forecast that ignores them over-states the
 // hit the reserve has to cover.
-import { calculateRentFromFacts, rentFactsFromSnapshot } from './botRentForecast.js';
+import { rentFromSnapshot } from './botRentForecast.js';
 
 function number(value, fallback = 0) {
   const parsed = Number(value);
@@ -122,7 +122,7 @@ function hitRent(board, tile, snapshot) {
     // A utility is the one tile whose rent grows with the dice, so the
     // worst case is the highest total.
     const diceTotal = type === 'utility' ? 12 : 7;
-    return calculateRentFromFacts(rentFactsFromSnapshot({ ...snapshot, board }, tile, diceTotal));
+    return rentFromSnapshot({ ...snapshot, board }, tile, diceTotal);
   }
   return rentAtLevel(tile, tile?.houseCount);
 }
@@ -130,9 +130,22 @@ function hitRent(board, tile, snapshot) {
 // Biggest single rent hit an opponent can deal next circuit: max over
 // opponent-owned, unmortgaged, developed tiles of traffic-weighted rent.
 // Drives the dynamic liquidity target (cover the max live hit).
-export function forecastMaxHit(board, snapshot = null) {
+// Every tile field the hit reads (the rent facts and the group weights) goes into the key, so a memo hit can only return the
+// value the scan would compute. One snapshot prices its reserve once per distinct board, not once per candidate.
+const MAX_HIT_MEMO = new WeakMap();
+
+function maxHitKey(board) {
+  let key = '';
+  for (const tile of board) {
+    key += `${tile?.ownerSeat}|${tile?.houseCount}|${tile?.mortgaged}|${tile?.type}|${tile?.group}|${tile?.rent}
+`;
+  }
+  return key;
+}
+
+function scanMaxHit(board, snapshot) {
   let max = 0;
-  for (const tile of board || []) {
+  for (const tile of board) {
     const seat = tile?.ownerSeat || 'bank';
     if (!seat.startsWith('opponent') || tile?.mortgaged) continue;
     const rent = hitRent(board, tile, snapshot);
@@ -140,6 +153,18 @@ export function forecastMaxHit(board, snapshot = null) {
     if (weighted > max) max = weighted;
   }
   return max;
+}
+
+export function forecastMaxHit(board, snapshot = null) {
+  const list = board || [];
+  if (!snapshot || typeof snapshot !== 'object') return scanMaxHit(list, snapshot);
+  let memo = MAX_HIT_MEMO.get(snapshot);
+  if (!memo) { memo = new Map(); MAX_HIT_MEMO.set(snapshot, memo); }
+  const key = maxHitKey(list);
+  if (memo.has(key)) return memo.get(key);
+  const value = scanMaxHit(list, snapshot);
+  memo.set(key, value);
+  return value;
 }
 
 // Table stage from development facts: early (no monopolies yet), mid

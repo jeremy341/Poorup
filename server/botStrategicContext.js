@@ -37,9 +37,15 @@ function cashBand(cash, startingCash) {
 export function seatOf(game, bot, playerId) {
   if (!playerId) return 'bank';
   if (playerId === bot.id) return 'self';
-  const opponents = (game.players || []).filter(player => player.id !== bot.id);
-  const index = opponents.findIndex(player => player.id === playerId);
-  return index < 0 ? 'unknown' : `opponent-${index + 1}`;
+  // Position among the opponents (every seat except the bot), found without building the opponent list per call.
+  let opponentIndex = -1;
+  let seen = 0;
+  for (const player of game.players || []) {
+    if (player.id === bot.id) continue;
+    if (player.id === playerId) { opponentIndex = seen; break; }
+    seen += 1;
+  }
+  return opponentIndex < 0 ? 'unknown' : `opponent-${opponentIndex + 1}`;
 }
 
 function tileView(game, bot, tile) {
