@@ -38,6 +38,7 @@ import { createStaticAssets } from './staticAssets.js';
 import { asyncRoute, createHttpErrorHandler } from './httpErrors.js';
 import { renderAboutPage } from './aboutPage.js';
 import { renderRulesPage } from './rulesPage.js';
+import { aboutMarkdown, llmsFullText, robotsTxt, rulesMarkdown, sitemapXml } from './seoFiles.js';
 import { renderErrorPage as errorPage } from './errorPage.js';
 import { isQuarantinedStore, loadJson, writeJson } from './storeIO.js';
 import { createAuthoritativeStore } from './authoritativeStore.js';
@@ -385,12 +386,29 @@ app.get('/rules', (_req, res) => {
 
 const metadataOrigin = metadataConfig({ env: process.env, path: '/' }).origin;
 const indexingApproved = isIndexingApproved(process.env);
+// robots.txt, the sitemap and the crawler text files are public, shared by every
+// client, and only change on a restart, so an hour of shared caching is safe.
+const CRAWLER_TEXT_CACHE = 'public, max-age=3600';
 app.get('/sitemap.xml', (_req, res, next) => {
   if (!indexingApproved) return next();
-  const publicRoutes = ['/', '/about', '/rules'];
-  const escapeXml = value => String(value).replace(/[<>&"']/g, character => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[character]));
-  const body = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${publicRoutes.map(route => `<url><loc>${escapeXml(`${metadataOrigin}${route}`)}</loc></url>`).join('')}</urlset>`;
-  return res.type('application/xml').send(body);
+  res.setHeader('Cache-Control', CRAWLER_TEXT_CACHE);
+  return res.type('application/xml').send(sitemapXml({ origin: metadataOrigin }));
+});
+// Markdown copies of the indexable pages exist only with indexing on, like the
+// sitemap; the full-text file describes the game, so it is served like llms.txt.
+app.get('/about.md', (_req, res, next) => {
+  if (!indexingApproved) return next();
+  res.setHeader('Cache-Control', 'no-cache');
+  return res.type('text/markdown').send(aboutMarkdown());
+});
+app.get('/rules.md', (_req, res, next) => {
+  if (!indexingApproved) return next();
+  res.setHeader('Cache-Control', 'no-cache');
+  return res.type('text/markdown').send(rulesMarkdown());
+});
+app.get('/llms-full.txt', (_req, res) => {
+  res.setHeader('Cache-Control', CRAWLER_TEXT_CACHE);
+  return res.type('text/plain').send(llmsFullText());
 });
 app.get('/account/session', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -546,8 +564,8 @@ app.get('/readyz', (_req, res) => {
   res.status(ready ? 200 : 503).json(buildReadinessPayload(snapshot, rollupHealth, ready));
 });
 app.get('/robots.txt', (_req, res) => {
-  if (!indexingApproved) return res.type('text').send('User-agent: *\nDisallow: /\n');
-  return res.type('text').send(`User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /game/\n\nSitemap: ${metadataOrigin}/sitemap.xml\n`);
+  res.setHeader('Cache-Control', CRAWLER_TEXT_CACHE);
+  return res.type('text').send(robotsTxt({ approved: indexingApproved, origin: metadataOrigin }));
 });
 const SPA_PATHS = new Set(['/', '/play', '/rooms', '/profile', '/rankings', '/social', '/rules', '/admin/analytics']);
 function isStaticRequest(requestPath) {
