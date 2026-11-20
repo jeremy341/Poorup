@@ -56,11 +56,6 @@
   gap: 10px;
 }
 
-.maintenance-home[data-maintenance-kind="lockout"] .maintenance-kicker {
-  color: var(--gold-300);
-  letter-spacing: .12em;
-}
-
 .maintenance-home[data-maintenance-kind="lockout"] [data-maintenance-title] {
   margin: 0;
   color: var(--gold-050);

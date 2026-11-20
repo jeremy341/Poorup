@@ -257,10 +257,8 @@ button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: cen
 #financing-modal .financing-preview-copy { margin-top: 9px; }
 #financing-modal .financing-preview-note { margin-top: 5px; }
 #financing-modal .financing-surface-body:not(.financing-builder) { max-width: 620px; margin-inline: auto; }
-#financing-modal .financing-contract-grid { margin-top: 10px; }
 #financing-modal .financing-surface-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
 #financing-modal .financing-surface-actions button { width: 100%; }
-#financing-modal .financing-surface-body:not(.financing-builder) .financing-repay-form,
 #financing-modal .financing-surface-body:not(.financing-builder) [data-financing-repay-form] { max-width: 100%; }
 #financing-modal .financing-head-contract { display: flex; align-items: center; justify-content: space-between; min-height: 0; padding: 0 0 8px; border: 0; }
 #financing-modal .financing-head-contract h2 { margin: 0; }
@@ -901,7 +899,7 @@ button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: cen
 
 /* ==== Folded from ui-review-recovery.css (loaded after the rules above, unchanged order) ==== */
 /* Use the existing board bars glyph within the reference icon's square. */
-.dd-icon .pop-prison-mark, .pop-icon .pop-prison-mark, .choice-icon .pop-prison-mark { display: block; flex: 0 0 auto; width: 44px; height: 28px; max-width: 100%; color: var(--red-bright); }
+.dd-icon .pop-prison-mark, .choice-icon .pop-prison-mark { display: block; flex: 0 0 auto; width: 44px; height: 28px; max-width: 100%; color: var(--red-bright); }
 
 /* Short route lists size the desk; only the list scrolls when space runs out. */
 #flight-modal .flight-card { max-height: calc(100dvh - 40px); }
@@ -912,6 +910,5 @@ button.table-return-btn { display: inline-flex; flex-shrink: 0; align-items: cen
 
 @media (forced-colors: active) {
 
-
-  .dd-icon .pop-prison-mark, .pop-icon .pop-prison-mark, .choice-icon .pop-prison-mark { color: CanvasText; }
+  .dd-icon .pop-prison-mark, .choice-icon .pop-prison-mark { color: CanvasText; }
 }

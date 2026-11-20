@@ -305,14 +305,10 @@
 #view-home .home-entry-desk .ts-play { min-height: 84px; }
 #view-home .home-entry-desk .ts-play .cta-text { font-size: 20px; }
 #view-home .home-entry-desk .ts-secondary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-#view-home .home-entry-desk .ts-secondary .ts-quick { min-height: 48px; width: 100%; }
 #view-home .chair-name[hidden] { display: none; }
 #view-home .home-alias-error:empty { display: none; }
 #view-home .ts-kicker { display: none; }
 
-/* Create / Join keep the chunky red pixel look, one step below Play */
-#view-home .home-entry-desk .ts-secondary .ts-cta-sm { min-height: 60px; padding: 0 14px; width: 100%; gap: 10px; }
-#view-home .home-entry-desk .ts-secondary .ts-cta-sm .cta-text { font-size: 12px; }
 @media (max-width: 640px) {
   #view-rules .rules-intro { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; }
   #view-rules .rules-intro-copy { flex: 1 1 180px; min-width: 180px; }
@@ -367,7 +363,6 @@
 .slip-head h2 { margin: 4px 0 0; color: var(--gold-100); }
 .sponsorship-head .slip-head { flex: 1 1 auto; }
 .slip-icon { width: 64px; height: 64px; flex: 0 0 64px; display: flex; align-items: center; justify-content: center; background: var(--surface-panel-deep); border: 1px solid var(--line-default); }
-.slip-hero { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 16px; padding: 14px 16px 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-active); border-bottom: 0; }
 .slip-amount { font-family: var(--font-numeric-display); font-size: 44px; line-height: 1; letter-spacing: 0.02em; }
 
 /* dotted-leader rows: the same row shape on the loan slip and the financing preview */
@@ -431,8 +426,6 @@
 .financing-mode-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 /* WALLET: the bank account card and the upgrade row */
-.slip-meter { height: 16px; padding: 2px; background: var(--surface-panel-deep); border: 1px solid var(--line-default); }
-.slip-meter > span { display: block; width: var(--fill, 0%); height: 100%; background: repeating-linear-gradient(90deg, var(--gold-300) 0 10px, transparent 10px 12px); }
 .wallet-account-card { display: grid; gap: 10px; margin-top: 12px; padding: 14px; background: var(--surface-panel-deep); border: 1px solid var(--line-active); }
 .wallet-account-card.is-off { border-color: var(--line-subtle); }
 .wallet-account-card .slip-icon { width: 52px; height: 52px; flex-basis: 52px; }
