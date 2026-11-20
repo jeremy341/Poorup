@@ -20,7 +20,7 @@ then the live runbook; to roll back, the rollback runbook.
 
 | Document | What it is for |
 | --- | --- |
-| [security-audit.md](security-audit.md) | The November 2026 audit of sockets, auth and accounts: findings, fixes and what was checked and found clean. |
+| [security-notes.md](security-notes.md) | What the server protects and where: sockets, accounts, sessions, operator routes, the container; plus the November 2026 fixes and open decisions. |
 | [security-headers.md](security-headers.md) | The HTTP response policy (CSP, security headers, host and timeout guards) and why each directive is there. |
 | [rate-limits.md](rate-limits.md) | Every rate limit and abuse budget, its environment variable, and which HTTP routes and socket events it covers. |
 
