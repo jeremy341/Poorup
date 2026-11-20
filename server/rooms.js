@@ -5,7 +5,6 @@ import crypto from 'crypto';
 import { randomInt } from './random.js';
 import { START_TILE_INDEX } from './gameData.js';
 import { tilesForVariant } from './boardRegistry.js';
-import { AUCTION_DURATION_MS } from './auctionApi.js';
 import {
   DEFAULT_ROOM_SETTINGS,
   isRetiredRoomSettingKey,
@@ -21,7 +20,9 @@ import { cleanPlayerName, nicknameRejection } from './nicknamePolicy.js';
 import { personaForSeat } from './botPersonas.js';
 import { botPersonaStore } from './botPersonaStore.js';
 import { GameState } from './gameLogic.js';
-import { outstandingDebtFor, settleQueuedDebtsOf } from './bankruptcyLogic.js';
+import { releaseSeat } from './seatRelease.js';
+import { LOBBY_SNAPSHOT_SCHEMA, plainJson, validLobbySnapshot } from './lobbySnapshot.js';
+import { normalizeClientId } from './roomSetup.js';
 import {
   boardVariantMeta,
   KNOWN_OVERRIDE_KEYS,
@@ -47,10 +48,6 @@ function createRoomCode() {
 function safeNickname(nickname) {
   const safe = cleanPlayerName(nickname, 24);
   return safe || 'Player';
-}
-
-function safeClientId(clientId) {
-  return typeof clientId === 'string' ? clientId.trim().slice(0, 120) : '';
 }
 
 function safeSeatColor(color) {
@@ -218,73 +215,10 @@ function capacityDrivenSetting(key) {
   return ['bots', 'maxPlayers', 'boardVariant'].includes(key);
 }
 
-// Lobby snapshots (see roomStore.js): only an unstarted table is rebuilt from plain JSON. A started GameState owns Sets, bounded replay maps,
-// presentation objects and timers that live in socketRuntime closures, so it is never persisted and does not survive a restart.
-const LOBBY_SNAPSHOT_SCHEMA = 1;
-const LOBBY_SNAPSHOT_MAX_SEATS = 12;
-const LOBBY_SNAPSHOT_MAX_KICKS = 200;
-const LOBBY_ROOM_CODE = /^[A-Z0-9]{4,12}$/;
-const LOBBY_PUBLIC_ID = /^room_[A-Za-z0-9-]{8,80}$/;
-
-function plainJson(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
-function snapshotString(value, max) {
-  return typeof value === 'string' ? value.slice(0, max) : '';
-}
-
-function snapshotStringList(value, max) {
-  if (!Array.isArray(value)) return [];
-  return value.filter(item => typeof item === 'string' && item && item.length <= 120).slice(0, max);
-}
-
-function validLobbySeat(seat) {
-  if (!seat || typeof seat !== 'object') return null;
-  const id = snapshotString(seat.id, 80);
-  const clientId = safeClientId(seat.clientId);
-  if (!id || !clientId) return null;
-  const avatarGrid = isValidAvatarGrid(seat.avatarGrid) ? seat.avatarGrid : null;
-  return {
-    id,
-    clientId,
-    nickname: snapshotString(seat.nickname, 60),
-    color: seat.color,
-    avatarGrid,
-    accountId: snapshotString(seat.accountId, 120) || null
-  };
-}
-
-// Returns a normalized snapshot, or null for anything that is not a well-formed lobby. Restore never trusts the file.
-function validLobbySnapshot(snapshot) {
-  if (!snapshot || typeof snapshot !== 'object') return null;
-  if (snapshot.schema !== LOBBY_SNAPSHOT_SCHEMA || snapshot.kind !== 'lobby') return null;
-  const roomCode = snapshotString(snapshot.roomCode, 12).toUpperCase();
-  const publicId = snapshotString(snapshot.publicId, 90);
-  if (!LOBBY_ROOM_CODE.test(roomCode) || !LOBBY_PUBLIC_ID.test(publicId)) return null;
-  if (!snapshot.settings || typeof snapshot.settings !== 'object' || Array.isArray(snapshot.settings)) return null;
-  if (!Array.isArray(snapshot.players)) return null;
-  const seats = snapshot.players.slice(0, LOBBY_SNAPSHOT_MAX_SEATS).map(validLobbySeat).filter(Boolean);
-  const clientIds = new Set(seats.map(seat => seat.clientId));
-  if (!seats.length || clientIds.size !== seats.length) return null;
-  return {
-    roomCode,
-    publicId,
-    roomName: snapshotString(snapshot.roomName, 60) || 'AFTER HOURS',
-    // An unknown visibility restores as the safer private table.
-    visibility: snapshot.visibility === 'public' ? 'public' : 'private',
-    hostId: snapshotString(snapshot.hostId, 80),
-    settings: plainJson(snapshot.settings),
-    kickedClientIds: snapshotStringList(snapshot.kickedClientIds, LOBBY_SNAPSHOT_MAX_KICKS),
-    kickedAccountIds: snapshotStringList(snapshot.kickedAccountIds, LOBBY_SNAPSHOT_MAX_KICKS),
-    seats
-  };
-}
-
 class Player {
   constructor({ clientId, socketId, nickname, color, avatarGrid = null, accountId = null, isHost = false, isBot = false }) {
     this.id = crypto.randomUUID();
-    this.clientId = safeClientId(clientId) || this.id;
+    this.clientId = normalizeClientId(clientId) || this.id;
     this.socketId = socketId;
     this.nickname = safeNickname(nickname);
     this.color = safeSeatColor(color);
@@ -1108,7 +1042,7 @@ class RoomManager {
   }
 
   restoreConnection(clientId, socketId, accountId = null, onAccountSeatReclaimed = null) {
-    const safeId = safeClientId(clientId);
+    const safeId = normalizeClientId(clientId);
     if (!safeId) return null;
     const room = this.findRestoreRoomFor(safeId, socketId);
     if (!room) return this.restoreAccountSeat(accountId, safeId, socketId, onAccountSeatReclaimed);
@@ -1318,224 +1252,10 @@ class RoomManager {
     if (player.accountId) room.kickedAccountIds.add(player.accountId);
   }
 
-  // A real leave releases the seat in the lobby AND mid-game, so the room
-  // can drain to empty and the GC can reclaim it.
+  // A real leave releases the seat in the lobby AND mid-game, so the room can drain to empty and the GC can reclaim it.
   releaseSeat(game, player) {
-    const playerId = player.id;
-    const wasCurrentTurn = this.wasCurrentTurnSeat(game, playerId);
-    if (game.started) {
-      const prepared = this.releaseStartedSeatAssets(game, player);
-      if (prepared?.success === false) return prepared;
-    }
-    game.removePlayerByClient(player.clientId);
-    if (game.started) this.clearStartedGameSeat(game, player, wasCurrentTurn);
-    return { success: true };
-  }
-
-  releaseStartedSeatAssets(game, player) {
-    const prepared = game.prepareCollateralForExit?.(player);
-    if (prepared?.success === false) return prepared;
-    // A voluntary leave is final. Remove every reference that could otherwise
-    // leave orphaned deeds/market holdings or live contracts pointing at a
-    // player not present in the table.
-    const creditor = this.pendingSeatCreditor(game, player);
-    this.clearPendingSeatObligations(game, player);
-    this.settleSeatExit(game, player, creditor);
-    return { success: true };
-  }
-
-  // The creditor the leaving seat's estate settles to: its head claim, or the
-  // first queued claim it owes (see bankruptcyLogic.outstandingDebtFor).
-  pendingSeatCreditor(game, player) {
-    return outstandingDebtFor(game, player).creditor;
-  }
-
-  // A voluntary leave runs the same settlement ladder as a declared bankruptcy. The bank-loan line is part of that ladder: once the seat is
-  // bankrupt, advanceBankLoan skips it forever, so an unsettled loan would stay active after the player left, keeping principal and premium.
-  // Optional-call syntax because the method arrives with the bankruptcy mixin on GameState.prototype.
-  settleSeatExit(game, player, creditor) {
-    game.markPlayerBankrupt?.(player);
-    game.liquidateMarketPositions?.(player);
-    game.liquidateItems?.(player);
-    game.settleBankLoanOnBankruptcy?.(player);
-    game.sweepCashToCreditor?.(player, creditor);
-    game.settleContractsOnBankruptcy?.(player);
-    game.forfeitOrReleaseProperties?.(player, creditor);
-    game.feedMessage(`${player.nickname} left the table.`);
-  }
-
-  wasCurrentTurnSeat(game, playerId) {
-    if (!game.started) return false;
-    return game.currentPlayerId === playerId;
-  }
-
-  clearStartedGameSeat(game, player, wasCurrentTurn) {
-    const playerId = player.id;
-    // Consecutive-doubles state belongs to the seated roller, not the seat:
-    // otherwise the successor inherits the count and jails one roll early.
-    if (wasCurrentTurn) game.consecutiveDoubles = 0;
-    // Capture the successor BEFORE filtering: nulling the id and calling
-    // nextTurn() restarts at turnOrder[0] and skips the rightful next seat.
-    const successor = wasCurrentTurn ? this.findTurnSuccessor(game, playerId) : null;
-    this.removeSeatFromTurnOrder(game, playerId);
-    this.clearPendingSeatObligations(game, player);
-    const survivors = game.connectedNonBankruptPlayers();
-    if (survivors.length <= 1) {
-      // Only a clock pointing at the departed seat (or nowhere) moves; a live seat that still holds it keeps it. The table waits on a seat
-      // in reconnect grace, as nextTurn does, instead of ending without it. The inheriting seat starts a fresh turn: keeping the leaver's
-      // roll state told it "already rolled" and wedged the table (concludeBankruptRound resets the same way).
-      if (!game.getPlayerById(game.currentPlayerId)) {
-        game.resetTurnState();
-        game.hasRolled = false;
-        game.currentPlayerId = survivors[0]?.id || game.waitingSeat()?.id || null;
-      }
-      game.finishIfNoConnectedPlayers(survivors);
-      return;
-    }
-    if (!wasCurrentTurn) return;
-    this.beginSeatExitTurn(game, successor);
-  }
-
-  findTurnSuccessor(game, playerId) {
-    const turnOrder = game.turnOrder;
-    if (!Array.isArray(turnOrder)) return null;
-    const oldIndex = turnOrder.indexOf(playerId);
-    if (oldIndex < 0) return null;
-    const wrapIndex = turnOrder.length - oldIndex - 1;
-    const orderedIds = [...turnOrder.slice(oldIndex + 1), ...turnOrder.slice(0, oldIndex + 1)];
-    const successorIndex = orderedIds.findIndex(id => this.turnCandidateIsActive(game, id, playerId));
-    if (successorIndex < 0) return null;
-    return { player: game.getPlayerById(orderedIds[successorIndex]), wrapped: successorIndex >= wrapIndex };
-  }
-
-  turnCandidateIsActive(game, candidateId, playerId) {
-    const candidate = game.getPlayerById(candidateId);
-    if (!candidate) return false;
-    if (candidate.id === playerId) return false;
-    if (candidate.bankrupt) return false;
-    return !candidate.disconnected;
-  }
-
-  removeSeatFromTurnOrder(game, playerId) {
-    if (typeof game.removePlayerFromTurnOrder === 'function') {
-      game.removePlayerFromTurnOrder(playerId);
-      return;
-    }
-    if (Array.isArray(game.turnOrder)) {
-      game.turnOrder = game.turnOrder.filter(id => id !== playerId);
-    }
-  }
-
-  beginSeatExitTurn(game, successor) {
-    if (successor) {
-      if (successor.wrapped) game.advanceRound();
-      // The round limit can end the table inside advanceRound.
-      if (!game.started) return;
-      game.resetTurnState();
-      game.beginSeatTurn(successor.player);
-      return;
-    }
-    // nextTurn() treats an unknown current id as "before the first seat"
-    // and hands the dice to the next surviving player in turn order.
-    game.currentPlayerId = null;
-    game.nextTurn();
-  }
-
-  clearPendingSeatObligations(game, player) {
-    const playerId = player.id;
-    this.clearSeatPurchaseOffer(game, playerId);
-    this.clearSeatPendingPayment(game, player);
-    this.clearSeatTrade(game, playerId);
-    this.clearSeatContract(game, playerId);
-    this.revokeAuctionLead(game, playerId);
-  }
-
-  clearSeatPurchaseOffer(game, playerId) {
-    game.clearSponsoredPurchaseForPlayer?.(playerId);
-    if (game.pendingPurchaseOffer?.playerId === playerId) game.pendingPurchaseOffer = null;
-  }
-
-  clearSeatPendingPayment(game, player) {
-    // The seat's own queued claims settle against its estate before the head
-    // is cancelled below: cancelling the head would promote one of them.
-    settleQueuedDebtsOf(game, player, outstandingDebtFor(game, player).creditor);
-    game.removeQueuedPaymentsForPlayer?.(player.id);
-    if (this.seatIsPaymentDebtor(game, player.id)) {
-      this.cancelSeatPayment(game, player);
-      return;
-    }
-    if (this.seatIsPaymentCreditor(game, player.id)) {
-      this.cancelSeatPayment(game, player, true);
-    }
-  }
-
-  seatIsPaymentDebtor(game, playerId) {
-    return this.pendingPaymentFrom(game, playerId);
-  }
-
-  seatIsPaymentCreditor(game, playerId) {
-    const pending = game.pendingPayment;
-    if (!pending) return false;
-    return pending.creditorId === playerId;
-  }
-
-  // A pending debt cannot settle without its creditor: trySettlePendingPayment still debits the payer if the creditor is gone.
-  // Forgiving the debt on creditor-quit is the minimal coherent rule; bank debts (null creditor) never match a quitter. If the debtor is the roller
-  // whose landing created the debt, a forgiven debt must still resolve the roll (as collectPendingPayment does) or the turn wedges.
-  cancelSeatPayment(game, player, forgiven = false) {
-    const pending = game.pendingPayment;
-    const turnOptions = game.pendingPaymentTurnOptions || {};
-    const debtor = pending ? game.getPlayerById(pending.playerId) : null;
-    const resolvesRoll = forgiven && Boolean(debtor) && !debtor.bankrupt
-      && game.hasRolled && debtor.id === game.currentPlayerId;
-    game.clearPendingPayment();
-    game.feedMessage(`${player.nickname} left the table. A pending payment was cancelled.`);
-    if (resolvesRoll) game.resolveTurnAfterAction(turnOptions);
-  }
-
-  clearSeatTrade(game, playerId) {
-    if (this.pendingTradeFrom(game, playerId)) game.pendingTrade = null;
-  }
-
-  clearSeatContract(game, playerId) {
-    if (this.pendingContractFrom(game, playerId)) game.pendingPlayerContract = null;
-  }
-
-  pendingPaymentFrom(game, playerId) {
-    const pending = game.pendingPayment;
-    if (!pending) return false;
-    return pending.playerId === playerId;
-  }
-
-  pendingTradeFrom(game, playerId) {
-    const trade = game.pendingTrade;
-    if (!trade) return false;
-    if (trade.fromPlayerId === playerId) return true;
-    return trade.toPlayerId === playerId;
-  }
-
-  pendingContractFrom(game, playerId) {
-    const contract = game.pendingPlayerContract;
-    if (!contract) return false;
-    if (contract.fromPlayerId === playerId) return true;
-    return contract.toPlayerId === playerId;
-  }
-
-  revokeAuctionLead(game, playerId) {
-    const auction = game.auction;
-    if (!auction) return;
-    if (!auction.active) return;
-    if (auction.highestBidderId !== playerId) return;
-    auction.highestBidderId = null;
-    auction.highestBid = 0;
-    auction.lastBidAt = 0;
-    // A revoke in the last moments must leave a real bidding window for the
-    // rivals, exactly as the disconnect path (revokeAuctionLeadIfLeader) and
-    // the bankruptcy path do; without it the already-armed timer closes the
-    // auction almost immediately.
-    auction.endsAt = Math.max(Number(auction.endsAt) || 0, Date.now() + AUCTION_DURATION_MS);
-    game.feedMessage?.('The highest bid is reset.');
+    return releaseSeat(game, player);
   }
 }
 
-export { LOBBY_SNAPSHOT_SCHEMA, Player, Room, RoomManager, validLobbySnapshot };
+export { Player, Room, RoomManager };

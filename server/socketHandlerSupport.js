@@ -193,4 +193,4 @@ function isPromiseLike(result) {
   return typeof result.catch === 'function';
 }
 
-export { createSafeEmitter, emitResultMessage, getRoomForSocket, makeRoomVerbHandler, publicActionHistoryKind, relayResultOffer, reply, resolveAccount, roomVerbAck };
+export { createSafeEmitter, emitResultMessage, getRoomForSocket, makeRoomVerbHandler, publicActionHistoryKind, reply, resolveAccount, roomVerbAck };

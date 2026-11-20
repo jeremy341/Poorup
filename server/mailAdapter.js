@@ -57,5 +57,3 @@ export function createMailAdapter({ config = {}, env = process.env, fetchImpl = 
 
   return { send, configured };
 }
-
-export { ALLOWED_TEMPLATES };

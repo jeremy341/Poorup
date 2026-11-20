@@ -147,5 +147,3 @@ export function createJsonAuthoritativeStore(filePath) {
 export function createAuthoritativeStore({ filePath = '', initial = {} } = {}) {
   return filePath ? createJsonAuthoritativeStore(filePath) : createMemoryAuthoritativeStore(initial);
 }
-
-export { MAX_ROOM_ID, MAX_SNAPSHOT_BYTES, safeRoomId, safeVersion };

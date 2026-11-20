@@ -1,3 +1,4 @@
+// Room timers contain their own errors, and absurd numeric settings (1e308) are refused instead of stored.
 import assert from 'node:assert/strict';
 import * as socketRuntime from './socketRuntime.js';
 import * as roomSettings from './roomSettings.js';
@@ -19,4 +20,4 @@ const beforeCash = room.settings.startingCash;
 assert.equal(room.setRoomSetting('startingCash', 1e308).rejected, true);
 assert.equal(room.settings.startingCash, beforeCash);
 
-console.log('runtime safety: 4 passed, 0 failed');
+console.log('timer and setting bounds: 4 passed, 0 failed');

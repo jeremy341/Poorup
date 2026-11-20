@@ -1,4 +1,4 @@
-// Regression checks for room lifecycle defects.
+// Edge cases when seats leave a room: parked debts, turn hand-over, vote-kick isolation, lobby capacity in grace, rematch revival and estate cash.
 // Drives RoomManager / Room directly, the same objects the socket handlers call.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
@@ -171,4 +171,4 @@ function setupStarted(humans = 3) {
   assert.equal(game.started, true, 'the table is not held hostage by the gated seat');
 }
 
-console.log('rooms audit fixes: 8 scenarios passed');
+console.log('room departure edge cases: 8 scenarios passed');

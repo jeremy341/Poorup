@@ -65,7 +65,7 @@ test('new room creation ignores preset and arbitrary override inputs', () => {
   assert.equal('rulesetOverrides' in options, false);
 });
 
-test('startingCash refuses null, blank and non-numeric input instead of storing zero (E1-02)', () => {
+test('startingCash refuses null, blank and non-numeric input instead of storing zero', () => {
   const normalize = ROOM_SETTING_NORMALIZERS.startingCash;
   for (const value of [null, '', '   ', true, [], {}, 'abc', Number.NaN, Infinity]) {
     assert.equal(normalize(value), SETTING_REJECTED, `startingCash ${String(value)} must be refused`);
@@ -75,7 +75,7 @@ test('startingCash refuses null, blank and non-numeric input instead of storing 
   assert.equal(normalize(1.5), 1);
 });
 
-test('rulesetRevision accepts only positive whole numbers (E19-12)', () => {
+test('rulesetRevision accepts only positive whole numbers', () => {
   const normalize = ROOM_SETTING_NORMALIZERS.rulesetRevision;
   for (const value of [0, -1, 1.5, Number.NaN, null, '', 'abc', true, { revision: 2 }, ['2'], 'x'.repeat(100_000)]) {
     assert.equal(normalize(value), SETTING_REJECTED, `rulesetRevision ${String(value).slice(0, 20)} must be refused`);
@@ -84,7 +84,7 @@ test('rulesetRevision accepts only positive whole numbers (E19-12)', () => {
   assert.equal(normalize('7'), 7);
 });
 
-test('rulesetOverrides keeps only room-allowed keys with primitive values (E6-08)', () => {
+test('rulesetOverrides keeps only room-allowed keys with primitive values', () => {
   const normalize = ROOM_SETTING_NORMALIZERS.rulesetOverrides;
   assert.deepEqual(normalize([
     { key: 'casino', value: true },

@@ -5,10 +5,13 @@ import { AUCTION_DURATION_MS } from './gameLogic.js';
 import { ensureRoomHost } from './rooms.js';
 import { botPersonaStore } from './botPersonaStore.js';
 import { normalizeAvatarGrid, normalizeClientId, normalizeChatText, buildMatchRecordOptions } from './roomSetup.js';
+import { annotateMatchAchievements, noteBotFallback, recordMatchStalledTelemetry, recordMatchStartTelemetry, recordMatchTelemetryOnce, roomTelemetryVersions } from './matchTelemetry.js';
+import { createMaintenanceGate } from './maintenanceGate.js';
+import { botStatusPayload, readBotProviderStatus, safeBotProviderStatus } from './botStatus.js';
+import { passPendingPurchaseForSeatRemoval, settleAfkPayment } from './seatDeparture.js';
 import { createRoomPresenceRuntime } from './roomPresenceRuntime.js';
 import { createRoomVoteKickRuntime } from './roomVoteKickRuntime.js';
 import { normalizeRequestId } from './requestId.js';
-import { isAdminAccount } from './analyticsApi.js';
 import {
   selectBotTurnTarget,
   botMayStillAct,
@@ -86,325 +89,11 @@ export function runRoomTimer(label, roomCode, callback, onError = console.error)
   }
 }
 
-// AFK payment expiry follows the authoritative bankruptcy/settlement seam;
-// clearing an unpaid payment would silently forgive the obligation.
-function pendingCreditor(game, pending) {
-  if (!pending.creditorId) return null;
-  return game.getPlayerById?.(pending.creditorId);
-}
-
-function debtModeEnabled(game) {
-  if (game.settings?.bankruptMode !== 'debt') return false;
-  return typeof game.handleDebtBankruptcy === 'function';
-}
-
-function applyPendingBankruptcy(game, player, pending) {
-  const creditor = pendingCreditor(game, pending);
-  if (debtModeEnabled(game)) {
-    return game.handleDebtBankruptcy(player, creditor)?.success !== false;
-  }
-  if (typeof game.handleBankruptcy === 'function') {
-    return game.handleBankruptcy(player, creditor)?.success !== false;
-  }
-  return false;
-}
-
-export function settleAfkPayment(game, player) {
-  const pending = game?.pendingPayment;
-  if (!pending) return false;
-  if (pending.playerId !== player?.id) return false;
-  const covers = Number(player.cash) >= Math.max(0, Number(pending.amountRemaining) || 0);
-  // A debtor that can cover pays the debt and is then removed; only a debtor
-  // that cannot cover goes through bankruptcy and hands over its estate.
-  if (covers) return Boolean(game.collectPendingPayment?.(player));
-  return applyPendingBankruptcy(game, player, pending);
-}
-
-function preparePendingPurchasePass(game, player) {
-  const offer = game?.pendingPurchaseOffer;
-  if (!offer || offer.playerId !== player?.id) return { resolved: false, tile: null };
-  const tile = game.getTile?.(offer.tileIndex);
-  game.cancelSponsoredPurchase?.();
-  game.pendingPurchaseOffer = null;
-  return { resolved: true, tile };
-}
-
-function startAuctionForDepartingPlayer(game, player, tile) {
-  if (!canAuctionPassedPurchase(game, tile)) return false;
-  const startingPlayerId = nextAuctionStarter(game, player.id);
-  if (!startingPlayerId) return false;
-  game.startAuction?.(tile, startingPlayerId);
-  const auction = game.auction;
-  if (!auction?.active) return false;
-  excludeDepartingAuctionSeat(auction, player, startingPlayerId);
-  return true;
-}
-
-function excludeDepartingAuctionSeat(auction, player, startingPlayerId) {
-  auction.participants = [...new Set((auction.participants || []).filter(id => id !== player.id))];
-  if (auction.startingPlayerId === player.id) auction.startingPlayerId = startingPlayerId;
-}
-
-function passPendingPurchaseForSeatRemoval(game, player) {
-  const pending = preparePendingPurchasePass(game, player);
-  if (!pending.resolved) return { resolved: false, auctionStarted: false };
-  const auctionStarted = startAuctionForDepartingPlayer(game, player, pending.tile);
-  const propertyName = auctionStarted ? pending.tile.name : null;
-  reportPassedPurchase(game, player, propertyName);
-  return { resolved: true, auctionStarted };
-}
-
-function canAuctionPassedPurchase(game, tile) {
-  if (!tile) return false;
-  if (tile.ownerId !== null) return false;
-  return Boolean(game.settings?.auction);
-}
-
-function reportPassedPurchase(game, player, propertyName = null) {
-  const copy = propertyName
-    ? `${player.nickname} passed on ${propertyName} before leaving.`
-    : `${player.nickname} passed on the property before leaving.`;
-  game.feedMessage?.(copy);
-  return { resolved: true, auctionStarted: false };
-}
-
-function isEligibleAuctionStarter(candidate, departingPlayerId) {
-  if (!candidate) return false;
-  if (candidate.id === departingPlayerId) return false;
-  if (candidate.bankrupt) return false;
-  return !candidate.disconnected;
-}
-
-function nextAuctionStarter(game, departingPlayerId) {
-  const playersById = new Map((game.players || []).map(player => [player.id, player]));
-  const order = Array.isArray(game.turnOrder) ? game.turnOrder : (game.players || []).map(player => player.id);
-  const oldIndex = order.indexOf(departingPlayerId);
-  for (let offset = 1; offset <= order.length; offset += 1) {
-    const index = oldIndex < 0 ? offset - 1 : (oldIndex + offset) % order.length;
-    const candidate = playersById.get(order[index]);
-    if (isEligibleAuctionStarter(candidate, departingPlayerId)) return candidate.id;
-  }
-  return null;
-}
-
-export function annotateMatchAchievements(matchRecord, candidates = []) {
-  if (!matchRecord || !Array.isArray(matchRecord.participants)) return matchRecord;
-  matchRecord.participants.forEach((participant) => {
-    const unlocked = candidates
-      .filter(candidate => candidate.accountId === participant.accountId)
-      .map(candidate => candidate.achievementId)
-      .filter(id => typeof id === 'string');
-    participant.achievementsUnlocked = [...new Set(unlocked)].slice(0, 32);
-    participant.mythicalUnlocked = candidates.some(candidate => candidate.accountId === participant.accountId && candidate.rarity === 'MYTHICAL');
-  });
-  return matchRecord;
-}
-
-export function recordMatchTelemetry(context) {
-  const { telemetryStore, matchRecord, telemetryVersions } = context;
-  telemetryStore?.record('match-complete', {
-    playerCount: matchRecord.playerCount,
-    roundCount: matchRecord.roundCount,
-    ...(Number.isFinite(Number(matchRecord.durationSeconds)) ? { durationSeconds: Math.max(0, Math.floor(Number(matchRecord.durationSeconds))) } : {}),
-    botOnly: matchRecord.participants.every(participant => !participant.accountId)
-  }, telemetryVersions);
-}
-
-export function recordLoggedTelemetry(context) {
-  const { telemetryStore, room, telemetryVersions } = context;
-  (room.game.telemetryLog || []).forEach(entry => {
-    telemetryStore?.record(entry.kind, { ...(entry.data || {}), roundNumber: entry.roundNumber }, { ...telemetryVersions, eventId: entry.data?.eventId });
-  });
-}
-
-function recordMarketTelemetry(context) {
-  const { telemetryStore, matchRecord, telemetryVersions } = context;
-  telemetryStore?.record('market-volatility', {
-    marketRows: matchRecord.market.length,
-    marketTrades: matchRecord.participants.reduce((sum, participant) => sum + (Number(participant.marketTrades) || 0), 0)
-  }, telemetryVersions);
-}
-
-function recordBankruptcyTelemetry(context) {
-  const { telemetryStore, matchRecord, telemetryVersions } = context;
-  const bankruptcies = matchRecord.participants.filter(participant => participant.bankrupt).length;
-  if (bankruptcies) telemetryStore?.record('bankruptcy', { count: bankruptcies }, telemetryVersions);
-}
-
-function recordAchievementTelemetry(context) {
-  const { telemetryStore, candidates, telemetryVersions, matchRecord } = context;
-  const botOnly = matchRecord?.botOnly === true;
-  candidates.slice(0, 32).forEach(candidate => telemetryStore?.record('achievement-unlocked', { rarity: candidate.rarity, achievementId: candidate.achievementId, botOnly }, telemetryVersions));
-}
-
-// A deterministic answer is flagged `fallback` even when the room chose house
-// policy on purpose (no-AI rooms, auction/phase rules). Those are not failures
-// of the model, so they never count toward the fallback rate.
-const BY_DESIGN_HOUSE_REASONS = new Set(['no-ai-mode', 'auction-policy', 'phase-resolution', 'deterministic-advisor', 'shadow-mode', 'deterministic']);
-
-// Which engine a bot decision belongs to, from the room's brain setting:
-//   aiRouted   the room asked for AI (botMode 'ai', provider 'ai') or not
-//              (botMode 'no-ai', provider 'deterministic'). One match therefore
-//              lands in exactly one bot group, so per-group match counts add up.
-//   counted    adds to `decisions`: every house decision in a no-AI room, and
-//              only the decisions the model was actually asked in an AI room.
-//   failed     the model was asked and the house engine answered instead.
-export function classifyBotDecision(decision = {}) {
-  const brain = decision.brain === 'no-ai' || decision.brain === 'ai' ? decision.brain : null;
-  const botMode = decision.botMode || brain || (decision.provider === 'ai' ? 'ai' : 'no-ai');
-  const aiRouted = botMode === 'ai';
-  const answeredByModel = decision.provider === 'ai';
-  const askedModel = aiRouted && (answeredByModel || (decision.fallback === true && !BY_DESIGN_HOUSE_REASONS.has(String(decision.fallbackReason || ''))));
-  return {
-    botMode,
-    provider: aiRouted ? 'ai' : 'deterministic',
-    counted: aiRouted ? askedModel : true,
-    failed: askedModel && !answeredByModel
-  };
-}
-
-// The live counterpart of the rollup's fallback rate: one increment per decision the model was asked and the house engine answered
-// instead, classified as the rollup does so deliberate house policy never counts. Called once per recorded decision trace;
-// metrics must never affect a bot's turn.
-export function noteBotFallback(metrics, decision) {
-  if (!classifyBotDecision(decision).failed) return false;
-  try { metrics?.incrementMetric?.('bot-fallbacks', { scope: 'ai' }); } catch { /* best effort */ }
-  return true;
-}
-
-export function recordBotTelemetry(context) {
-  const { telemetryStore, matchRecord, telemetryVersions } = context;
-  const botOnly = matchRecord.botOnly === true || (Array.isArray(matchRecord.participants) && matchRecord.participants.length > 0 && matchRecord.participants.every(participant => !participant.accountId));
-  const seenGroups = new Set();
-  (matchRecord.botDecisions || []).slice(-200).forEach(decision => {
-    const routing = classifyBotDecision(decision);
-    const group = `${routing.botMode}|${routing.provider}`;
-    const firstOfMatch = !seenGroups.has(group);
-    seenGroups.add(group);
-    telemetryStore?.record('bot-outcome', {
-      provider: routing.provider,
-      botMode: routing.botMode,
-      botOnly,
-      fallback: routing.failed,
-      success: decision.success,
-      phase: decision.phase,
-      actionId: decision.actionId,
-      decisions: routing.counted ? 1 : 0,
-      ...(firstOfMatch ? { match: true } : {})
-    }, telemetryVersions);
-  });
-}
-
-export function recordMatchStartTelemetry({ telemetryStore, room, telemetryVersions = {} } = {}) {
-  const marker = room?.game?.startedAt || true;
-  if (!telemetryStore || !room?.game?.started || room.analyticsMatchStartRecorded === marker) return false;
-  const result = telemetryStore.record('match-start', { roundNumber: Math.max(0, Math.floor(Number(room.game.roundNumber) || 0)) }, telemetryVersions);
-  if (result?.recorded) { room.analyticsMatchStartRecorded = marker; return true; }
-  return false;
-}
-
-function stalledTelemetryMarker(room) {
-  if (!room?.game?.started) return null;
-  return room.game.startedAt || true;
-}
-
-function recordStalledOnce({ telemetryStore, room, marker, reasonCode, telemetryVersions }) {
-  const payload = {
-    roundNumber: Math.max(0, Math.floor(Number(room.game.roundNumber) || 0)),
-    reasonCode: String(reasonCode || 'unknown').slice(0, 80)
-  };
-  const result = telemetryStore.record('match-stalled', payload, telemetryVersions);
-  if (result?.recorded) { room.analyticsMatchStalledRecorded = marker; return true; }
-  return false;
-}
-
-export function recordMatchStalledTelemetry({ telemetryStore, room, telemetryVersions = {}, reasonCode = 'room-ended-without-settlement' } = {}) {
-  if (!telemetryStore) return false;
-  const marker = stalledTelemetryMarker(room);
-  if (!marker) return false;
-  if (room.analyticsMatchStalledRecorded === marker) return false;
-  return recordStalledOnce({ telemetryStore, room, marker, reasonCode, telemetryVersions });
-}
-
-const ROOM_TELEMETRY_VERSION_READERS = [
-  ['seasonId', room => room?.game?.seasonId || room?.seasonId],
-  ['rulesetRevision', room => room?.ruleset?.rulesetRevision || room?.settings?.rulesetRevision],
-  ['balanceRevision', room => room?.ruleset?.balanceRevision || room?.settings?.balanceRevision],
-  ['boardVariant', room => room?.ruleset?.boardVariant || room?.settings?.boardVariant],
-  ['marketComplexity', readRoomMarketComplexity]
-];
-
-function readRoomMarketComplexity(room) {
-  return room?.ruleset?.effectiveSettings?.marketComplexity || room?.settings?.marketComplexity;
-}
-
-function roomTelemetryVersions(room) {
-  return Object.fromEntries(ROOM_TELEMETRY_VERSION_READERS.map(([key, read]) => [key, read(room)]));
-}
-
-function settlementTelemetryMatchId(matchRecord, room) {
-  const matchId = String(matchRecord?.matchId || '').trim();
-  if (!matchId) return false;
-  if (room?.analyticsTelemetryMatchId === matchId) return true;
-  if (room) room.analyticsTelemetryMatchId = matchId;
-  return false;
-}
-
-function settlementTelemetryVersions(matchRecord, room) {
-  return {
-    rulesetRevision: matchRecord.rulesetRevision,
-    balanceRevision: matchRecord.balanceRevision,
-    boardVariant: matchRecord.boardVariant,
-    // The match-start row of the same match carries the market complexity, so
-    // the settlement rows carry it too: without it a non-basic match is split
-    // over two rollup rows.
-    marketComplexity: matchRecord.marketComplexity || readRoomMarketComplexity(room)
-  };
-}
-
-function recordSettlementTelemetryRows(telemetryContext) {
-  recordMatchStartTelemetry(telemetryContext);
-  recordMatchTelemetry(telemetryContext);
-  recordLoggedTelemetry(telemetryContext);
-  recordMarketTelemetry(telemetryContext);
-  recordBankruptcyTelemetry(telemetryContext);
-  recordAchievementTelemetry(telemetryContext);
-  recordBotTelemetry(telemetryContext);
-}
-
-export function recordMatchTelemetryOnce(context) {
-  const { telemetryStore, room, matchRecord, candidates } = context;
-  if (settlementTelemetryMatchId(matchRecord, room)) return false;
-  recordSettlementTelemetryRows({
-    telemetryStore,
-    room,
-    matchRecord,
-    candidates,
-    telemetryVersions: settlementTelemetryVersions(matchRecord, room)
-  });
-  return true;
-}
-
 export function reassignHostIfNeeded(room, departedPlayerId) {
   if (!room) return;
   if (room.hostId !== departedPlayerId) return;
   ensureRoomHost(room, departedPlayerId);
 }
-
-// Keep provider credentials, billing/quota details, and raw error text out
-// of the room-wide event. The private match trace retains the exact reason.
-const PUBLIC_FALLBACK_REASONS = new Map([
-  ['no-ai-mode', 'no-ai-mode'],
-  ['auction-policy', 'house-policy'],
-  ['phase-resolution', 'house-policy'],
-  ['deterministic-advisor', 'house-policy'],
-  ['quota', 'credits-exhausted'],
-  ['quota-exhausted', 'credits-exhausted'],
-  ['game-budget', 'game-budget'],
-  ['process-budget', 'process-budget'],
-  ['circuit-open', 'provider-cooldown'],
-  ['rate-limit', 'provider-cooldown']
-]);
 
 function createRuntime(deps) {
   const { io, roomManager, accountStore, socialStore, matchStore, achievementStore, telemetryStore, botAdvisor, social, maintenance, maintenanceAccess, metrics, authoritativeStore, pubsubAdapter } = deps;
@@ -450,40 +139,13 @@ function createRuntime(deps) {
   }
   let roomsUpdatedTimer = null;
 
-  function safeBotProviderStatus(status = {}) {
-    const states = new Set(['healthy', 'unconfigured', 'quota-exhausted', 'cooldown']);
-    const state = states.has(status.state) ? status.state : 'unconfigured';
-    const reasons = new Set(['credits-exhausted', 'missing-credentials', 'provider-cooldown']);
-    const reason = reasons.has(status.reason) ? status.reason : null;
-    const revision = Number.isFinite(Number(status.revision)) ? Math.max(0, Math.floor(Number(status.revision))) : 0;
-    return { state, revision, reason };
-  }
-
-  function legacyProviderHealth() {
-    if (typeof botAdvisor?.getHealth !== 'function') return null;
-    return botAdvisor.getHealth();
-  }
-
-  function legacyProviderReason(health) {
-    if (health?.state === 'quota-exhausted') return 'credits-exhausted';
-    if (health?.state === 'unconfigured') return 'missing-credentials';
-    if (health?.state === 'open') return 'provider-cooldown';
-    return null;
-  }
-
   function botProviderStatus() {
-    if (typeof botAdvisor?.getPublicStatus === 'function') return safeBotProviderStatus(botAdvisor.getPublicStatus());
-    const health = legacyProviderHealth();
-    return safeBotProviderStatus({ state: health?.state, reason: legacyProviderReason(health), revision: 0 });
+    return readBotProviderStatus(botAdvisor);
   }
 
   const unsubscribeBotProviderStatus = typeof botAdvisor?.subscribeProviderStatus === 'function'
     ? botAdvisor.subscribeProviderStatus(status => io.emit('bot-provider-status', safeBotProviderStatus(status)))
     : null;
-
-  function accountFromPayload(payload = {}) {
-    return accountStore.sessionAccount(payload.sessionToken);
-  }
 
   function getRoomForSocket(socket, callback) {
     const room = resolveRoomOrAck(runtime, socket, callback);
@@ -1102,37 +764,8 @@ function createRuntime(deps) {
     applyBotDecisionOutcome(room, bot, result);
   }
 
-  function botStatusHealthState(health) {
-    if (health?.state === 'healthy') return 'ready';
-    return 'fallback';
-  }
-
-  function botStatusPayload(room, bot, state, details) {
-    const health = typeof botAdvisor.getHealth === 'function' ? botAdvisor.getHealth() : null;
-    return {
-      playerId: bot.id,
-      nickname: bot.nickname,
-      state,
-      brain: details.brain || room.settings.botBrain || 'auto',
-      difficulty: details.difficulty || room.settings.botDifficulty || 'table',
-      provider: details.provider === 'ai' ? 'ai' : 'deterministic',
-      fallback: details.fallback === true,
-      fallbackReason: publicBotFallbackReason(details.fallbackReason),
-      actionId: details.actionId || null,
-      decisionSequence: details.sequence || details.decisionSequence || null,
-      latencyMs: details.latencyMs || 0,
-      healthState: botStatusHealthState(health)
-    };
-  }
-
   function emitBotStatus(room, bot, state, details = {}) {
-    io.in(room.roomCode).emit('bot-status', botStatusPayload(room, bot, state, details));
-  }
-
-  function publicBotFallbackReason(reason) {
-    const key = String(reason || '').toLowerCase();
-    if (!key) return null;
-    return PUBLIC_FALLBACK_REASONS.get(key) || 'provider-unavailable';
+    io.in(room.roomCode).emit('bot-status', botStatusPayload(botAdvisor, room, bot, state, details));
   }
 
   function finishBotTurn(room, token, movementDelayMs = 0) {
@@ -1622,7 +1255,7 @@ function createRuntime(deps) {
     if (!key) return null;
     if (!room.game.contractTransactions?.has(key)) return null;
     const memo = room.game.contractTransactions.get(key);
-    // An evicted id answers with the map's terminal rejection, as before.
+    // An evicted id answers with the map's terminal rejection.
     if (memo && memo.result === undefined && memo.error) return memo;
     const pendingId = room.game.pendingPlayerContract?.id || null;
     const named = payload?.contractId ? String(payload.contractId) : null;
@@ -1635,64 +1268,10 @@ function createRuntime(deps) {
     if (key) room.game.contractTransactions.set(key, { contractId: contractId ? String(contractId) : null, result });
   }
 
-  function maintenanceSnapshot() {
-    return maintenance?.snapshot?.() || {
-      mode: 'normal',
-      lockout: false,
-      message: '',
-      releaseId: '',
-      drainDeadline: null,
-      activeRounds: 0,
-    };
-  }
-
-  // maintenance lockout: who may pass it
-
-  // A socket passes the lockout with a live operator cookie grant (read at the
-  // handshake, see server.js) or as an admin account. account undefined means
-  // "resolve it from the socket"; null means "known anonymous".
-  function maintenanceBypass(socket, account) {
-    if (maintenanceAccess?.isGrantActive?.(socket?.data?.maintenanceAccess)) return true;
-    let resolved = account;
-    if (resolved === undefined) {
-      try { resolved = social?.accountForSocket?.(socket, {}) || null; } catch { resolved = null; }
-    }
-    return isAdminAccount(resolved?.id, runtime.adminIds);
-  }
-
-  // The bypass is only worked out when the plain gate says no, so normal play
-  // never pays for the account lookup.
-  function gate(check, socket, account, options = {}) {
-    if (typeof maintenance?.[check] !== 'function') return true;
-    if (maintenance[check](options)) return true;
-    return maintenance[check]({ ...options, bypass: maintenanceBypass(socket, account) });
-  }
-
-  const canCreateRoom = (socket, account) => gate('canCreateRoom', socket, account);
-  const canStartRound = (socket, account) => gate('canStartRound', socket, account);
-  const canJoinRoom = (socket, account, { reconnecting = false } = {}) => gate('canJoinRoom', socket, account, { reconnecting });
-
-  // Per-socket copy of the state: bypass tells this client whether to hide the
-  // lockout panel. It is never broadcast as one shared value.
-  function maintenanceStateFor(socket, snapshot = maintenanceSnapshot()) {
-    return { ...snapshot, bypass: maintenanceBypass(socket) };
-  }
-
-  function emitMaintenanceState(socket, snapshot) {
-    socket?.emit?.('maintenance-state', maintenanceStateFor(socket, snapshot));
-  }
-
-  function broadcastMaintenanceState(snapshot = maintenanceSnapshot()) {
-    io?.sockets?.sockets?.forEach?.(socket => emitMaintenanceState(socket, snapshot));
-  }
-
-  // Refusal for a lockout gate, or for the older drain/maintenance pause.
-  function lockoutRefusal(socket, pausedError = 'New rooms are paused for maintenance.') {
-    const snapshot = maintenanceSnapshot();
-    return snapshot.lockout
-      ? { success: false, error: 'The site is closed for maintenance.', code: 'MAINTENANCE_LOCKOUT', maintenance: maintenanceStateFor(socket, snapshot) }
-      : { success: false, error: pausedError, code: 'MAINTENANCE_DRAINING', maintenance: maintenanceStateFor(socket, snapshot) };
-  }
+  const {
+    maintenanceSnapshot, maintenanceBypass, canCreateRoom, canStartRound, canJoinRoom,
+    maintenanceStateFor, emitMaintenanceState, broadcastMaintenanceState, lockoutRefusal
+  } = createMaintenanceGate({ io, maintenance, maintenanceAccess, social, getAdminIds: () => runtime.adminIds });
 
   // socket disconnect (registered per socket by the connection wiring)
 
@@ -1723,7 +1302,6 @@ function createRuntime(deps) {
 
   const runtime = {
     acceptRoomInvite,
-    accountFromPayload,
     accountStore,
     authoritativeStore,
     achievementStore,
@@ -1753,9 +1331,7 @@ function createRuntime(deps) {
     canJoinRoom,
     botProviderStatus,
     unsubscribeBotProviderStatus,
-    // Shutdown hook (server.js calls it by this name): stops every background
-    // interval, not only the auction watchdog it is named for.
-    stopAuctionWatchdog: stopBackgroundTimers,
+    // Shutdown hook: stops every background interval (rooms GC, auction watchdog, idle seats, trade expiry).
     dispose: stopBackgroundTimers,
     now,
     telemetryStore,

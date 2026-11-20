@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
-import { createRuntime, settleAfkPayment } from './socketRuntime.js';
+import { createRuntime } from './socketRuntime.js';
+import { settleAfkPayment } from './seatDeparture.js';
 import { registerAccountSocketHandlers } from './serverSocketAccount.js';
 
 function fixture({ bankFailure = false } = {}) {

@@ -1,7 +1,5 @@
-// Regression: a sign-out over the socket must end the cookie session the socket
-// was opened with. Before the fix, account-logout acked success and cleared the
-// socket's binding, but the next social call re-bound the socket from the
-// still-valid cookie session, so the socket stayed signed in.
+// A sign-out over the socket must end the cookie session the socket was opened with. Clearing only the socket's
+// binding is not enough: the next social call would re-bind the socket from the still-valid cookie session.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

@@ -273,4 +273,4 @@ export function createMetadataRouter({ env = process.env, indexFile = "", getOpt
   return router;
 }
 
-export { PREVIEW_PATH, PREVIEW_WIDTH, PREVIEW_HEIGHT, PREVIEW_TYPE, PRIVATE_PATH, METADATA_PATHS };
+export { PREVIEW_PATH, PREVIEW_WIDTH, PREVIEW_HEIGHT, PREVIEW_TYPE, PRIVATE_PATH };

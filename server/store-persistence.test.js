@@ -1,4 +1,4 @@
-// Persistence seam characterization: the behaviors that can combine into silent data loss are pinned. A corrupt store file keeps
+// Store persistence: the behaviors that could combine into silent data loss. A corrupt store file keeps
 // its bytes in a quarantine sibling, the store opens empty beside it, and the next successful persist() never touches the quarantined original.
 import assert from 'assert';
 import fs from 'fs';
@@ -228,7 +228,7 @@ check('restarted legacy hashes are not rehydrated', () => {
   assert.equal(second.sessionAccount(registered.sessionToken), null);
 });
 
-check('load: a UTF-8 byte order mark is not corruption (S12-M6)', () => {
+check('load: a UTF-8 byte order mark is not corruption', () => {
   const filePath = fileFor('bom');
   fs.writeFileSync(filePath, '\ufeff[{"id":"a"}]', 'utf8');
   const loaded = loadJson(filePath, value => Array.isArray(value));
@@ -237,7 +237,7 @@ check('load: a UTF-8 byte order mark is not corruption (S12-M6)', () => {
   assert.strictEqual(corruptSibling(filePath).length, 0, 'a BOM file is not moved aside');
 });
 
-check('quarantine: a failed copy falls back to moving the original aside (S12-M5)', () => {
+check('quarantine: a failed copy falls back to moving the original aside', () => {
   const filePath = fileFor('quarantine-copy-fails');
   const broken = 'not json {{{';
   fs.writeFileSync(filePath, broken, 'utf8');
@@ -259,7 +259,7 @@ check('quarantine: a failed copy falls back to moving the original aside (S12-M5
   assert.equal(fs.readFileSync(path.join(tempDir, moved[0]), 'utf8'), broken);
 });
 
-check('quarantine: when the bytes cannot be preserved the load fails instead of clobbering them (S12-M5)', () => {
+check('quarantine: when the bytes cannot be preserved the load fails instead of clobbering them', () => {
   const filePath = fileFor('quarantine-all-fails');
   const broken = 'not json {{{';
   fs.writeFileSync(filePath, broken, 'utf8');
@@ -282,7 +282,7 @@ check('quarantine: when the bytes cannot be preserved the load fails instead of 
   assert.equal(fs.readFileSync(filePath, 'utf8'), broken, 'the only copy of the bytes is untouched');
 });
 
-check('atomic write: stale temp files of the same store are swept (S12-L4)', () => {
+check('atomic write: stale temp files of the same store are swept', () => {
   const filePath = fileFor('tmp-sweep');
   const stale = `${filePath}.4242.stale-id.tmp`;
   const fresh = `${filePath}.4242.fresh-id.tmp`;
@@ -299,7 +299,7 @@ check('atomic write: stale temp files of the same store are swept (S12-L4)', () 
   fs.rmSync(other, { force: true });
 });
 
-check('achievement store: a failed persist leaves memory and disk agreeing (S12-M2, S12-M1)', () => {
+check('achievement store: a failed persist leaves memory and disk agreeing', () => {
   const filePath = fileFor('achievement-rollback');
   const store = new AchievementStore(filePath);
   const realPersist = store.persist;
@@ -320,7 +320,7 @@ check('achievement store: a failed persist leaves memory and disk agreeing (S12-
   assert.deepEqual(JSON.parse(fs.readFileSync(filePath, 'utf8')), [], 'the retried purge reaches the disk');
 });
 
-check('achievement store: only real negative headlines grant crisis manager (S12-L6)', () => {
+check('achievement store: only real negative headlines grant crisis manager', () => {
   const store = new AchievementStore(fileFor('crisis-manager'));
   const grantsFor = headline => store.evaluateMatch({
     participants: [{ accountId: 'acct_c', finalPlacement: 2, globalEventsExperienced: 1, bankrupt: false }],
@@ -330,7 +330,7 @@ check('achievement store: only real negative headlines grant crisis manager (S12
   ['housing-bubble', 'HOUSING BUBBLE POP', 'HOUSING BUBBLE', 'bank-run', 'TAX SCANDAL AUDIT'].forEach(headline => assert.equal(grantsFor(headline), true, headline));
 });
 
-check('match store: a failed persist is rolled back in record and anonymizeAccount (S12-M1, S12-M2)', () => {
+check('match store: a failed persist is rolled back in record and anonymizeAccount', () => {
   const filePath = fileFor('match-rollback');
   const store = new MatchStore(filePath);
   const realPersist = store.persist;
@@ -350,7 +350,7 @@ check('match store: a failed persist is rolled back in record and anonymizeAccou
   assert.equal(fs.readFileSync(filePath, 'utf8').includes('acct_gone'), false, 'and reaches the disk');
 });
 
-check('match store: records without a time are oldest, and created reflects what was kept (S12-L7)', () => {
+check('match store: records without a time are oldest, and created reflects what was kept', () => {
   const store = new MatchStore(fileFor('match-order'));
   for (let index = 0; index < 500; index += 1) {
     store.matches.set(`m${index}`, { matchId: `m${index}`, roomVisibility: 'public', completedAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString() });

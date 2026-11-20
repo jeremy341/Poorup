@@ -484,4 +484,4 @@ const NOT_FOUND = { success: false, error: 'Player not found.' };
   console.log('PASS a blocked viewer cannot read the blocker\'s match history');
 }
 
-console.log('social socket audit: 17 scenarios passed, 0 failed');
+console.log('social socket: 17 scenarios passed, 0 failed');

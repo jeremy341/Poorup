@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { botChatPayload, createRuntime, noteBotFallback, recordLoggedTelemetry, recordMatchTelemetry, recordMatchTelemetryOnce } from './socketRuntime.js';
+import { botChatPayload, createRuntime } from './socketRuntime.js';
+import { noteBotFallback, recordLoggedTelemetry, recordMatchTelemetry, recordMatchTelemetryOnce } from './matchTelemetry.js';
 import { createSocialApi } from './socketSocialApi.js';
 import { createMetricsRegistry, summarizeRuntimeMetrics } from './metricsRegistry.js';
 import { RoomManager } from './gameLogic.js';
@@ -1169,6 +1170,6 @@ function achievementSettlementFixture(overrides = {}) {
   runtime.destroyRoom(room);
   assert.equal(manager.rooms.size, 0);
   assert.equal(summarizeRuntimeMetrics(registry)?.activeRooms, 0, 'destroying the last room refreshes the room gauge');
-  runtime.stopAuctionWatchdog();
+  runtime.dispose();
   console.log('PASS socket runtime refreshes room gauges after destroyRoom');
 }

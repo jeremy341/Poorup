@@ -1,3 +1,5 @@
+// Cross-module contracts of the server runtime: persistence mode, provider status, seat restore, invites, host reassignment,
+// replay-cache pressure and match telemetry.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -63,17 +65,6 @@ check('persistence accepts only an adapter instance with a healthy transactional
   const adapter = { healthCheck() { return true; }, transaction() {} };
   assert.equal(persistence.persistenceMode(env, adapter).mode, 'postgres-ready');
   assert.equal(persistence.persistenceMode(env, { healthCheck() { return false; }, transaction() {} }).ready, false);
-});
-
-check('readiness projection exposes only store, backup, and maintenance health', () => {
-  assert.equal(typeof persistence.buildReadinessProjection, 'function');
-  assert.deepEqual(persistence.buildReadinessProjection({ storeLoaded: true, backupFresh: false, maintenance: 'normal' }), {
-    ready: false,
-    storeLoaded: true,
-    backupFresh: false,
-    maintenance: 'normal'
-  });
-  assert.equal(JSON.stringify(persistence.buildReadinessProjection({ storeLoaded: true, backupFresh: true, maintenance: 'normal' })).includes('password'), false);
 });
 
 check('runtime exposes current AI provider status and its subscription cleanup', () => {
@@ -317,5 +308,5 @@ try {
 
 // The exit code is evaluated at the exit call from every recorded failure, so
 // a trailing exit(0) can never mask a failure that check() has recorded.
-console.log(failures.length ? `\nserver follow-ups: ${failures.length} failed` : '\nserver follow-ups: all passed');
+console.log(failures.length ? `\nserver runtime contracts: ${failures.length} failed` : '\nserver runtime contracts: all passed');
 process.exit(failures.length ? 1 : 0);

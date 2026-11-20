@@ -1,6 +1,6 @@
 // The account and room-lifecycle socket domain: registration, login, session restore, public-room browsing, and the create, join,
 // leave, set-setting and start-game handlers. Their guard chains follow the propertyApi.js style. Every ack payload, system message
-// and emit order is wire-identical (server/rooms.test.js pins the error strings and order).
+// and emit order are a contract with the client (server/rooms.test.js pins the error strings and order).
 import {
   normalizeClientId,
   normalizeRequestId,
