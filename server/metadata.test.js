@@ -172,11 +172,11 @@ try {
   assert.equal(indexingWarning({}), "");
 }
 
-// Production is indexable at powerup.tech without an environment file; explicit
+// Production is indexable at poorup.tech without an environment file; explicit
 // env values still win, and non-production stays closed by default.
 {
   const prod = { NODE_ENV: "production" };
-  assert.equal(metadataConfig({ env: prod, path: "/" }).origin, "https://powerup.tech");
+  assert.equal(metadataConfig({ env: prod, path: "/" }).origin, "https://poorup.tech");
   assert.equal(metadataConfig({ env: prod, path: "/" }).indexPolicy, "index,follow");
   assert.equal(indexingApproved(prod), true);
   assert.equal(indexingWarning(prod), "", "the production default is not a warning");

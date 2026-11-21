@@ -49,7 +49,7 @@ const REPOSITORY_URL = "https://github.com/jeremy341/Poorup";
 const SAME_AS_URLS = Object.freeze([REPOSITORY_URL]);
 // Poorup's production home. Baked in so a normal deployment is indexable without an
 // environment file; the POORUP_* variables below remain as overrides for staging.
-export const DEFAULT_PUBLIC_ORIGIN = "https://powerup.tech";
+export const DEFAULT_PUBLIC_ORIGIN = "https://poorup.tech";
 export const DEFAULT_INDEX_POLICY = "index,follow";
 
 const VERIFICATION_TOKEN = /^[A-Za-z0-9_-]{10,120}$/;
@@ -273,7 +273,7 @@ export function injectMetadata(html, options = {}) {
   return source.replace(/<\/head>/i, () => `${tags}\n</head>`);
 }
 
-// Production is indexable out of the box at powerup.tech. Other environments stay
+// Production is indexable out of the box at poorup.tech. Other environments stay
 // closed unless they opt in; an explicit POORUP_INDEX_POLICY always wins.
 export function indexingApproved(env = process.env) {
   const explicit = normalizePolicy(env?.POORUP_INDEX_POLICY, "");
