@@ -26,7 +26,37 @@ const PAGE_COPY = {
   }
 };
 
+// The only pages that may be indexed. The sitemap, robots.txt and structured
+// data all read this list, so they cannot disagree about which pages are public.
+export const INDEXABLE_PATHS = Object.freeze(["/", "/about", "/rules"]);
+
+// Breadcrumb label for each indexable page that is not the home page. Kept next
+// to the path list so a new indexable page cannot get a breadcrumb with no name.
+const BREADCRUMB_LABELS = Object.freeze({
+  "/about": "About",
+  "/rules": "Rules",
+});
+// Markdown copies of the indexable pages, advertised with rel="alternate". Served
+// by server.js only while indexing is approved.
+export const MARKDOWN_ALTERNATES = Object.freeze({
+  "/about": "/about.md",
+  "/rules": "/rules.md",
+});
+const REPOSITORY_URL = "https://github.com/jeremy341/Poorup";
+// Only URLs that really exist in this repository are listed as sameAs. There are
+// no verified social profiles checked in here, so the source repository is the
+// sole entry; do not add invented Twitter/X, Discord or community links.
+const SAME_AS_URLS = Object.freeze([REPOSITORY_URL]);
+// Poorup's production home. Baked in so a normal deployment is indexable without an
+// environment file; the POORUP_* variables below remain as overrides for staging.
+export const DEFAULT_PUBLIC_ORIGIN = "https://powerup.tech";
+export const DEFAULT_INDEX_POLICY = "index,follow";
+
 const VERIFICATION_TOKEN = /^[A-Za-z0-9_-]{10,120}$/;
+
+function productionRuntime(env) {
+  return String(env?.NODE_ENV || "").trim().toLowerCase() === "production";
+}
 
 function cleanText(value, fallback = "") {
   return String(value ?? fallback).replace(/[<>]/g, "").trim();
@@ -60,10 +90,11 @@ function normalizePolicy(value, fallback) {
 function sourceOptions(options = {}) {
   const env = options.env && typeof options.env === "object" ? options.env : options;
   return {
-    origin: options.origin ?? env.POORUP_PUBLIC_ORIGIN ?? "",
-    indexPolicy: options.indexPolicy ?? env.POORUP_INDEX_POLICY,
+    origin: options.origin ?? env.POORUP_PUBLIC_ORIGIN ?? (productionRuntime(env) ? DEFAULT_PUBLIC_ORIGIN : ""),
+    indexPolicy: options.indexPolicy ?? env.POORUP_INDEX_POLICY ?? (productionRuntime(env) ? DEFAULT_INDEX_POLICY : undefined),
     previewPath: options.previewPath ?? env.POORUP_PREVIEW_PATH,
-    description: options.description ?? env.POORUP_META_DESCRIPTION,
+    // POORUP_META_DESCRIPTION is documented as the home-page description only.
+    description: options.description ?? (cleanPath(options.path ?? "/") === "/" ? env.POORUP_META_DESCRIPTION : undefined),
     path: options.path ?? "/",
     title: options.title,
     googleVerification: options.googleVerification ?? env.POORUP_GOOGLE_SITE_VERIFICATION,
@@ -111,33 +142,60 @@ function escapeAttribute(value) {
 
 // JSON-LD only goes out for indexable pages with a configured public origin, so a
 // private or unconfigured deploy never advertises itself to crawlers.
+// Every indexable page carries the same three entities with stable @ids, so they
+// merge into one site-wide description: the Organization that publishes the game,
+// the WebSite, and the game itself (a VideoGame that is also a WebApplication).
+// Every non-home page adds its breadcrumb, and /rules adds its TechArticle. There is
+// no FAQPage on /rules: that page holds the rules book, not questions and answers.
 function structuredData(meta) {
   if (!meta.origin || meta.indexPolicy !== "index,follow") return "";
-  if (meta.path !== "/" && meta.path !== "/about" && meta.path !== "/rules") return "";
-  const webApplication = {
-    "@type": "WebApplication",
+  if (!INDEXABLE_PATHS.includes(meta.path)) return "";
+  const organizationId = `${meta.origin}/#organization`;
+  const organization = {
+    "@type": "Organization",
+    "@id": organizationId,
     name: "Poorup",
     url: `${meta.origin}/`,
-    description: meta.description,
+    // The brand mark in public/favicon.svg, served at /favicon.svg. It is a real
+    // repository asset, so the logo URL can never point at a missing file.
+    logo: `${meta.origin}/favicon.svg`,
+    sameAs: SAME_AS_URLS,
+  };
+  const website = {
+    "@type": "WebSite",
+    "@id": `${meta.origin}/#website`,
+    name: "Poorup",
+    url: `${meta.origin}/`,
+    inLanguage: "en",
+    publisher: { "@id": organizationId },
+  };
+  const game = {
+    "@type": ["VideoGame", "WebApplication"],
+    "@id": `${meta.origin}/#game`,
+    name: "Poorup",
+    url: `${meta.origin}/`,
     applicationCategory: "GameApplication",
     genre: "Board game",
+    gamePlatform: "Web browser",
     operatingSystem: "Any (web browser)",
     browserRequirements: "Requires JavaScript",
     inLanguage: "en",
+    isAccessibleForFree: true,
     offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
     audience: { "@type": "PeopleAudience", suggestedMinAge: 10 },
     // 2-4 on the Standard-40 board, up to 6 on Metro-52 (see server/boardRegistry.js).
     numberOfPlayers: { "@type": "QuantitativeValue", minValue: 2, maxValue: 6 },
+    publisher: { "@id": organizationId },
   };
-  if (meta.previewUrl) webApplication.image = meta.previewUrl;
-  const graph = [webApplication];
-  if (meta.path === "/") graph.push({ "@type": "WebSite", name: "Poorup", url: `${meta.origin}/` });
-  if (meta.path === "/about" || meta.path === "/rules") {
+  if (meta.path === "/") game.description = meta.description;
+  if (meta.previewUrl) game.image = meta.previewUrl;
+  const graph = [organization, website, game];
+  if (BREADCRUMB_LABELS[meta.path]) {
     graph.push({
       "@type": "BreadcrumbList",
       itemListElement: [
         { "@type": "ListItem", position: 1, name: "Home", item: `${meta.origin}/` },
-        { "@type": "ListItem", position: 2, name: meta.path === "/about" ? "About" : "Rules", item: meta.canonicalUrl },
+        { "@type": "ListItem", position: 2, name: BREADCRUMB_LABELS[meta.path], item: meta.canonicalUrl },
       ],
     });
   }
@@ -148,6 +206,8 @@ function structuredData(meta) {
       description: meta.description,
       url: meta.canonicalUrl,
       inLanguage: "en",
+      publisher: { "@id": organizationId },
+      isPartOf: { "@id": `${meta.origin}/#website` },
     });
   }
   return JSON.stringify({ "@context": "https://schema.org", "@graph": graph }).replace(/</g, "\\u003c");
@@ -157,12 +217,18 @@ export function renderMetadata(options = {}) {
   // Re-normalize at the renderer boundary. Callers may pass a precomputed
   // object, but its origin and absolute URLs are still untrusted input.
   const meta = metadataConfig(options);
+  // Wider image previews and snippets apply while a page is indexable, so a page
+  // that may be indexed keeps a richer robots directive than a noindex one.
+  const robots = meta.indexPolicy === "index,follow"
+    ? `${meta.indexPolicy}, max-image-preview:large, max-snippet:-1`
+    : meta.indexPolicy;
+  const ogType = meta.path === "/rules" ? "article" : "website";
   const tags = [
-    `<meta name="robots" content="${escapeAttribute(meta.indexPolicy)}">`,
+    `<meta name="robots" content="${escapeAttribute(robots)}">`,
     `<meta name="description" content="${escapeAttribute(meta.description || "")}">`,
     `<meta property="og:title" content="${escapeAttribute(meta.title || "Poorup")}">`,
     `<meta property="og:description" content="${escapeAttribute(meta.description || "")}">`,
-    `<meta property="og:type" content="website">`,
+    `<meta property="og:type" content="${ogType}">`,
     `<meta property="og:site_name" content="Poorup">`,
     `<meta property="og:locale" content="en_US">`,
     `<meta name="twitter:card" content="${meta.previewUrl ? "summary_large_image" : "summary"}">`,
@@ -174,6 +240,10 @@ export function renderMetadata(options = {}) {
   if (meta.canonicalUrl && meta.origin) {
     tags.push(`<link rel="canonical" href="${escapeAttribute(meta.canonicalUrl)}">`);
     tags.push(`<meta property="og:url" content="${escapeAttribute(meta.canonicalUrl)}">`);
+    const markdown = MARKDOWN_ALTERNATES[meta.path];
+    if (markdown && meta.indexPolicy === "index,follow") {
+      tags.push(`<link rel="alternate" type="text/markdown" href="${escapeAttribute(`${meta.origin}${markdown}`)}">`);
+    }
   }
   if (meta.previewUrl && meta.origin) {
     tags.push(`<meta property="og:image" content="${escapeAttribute(meta.previewUrl)}">`);
@@ -203,11 +273,32 @@ export function injectMetadata(html, options = {}) {
   return source.replace(/<\/head>/i, () => `${tags}\n</head>`);
 }
 
-// Indexing is on only with a public origin AND an explicit POORUP_INDEX_POLICY
-// of index,follow (docs/seo.md). robots.txt and the sitemap follow this gate.
+// Production is indexable out of the box at powerup.tech. Other environments stay
+// closed unless they opt in; an explicit POORUP_INDEX_POLICY always wins.
 export function indexingApproved(env = process.env) {
+  const explicit = normalizePolicy(env?.POORUP_INDEX_POLICY, "");
   const origin = metadataConfig({ env, path: "/" }).origin;
-  return Boolean(origin && normalizePolicy(env?.POORUP_INDEX_POLICY, "") === "index,follow");
+  if (explicit) return Boolean(origin) && explicit === "index,follow";
+  // Only production gets the baked-in opt-in; other environments need an explicit policy.
+  return productionRuntime(env) && Boolean(origin);
+}
+
+// Logged once at boot (server/server.js). In production the default policy means
+// there is nothing to warn about; a public origin in another environment with no
+// policy would silently stay noindex, so that case is still reported.
+export function indexingWarning(env = process.env) {
+  const config = metadataConfig({ env, path: "/" });
+  if (!config.origin) return "";
+  const raw = cleanText(env?.POORUP_INDEX_POLICY);
+  if (!raw) {
+    if (productionRuntime(env)) return "";
+    return "POORUP_PUBLIC_ORIGIN is set but POORUP_INDEX_POLICY is unset; robots.txt stays Disallow: / and every page stays noindex. Set POORUP_INDEX_POLICY=index,follow to allow indexing (docs/seo.md).";
+  }
+  const policy = normalizePolicy(raw, "");
+  if (!policy) {
+    return `POORUP_INDEX_POLICY is "${raw}", which is not understood; robots.txt stays Disallow: / and every page stays noindex. Use index,follow or noindex,nofollow.`;
+  }
+  return "";
 }
 
 // The env the page renderers should see: until indexing is approved every page
@@ -234,4 +325,4 @@ export function createMetadataRouter({ env = process.env, indexFile = "", getOpt
   return router;
 }
 
-export { PREVIEW_PATH, PREVIEW_WIDTH, PREVIEW_HEIGHT, PREVIEW_TYPE, PRIVATE_PATH, METADATA_PATHS };
+export { PREVIEW_PATH, PREVIEW_WIDTH, PREVIEW_HEIGHT, PREVIEW_TYPE, PRIVATE_PATH };

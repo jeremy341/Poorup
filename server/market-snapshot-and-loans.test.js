@@ -53,7 +53,7 @@ function activateEvent(game, { id = null, comboId = null, choiceId = null } = {}
 }
 
 
-test('B-11 marketSnapshot never aliases the live position objects', () => {
+test('marketSnapshot never aliases the live position objects', () => {
   const { room, game, a } = marketRoom('shorting');
   assert.equal(room.tradeMarket('a', 'brazil', 'buy', 1, 'b11-spot').success, true);
   a.marketActionsThisTurn = 0;
@@ -72,7 +72,7 @@ test('B-11 marketSnapshot never aliases the live position objects', () => {
   assert.notEqual(snapshot.shorts.positions, a.shortPositions);
 });
 
-test('B-11 mutating a snapshot leaves every live position book untouched', () => {
+test('mutating a snapshot leaves every live position book untouched', () => {
   const { room, game, a } = marketRoom('shorting');
   assert.equal(room.tradeMarket('a', 'brazil', 'buy', 1, 'b11-spot').success, true);
   a.marketActionsThisTurn = 0;
@@ -107,7 +107,7 @@ test('B-11 mutating a snapshot leaves every live position book untouched', () =>
   assert.equal(Object.hasOwn(a.marketPositions, 'injected'), false);
 });
 
-test('B-11 in-place order legs cannot rewrite an already-returned snapshot', () => {
+test('in-place order legs cannot rewrite an already-returned snapshot', () => {
   const { room, game, a } = marketRoom('shorting');
   assert.equal(room.tradeMarket('a', 'brazil', 'buy', 1, 'b11-spot').success, true);
   a.marketActionsThisTurn = 0;
@@ -139,7 +139,7 @@ test('B-11 in-place order legs cannot rewrite an already-returned snapshot', () 
   assert.deepEqual(taken.shorts.positions, captured.short);
 });
 
-test('B-11 position snapshots keep the exact key set and value shape', () => {
+test('position snapshots keep the exact key set and value shape', () => {
   const { room, game, a } = marketRoom('shorting');
   assert.equal(room.tradeMarket('a', 'brazil', 'buy', 1, 'b11-spot').success, true);
   a.marketActionsThisTurn = 0;
@@ -169,7 +169,7 @@ test('B-11 position snapshots keep the exact key set and value shape', () => {
   assert.equal(spectator.shorts, null);
 });
 
-test('B-11 a replayed requestId returns the original positions, not the live ones', () => {
+test('a replayed requestId returns the original positions, not the live ones', () => {
   const { room, game, a } = marketRoom('basic');
   const first = room.tradeMarket('a', 'brazil', 'buy', 1, 'b11-replay');
   assert.equal(first.success, true);
@@ -198,7 +198,7 @@ test('B-11 a replayed requestId returns the original positions, not the live one
   assert.equal(game.economySnapshot(a.id).market.positions.brazil.quantity, 5);
 });
 
-test('B-11 a cached casino replay freezes balanceAfter and positions together', () => {
+test('a cached casino replay freezes balanceAfter and positions together', () => {
   const room = new RoomManager().createRoom({ rulesProfile: 'advanced', socketId: 'a', clientId: 'a', nickname: 'A', rulesetOverrides: { bankLoans: true } });
   room.addOrReconnectPlayer({ socketId: 'b', clientId: 'b', nickname: 'B' });
   room.setRoomSetting('market', true);
@@ -230,7 +230,7 @@ test('B-11 a cached casino replay freezes balanceAfter and positions together', 
 });
 
 
-test('B-14 no active event leaves the plain base premium', () => {
+test('no active event leaves the plain base premium', () => {
   const { game, a } = loanRoom();
   assert.equal(game.globalEvent, null);
   const terms = bankLoanTerms(game, a);
@@ -240,7 +240,7 @@ test('B-14 no active event leaves the plain base premium', () => {
   assert.equal(terms.totalDue, 450);
 });
 
-test('B-14 inflation-spiral applies its declared 1.25 exactly once', () => {
+test('inflation-spiral applies its declared 1.25 exactly once', () => {
   const { game, a } = loanRoom();
   const definition = game.globalEventDefinition('inflation-spiral');
   assert.equal(definition.effects.loanPremiumMultiplier, 1.25);
@@ -263,7 +263,7 @@ test('B-14 inflation-spiral applies its declared 1.25 exactly once', () => {
   assert.equal(a.cash, 300);
 });
 
-test('B-14 every other premium event still applies its declared multiplier once', () => {
+test('every other premium event still applies its declared multiplier once', () => {
   const cases = [
     { id: 'interest-rate-shock', multiplier: 1.35, totalDue: 503 },
     { id: 'debt-amnesty', multiplier: 1.15, totalDue: 473 },
@@ -285,7 +285,7 @@ test('B-14 every other premium event still applies its declared multiplier once'
   }
 });
 
-test('B-14 the bank-first election discount still applies, alone and combined', () => {
+test('the bank-first election discount still applies, alone and combined', () => {
   const bankFirst = loanRoom();
   activateEvent(bankFirst.game, { id: 'city-election', choiceId: 'bank-first' });
   assert.equal(bankFirst.game.globalEvent.resolvedChoice, 'bank-first');
@@ -303,7 +303,7 @@ test('B-14 the bank-first election discount still applies, alone and combined', 
   assert.equal(bankLoanTerms(combined.game, combined.a).totalDue, 450);
 });
 
-test('B-14 inflation-spiral still reprices loans taken before the event, once', () => {
+test('inflation-spiral still reprices loans taken before the event, once', () => {
   const { game, a } = loanRoom();
   a.cash = 0;
   const issued = takeBankLoan(game, 'a', 'b14-preexisting');

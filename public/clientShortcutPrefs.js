@@ -26,7 +26,7 @@ export function setShortcutsEnabled(next) {
   syncShortcutToggles();
 }
 
-export function syncShortcutToggles() {
+function syncShortcutToggles() {
   document.querySelectorAll(TOGGLE_SELECTOR).forEach((button) => {
     const label = button.querySelector(".t-label");
     if (label) label.textContent = enabled ? "KEYS: ON" : "KEYS: OFF";

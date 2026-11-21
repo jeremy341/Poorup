@@ -25,4 +25,4 @@ assert.equal(store.accountForSessionHash(hash, loggedIn.account.id), null, 'a st
 assert.equal(store.sessionHashes.has(hash), false, 'the stale hash is deleted');
 assert.equal(store.sessionIssuedAt.has(hash), false, 'the stale issuance stamp is deleted');
 
-console.log('account session audit: 1 passed, 0 failed');
+console.log('account sessions: 1 passed, 0 failed');

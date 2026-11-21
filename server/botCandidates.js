@@ -294,7 +294,7 @@ function counterIsSound(game, bot, contract, counter, lenderResponding) {
 // A contract counter replaces the offer on the table, so the engine refuses it while another obligation is open
 // (contractLogic.js: 'Resolve the current table obligation first.'). The answered contract and a pending payment
 // are both allowed: a payment never blocks a deal.
-export function contractCounterBlocked(game) {
+function contractCounterBlocked(game) {
   return tableObligationOpen(game);
 }
 

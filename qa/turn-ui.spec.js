@@ -181,7 +181,7 @@ test('holdings list shows owned properties as one flat list, most valuable first
     state.owners = { 1: 'p1', 3: 'p1', 5: 'p1', 6: 'p1', 8: 'p1', 12: 'p1' };
     renderRightRail();
   });
-  await expect.poll(() => page.locator('#rr-body [data-deed-open]').evaluateAll(elements => elements.map(element => element.dataset.deedOpen))).toEqual(['5', '12', '6', '8', '1', '3']);
+  await expect.poll(() => page.locator('#right-rail-body [data-deed-open]').evaluateAll(elements => elements.map(element => element.dataset.deedOpen))).toEqual(['5', '12', '6', '8', '1', '3']);
 });
 
 test('sidebar cash follows presentation cash when the local player is not taking a turn', async ({ page }) => {
@@ -194,10 +194,10 @@ test('sidebar cash follows presentation cash when the local player is not taking
     state.players[1].bot = false;
     state.tab = 'holdings';
     renderRightRail();
-    document.querySelector('#rr-body').insertAdjacentHTML('beforeend', tradePlayerRowHTML(state.players[1], 2));
+    document.querySelector('#right-rail-body').insertAdjacentHTML('beforeend', tradePlayerRowHTML(state.players[1], 2));
   });
   await expect(page.locator('.rail-wallet-cash strong')).toContainText('$95');
-  await expect(page.locator('.trade-player-row .tp-sub')).toContainText('$775');
+  await expect(page.locator('.trade-player-row .trade-player-detail')).toContainText('$775');
   await expect(page.locator('#roll-btn')).toBeDisabled();
 });
 
@@ -215,7 +215,7 @@ test('deed manager leaves cash out of its readout while build affordability stay
     openDeedDetail(1);
   });
   await expect(page.locator('#deed-card-detail')).not.toContainText('YOUR CASH');
-  await expect(page.locator('#dd-buy')).toBeEnabled();
+  await expect(page.locator('#deed-detail-buy')).toBeEnabled();
 });
 
 test('deed manager explains cash reserved for the current auction bid', async ({ page }, testInfo) => {
@@ -230,9 +230,9 @@ test('deed manager explains cash reserved for the current auction bid', async ({
     } } }];
     openDeedDetail(3);
   });
-  await expect(page.locator('#dd-mortgage')).toBeDisabled();
-  await expect(page.locator('#dd-mortgage-reason')).toHaveText('Keep enough cash to cover your current auction bid.');
-  await expect(page.locator('#dd-mortgage')).toHaveAttribute('aria-describedby', 'dd-mortgage-reason');
-  await page.locator('#dd-mortgage-reason').scrollIntoViewIfNeeded();
+  await expect(page.locator('#deed-detail-mortgage')).toBeDisabled();
+  await expect(page.locator('#deed-detail-mortgage-reason')).toHaveText('Keep enough cash to cover your current auction bid.');
+  await expect(page.locator('#deed-detail-mortgage')).toHaveAttribute('aria-describedby', 'deed-detail-mortgage-reason');
+  await page.locator('#deed-detail-mortgage-reason').scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath('auction-reserved-cash.png'), animations: 'disabled' });
 });

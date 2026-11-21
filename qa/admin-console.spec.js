@@ -84,19 +84,19 @@ test.describe('surface tabs', () => {
     await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
     await expect(tabs.nth(1)).toHaveAttribute('tabindex', '0');
     await expect(tabs.first()).toHaveAttribute('tabindex', '-1');
-    await expect(page.locator('h1:visible')).toHaveText('ROOMS');
+    await expect(page.locator('[role="heading"][aria-level="1"]:visible')).toHaveText('ROOMS');
     await expect(page.locator('#admin-section-rooms')).toBeVisible();
     await expect(page.locator('#admin-section-analytics')).toBeHidden();
     await page.keyboard.press('End');
     await expect(tabs.last()).toBeFocused();
-    await expect(page.locator('h1:visible')).toHaveText('RELEASE');
+    await expect(page.locator('[role="heading"][aria-level="1"]:visible')).toHaveText('RELEASE');
     await page.keyboard.press('ArrowRight');
     await expect(tabs.first()).toBeFocused();
     await page.keyboard.press('ArrowLeft');
     await expect(tabs.last()).toBeFocused();
     await page.keyboard.press('Home');
     await expect(tabs.first()).toBeFocused();
-    await expect(page.locator('h1:visible')).toHaveText('ANALYTICS');
+    await expect(page.locator('[role="heading"][aria-level="1"]:visible')).toHaveText('ANALYTICS');
     await expect(page.locator(':focus-visible')).toBeVisible();
   });
 
@@ -114,7 +114,7 @@ test.describe('surface tabs', () => {
       await page.locator(`[data-admin-section="${surface}"]`).click();
       await expect(page.locator(`#admin-section-${surface}`)).toBeVisible();
       await expect(page.locator(`#admin-section-${surface}`)).toHaveAttribute('aria-labelledby', `admin-section-tab-${surface}`);
-      await expect(page.locator('h1:visible')).toHaveText(titles[surface]);
+      await expect(page.locator('[role="heading"][aria-level="1"]:visible')).toHaveText(titles[surface]);
       await expect.poll(() => new URL(page.url()).searchParams.get('tab')).toBe(surface === 'analytics' ? 'status' : surface);
     }
   });

@@ -417,7 +417,7 @@ const gameView = indexHtml.slice(indexHtml.indexOf('id="view-game"'));
 assert.match(gameView.slice(0, 400), /<a class="skip-link" id="skip-to-action" href="#roll-btn">Skip to game action<\/a>/, "skip link precedes every header control");
 assert.doesNotMatch(indexHtml, /id="quick-table-btn"[^>]*>.*\[ C \]/, "Quick table advertises no shortcut (C opens Create)");
 
-/* Parlor Patrol shortcuts work on Home without claiming Cmd+P. */
+/* Parlor Patrol shortcuts are disabled while the flag is off. */
 {
   const { readFileSync: readHtml } = await import("node:fs");
   const homeHtml = readHtml(new URL("./index.html", import.meta.url), "utf8");
@@ -438,8 +438,8 @@ assert.doesNotMatch(indexHtml, /id="quick-table-btn"[^>]*>.*\[ C \]/, "Quick tab
   calls.length = 0;
   const shift = key({ shiftKey: true });
   listeners.keydown(shift);
-  assert.equal(shift.defaultPrevented, true);
-  assert.deepEqual(calls, ["isPanelMenuOpen", "isNightShiftActive", "startNightShift"]);
+  assert.equal(calls.includes("startNightShift"), false, "the Night Shift shortcut is disabled");
+  assert.equal(calls.includes("isNightShiftActive"), false, "the Night Shift guard is not reached");
   calls.length = 0;
   surfaces.openSurface("#bank-loan-modal", "#bank-loan-cancel", { allowHome: true });
   const blockedShift = key({ shiftKey: true });

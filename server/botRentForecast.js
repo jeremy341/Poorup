@@ -30,6 +30,8 @@ function cityElectionTargetsProperty({ tile, event }) {
 }
 
 function directEventFactors(context) {
+  // No active event means no rule can match (every rule names an event id), so the rule table is not scanned.
+  if (context.eventId === null) return [];
   return DIRECT_EVENT_RULES
     .filter(rule => rule.id === context.eventId && rule.matches(context))
     .map(rule => (rule.factorKey ? Number(context.event?.effects?.[rule.factorKey]) || rule.factor : rule.factor));
@@ -67,9 +69,9 @@ function eventFactorsFor({ tile, event, effects, ownerSeat, ownerId = null }) {
   return factors.filter(value => Number.isFinite(Number(value))).map(Number);
 }
 
-function normalizeFacts({ tile, hasFullSet = false, doubleRent = false, ownedRailroadCount = 0, ownedUtilityCount = 0, diceTotal = 2, eventFactors = [], rentCap = null }) {
+function normalizeFacts({ tile, hasFullSet = false, doubleRent = false, ownedRailroadCount = 0, ownedUtilityCount = 0, diceTotal = 2, eventFactors = [], rentCap = null }, { copyTile = true } = {}) {
   return {
-    tile: tile ? { ...tile } : {},
+    tile: copyTile && tile ? { ...tile } : tile || {},
     hasFullSet: hasFullSet === true,
     doubleRent: doubleRent === true,
     ownedRailroadCount: Math.max(0, Math.floor(Number(ownedRailroadCount) || 0)),
@@ -120,12 +122,15 @@ export function applyRentCap(rent, rentCap) {
   return rentCap > 0 ? Math.min(rent, rentCap) : rent;
 }
 
-export function calculateRentFromFacts(facts) {
-  const normalized = normalizeFacts(facts || {});
+function rentFromNormalized(normalized) {
   if (normalized.tile.mortgaged) return 0;
   const baseRent = baseRentFor(normalized.tile, normalized);
   const adjustedRent = applyRentFactors(baseRent, normalized.eventFactors);
   return Math.max(0, Math.floor(applyRentCap(adjustedRent, normalized.rentCap)));
+}
+
+export function calculateRentFromFacts(facts) {
+  return rentFromNormalized(normalizeFacts(facts || {}));
 }
 
 function gameOwner(game, tile) {
@@ -233,7 +238,7 @@ function snapshotRentContext(snapshot) {
   };
 }
 
-export function rentFactsFromSnapshot(snapshot, tile, diceTotal) {
+function snapshotRentFacts(snapshot, tile, diceTotal, copyTile) {
   const board = snapshot?.board || [];
   const ownerSeat = snapshotOwnerSeat(tile);
   const counts = snapshotBoardCounts(board, tile?.group, ownerSeat);
@@ -247,5 +252,15 @@ export function rentFactsFromSnapshot(snapshot, tile, diceTotal) {
     diceTotal,
     eventFactors: eventFactorsFor({ tile: tile || {}, event: context.event, effects: context.effects, ownerSeat }),
     rentCap: context.effects.rentCap
-  });
+  }, { copyTile });
+}
+
+export function rentFactsFromSnapshot(snapshot, tile, diceTotal) {
+  return snapshotRentFacts(snapshot, tile, diceTotal, true);
+}
+
+// The rent a snapshot tile charges, without the facts copy: the facts are consumed by this call alone, so it is the same number
+// as calculateRentFromFacts(rentFactsFromSnapshot(...)) with two fewer object copies per call.
+export function rentFromSnapshot(snapshot, tile, diceTotal) {
+  return rentFromNormalized(snapshotRentFacts(snapshot, tile, diceTotal, false));
 }

@@ -75,4 +75,4 @@ export function createPubSubAdapter() {
   return { publish, subscribe, close, topicCount: () => topics.size };
 }
 
-export { MAX_TOPIC_LENGTH, MAX_PAYLOAD_BYTES, safeTopic, safePayload };
+export { MAX_TOPIC_LENGTH };

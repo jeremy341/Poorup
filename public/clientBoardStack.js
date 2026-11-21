@@ -1,7 +1,7 @@
 // BOARD TOKEN STACKING: where pieces sit on a shared tile.
 // Pure geometry so it can be unit-tested without a DOM.
 
-export const DEFAULT_STACK_OFFSETS = Object.freeze([
+const DEFAULT_STACK_OFFSETS = Object.freeze([
   Object.freeze({ x: 0, y: 0 }),
   Object.freeze({ x: 11, y: -8 }),
   Object.freeze({ x: -11, y: 8 }),

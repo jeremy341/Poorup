@@ -10,9 +10,16 @@ import zlib from 'node:zlib';
 // are imported by plain relative URLs, so a long max-age here would mix old
 // and new code after a release.
 const REVALIDATE = 'no-cache';
+// The CSS bundle is content-hashed in its filename, so a new build gets a new
+// URL and can be cached forever. Everything else (.css included) still revalidates.
+const IMMUTABLE = 'public, max-age=31536000, immutable';
 // Stable names, rarely edited: fonts, images, audio, icons.
 const LONG_LIVED = 'public, max-age=604800';
 const DEFAULT_CACHE = 'public, max-age=3600';
+
+// Matches both request paths (/dist/styles.<hash>.css) and the absolute file
+// paths express.static passes to setStaticHeaders on Windows.
+const HASHED_BUNDLE = /(?:^|\/)dist\/styles\.[0-9a-f]{12,}\.css$/i;
 
 const REVALIDATED_EXTENSIONS = new Set(['.html', '.js', '.mjs', '.css']);
 const LONG_LIVED_EXTENSIONS = new Set(['.woff2', '.woff', '.ttf', '.otf', '.svg', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.mp3', '.ogg', '.wav']);
@@ -27,7 +34,9 @@ const MIN_HTML_BYTES = 1024;
 const MAX_CACHED_HTML = 64;
 
 export function cacheControlFor(requestPath) {
-  const extension = path.extname(String(requestPath || '')).toLowerCase();
+  const value = String(requestPath || '').replace(/\\/g, '/');
+  if (HASHED_BUNDLE.test(value)) return IMMUTABLE;
+  const extension = path.extname(value).toLowerCase();
   if (REVALIDATED_EXTENSIONS.has(extension)) return REVALIDATE;
   if (LONG_LIVED_EXTENSIONS.has(extension)) return LONG_LIVED;
   return DEFAULT_CACHE;

@@ -5,12 +5,12 @@ import { dirname, join } from "node:path";
 import { defaultStackOffset, startTileStackOffset } from "./clientBoardStack.js";
 import { tileAriaLabel } from "./clientTileLabel.js";
 import { fileURLToPath } from "node:url";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 // Source-level contracts for the visual layer (typography, targets, shell
 // bounds). Browser-measured behaviour lives in qa/visual-contracts.spec.js.
 const root = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(root, "styles.css"), "utf8");
-const responsiveCss = readFileSync(join(root, "game-responsive.css"), "utf8");
+const css = siteCss();
 const html = readFileSync(join(root, "index.html"), "utf8");
 
 export function rule(selector, source = css) {
@@ -117,7 +117,7 @@ check("toast dismiss target is at least 24x24 CSS px", () => {
 check("auction tag and rankings empty state are readable and actionable", () => {
   assert.match(rule(".auction-leader-name"), /font-size:\s*15px/);
   assert.match(rule(".auction-bid-box .t-micro"), /font-size:\s*12px/);
-  const social = readFileSync(join(root, "clientSocialSurfaces.js"), "utf8");
+  const social = readFileSync(join(root, "clientRankingsView.js"), "utf8");
   const empty = social.slice(social.indexOf("function ledgerEmptyHTML()"), social.indexOf("function rankingErrorHTML"));
   assert.match(empty, /SHOW ALL-TIME RANKINGS/);
   assert.match(empty, /Sign in and finish a match/);
@@ -128,6 +128,6 @@ for (const result of checks) {
   if (result.ok) console.log(`ok - ${result.name}`);
   else { failed += 1; console.error(`not ok - ${result.name}\n  ${result.error?.message || result.error}`); }
 }
-void responsiveCss; void html;
+void html;
 if (failed) process.exit(1);
 console.log(`${checks.length} visual contract checks passed`);

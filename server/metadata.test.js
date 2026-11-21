@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import express from "express";
 import http from "node:http";
 import path from "node:path";
-import { metadataConfig, renderMetadata, injectMetadata, createMetadataRouter, gateIndexEnv, indexingApproved } from "./metadata.js";
+import { metadataConfig, renderMetadata, injectMetadata, createMetadataRouter, gateIndexEnv, indexingApproved, indexingWarning } from "./metadata.js";
 
 const safe = metadataConfig({ origin: "", path: "/" });
 assert.equal(safe.indexPolicy, "noindex,nofollow");
@@ -23,7 +23,8 @@ for (const privatePath of ["/play", "/rooms", "/profile", "/rankings", "/social"
   );
 }
 // Public pages: own title and description, indexable, structured data only when indexable.
-for (const publicPath of ["/", "/about", "/rules"]) {
+const PUBLIC_PATHS = ["/", "/about", "/rules"];
+for (const publicPath of PUBLIC_PATHS) {
   const config = metadataConfig({ origin: "https://play.example", path: publicPath });
   assert.equal(config.indexPolicy, "index,follow", `${publicPath} is public`);
   assert.ok(config.title.length > 20 && config.title.length <= 70, `${publicPath} has a search-sized title`);
@@ -44,19 +45,48 @@ function structuredGraph(options) {
   return { data, types };
 }
 {
+  // One publisher (Organization), one WebSite and one game (VideoGame that is also a
+  // WebApplication) on every indexable page, with @ids that tie them together.
+  const entities = ["Organization", "WebSite", ["VideoGame", "WebApplication"]];
   const home = structuredGraph({ origin: "https://play.example", path: "/" });
-  assert.deepEqual(home.types, ["WebApplication", "WebSite"]);
-  assert.equal(home.data["@graph"][1].url, "https://play.example/");
-  const app = home.data["@graph"][0];
-  assert.deepEqual([app.numberOfPlayers.minValue, app.numberOfPlayers.maxValue], [2, 6], "player counts match boardRegistry (2-4 standard, up to 6 Metro-52)");
+  assert.deepEqual(home.types, entities);
+  const [organization, website, game] = home.data["@graph"];
+  assert.equal(organization["@id"], "https://play.example/#organization");
+  assert.equal(website.publisher["@id"], organization["@id"]);
+  assert.equal(game.publisher["@id"], organization["@id"]);
+  assert.equal(website.url, "https://play.example/");
+  assert.deepEqual([game.numberOfPlayers.minValue, game.numberOfPlayers.maxValue], [2, 6], "player counts match boardRegistry (2-4 standard, up to 6 Metro-52)");
+  assert.equal(game.isAccessibleForFree, true);
+  assert.equal(typeof game.description, "string", "the home page describes the game");
   const about = structuredGraph({ origin: "https://play.example", path: "/about" });
-  assert.deepEqual(about.types, ["WebApplication", "BreadcrumbList"]);
-  assert.equal(about.data["@graph"][1].itemListElement[0].item, "https://play.example/");
+  assert.deepEqual(about.types, [...entities, "BreadcrumbList"]);
+  assert.equal(about.data["@graph"][3].itemListElement[0].item, "https://play.example/");
+  assert.equal("description" in about.data["@graph"][2], false, "the game's description is the home page's, so other pages do not repeat it");
   const rules = structuredGraph({ origin: "https://play.example", path: "/rules" });
-  assert.deepEqual(rules.types, ["WebApplication", "BreadcrumbList", "TechArticle"]);
-  assert.match(rules.data["@graph"][2].url, /^https:\/\/play\.example\/rules$/);
+  assert.deepEqual(rules.types, [...entities, "BreadcrumbList", "TechArticle"]);
+  assert.match(rules.data["@graph"][4].url, /^https:\/\/play\.example\/rules$/);
+  assert.equal(rules.data["@graph"][4].publisher["@id"], organization["@id"]);
+  assert.ok(!about.types.includes("FAQPage") && !rules.types.includes("FAQPage"), "FAQPage is served only by /about, which holds the Q&A");
+  // Only URLs that exist in the repository may be listed as sameAs.
+  assert.deepEqual(home.data["@graph"][0].sameAs, ["https://github.com/jeremy341/Poorup"]);
   const noindex = renderMetadata(metadataConfig({ origin: "https://play.example", path: "/", indexPolicy: "noindex,nofollow" }));
   assert.doesNotMatch(noindex, /application\/ld\+json/);
+}
+// POORUP_META_DESCRIPTION is the home-page description only; /about and /rules keep their own.
+{
+  const env = { POORUP_PUBLIC_ORIGIN: "https://play.example", POORUP_INDEX_POLICY: "index,follow", POORUP_META_DESCRIPTION: "A custom home description for the operator." };
+  assert.equal(metadataConfig({ env, path: "/" }).description, "A custom home description for the operator.");
+  assert.notEqual(metadataConfig({ env, path: "/about" }).description, env.POORUP_META_DESCRIPTION);
+  assert.notEqual(metadataConfig({ env, path: "/rules" }).description, env.POORUP_META_DESCRIPTION);
+  assert.equal(metadataConfig({ origin: "https://play.example", path: "/rules", description: "Explicit per-call text." }).description, "Explicit per-call text.", "an explicit option still applies to its own page");
+}
+// Indexable pages point at their Markdown copies only when indexing is approved.
+{
+  const approved = renderMetadata(metadataConfig({ origin: "https://play.example", path: "/about", indexPolicy: "index,follow" }));
+  assert.match(approved, /<link rel="alternate" type="text\/markdown" href="https:\/\/play\.example\/about\.md">/);
+  assert.match(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/rules", indexPolicy: "index,follow" })), /href="https:\/\/play\.example\/rules\.md"/);
+  assert.doesNotMatch(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/about", indexPolicy: "noindex,nofollow" })), /text\/markdown/);
+  assert.doesNotMatch(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/" , indexPolicy: "index,follow" })), /text\/markdown/);
 }
 assert.match(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/", googleVerification: "abcdefghij12345" })), /google-site-verification" content="abcdefghij12345"/);
 assert.doesNotMatch(renderMetadata(metadataConfig({ origin: "https://play.example", path: "/", googleVerification: "<script>" })), /google-site-verification/);
@@ -74,7 +104,7 @@ assert.doesNotMatch(renderMetadata({
 }), /evil\.example|rel="canonical"|og:url|og:image/i);
 assert.match(renderMetadata({ origin: "not-a-url", path: "/", indexPolicy: "index,follow" }), /name="robots" content="noindex,nofollow"/);
 assert.match(injectMetadata("<html><head><meta name=\"robots\" content=\"noindex,nofollow\" data-metadata-robots></head></html>", { origin: "https://play.example", path: "/" }), /rel="canonical"/);
-assert.match(injectMetadata("<html><head><meta name=\"robots\" content=\"noindex,nofollow\" data-metadata-robots></head></html>", { origin: "https://play.example", path: "/" }), /name="robots" content="index,follow"/);
+assert.match(injectMetadata("<html><head><meta name=\"robots\" content=\"noindex,nofollow\" data-metadata-robots></head></html>", { origin: "https://play.example", path: "/" }), /name="robots" content="index,follow[^"]*"/);
 assert.equal(typeof createMetadataRouter, "function");
 
 const app = express();
@@ -89,9 +119,25 @@ try {
   assert.match(body, /og:image/);
   assert.match(body, /twitter:card" content="summary_large_image"/);
   assert.match(body, /rel="canonical" href="https:\/\/play\.example\/"/);
-  assert.match(body, /name="robots" content="index,follow"/);
+  assert.match(body, /name="robots" content="index,follow[^"]*"/);
 } finally {
   await new Promise((resolve) => server.close(resolve));
+}
+
+// Indexable pages ask for large image previews and unlimited snippets; the
+// noindex directive stays short. /rules is an article, not the site home page.
+{
+  const home = renderMetadata(metadataConfig({ origin: "https://play.example", path: "/" }));
+  assert.match(home, /<meta name="robots" content="index,follow, max-image-preview:large, max-snippet:-1">/);
+  assert.match(home, /<meta property="og:type" content="website">/);
+  const rules = renderMetadata(metadataConfig({ origin: "https://play.example", path: "/rules" }));
+  assert.match(rules, /<meta name="robots" content="index,follow, max-image-preview:large, max-snippet:-1">/);
+  assert.match(rules, /<meta property="og:type" content="article">/);
+  const noindex = renderMetadata(metadataConfig({ origin: "https://play.example", path: "/", indexPolicy: "noindex,nofollow" }));
+  assert.match(noindex, /<meta name="robots" content="noindex,nofollow">/);
+  assert.doesNotMatch(noindex, /max-image-preview|max-snippet/);
+  // No Twitter account is configured in the repository, so no twitter:site is emitted.
+  assert.doesNotMatch(home, /twitter:site/);
 }
 
 // Replacement patterns in operator text ($&, $', $$) are copied, not interpreted.
@@ -112,6 +158,32 @@ try {
   assert.equal(metadataConfig({ env: gateIndexEnv({ ...pending, POORUP_INDEX_POLICY: "garbage" }), path: "/" }).indexPolicy, "noindex,nofollow");
   const approved = { ...pending, POORUP_INDEX_POLICY: "index,follow" };
   assert.equal(metadataConfig({ env: gateIndexEnv(approved), path: "/rules" }).indexPolicy, "index,follow");
+}
+
+// A configured origin with no usable policy is the silent misconfiguration: the
+// deploy looks ready while every page and robots.txt stay closed.
+{
+  const pending = { POORUP_PUBLIC_ORIGIN: "https://play.example" };
+  assert.match(indexingWarning(pending), /POORUP_INDEX_POLICY is unset.*Disallow: \/.*noindex/);
+  assert.match(indexingWarning({ ...pending, POORUP_INDEX_POLICY: "yes" }), /not understood/);
+  assert.equal(indexingWarning({ ...pending, POORUP_INDEX_POLICY: "index,follow" }), "");
+  assert.equal(indexingWarning({ ...pending, POORUP_INDEX_POLICY: "noindex,nofollow" }), "", "a deliberate noindex deploy is not a warning");
+  assert.equal(indexingWarning({ POORUP_INDEX_POLICY: "index,follow" }), "", "no origin, no indexing claim");
+  assert.equal(indexingWarning({}), "");
+}
+
+// Production is indexable at powerup.tech without an environment file; explicit
+// env values still win, and non-production stays closed by default.
+{
+  const prod = { NODE_ENV: "production" };
+  assert.equal(metadataConfig({ env: prod, path: "/" }).origin, "https://powerup.tech");
+  assert.equal(metadataConfig({ env: prod, path: "/" }).indexPolicy, "index,follow");
+  assert.equal(indexingApproved(prod), true);
+  assert.equal(indexingWarning(prod), "", "the production default is not a warning");
+  assert.equal(indexingApproved({ NODE_ENV: "production", POORUP_INDEX_POLICY: "noindex,nofollow" }), false);
+  assert.equal(metadataConfig({ env: { NODE_ENV: "production", POORUP_PUBLIC_ORIGIN: "https://staging.example" }, path: "/" }).origin, "https://staging.example");
+  assert.equal(indexingApproved({}), false, "local development stays closed");
+  assert.equal(indexingWarning({}), "");
 }
 
 console.log("server metadata tests: passed");

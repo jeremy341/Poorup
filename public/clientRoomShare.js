@@ -27,7 +27,7 @@ async function clipboardCopy(code) {
 }
 
 function announceRoomCopy(code, copied) {
-  const badge = $("#tn-room-copy");
+  const badge = $("#topnav-room-copy");
   if (!copied) {
     announceSystemLine("ROOM CODE COULD NOT BE COPIED");
     return;

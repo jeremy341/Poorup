@@ -128,8 +128,8 @@ function directionSprite(key, value) {
   if (typeof value === "boolean") return "";
   const num = Number(value);
   if (Number.isNaN(num)) return "";
-  if (num > 1) return `<span class="global-event-trend mod-up" aria-hidden="true">${spriteHTML("trendUp", 1)}</span> `;
-  if (num < 1) return `<span class="global-event-trend mod-down" aria-hidden="true">${spriteHTML("trendDown", 1)}</span> `;
+  if (num > 1) return `<span class="global-event-trend global-event-trend-up" aria-hidden="true">${spriteHTML("trendUp", 1)}</span> `;
+  if (num < 1) return `<span class="global-event-trend global-event-trend-down" aria-hidden="true">${spriteHTML("trendDown", 1)}</span> `;
   return "";
 }
 

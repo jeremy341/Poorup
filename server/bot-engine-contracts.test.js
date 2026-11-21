@@ -1,5 +1,4 @@
-// Regression pins for the October bot-engine audit:
-// small engine-contract mismatches that made bots spin, wait on an auction that
+// Bot/engine contract checks: small mismatches that made bots spin, wait on an auction that
 // never comes, or lose an option to an id collision.
 import assert from 'node:assert/strict';
 import { RoomManager } from './gameLogic.js';
@@ -101,5 +100,5 @@ check('the bot unmortgage candidate costs what the rules charge, with no float o
 });
 
 const failed = results.filter(ok => !ok).length;
-console.log(`bot audit fixes: ${results.length - failed} passed, ${failed} failed`);
+console.log(`bot engine contracts: ${results.length - failed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

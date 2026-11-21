@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createSocialApi } from './socketSocialApi.js';
 import { AchievementStore } from './achievementStore.js';
-import { AccountStore } from './accountStore.js';
+import { AccountStore, PARLOR_PATROL_ENABLED } from './accountStore.js';
 import { MatchStore } from './matchStore.js';
 
 const ownerEvents = [];
@@ -86,11 +86,15 @@ assert.equal(ownerEvents.filter(entry => entry.event === 'achievement-unlocked')
 assert.equal(notifications.filter(entry => entry.accountId === 'acct_a').length, 2);
 
 // Achievement candidates use the server-settled score and clean-wave result.
-const candidateIds = (score, result) => api.patrolAchievementCandidates({ id: 'acct_a' }, score, result).map(candidate => candidate.achievementId);
-assert.deepEqual(candidateIds(9, { aceRuns: 0, cleanRun: false }), []);
-assert.deepEqual(candidateIds(10, { aceRuns: 0, cleanRun: false }), ['patrol-rookie']);
-assert.deepEqual(candidateIds(50, { aceRuns: 3, cleanRun: true }), ['patrol-rookie', 'patrol-regular', 'clean-run', 'patrol-ace']);
-assert.deepEqual(candidateIds(50, { aceRuns: 2, cleanRun: false }), ['patrol-rookie', 'patrol-regular']);
+if (PARLOR_PATROL_ENABLED) {
+  const candidateIds = (score, result) => api.patrolAchievementCandidates({ id: 'acct_a' }, score, result).map(candidate => candidate.achievementId);
+  assert.deepEqual(candidateIds(9, { aceRuns: 0, cleanRun: false }), []);
+  assert.deepEqual(candidateIds(10, { aceRuns: 0, cleanRun: false }), ['patrol-rookie']);
+  assert.deepEqual(candidateIds(50, { aceRuns: 3, cleanRun: true }), ['patrol-rookie', 'patrol-regular', 'clean-run', 'patrol-ace']);
+  assert.deepEqual(candidateIds(50, { aceRuns: 2, cleanRun: false }), ['patrol-rookie', 'patrol-regular']);
+} else {
+  assert.deepEqual(api.patrolAchievementCandidates({ id: 'acct_a' }, 50, { aceRuns: 3, cleanRun: true }), [], 'no patrol candidates while disabled');
+}
 
 // A store file written by an older build (or a partial write) can hold a null
 // or a non-object entry. Loading it must not crash the server on startup.
@@ -338,7 +342,7 @@ console.log('social achievement event contract: 1 passed, 0 failed');
 
 // A periodic pass must retry durable intent after an outage even without a
 // second player action or server restart.
-{
+if (PARLOR_PATROL_ENABLED) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-award-periodic-'));
   const accounts = new AccountStore(path.join(dir, 'accounts.json'));
   const owner = accounts.register({ username: 'periodicaward', displayName: 'Periodic', password: 'periodic-award-pass' });
@@ -394,7 +398,7 @@ console.log('social achievement event contract: 1 passed, 0 failed');
 
 // If the achievement-store write fails before any unlock is durable, the
 // account-store patrol journal still lets startup recreate the awards.
-{
+if (PARLOR_PATROL_ENABLED) {
   const dir = fs.mkdtempSync(path.join(process.cwd(), '.tmp-patrol-journal-recovery-'));
   const accountsPath = path.join(dir, 'accounts.json');
   const achievementsPath = path.join(dir, 'achievements.json');

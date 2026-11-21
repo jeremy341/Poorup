@@ -9,19 +9,19 @@ test('every owned deed manager shows its complete rent schedule without expandin
   await installFinishedRoom(page, room, owner);
   for (const [index, name, rows] of [[1, 'property', 6], [5, 'airport', 4], [12, 'electric', 2], [28, 'water', 2]]) {
     await openDeedDetail(page, index);
-    const ladder = page.locator('#deed-card-detail .dd-ladder');
+    const ladder = page.locator('#deed-card-detail .deed-detail-ladder');
     await expect(ladder).toBeVisible();
-    await expect(ladder.locator('.dd-row')).toHaveCount(rows);
+    await expect(ladder.locator('.deed-detail-row')).toHaveCount(rows);
     expect(await ladder.evaluate(element => element.closest('details') === null)).toBe(true);
-    await expect(page.locator('.dd-extra-details')).toHaveCount(0);
+    await expect(page.locator('.deed-detail-extra-details')).toHaveCount(0);
     await expect(page.locator('#deed-card-detail')).not.toContainText(/HOUSE COST|YOUR CASH|BUILDINGS|Returns half the building cost/);
-    await expect(page.locator('.dd-stock-details, .supply-strip')).toHaveCount(0);
+    await expect(page.locator('.deed-detail-stock-details, .supply-strip')).toHaveCount(0);
     await expect(page.locator('#deed-card-detail')).not.toContainText('Bank stock');
     if (name === 'property') await expect(ladder).toContainText('HOTEL');
     await captureDeedSurface(page, testInfo, `deed-rent-${name}`, `Visible ${name} rent schedule`, `deed-rent-${name}.detail.png`);
-    await page.locator('#dd-trade-deed').focus();
-    await expect(page.locator('#dd-trade-deed')).toBeInViewport();
-    await page.locator('#dd-close').click();
+    await page.locator('#deed-detail-trade-deed').focus();
+    await expect(page.locator('#deed-detail-trade-deed')).toBeInViewport();
+    await page.locator('#deed-detail-close').click();
     await expectNoPageScroll(page);
   }
 });
@@ -46,11 +46,11 @@ test('building stays available beyond the old shared supply totals even with leg
   });
   await installFinishedRoom(page, room, owner, true);
   await openDeedDetail(page, 1);
-  await expect(page.locator('#dd-buy')).toBeEnabled();
-  await expect(page.locator('.dd-stock-details')).toHaveCount(0);
+  await expect(page.locator('#deed-detail-buy')).toBeEnabled();
+  await expect(page.locator('.deed-detail-stock-details')).toHaveCount(0);
   const cost = game.getPropertyHouseCost(target);
   const cashBefore = owner.cash;
-  await page.locator('#dd-buy').click();
+  await page.locator('#deed-detail-buy').click();
   await expect.poll(() => target.houseCount).toBe(1);
   expect(owner.cash).toBe(cashBefore - cost);
   const settings = await page.evaluate(() => window.__deedTruthHarness.state.settings);

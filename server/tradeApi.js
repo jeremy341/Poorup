@@ -1,5 +1,5 @@
 // Player-to-player trades as a prototype mixin: the proposal and accept-side guard tables plus the settlement transfer.
-// The guard arrays keep the original if-clauses in evaluation order, so a single error string wins exactly as before.
+// Each guard array is evaluated in order, so exactly one error string wins.
 // gameLogic.js assigns this object onto GameState.prototype. trades.test.js pins the full precedence.
 import crypto from 'crypto';
 import { normalizeRequestId } from './requestId.js';
@@ -122,8 +122,8 @@ function restoreTradeSettlement(game, ctx, before) {
   });
 }
 
-// Trade proposal rejection rules as data: one entry per original if-clause of GameState.proposeTrade, in the original evaluation order,
-// so a single error string wins exactly as before. The context is normalized up front (pure lookups only), and every predicate reads it.
+// Trade proposal rejection rules as data: one entry per blocker of GameState.proposeTrade, in evaluation order,
+// so exactly one error string wins. The context is normalized up front (pure lookups only), and every predicate reads it.
 // Trades have no turn guard: they can be proposed and settled on anyone's turn. A pending payment does not block debt-rescue deals; auctions, purchase offers, trades and contracts do.
 const TRADE_PROPOSAL_GUARDS = [
   {
@@ -142,7 +142,7 @@ const TRADE_PROPOSAL_GUARDS = [
     error: 'Trading is disabled for this room.',
     rejects: game => game.settings.trading === false
   },
-  // One guard per blocker, in the original order, so the message names the
+  // One guard per blocker, in this order, so the message names the
   // open obligation instead of always reporting a second trade.
   {
     error: 'Resolve the open auction before proposing a trade.',
@@ -190,8 +190,8 @@ const TRADE_PROPOSAL_GUARDS = [
   }
 ];
 
-// Accept-side revalidation for respondToTrade: same order and strings as the original accept branch. A fired guard also clears the
-// pending trade, as the responder always does. The first entry covers the original combined "players still exist, active" condition verbatim.
+// Accept-side revalidation for respondToTrade: evaluated in order. A fired guard also clears the
+// pending trade, as the responder always does. The first entry covers the combined "players still exist, active" condition.
 const TRADE_SETTLEMENT_GUARDS = [
   {
     error: 'The trade is no longer valid.',
@@ -243,8 +243,7 @@ const tradeApi = {
   },
 
   // One normalization pass for the raw offer: cash clamping, index coercion,
-  // and tile resolution all happen exactly as in the original single-body
-  // implementation, before any guard reads the context.
+  // and tile resolution all happen before any guard reads the context.
   tradeProposalContext(socketId, offer) {
     const fromPlayer = this.getPlayerBySocket(socketId);
     const toPlayer = this.getPlayerById(offer.toPlayerId);
@@ -260,7 +259,7 @@ const tradeApi = {
     return { fromPlayer, toPlayer, giveCash, requestCash, givePropertyIndexes, requestPropertyIndexes, giveTiles, requestTiles };
   },
 
-  // The original inline per-tile leg check, named: a missing deed, a deed
+  // Per-tile leg check: a missing deed, a deed
   // owned by someone else, or an untradeable deed voids the leg.
   tradeLegTileUnavailable(tile, ownerId) {
     if (!tile) return true;

@@ -233,6 +233,7 @@ jobs:
           BOOT_DIR="$RUNNER_TEMP/poorup-boot"
           mkdir -p "$BOOT_DIR/data" "$BOOT_DIR/backups"
           NODE_ENV=production POORUP_ALLOWED_ORIGINS=http://localhost:8099 POORUP_DATA_DIR="$BOOT_DIR/data" POORUP_BACKUP_DIR="$BOOT_DIR/backups" \
+          POORUP_DIRECT_INTERNET=true \
           POORUP_HTTP_RATE_LIMIT=240 POORUP_HTTP_RATE_WINDOW_MS=60000 POORUP_SOCKET_RATE_LIMIT=120 POORUP_SOCKET_RATE_WINDOW_MS=60000 \
           PORT=8099 node server/server.js & SERVER_PID=$!
           for i in $(seq 1 30); do
@@ -255,9 +256,10 @@ jobs:
         run: docker build -t poorup:ci .
       - name: The image boots in production mode and reports ready
         # The image runs as the node user and keeps its stores in the declared
-        # volume. The origin allow-list is required in production.
+        # volume. The origin allow-list and an explicit proxy posture are
+        # required in production; this smoke container has no proxy in front.
         run: |
-          docker run -d --name poorup-ci -p 8080:8080 -e POORUP_ALLOWED_ORIGINS=http://localhost:8080 poorup:ci
+          docker run -d --name poorup-ci -p 8080:8080 -e POORUP_ALLOWED_ORIGINS=http://localhost:8080 -e POORUP_DIRECT_INTERNET=true poorup:ci
           for i in $(seq 1 60); do
             curl -fsS localhost:8080/healthz >/dev/null 2>&1 && break
             sleep 1
@@ -278,7 +280,7 @@ jobs:
     # libraries, so a shard skips the browser download and the apt install.
     # The tag must match the locked @playwright/test version.
     container:
-      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      image: mcr.microsoft.com/playwright:v1.65.1-noble
       options: --user root
     strategy:
       fail-fast: false

@@ -63,17 +63,17 @@ for (let cycle = 0; cycle < 3; cycle += 1) {
 assert.ok(limited > 0, 'interleaved own-account logins must not reset the IP budget');
 assert.ok(processed <= 8, `at most the window budget is processed (processed ${processed})`);
 
-// Per-account lockout applies across addresses, so rotating IPs cannot
-// keep guessing one account.
+// Lockout is counted per (username, address): ten guesses spread over ten
+// addresses are one failure each, so they cannot lock the real owner out.
+// (Per-source and all-sources caps are covered in login-lockout.test.js.)
 for (let index = 0; index < 10; index += 1) {
   const guesser = connect(`guess-${index}`, `198.51.100.${index + 1}`);
   const result = await guesser.call('account-login', { username: 'victim01', password: `rotating-${index}` });
   assert.equal(result.success, false);
 }
 const owner = connect('owner-socket', '192.0.2.10');
-const lockedOut = await owner.call('account-login', { username: 'victim01', password: 'victim-pass-1' });
-assert.equal(lockedOut.success, false, 'a correct password is refused while the account is locked');
-assert.equal(lockedOut.code, 'ACCOUNT_LOCKED');
+const ownerSignIn = await owner.call('account-login', { username: 'victim01', password: 'victim-pass-1' });
+assert.equal(ownerSignIn.success, true, 'strangers on other addresses cannot lock the owner out');
 
 // A successful password check clears only that account's failure count.
 for (let index = 0; index < 9; index += 1) {

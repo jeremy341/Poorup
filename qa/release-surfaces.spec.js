@@ -82,10 +82,10 @@ test.describe('release surface evidence', () => {
     await page.goto('/');
     await page.locator('#home-alias').fill('RELEASEHOST');
     await page.locator('#open-create-btn').click();
-    await page.locator('#rc-vis-selector [data-vis="private"]').click();
-    await page.locator('#rc-room-code').fill(roomCode);
-    await page.locator('#rc-create-btn').click();
-    await page.locator('#su-start').click();
+    await page.locator('#room-create-visibility-selector [data-vis="private"]').click();
+    await page.locator('#room-create-code').fill(roomCode);
+    await page.locator('#room-create-btn').click();
+    await page.locator('#setup-start-btn').click();
 
     await guest.goto('/');
     await guest.locator('#home-alias').fill('RELEASEGUEST');
@@ -94,7 +94,7 @@ test.describe('release surface evidence', () => {
     await guest.locator('#join-nickname').fill('RELEASEGUEST');
     await guest.locator('#join-room-submit').click();
     await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
-    if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
+    if (await guest.locator('#setup-start-btn').isVisible()) await guest.locator('#setup-start-btn').click();
     await page.locator('#lobby-start-btn').click();
     await expect(page.locator('#view-game')).toBeVisible();
 

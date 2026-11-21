@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createDiceRollSequenceTracker, showDiceRollTotal } from "./clientDiceRollEffect.js";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 const totals = [];
 const tracker = createDiceRollSequenceTracker(total => totals.push(total));
@@ -45,7 +45,7 @@ assert.equal(timeoutMs, 900, "the announcement holds for the 900ms review window
 timeoutCallback();
 assert.equal(classes.has("is-visible"), false, "the announcement clears at the end of its lifetime");
 
-const presentationStyles = readFileSync(new URL("./ux-surfaces.css", import.meta.url), "utf8");
+const presentationStyles = siteCss();
 assert.match(presentationStyles, /dice-roll-total\.is-visible\s*\{\s*animation:\s*dice-total-review 900ms/);
 assert.match(presentationStyles, /prefers-reduced-motion:\s*reduce[\s\S]*?dice-roll-total\.is-visible\s*\{[^}]*animation:\s*none/);
 

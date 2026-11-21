@@ -39,7 +39,7 @@ assert.deepEqual(
 const title = live.match(/<title>([^<]*)<\/title>/i);
 assert.ok(title, "the page has a title");
 assert.ok(title[1].includes("Rules"), `the title names the rules page: ${title[1]}`);
-assert.match(live, /<meta name="robots" content="index,follow">/);
+assert.match(live, /<meta name="robots" content="index,follow[^"]*">/);
 assert.match(live, /<link rel="canonical" href="https:\/\/poorup\.example\/rules">/);
 assert.match(live, /<meta property="og:url" content="https:\/\/poorup\.example\/rules">/);
 assert.match(live, /<meta property="og:image" content="https:\/\/poorup\.example\/assets\/social\/poorup-og-1200x630\.png">/);

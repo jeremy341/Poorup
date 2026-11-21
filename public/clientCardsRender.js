@@ -33,44 +33,44 @@ function amountClass(amount) {
 }
 
 function cardTitleHTML(titleId, text) {
-  if (!titleId) return `<h3 class="t-section cr-name">${esc(text)}</h3>`;
-  return `<h3 class="t-section cr-name" id="${titleId}">${esc(text)}</h3>`;
+  if (!titleId) return `<h3 class="t-section card-reveal-name">${esc(text)}</h3>`;
+  return `<h3 class="t-section card-reveal-name" id="${titleId}">${esc(text)}</h3>`;
 }
 
 function cardButtonHTML(buttonId) {
   if (!buttonId) return "";
-  return `<button class="cr-btn" id="${buttonId}" type="button"><span class="t-micro">TAP TO CONTINUE</span></button>`;
+  return `<button class="card-reveal-btn" id="${buttonId}" type="button"><span class="t-micro">TAP TO CONTINUE</span></button>`;
 }
 
 function outcomeHTML(amount, action) {
   const variable = VARIABLE_ACTIONS.includes(action);
   if (amount === 0 && !variable) return "";
-  return `<div class="cr-outcome">
-        <span class="cr-outcome-label t-micro ink-3">${outcomeLabelFor(action)}</span>
-        <strong class="cr-amount ${amountClass(amount)}">${amountLabelFor(amount, variable)}</strong>
+  return `<div class="card-reveal-outcome">
+        <span class="card-reveal-outcome-label t-micro ink-3">${outcomeLabelFor(action)}</span>
+        <strong class="card-reveal-amount ${amountClass(amount)}">${amountLabelFor(amount, variable)}</strong>
       </div>`;
 }
 
 function sequenceHTML(index, total) {
   const isSequence = Number.isInteger(index) && Number.isInteger(total);
   if (!isSequence) return "";
-  return `<span class="cr-sequence t-micro ink-3">${String(index + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}</span>`;
+  return `<span class="card-reveal-sequence t-micro ink-3">${String(index + 1).padStart(2, "0")} / ${String(total).padStart(2, "0")}</span>`;
 }
 
 export function cardFaceHTML(tile, ev, { index = null, total = null, buttonId = null } = {}) {
   const amount = Number(ev.cash) || 0;
   const meta = cardDeckMeta(tile.kind);
   const titleId = buttonId ? "card-reveal-title" : "";
-  return `<article class="cr-card" data-deck="${tile.kind}" data-tone="${amountClass(amount)}" style="--cr-accent:${meta.color}">
-    <div class="cr-rail"></div>
-    <div class="cr-body">
-      <div class="cr-top">
-        <div class="cr-icon" aria-hidden="true">${tileIconHTML(tile)}</div>
-        <span class="cr-kind t-micro">${meta.label}</span>
+  return `<article class="card-reveal-card" data-deck="${tile.kind}" data-tone="${amountClass(amount)}" style="--cr-accent:${meta.color}">
+    <div class="card-reveal-rail"></div>
+    <div class="card-reveal-body">
+      <div class="card-reveal-top">
+        <div class="card-reveal-icon" aria-hidden="true">${tileIconHTML(tile)}</div>
+        <span class="card-reveal-kind t-micro">${meta.label}</span>
         ${sequenceHTML(index, total)}
       </div>
       ${cardTitleHTML(titleId, ev.text)}
-      <div class="cr-foot">
+      <div class="card-reveal-foot">
         ${outcomeHTML(amount, ev.action)}
         ${cardButtonHTML(buttonId)}
       </div>

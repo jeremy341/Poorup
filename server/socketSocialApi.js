@@ -9,6 +9,7 @@ import { parseCookieHeader, SESSION_COOKIE_NAME } from './sessionStore.js';
 
 const SOCIAL_RATE_WINDOW_MS = 60 * 1000;
 const SOCIAL_RATE_LIMIT = 30;
+const SOCIAL_RATE_KEY_CAP = 50_000;
 const CHAT_COOLDOWN_MS = 500;
 const MYTHICAL_ANNOUNCEMENT_KEYS_CAP = 500;
 const UNDELIVERED_ANNOUNCEMENT_CAP = 500;
@@ -59,6 +60,9 @@ function createSocialApi(deps) {
     const at = Date.now();
     sweepRateBuckets(at);
     const key = `${accountId}:${action}`;
+    // A new key while the table is full of live windows is refused rather than evicting a live one: an eviction would hand that identity
+    // a fresh budget. Anonymous keys come from client addresses, so this is where address rotation would otherwise grow the map.
+    if (!socialRateBuckets.has(key) && socialRateBuckets.size >= SOCIAL_RATE_KEY_CAP) return false;
     const recent = recentTimestamps(socialRateBuckets, key);
     if (recent.length >= SOCIAL_RATE_LIMIT) {
       socialRateBuckets.set(key, recent);

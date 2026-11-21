@@ -174,7 +174,7 @@ test.describe("Poorup seasonal worlds", () => {
         titleZ: Number(style(".title-grid").zIndex),
         atmosphereZ: Number(style(".home-sky-atmosphere").zIndex),
         boardWorldZ: Number(style("#theme-board-world").zIndex),
-        boardCopyZ: Number(style("#center-field .cf-inner").zIndex),
+        boardCopyZ: Number(style("#center-field .deck-card-inner").zIndex),
         decorativeChildrenContained: [...document.querySelectorAll(".theme-scene, .theme-prop")]
           .every((element) => element.closest("[data-theme-layer]")),
         ambientAnimation: style("#theme-home-world .theme-fog-a").animationName,

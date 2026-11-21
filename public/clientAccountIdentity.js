@@ -245,7 +245,7 @@ function queueAccountLogout(token) {
   return queued;
 }
 
-export function afterPendingAccountLogout(operation) {
+function afterPendingAccountLogout(operation) {
   const run = async () => {
     if (!await waitForCrossTabLogoutBarrier()) return null;
     return operation();
@@ -678,7 +678,7 @@ function accountSubmitLabel(edit, register) {
 
 function accountTabsHTML(edit, register) {
   if (edit) return "";
-  return `<div class="account-modal-tabs" role="toolbar" aria-label="Account actions"><button class="rm-tab${register ? " is-active" : ""}" id="account-tab-register" type="button" aria-pressed="${register}"><span class="t-label f12">CREATE ACCOUNT</span></button><button class="rm-tab${register ? "" : " is-active"}" id="account-tab-login" type="button" aria-pressed="${!register}"><span class="t-label f12">SIGN IN</span></button></div>`;
+  return `<div class="account-modal-tabs" role="toolbar" aria-label="Account actions"><button class="rooms-tab${register ? " is-active" : ""}" id="account-tab-register" type="button" aria-pressed="${register}"><span class="t-label f12">CREATE ACCOUNT</span></button><button class="rooms-tab${register ? "" : " is-active"}" id="account-tab-login" type="button" aria-pressed="${!register}"><span class="t-label f12">SIGN IN</span></button></div>`;
 }
 
 function accountUsernameFieldHTML(edit, register, account) {

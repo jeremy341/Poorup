@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 globalThis.window = { matchMedia: () => ({ matches: false }) };
 globalThis.document = { querySelector: () => null, querySelectorAll: () => [] };
@@ -9,8 +10,8 @@ globalThis.sessionStorage = storage;
 
 const { equityTransferControlsHTML, equityTransferPayload, tradeDeedRowHTML, beginTradeFromDeed, financingActiveContractDetailHTML } = await import("./clientTradeUi.js");
 const { state } = await import("./clientState.js");
-const tradeUiSource = await readFile(new URL("./clientTradeUi.js", import.meta.url), "utf8");
-const economyStyles = await readFile(new URL("./ux-surfaces.css", import.meta.url), "utf8");
+const tradeUiSource = (await Promise.all(["./clientFinancingUi.js", "./clientFinancingState.js", "./clientFinancingPreview.js", "./clientFinancingTransfer.js", "./clientFinancingDeal.js", "./clientFinancingNegotiation.js", "./clientFinancingModal.js", "./clientTradeModal.js"].map((name) => readFile(new URL(name, import.meta.url), "utf8")))).join("\n");
+const economyStyles = siteCss();
 
 test("mortgaged deeds remain selectable and retain their mortgage label", () => {
   const tile = { i: 1, name: "MEDITERRANEAN AVENUE", price: 60, group: "brown", kind: "property" };
@@ -83,7 +84,7 @@ test("equityTransferProposalKeepsItsUniqueLocalActivityNotice", () => {
 
 test("activeContractUsesContractHeaderAndNarrowOuterCard", () => {
   const source = functionSource("renderFinancingModal");
-  assert.match(source, /const viewingContract = financingView === "deal"/);
+  assert.match(source, /const viewingContract = financingState\.view === "deal"/);
   assert.match(source, /const activeContract = viewingContract \? financingSelectedContract\(\) : null/);
   assert.match(source, /viewingContract \? `\$\{activeMode\} contract`/);
   assert.match(source, /financing-head-contract/);
@@ -103,7 +104,7 @@ test("financing composer reserves a footer while terms and preview scroll intern
   const builder = functionSource("financingBuilderHTML");
   assert.match(builder, /id="financing-tab-loan" aria-controls="financing-mode-panel"/);
   assert.match(builder, /id="financing-tab-equity" aria-controls="financing-mode-panel"/);
-  assert.match(builder, /class="financing-form" id="financing-mode-panel" tabindex="0" role="tabpanel" aria-labelledby="financing-tab-\$\{financingPreviewMode\}"/);
+  assert.match(builder, /class="financing-form" id="financing-mode-panel" tabindex="0" role="tabpanel" aria-labelledby="financing-tab-\$\{financingState\.previewMode\}"/);
 });
 
 test("active loan details expose actual terms and an honestly empty payment track", () => {

@@ -32,7 +32,7 @@ function mulberry32(initialState) {
 // stream (seed 2^32 and seed 0 matched). Seeds are validated, and the validated value is the one reported.
 export const MAX_SIMULATION_SEED = 0xFFFFFFFF;
 
-export function normalizeSimulationSeed(seedValue) {
+function normalizeSimulationSeed(seedValue) {
   const seed = Number(seedValue);
   if (!Number.isSafeInteger(seed) || seed < 0 || seed > MAX_SIMULATION_SEED) {
     throw new RangeError(`Simulation seed must be an unsigned 32-bit integer (0-${MAX_SIMULATION_SEED})`);

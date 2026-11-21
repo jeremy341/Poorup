@@ -26,7 +26,11 @@ export function sameOrigin(req, configuredOrigin = '', { rejectMissingOrigin = f
   const origin = String(req.get?.('origin') || '').trim();
   if (!origin) return !(rejectMissingOrigin && missingOriginRejected());
   if (configuredOrigin && origin === configuredOrigin) return true;
-  const protocol = String(req.get?.('x-forwarded-proto') || req.protocol || 'http').split(',')[0].trim();
+  // Use Express's proxy-aware req.protocol, never a raw client-supplied
+  // X-Forwarded-Proto: a caller must not be able to pick the scheme used to
+  // satisfy the same-origin fallback. Express only trusts the forwarded header
+  // when POORUP_TRUST_PROXY_HOPS is configured.
+  const protocol = String(req.protocol || 'http').split(',')[0].trim();
   return origin === `${protocol}://${req.get?.('host')}`;
 }
 

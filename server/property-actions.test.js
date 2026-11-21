@@ -380,7 +380,7 @@ function pairRoom(evenBuild) {
   return { game, owner, first, second };
 }
 
-check('even build rejects an uneven street with the real rule (F-048)', () => {
+check('even build rejects an uneven street with the real rule', () => {
   const { game, owner, first, second } = pairRoom(true);
   first.houseCount = 1;
   second.houseCount = 0;

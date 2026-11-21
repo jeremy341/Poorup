@@ -36,7 +36,7 @@ function seatedRoom(count = 3, overrides = {}) {
 }
 
 // The departing debtor's cash belongs to its creditor
-check('S04-1: a bankrupt debtor\'s cash goes to the creditor, not to a third-party default claim', () => {
+check('a bankrupt debtor\'s cash goes to the creditor, not to a third-party default claim', () => {
   const room = seatedRoom(3);
   const game = room.game;
   const [a, b, c] = game.players;
@@ -57,7 +57,7 @@ function claimFor(a, b, round = 2) {
   return { id: 'claim_x', contractId: 'x', lenderId: a.id, borrowerId: b.id, principal: 100, remaining: 100, status: 'open', createdRound: round };
 }
 
-check('S04-2: a matured claim is never collected from the cash behind a leading auction bid', () => {
+check('a matured claim is never collected from the cash behind a leading auction bid', () => {
   const room = seatedRoom(3);
   const game = room.game;
   const [a, b, c] = game.players;
@@ -70,7 +70,7 @@ check('S04-2: a matured claim is never collected from the cash behind a leading 
   assert.equal(game.defaultClaims[0].status, 'open');
 });
 
-check('S04-2: a matured claim is never collected from a seat that still owes a pending payment', () => {
+check('a matured claim is never collected from a seat that still owes a pending payment', () => {
   const room = seatedRoom(4);
   const game = room.game;
   const [a, b, c, d] = game.players;
@@ -85,7 +85,7 @@ check('S04-2: a matured claim is never collected from a seat that still owes a p
   assert.equal(game.defaultClaims[0].status, 'open');
 });
 
-check('S04-2: a matured claim is never collected from a seat with a queued debt', () => {
+check('a matured claim is never collected from a seat with a queued debt', () => {
   const room = seatedRoom(4);
   const game = room.game;
   const [a, b, c, d] = game.players;
@@ -99,7 +99,7 @@ check('S04-2: a matured claim is never collected from a seat with a queued debt'
   assert.equal(game.defaultClaims[0].status, 'open');
 });
 
-check('S04-2: a claim is still collected from a solvent seat with free cash', () => {
+check('a claim is still collected from a solvent seat with free cash', () => {
   const room = seatedRoom(3);
   const game = room.game;
   const [a, b, c] = game.players;
@@ -113,7 +113,7 @@ check('S04-2: a claim is still collected from a solvent seat with free cash', ()
 });
 
 // Net worth counts debts parked in the payment queue
-check('S04-3: net worth subtracts a pending payment and any queued debts of the same seat', () => {
+check('net worth subtracts a pending payment and any queued debts of the same seat', () => {
   const room = seatedRoom(3);
   const game = room.game;
   const [a, b, c] = game.players;
@@ -129,7 +129,7 @@ check('S04-3: net worth subtracts a pending payment and any queued debts of the 
   assert.equal(Math.abs(netWorthBreakdown(game, c).pendingDebt), 0);
 });
 
-check('S04-3: a bank default that parks its balance as a pending payment does not raise net worth', () => {
+check('a bank default that parks its balance as a pending payment does not raise net worth', () => {
   const room = seatedRoom(3, { rulesetOverrides: { bankLoans: true } });
   const game = room.game;
   const [a] = game.players;
@@ -142,7 +142,7 @@ check('S04-3: a bank default that parks its balance as a pending payment does no
   assert.equal(netWorthBreakdown(game, a).total, before, 'the debt only moved from the loan to the payment queue');
 });
 
-check('S04-3: unsecured bank default balance is counted once in positive net worth', () => {
+check('unsecured bank default balance is counted once in positive net worth', () => {
   const room = seatedRoom(2, { rulesetOverrides: { bankLoans: true } });
   const game = room.game;
   const [a] = game.players;
@@ -175,7 +175,7 @@ check('S04-3: unsecured bank default balance is counted once in positive net wor
   assert.equal(netWorth(game, a), 1490, 'the positive net worth remains above the clamp');
 });
 
-check('S04-3: a lender does not count a receivable from a borrower who owes a pending payment', () => {
+check('a lender does not count a receivable from a borrower who owes a pending payment', () => {
   const room = seatedRoom(3);
   const game = room.game;
   const [a, b] = game.players;
@@ -187,7 +187,7 @@ check('S04-3: a lender does not count a receivable from a borrower who owes a pe
 });
 
 // Bank-loan premium has no float drift
-check('S04-4: the bank-loan premium is the exact ceiling of principal x rate', () => {
+check('the bank-loan premium is the exact ceiling of principal x rate', () => {
   const room = seatedRoom(2, { rulesetOverrides: { bankLoans: true } });
   const game = room.game;
   const player = game.players[0];
@@ -207,7 +207,7 @@ check('S04-4: the bank-loan premium is the exact ceiling of principal x rate', (
 });
 
 // Bank account upgrade idempotency and debts
-check('S04-6: a padded request id replays the first upgrade instead of buying a second tier', () => {
+check('a padded request id replays the first upgrade instead of buying a second tier', () => {
   const room = seatedRoom(2, { rulesetOverrides: { bankAccountUpgrades: true } });
   const game = room.game;
   const a = game.players[0];
@@ -219,7 +219,7 @@ check('S04-6: a padded request id replays the first upgrade instead of buying a 
   assert.equal(a.cash, 1800);
 });
 
-check('S04-6: a seat that owes a pending payment cannot spend its cash on an upgrade', () => {
+check('a seat that owes a pending payment cannot spend its cash on an upgrade', () => {
   const room = seatedRoom(2, { rulesetOverrides: { bankAccountUpgrades: true } });
   const game = room.game;
   const [a, b] = game.players;
@@ -232,7 +232,7 @@ check('S04-6: a seat that owes a pending payment cannot spend its cash on an upg
 });
 
 // The round-limit winner is picked after positions settle
-check('S07-1: the round-limit winner is the richest seat after market settlement', () => {
+check('the round-limit winner is the richest seat after market settlement', () => {
   const room = seatedRoom(2, { rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }, marketComplexity: 'margin' });
   const game = room.game;
   const [a, b] = game.players;
@@ -253,7 +253,7 @@ function marketRoom(complexity) {
   return room;
 }
 
-check('S07-2: market telemetry records the validated instrument id, never the raw client string', () => {
+check('market telemetry records the validated instrument id, never the raw client string', () => {
   const room = marketRoom('shorting');
   const game = room.game;
   const player = game.players[0];
@@ -268,7 +268,7 @@ check('S07-2: market telemetry records the validated instrument id, never the ra
   assert.deepEqual(kinds, ['brazil', 'brazil', 'brazil']);
 });
 
-check('S07-4: reducing margin by a non-positive or non-numeric amount names the amount, not the balance', () => {
+check('reducing margin by a non-positive or non-numeric amount names the amount, not the balance', () => {
   const room = marketRoom('margin');
   const game = room.game;
   const player = game.players[0];
@@ -282,7 +282,7 @@ check('S07-4: reducing margin by a non-positive or non-numeric amount names the 
   assert.equal(game.reduceMargin('s-a', 10, 'r-ok').success, true);
 });
 
-check('S07-5: a forced liquidation produces a telemetry event the store accepts', () => {
+check('a forced liquidation produces a telemetry event the store accepts', () => {
   const room = marketRoom('shorting');
   const game = room.game;
   const player = game.players[0];
@@ -303,7 +303,7 @@ check('S07-5: a forced liquidation produces a telemetry event the store accepts'
 });
 
 // Short buy-in debt settlement
-check('S04-7: a rejected short-default payment is not replayed under the same request id', () => {
+check('a rejected short-default payment is not replayed under the same request id', () => {
   const room = marketRoom('shorting');
   const game = room.game;
   const player = game.players[0];
@@ -315,7 +315,7 @@ check('S04-7: a rejected short-default payment is not replayed under the same re
   assert.equal(player.shortDefaultDebt, 95);
 });
 
-check('S04-7: short-default repayment never dips into a leading auction bid', () => {
+check('short-default repayment never dips into a leading auction bid', () => {
   const room = marketRoom('shorting');
   const game = room.game;
   const [a, b] = game.players;
@@ -330,7 +330,7 @@ check('S04-7: short-default repayment never dips into a leading auction bid', ()
 });
 
 // A stale crisis-buy reference is dropped with its position
-check('S07-8: a crisis buy sold off at a loss does not seed a later profit flag', () => {
+check('a crisis buy sold off at a loss does not seed a later profit flag', () => {
   const room = marketRoom('basic');
   const game = room.game;
   const a = game.players[0];
@@ -368,7 +368,7 @@ function rentDebtRoom(count = 2, overrides = {}) {
   return { room, game, a, b };
 }
 
-check('S01-01: a bank loan taken to cover a parked debt settles that debt', () => {
+check('a bank loan taken to cover a parked debt settles that debt', () => {
   const { game, a, b } = rentDebtRoom(2, { rulesetOverrides: { bankLoans: true } });
   const owed = game.pendingPayment.amountRemaining;
   const bCash = b.cash;
@@ -379,7 +379,7 @@ check('S01-01: a bank loan taken to cover a parked debt settles that debt', () =
   assert.equal(game.endTurnRejection(a), null, 'the roll resolved, so the seat can end its turn');
 });
 
-check('S01-01: an accepted player loan settles the borrowers parked debt', () => {
+check('an accepted player loan settles the borrowers parked debt', () => {
   const { game, a } = rentDebtRoom(2);
   a.properties.push(3);
   game.tiles[3].ownerId = a.id;
@@ -392,7 +392,7 @@ check('S01-01: an accepted player loan settles the borrowers parked debt', () =>
   assert.equal(game.endTurnRejection(a), null);
 });
 
-check('S01-01: a loan too small for the debt leaves it parked', () => {
+check('a loan too small for the debt leaves it parked', () => {
   const { game, a } = rentDebtRoom(2, { rulesetOverrides: { bankLoans: true } });
   game.pendingPayment.amountRemaining = 500;
   assert.equal(game.takeBankLoan('s-a', 'rescue-2').success, true);
@@ -400,7 +400,7 @@ check('S01-01: a loan too small for the debt leaves it parked', () => {
   assert.equal(a.cash, 300);
 });
 
-check('S01-02: queued pay-each debts settle in one pass once the debtor holds the cash', () => {
+check('queued pay-each debts settle in one pass once the debtor holds the cash', () => {
   const room = seatedRoom(4);
   const game = room.game;
   const [a, ...others] = game.players;
@@ -418,7 +418,7 @@ check('S01-02: queued pay-each debts settle in one pass once the debtor holds th
   assert.equal(game.endTurnRejection(a), null);
 });
 
-check('S01-02: a queued debt the debtor cannot cover yet stays parked', () => {
+check('a queued debt the debtor cannot cover yet stays parked', () => {
   const room = seatedRoom(4);
   const game = room.game;
   const [a, ...others] = game.players;
@@ -435,7 +435,7 @@ check('S01-02: a queued debt the debtor cannot cover yet stays parked', () => {
 });
 
 // The creditor leaves a parked debt (bankruptcyLogic half)
-check('S02-F1: a creditor declaring bankruptcy resolves the debtor roll its debt was holding', () => {
+check('a creditor declaring bankruptcy resolves the debtor roll its debt was holding', () => {
   const { room, game, a, b } = rentDebtRoom(3);
   assert.equal(game.pendingPayment.creditorId, b.id);
   assert.equal(game.awaitingEndTurn, false, 'the roll is unresolved while the debt is parked');
@@ -446,7 +446,7 @@ check('S02-F1: a creditor declaring bankruptcy resolves the debtor roll its debt
   assert.equal(game.endTurnRejection(a), null, 'the debtor can end the turn instead of being wedged');
 });
 
-check('S02-F1: a creditor leaving an off-turn debt does not resolve the current roll', () => {
+check('a creditor leaving an off-turn debt does not resolve the current roll', () => {
   const room = seatedRoom(3);
   const game = room.game;
   const [a, b, c] = game.players;
@@ -464,7 +464,7 @@ function ownDeed(game, player, index) {
   player.properties.push(index);
 }
 
-check('S05-01: a loan accepted rounds after the offer runs its full term from acceptance', () => {
+check('a loan accepted rounds after the offer runs its full term from acceptance', () => {
   const room = seatedRoom(3);
   const game = room.game;
   const [, b, c] = game.players;
@@ -483,7 +483,7 @@ check('S05-01: a loan accepted rounds after the offer runs its full term from ac
   assert.equal(game.getTile(3).ownerId, b.id, 'the pledged deed is still the borrowers');
 });
 
-check('S05-01: an equity deal accepted late keeps its full term', () => {
+check('an equity deal accepted late keeps its full term', () => {
   const room = seatedRoom(3);
   const game = room.game;
   const [, b, c] = game.players;
@@ -500,7 +500,7 @@ check('S05-01: an equity deal accepted late keeps its full term', () => {
   assert.equal(game.getTile(1).equityShares.length, 1);
 });
 
-check('S05-01: permanent new equity is rejected and saved permanent equity remains active', () => {
+check('permanent new equity is rejected and saved permanent equity remains active', () => {
   const room = seatedRoom(3);
   const game = room.game;
   const [a, b, c] = game.players;
@@ -520,7 +520,7 @@ check('S05-01: permanent new equity is rejected and saved permanent equity remai
 });
 
 // An unanswered contract offer lapses
-check('S05-03: an unanswered contract offer expires and releases the table', () => {
+check('an unanswered contract offer expires and releases the table', () => {
   const room = seatedRoom(3);
   const game = room.game;
   const [, b, c] = game.players;
@@ -538,7 +538,7 @@ check('S05-03: an unanswered contract offer expires and releases the table', () 
   assert.equal(game.expireStaleContract(created + 999_999, 120_000), false, 'nothing left to expire');
 });
 
-check('S05-03: an unanswered equity-share transfer expires too', () => {
+check('an unanswered equity-share transfer expires too', () => {
   const room = seatedRoom(3);
   const game = room.game;
   const [a, b, c] = game.players;
@@ -569,7 +569,7 @@ function sponsorFixture() {
   return { game, buyer, investor, other, tile };
 }
 
-check('S05-04: the sponsorship summary carries the request id the accept replay is keyed on', () => {
+check('the sponsorship summary carries the request id the accept replay is keyed on', () => {
   const { game } = sponsorFixture();
   const requested = game.requestPurchaseSponsorship('s-a', { mode: 'equity', sharePct: 30, requestId: 'rid-77' });
   assert.equal(requested.success, true);
@@ -577,7 +577,7 @@ check('S05-04: the sponsorship summary carries the request id the accept replay 
   assert.equal(game.summarySponsoredPurchase().requestId, 'rid-77');
 });
 
-check('S05-05: an equity investor who funded part of the need can top up and complete the purchase', () => {
+check('an equity investor who funded part of the need can top up and complete the purchase', () => {
   const { game, buyer, investor, other, tile } = sponsorFixture();
   assert.equal(game.requestPurchaseSponsorship('s-a', { mode: 'equity', sharePct: 30, requestId: 'rid-78' }).success, true);
   const need = tile.price - buyer.cash;
@@ -594,7 +594,7 @@ check('S05-05: an equity investor who funded part of the need can top up and com
   assert.equal(other.cash, 500);
 });
 
-check('S05-05: gift sponsors still cannot contribute twice', () => {
+check('gift sponsors still cannot contribute twice', () => {
   const { game } = sponsorFixture();
   assert.equal(game.requestPurchaseSponsorship('s-a').success, true);
   assert.equal(game.contributeToSponsoredPurchase('s-b', { amount: 10 }).success, true);
@@ -602,7 +602,7 @@ check('S05-05: gift sponsors still cannot contribute twice', () => {
 });
 
 // Lobby capacity counts every retained seat
-check('S01-03: a post-game lobby with eliminated seats retained is full at maxPlayers', () => {
+check('a post-game lobby with eliminated seats retained is full at maxPlayers', () => {
   const room = seatedRoom(4);
   const game = room.game;
   const [a, d] = [game.players[0], game.players[3]];
@@ -616,7 +616,7 @@ check('S01-03: a post-game lobby with eliminated seats retained is full at maxPl
   assert.equal(room.addOrReconnectPlayer({ socketId: 's-e', clientId: 'c-e', nickname: 'E' }).success, false);
 });
 
-check('S01-03: a running or fresh table keeps its existing join rules', () => {
+check('a running or fresh table keeps its existing join rules', () => {
   const room = seatedRoom(3);
   assert.equal(room.game.canJoin(), false, 'a started game admits nobody');
   const manager = new RoomManager();
@@ -625,7 +625,7 @@ check('S01-03: a running or fresh table keeps its existing join rules', () => {
 });
 
 // A bot buyer's request cannot park the table on a idle human
-check('S18-2: a bot buyer cancels an open request once no bot can fund it and the window has passed', () => {
+check('a bot buyer cancels an open request once no bot can fund it and the window has passed', () => {
   const room = seatedRoom(3);
   const game = room.game;
   const [human, buyer, sponsor] = game.players;
@@ -648,7 +648,7 @@ check('S18-2: a bot buyer cancels an open request once no bot can fund it and th
   assert.equal(isSponsorshipActor(game, buyer), true, 'the buyer takes the seat to decline');
 });
 
-check('S18-2: a request a bot can still fund is never cancelled for age alone', () => {
+check('a request a bot can still fund is never cancelled for age alone', () => {
   const room = seatedRoom(3);
   const game = room.game;
   const [human, buyer, sponsor] = game.players;
@@ -667,7 +667,7 @@ check('S18-2: a request a bot can still fund is never cancelled for age alone', 
 });
 
 // Per-seat trade counters reset for a rematch
-check('S06-01: a rematch starts every seat at zero completed trades', () => {
+check('a rematch starts every seat at zero completed trades', () => {
   const room = seatedRoom(2);
   const game = room.game;
   const [a, b] = game.players;
@@ -682,7 +682,7 @@ check('S06-01: a rematch starts every seat at zero completed trades', () => {
 });
 
 // Revoking a leading bid restores the response window
-check('S06-05: a bankrupt leading bidder revoked bid gives the others a fresh bid window', () => {
+check('a bankrupt leading bidder revoked bid gives the others a fresh bid window', () => {
   const room = seatedRoom(3);
   const game = room.game;
   const [a, b, c] = game.players;
@@ -694,7 +694,7 @@ check('S06-05: a bankrupt leading bidder revoked bid gives the others a fresh bi
   assert.equal(game.auction.endsAt >= before + AUCTION_DURATION_MS, true, 'the five second window restarts');
 });
 
-check('S06-05: a bankruptcy that does not hold the lead leaves the auction clock alone', () => {
+check('a bankruptcy that does not hold the lead leaves the auction clock alone', () => {
   const room = seatedRoom(3);
   const game = room.game;
   const [a, b, c] = game.players;
@@ -718,7 +718,7 @@ function hybridOnDeed(basket) {
   return { game, b };
 }
 
-check('S05-06: a deed that is both a hybrid conversion target and pledged collateral takes no equity', () => {
+check('a deed that is both a hybrid conversion target and pledged collateral takes no equity', () => {
   const { game, b } = hybridOnDeed([1]);
   assert.equal(game.isPlayerContractCollateral(b, game.getTile(1)), true);
   const equity = game.proposePlayerContract('s-c', { toPlayerId: b.id, kind: 'equity', amount: 300, durationRounds: 5, propertyIndex: 1, equityShare: 30, permanent: false, requestId: 'e1' });
@@ -726,7 +726,7 @@ check('S05-06: a deed that is both a hybrid conversion target and pledged collat
   assert.equal(equity.error, 'Rent shares need an unencumbered deed owned by the recipient.');
 });
 
-check('S05-06: an unpledged legacy hybrid target rejects a second investor and still converts', () => {
+check('an unpledged legacy hybrid target rejects a second investor and still converts', () => {
   const { game, b } = hybridOnDeed([3]);
   const equity = game.proposePlayerContract('s-c', { toPlayerId: b.id, kind: 'equity', amount: 300, durationRounds: 5, propertyIndex: 1, equityShare: 30, permanent: false, requestId: 'e2' });
   assert.deepEqual(equity, { success: false, error: 'A deed may have only one rent-share investor.' });
@@ -739,8 +739,8 @@ check('S05-06: an unpledged legacy hybrid target rejects a second investor and s
 });
 
 if (failures.length) {
-  console.error(`\nmoney audit fixes: ${failures.length} failed`);
+  console.error(`\nmoney, debt, loan and market: ${failures.length} failed`);
   process.exitCode = 1;
 } else {
-  console.log('money audit fixes: all passed');
+  console.log('money, debt, loan and market: all passed');
 }

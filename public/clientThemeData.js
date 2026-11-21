@@ -211,7 +211,7 @@ function deepFreeze(value) {
 
 const frozenThemes = deepFreeze(THEMES);
 export const THEME_IDS = Object.freeze(frozenThemes.map((theme) => theme.id));
-export const THEME_OPTIONS = Object.freeze(frozenThemes.slice());
+const THEME_OPTIONS = Object.freeze(frozenThemes.slice());
 
 export function sanitizeThemeId(value) {
   if (typeof value !== "string") return DEFAULT_THEME_ID;

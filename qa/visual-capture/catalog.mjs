@@ -32,7 +32,7 @@ const adminSurfaceIds = [
 export const captureCatalog = Object.freeze([
   {
     group: 'pages',
-    file: 'poorup.spec.js',
+    file: 'app-shell-and-pages.spec.js',
     testTitle: 'shared header and first content stay fixed and in view across top-level pages @ui-smoke',
     surfaceIds: ['home', 'rankings', 'social', 'rules', 'profile'],
   },
@@ -68,7 +68,7 @@ export const captureCatalog = Object.freeze([
   },
   {
     group: 'market',
-    file: 'client-market-ui.spec.js',
+    file: 'board-stage-and-market-desk.spec.js',
     testTitle: 'market desk presents sector navigation, live shared quote, chart, and order ticket',
     surfaceIds: ['market-desk-responsive', 'market-desk-trade-ticket'],
   },

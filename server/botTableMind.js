@@ -2,18 +2,10 @@
 // Theory-of-mind depth is capped at 2 (I model you modeling me, for vetoes), per the literature: decisive without search.
 // The coalition signal uses only existing state (contracts, votes, live offers), so no persistence migration is needed. Money math is whole dollars.
 
+import { finiteNumber } from './numberUtils.js';
+import { livePlayers } from './botTableBrain.js';
+
 export { summarizePublicActionProfile } from './publicActionHistory.js';
-
-function number(value, fallback = 0) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function livePlayers(game) {
-  return (Array.isArray(game?.players) ? game.players : []).filter(
-    player => player && !player.bankrupt && !player.disconnected
-  );
-}
 
 function groupTiles(game, group) {
   if (typeof game?.getGroupTiles === 'function') {
@@ -47,8 +39,8 @@ export function wantedGroups(game, opponentId) {
 // spoiler / drifter. Drives stage-gated risk and targeting.
 export function desireClass(game, opponent) {
   if (!opponent) return 'drifter';
-  const cash = Math.max(0, Math.floor(number(opponent.cash)));
-  const starting = Math.max(1, Math.floor(number(game?.settings?.startingCash, 1500)));
+  const cash = Math.max(0, Math.floor(finiteNumber(opponent.cash)));
+  const starting = Math.max(1, Math.floor(finiteNumber(game?.settings?.startingCash, 1500)));
   if (game?.pendingPayment?.playerId === opponent.id || cash < starting * 0.35) return 'survivor';
   let complete = 0;
   let nearComplete = 0;
@@ -69,13 +61,13 @@ export function desireClass(game, opponent) {
 // cooperative (funded me / dealt fairly, from my ledger).
 export function emotionReadout(game, bot, opponent) {
   if (!opponent) return 'unknown';
-  const cash = Math.max(0, Math.floor(number(opponent.cash)));
-  const starting = Math.max(1, Math.floor(number(game?.settings?.startingCash, 1500)));
+  const cash = Math.max(0, Math.floor(finiteNumber(opponent.cash)));
+  const starting = Math.max(1, Math.floor(finiteNumber(game?.settings?.startingCash, 1500)));
   if (game?.pendingPayment?.playerId === opponent.id && cash < starting * 0.35) return 'desperate';
-  if (number(opponent.casinoNet) < -starting * 0.5) return 'tilting';
-  const gratitude = Math.max(number(bot?.gratitude?.[opponent.id]), number(bot?.sponsoredBy?.[opponent.id]) > 0 ? 1 : 0);
+  if (finiteNumber(opponent.casinoNet) < -starting * 0.5) return 'tilting';
+  const gratitude = Math.max(finiteNumber(bot?.gratitude?.[opponent.id]), finiteNumber(bot?.sponsoredBy?.[opponent.id]) > 0 ? 1 : 0);
   if (gratitude > 0) return 'cooperative';
-  const grudge = number(bot?.grudge?.[opponent.id]);
+  const grudge = finiteNumber(bot?.grudge?.[opponent.id]);
   if (grudge >= 3) return 'hostile';
   return 'steady';
 }
@@ -130,14 +122,14 @@ export function tickLedger(bot, roundNumber) {
     const ledger = bot[key];
     if (!ledger || typeof ledger !== 'object') continue;
     for (const id of Object.keys(ledger)) {
-      ledger[id] = Math.floor(number(ledger[id]) * 0.9);
+      ledger[id] = Math.floor(finiteNumber(ledger[id]) * 0.9);
       if (ledger[id] <= 0) delete ledger[id];
     }
   }
   const cooldowns = bot.tradeCooldowns;
   if (cooldowns && typeof cooldowns === 'object') {
     for (const key of Object.keys(cooldowns)) {
-      if (number(cooldowns[key]) <= number(roundNumber)) delete cooldowns[key];
+      if (finiteNumber(cooldowns[key]) <= finiteNumber(roundNumber)) delete cooldowns[key];
     }
   }
 }
@@ -154,23 +146,23 @@ export function tradePairKey(partnerId, giveIndexes, requestIndexes) {
 export function coolOffTradePair(bot, key, untilRound) {
   if (!bot || !key) return;
   bot.tradeCooldowns = bot.tradeCooldowns || {};
-  bot.tradeCooldowns[key] = Math.max(number(bot.tradeCooldowns[key]), Math.floor(number(untilRound)));
+  bot.tradeCooldowns[key] = Math.max(finiteNumber(bot.tradeCooldowns[key]), Math.floor(finiteNumber(untilRound)));
 }
 
 export function tradePairCoolingOff(bot, key, roundNumber) {
-  return number(bot?.tradeCooldowns?.[key]) > number(roundNumber);
+  return finiteNumber(bot?.tradeCooldowns?.[key]) > finiteNumber(roundNumber);
 }
 
 export function addGrudge(bot, opponentId, amount = 1) {
   if (!bot || !opponentId) return;
   bot.grudge = bot.grudge || {};
-  bot.grudge[opponentId] = number(bot.grudge[opponentId]) + Math.max(1, Math.floor(number(amount, 1)));
+  bot.grudge[opponentId] = finiteNumber(bot.grudge[opponentId]) + Math.max(1, Math.floor(finiteNumber(amount, 1)));
 }
 
 export function addGratitude(bot, opponentId, amount = 1) {
   if (!bot || !opponentId) return;
   bot.gratitude = bot.gratitude || {};
-  bot.gratitude[opponentId] = number(bot.gratitude[opponentId]) + Math.max(1, Math.floor(number(amount, 1)));
+  bot.gratitude[opponentId] = finiteNumber(bot.gratitude[opponentId]) + Math.max(1, Math.floor(finiteNumber(amount, 1)));
 }
 
 // Full mind readout for one opponent, for traces and advisor context.
@@ -184,7 +176,7 @@ export function readMind(game, bot, opponentId) {
     emotion: emotionReadout(game, bot, opponent),
     withMe: allianceScore(game, bot?.id, opponentId),
     maxWithOthers: others.length ? Math.max(...others.map(id => allianceScore(game, opponentId, id))) : 0,
-    grudge: number(bot?.grudge?.[opponentId]),
-    gratitude: number(bot?.gratitude?.[opponentId]),
+    grudge: finiteNumber(bot?.grudge?.[opponentId]),
+    gratitude: finiteNumber(bot?.gratitude?.[opponentId]),
   };
 }

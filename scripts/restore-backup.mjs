@@ -65,7 +65,7 @@ function isSameDirectory(first, second) {
 // The directory the running server stores its data in. A missing
 // POORUP_DATA_DIR falls back to the default live directory, so a restore into
 // it still requires --force.
-export function resolveLiveDataDirectory(env = process.env, { defaultLiveDir = DEFAULT_LIVE_DATA_DIR } = {}) {
+function resolveLiveDataDirectory(env = process.env, { defaultLiveDir = DEFAULT_LIVE_DATA_DIR } = {}) {
   return resolveDataDirectory(env) || path.resolve(defaultLiveDir);
 }
 

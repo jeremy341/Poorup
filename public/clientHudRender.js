@@ -131,7 +131,7 @@ function paintRollingFaces() {
   });
 }
 
-export function dieHTML(value, rolling) {
+function dieHTML(value, rolling) {
   const pips = DIE_PIPS[value] || DIE_PIPS[1];
   let cells = "";
   for (let i = 0; i < 9; i++) {

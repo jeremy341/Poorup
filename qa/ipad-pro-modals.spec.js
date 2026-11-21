@@ -57,24 +57,24 @@ async function captureRoomBrowser(page, testInfo, outputDir) {
   await page.locator('#home-alias').fill('UXHOST');
   await page.locator('#open-join-btn').click();
   await expect(page.locator('#rooms-modal')).not.toHaveClass(/is-hidden/);
-  await page.locator('#rm-tab-browse').click();
-  await expect(page.locator('#rm-tab-browse')).toHaveAttribute('aria-selected', 'true');
+  await page.locator('#rooms-tab-browse').click();
+  await expect(page.locator('#rooms-tab-browse')).toHaveAttribute('aria-selected', 'true');
   await captureLobbySurface(page, testInfo, outputDir, { id: 'room-browser', label: 'Room browser', file: 'lobby-room-browser.png' });
-  await page.locator('#rm-tab-create').click();
+  await page.locator('#rooms-tab-create').click();
   await captureLobbySurface(page, testInfo, outputDir, { id: 'create-room-form', label: 'Create room form', file: 'lobby-create-room.png' });
-  await page.locator('#rm-tab-join').click();
+  await page.locator('#rooms-tab-join').click();
   await captureLobbySurface(page, testInfo, outputDir, { id: 'join-room-form', label: 'Join room form', file: 'lobby-join-room.png' });
   await page.locator('#rooms-close').click();
 }
 
 async function createCaptureRoom(page, testInfo, outputDir, roomCode) {
   await page.locator('#open-create-btn').click();
-  await page.locator('#rc-vis-selector [data-vis="private"]').click();
-  await page.locator('#rc-room-code').fill(roomCode);
-  await page.locator('#rc-create-btn').click();
+  await page.locator('#room-create-visibility-selector [data-vis="private"]').click();
+  await page.locator('#room-create-code').fill(roomCode);
+  await page.locator('#room-create-btn').click();
   await expect(page.locator('#setup-wrap')).not.toHaveAttribute('aria-hidden', 'true');
   await captureLobbySurface(page, testInfo, outputDir, { id: 'appearance-setup', label: 'Appearance setup', file: '00-appearance-setup.png' });
-  await page.locator('#su-start').click();
+  await page.locator('#setup-start-btn').click();
 }
 
 async function joinCaptureGuest(guest, page, testInfo, outputDir, roomCode) {
@@ -85,7 +85,7 @@ async function joinCaptureGuest(guest, page, testInfo, outputDir, roomCode) {
   await guest.locator('#join-nickname').fill('UXGUEST');
   await guest.locator('#join-room-submit').click();
   await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
-  if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
+  if (await guest.locator('#setup-start-btn').isVisible()) await guest.locator('#setup-start-btn').click();
   await expect(page.locator('#player-list')).toContainText('UXGUEST');
   await captureScreenshot(page, testInfo, {
     group: 'lobby', surfaceId: 'waiting-lobby', label: 'Two-player waiting lobby',
@@ -170,7 +170,7 @@ async function captureBoardVariants(context) {
 
   await page.evaluate(() => window.__ipadModalCapture.setBoardVariant('metro-52'));
   await expect(page.locator('#board-grid')).toHaveAttribute('data-board-variant', 'metro-52');
-  await expect(page.locator('#tn-lobby')).toContainText('METRO-52');
+  await expect(page.locator('#topnav-lobby')).toContainText('METRO-52');
   const metro = await captureScreenshot(page, testInfo, {
     group: 'game', surfaceId: 'board-metro-52', label: 'Metro 52 board at rest',
     fallbackPath: path.join(outputDir, 'board-metro-52.png'),

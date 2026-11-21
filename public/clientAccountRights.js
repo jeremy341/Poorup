@@ -157,7 +157,7 @@ export function reconcileAccountLifecycleEvent(event, target = host.state) {
   return true;
 }
 
-export function clearAccountOwnedClientState(storage = globalThis.localStorage) {
+function clearAccountOwnedClientState(storage = globalThis.localStorage) {
   if (!storage || typeof storage.removeItem !== 'function') return;
   ACCOUNT_STORAGE_KEYS.forEach(key => { try { storage.removeItem(key); } catch { /* storage may be unavailable */ } });
 }
@@ -367,4 +367,3 @@ export function bindAccountRights() {
   });
 }
 
-export { ACCOUNT_STORAGE_KEYS };

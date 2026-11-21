@@ -1,23 +1,19 @@
 // Bot decision support as a prototype mixin: socket impersonation for bot-driven actions and the pre-roll
 // candidate ranking. Collector order is kept and the final sort is stable, so ties keep this sequence.
 // kind values are the contract consumed by botLogic's CANDIDATE_MAPPERS and CANDIDATE_RUNNERS tables.
-import { playerFinanceEnabled } from './financeRules.js';
 import { settlementDiscount } from './loanLogic.js';
-import { forecastMarketOrder } from './botMarketForecast.js';
 import { marketExpansionCandidatesFor } from './botMarketCandidates.js';
 import { JAIL_FINE } from './gameData.js';
 import { unmortgageCostFor } from './propertyRules.js';
-import {
-  deedValue, monopolyRequirement, portfolioValue, tradeSetChanges, vetoTrade, TRADE_MIN_NET_GAIN
-} from './botTradeValuation.js';
 import { developmentStage, groupGainToThree } from './botDevelopmentForecast.js';
-import { coalitionAgainst, tradePairKey, tradePairCoolingOff } from './botTableMind.js';
+import { coalitionAgainst } from './botTableMind.js';
 import { tableBrain } from './botTableBrain.js';
 import { seatOf } from './botStrategicContext.js';
-// Loan-contract candidates are scored against the gate that decides them, so
-// the willingness factor has to be the same number the responder applies
-// rather than a second copy that drifts.
-import { CONTRACT_REPAY_RATIO, contractReserve, tableObligationOpen } from './botContractPolicy.js';
+import { contractReserve } from './botContractPolicy.js';
+import { buildDecisionTraceRecord } from './botDecisionTrace.js';
+import { BOT_TRADE_ASK_DEFAULT, canOfferTrade, collectGroupTradeCandidates, richTradeCandidate, tradePartners, tradeTiles } from './botTradeCandidates.js';
+import { canProposeContracts, collectContractCandidates, contractTargets } from './botContractOffers.js';
+import { engineTableObligationPending, marketBuyCandidates, marketSellCandidates, marketTradingOpen } from './botMarketOrders.js';
 
 // Situation-aware table talk shared by both brains.
 function tableTalkFor(game, player) {
@@ -55,24 +51,6 @@ function jailBoardTile(game, player, tile) {
   };
 }
 
-// Grudge-gated dealing: ledgers start empty, so normalize missing entries
-// to 0, since a direct Number(undefined) comparison would lock out every seat.
-function grudgedOut(grudges, id) {
-  return Number((grudges || {})[id] || 0) >= 3;
-}
-
-// Opening-book helper: a complete set means ahead enough to speculate.
-function holdsCompleteSet(game, player) {
-  const groups = [...new Set((player?.properties || []).map(index => game.getTile(index)?.group).filter(Boolean))];
-  return groups.some(group => {
-    try {
-      return game.hasFullSet(player.id, group) === true;
-    } catch {
-      return false;
-    }
-  });
-}
-
 const BOT_CANDIDATE_SOURCES = [
   { collect: (game, player) => game.botJailCandidates(player) },
   { collect: (game, player) => game.botBuildCandidates(player) },
@@ -87,7 +65,6 @@ const BOT_CANDIDATE_SOURCES = [
 
 const BOT_TABLE_TALK_BEHIND = 'I am behind; a fair deal could still change the table.';
 const BOT_TABLE_TALK_SPOILER = 'I cannot win this one, but I choose who does. Make your case.';
-const BOT_TRADE_ASK_DEFAULT = { requestCash: 0, score: 8 };
 
 function pendingPurchaseCandidate(game, player, offer) {
   if (offer?.playerId !== player.id) return null;
@@ -189,8 +166,7 @@ function sortCandidates(candidates, buildValues = new Map()) {
     || a.risk - b.risk);
 }
 
-// Candidate risk against a cash floor of 1, so collectors never divide by
-// zero while keeping the original ternary-ladder values verbatim.
+// Candidate risk against a cash floor of 1, so collectors never divide by zero.
 function riskAgainstCash(amount, cash) {
   return amount / Math.max(1, cash);
 }
@@ -199,477 +175,8 @@ const BOT_BUILD_SCORE = 10;
 const BOT_MORTGAGE_SCORE = 8;
 const BOT_LOAN_SCORE = -12;
 const ZERO_CASH_LOAN_SCORE = 3;
-// A build keeps the same liquidity floor the mortgage and unmortgage triggers use.
-const BOT_BUILD_RESERVE_CASH = 180;
-
-function finiteOrZero(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
-}
-
-// Trace serialisers split by section so each stays branch-light; together
-// they rebuild the exact field order of the original trace record.
-function traceIdentityFields(entry) {
-  return {
-    botId: entry.botId ? String(entry.botId).slice(0, 80) : null,
-    gameId: entry.gameId ? String(entry.gameId).slice(0, 120) : null,
-    ruleVersion: String(entry.ruleVersion || 'bot-policy-v1').slice(0, 32),
-    sequence: Math.max(0, Math.floor(finiteOrZero(entry.decisionSequence))),
-    phase: String(entry.phase || 'unknown').slice(0, 24),
-    provider: String(entry.provider || 'deterministic').slice(0, 24),
-    fallback: entry.fallback === true,
-    success: entry.success !== false,
-    fallbackReason: entry.fallbackReason ? String(entry.fallbackReason).slice(0, 40) : null
-  };
-}
-
-function tracePolicyFields(entry, settings) {
-  return {
-    brain: String(entry.brain || settings.botBrain || 'ai').slice(0, 12),
-    difficulty: String(entry.difficulty || settings.botDifficulty || 'table').slice(0, 12),
-    planningHorizon: Math.max(0, Math.min(3, Math.floor(finiteOrZero(entry.planningHorizon)))),
-    strategicScore: Number.isFinite(Number(entry.strategicScore)) ? Number(entry.strategicScore) : null
-  };
-}
-
-function traceActionFields(entry) {
-  return {
-    actionId: entry.actionId ? String(entry.actionId).slice(0, 100) : null,
-    confidence: Math.max(0, Math.min(1, finiteOrZero(entry.confidence))),
-    reasonCode: entry.reasonCode ? String(entry.reasonCode).slice(0, 40) : 'unknown',
-    latencyMs: Math.max(0, Math.floor(finiteOrZero(entry.latencyMs)))
-  };
-}
-
-function traceShadowFields(entry) {
-  return {
-    candidateIds: Array.isArray(entry.candidateIds) ? entry.candidateIds.filter(id => typeof id === 'string').slice(0, 24).map(id => id.slice(0, 100)) : [],
-    shadowActionId: entry.shadowActionId ? String(entry.shadowActionId).slice(0, 100) : null,
-    shadowConfidence: entry.shadowConfidence == null ? null : Math.max(0, Math.min(1, finiteOrZero(entry.shadowConfidence))),
-    shadowProvider: entry.shadowProvider ? String(entry.shadowProvider).slice(0, 24) : null,
-    shadowAgreement: entry.shadowAgreement === true,
-    shadowModel: entry.shadowModel ? String(entry.shadowModel).slice(0, 48) : null
-  };
-}
-
-// Shared trade gating: the group and rich trade collectors refuse the same table states before pairing deeds.
-// The engine refuses a proposal while an auction, purchase offer, sponsored purchase or trade is open
-// (tradeApi.js), so the bot must not offer one either.
-function canOfferTrade(game, player) {
-  if (game.settings.trading === false) return false;
-  if (tableObligationOpen(game)) return false;
-  if (game.pendingTrade) return false;
-  if (game.pendingPlayerContract) return false;
-  if (player?.isBot && Number(player.botDealActionsThisTurn) >= 1) return false;
-  return true;
-}
-
-function tradeTiles(game, player) {
-  return (player.properties || [])
-    .map(index => game.getTile(index))
-    .filter(tile => tile && game.isTradeableTile(tile) && tile.group);
-}
-
-// Bots may deal with bots too (same veto applies); otherwise humans could
-// exploit isolated bot seats that never cooperate.
-function tradePartners(game, player, table, grudges) {
-  return game.activePlayers().filter(candidate => isTradePartner(player, table, grudges, candidate));
-}
-
-// No feeding a teaming pair, no deals with a grudge >= 3.
-function isTradePartner(player, table, grudges, candidate) {
-  if (candidate.id === player.id) return false;
-  if (candidate.bankrupt) return false;
-  if (candidate.disconnected) return false;
-  if (table.teaming && table.pair.includes(candidate.id)) return false;
-  return !grudgedOut(grudges, candidate.id);
-}
-
-// Seat label the planner projects against: opponents are numbered in table order
-// with the deciding bot left out, exactly as the strategic snapshot labels them.
-// Without it every trade would be projected against opponent-1.
-function partnerSeatLabel(game, player, partner) {
-  const opponents = (game.players || []).filter(candidate => candidate.id !== player.id);
-  const index = opponents.findIndex(candidate => candidate.id === partner.id);
-  return index < 0 ? undefined : `opponent-${index + 1}`;
-}
-
-// Group trades exist to finish or concentrate colour sets. Same-group 1-for-1 swaps change nothing for either seat,
-// so each ask is a deed of a group the bot already holds a stake in, paid for with a deed from a group the bot
-// is not building, or with cash.
-function groupOwnedBy(game, playerId, group) {
-  return (game.getGroupTiles(group) || []).filter(tile => tile.ownerId === playerId).length;
-}
-
-// Deeds the bot can part with for `askTile`: other groups only, and never a group
-// it holds all of (or all but one of: that is a set in the making).
-function giveCandidates(game, player, owned, askTile) {
-  return owned.filter(tile => {
-    if (tile.group === askTile.group) return false;
-    const total = (game.getGroupTiles(tile.group) || []).length;
-    return groupOwnedBy(game, player.id, tile.group) <= total - 2;
-  });
-}
-
-function collectGroupTradeCandidates(ctx, partner, owned, out) {
-  const { game } = ctx;
-  const found = tradeTiles(game, partner).flatMap(askTile => groupAskCandidates(ctx, partner, owned, askTile));
-  found.sort((a, b) => b.score - a.score || b.strategicValue - a.strategicValue);
-  out.push(...found.slice(0, 4));
-}
-
-// Priced offers for one deed the partner holds, one per give-side option (a single tradeable deed, or cash alone).
-function groupAskCandidates(ctx, partner, owned, askTile) {
-  const { game, player } = ctx;
-  const held = groupOwnedBy(game, player.id, askTile.group);
-  if (!held) return [];
-  const completer = held === (game.getGroupTiles(askTile.group) || []).length - 1;
-  const gives = giveCandidates(game, player, owned, askTile).map(tile => [tile]);
-  // Cash alone can buy the last deed of a set; it never buys a partial stake.
-  if (completer) gives.push([]);
-  return gives
-    .map(giveTiles => groupTradeCandidate(ctx, partner, giveTiles, askTile))
-    .filter(Boolean);
-}
-
-// One priced offer, or null: no cooled-off repeat, no value-neutral swap, no set
-// handed over below the monopoly premium (priceTradeTerms enforces all three).
-function groupTradeCandidate(ctx, partner, giveTiles, askTile) {
-  const { game, ask, player } = ctx;
-  const giveIndexes = giveTiles.map(tile => tile.index);
-  const terms = offerTerms(game, player, partner, giveIndexes, [askTile.index]);
-  if (!terms) return null;
-  const sets = tradeSetChanges(game, player.id, giveIndexes, [askTile.index]);
-  return {
-    // The give tile is part of the id: two same-group give tiles for one ask are
-    // distinct offers, and a shared id made the second unaddressable.
-    id: 'trade:' + partner.id + ':' + askTile.index + ':' + (giveIndexes.length ? giveIndexes.join('-') : 'cash'),
-    kind: 'trade',
-    toPlayerId: partner.id,
-    toPlayerSeat: partnerSeatLabel(game, player, partner),
-    givePropertyIndexes: giveIndexes,
-    requestPropertyIndexes: [askTile.index],
-    giveCash: terms.giveCash,
-    requestCash: terms.requestCash,
-    risk: 0.2,
-    score: groupTradeScore(ask, { completesGroup: sets.completes.length > 0, breaksGroup: sets.breaks.length > 0 }),
-    strategicValue: terms.botGain,
-    partnerGain: terms.partnerGain
-  };
-}
-
-function groupTradeScore(ask, state) {
-  return ask.score + (state.completesGroup ? 28 : 0) - (state.breaksGroup ? 30 : 0);
-}
-
-// Pricing plus the offer-level gates shared by group and rich trades.
-function offerTerms(game, player, partner, giveIndexes, requestIndexes) {
-  if (tradePairCoolingOff(player, tradePairKey(partner.id, giveIndexes, requestIndexes), game.roundNumber)) return null;
-  const terms = priceTradeTerms(game, player, partner, giveIndexes, requestIndexes);
-  if (!terms) return null;
-  // The same veto either seat will apply on receipt, checked on the final terms.
-  const trade = {
-    fromPlayerId: player.id,
-    toPlayerId: partner.id,
-    givePropertyIndexes: giveIndexes,
-    requestPropertyIndexes: requestIndexes,
-    giveCash: terms.giveCash,
-    requestCash: terms.requestCash
-  };
-  if (vetoTrade(game, trade, player.id).vetoed || vetoTrade(game, trade, partner.id).vetoed) return null;
-  return terms;
-}
-
-function tradeMargin(game, requestIndexes) {
-  const face = requestIndexes.reduce((sum, index) => sum + deedValue(game, game.getTile(index)), 0);
-  return Math.max(TRADE_MIN_NET_GAIN, Math.ceil(face / 10));
-}
-
-// Prices one swap between the bot and a partner. Both seats use the same portfolio model, and the partner
-// is paid for its loss plus a margin. The cash is then pushed so neither seat hands the other a colour set
-// below the monopoly premium. Returns null when the swap is value-neutral, breaks a set either seat holds, or cannot be paid.
-function priceTradeTerms(game, player, partner, giveIndexes, requestIndexes) {
-  if (!giveIndexes.length && !requestIndexes.length) return null;
-  if (tradeSetChanges(game, player.id, giveIndexes, requestIndexes).breaks.length) return null;
-  if (tradeSetChanges(game, partner.id, requestIndexes, giveIndexes).breaks.length) return null;
-  const botNext = [...new Set([...(player.properties || []).filter(index => !giveIndexes.includes(index)), ...requestIndexes])];
-  const partnerNext = [...new Set([...(partner.properties || []).filter(index => !requestIndexes.includes(index)), ...giveIndexes])];
-  const botDelta = tradePortfolioValue(game, player.id, botNext) - tradePortfolioValue(game, player.id, player.properties || []);
-  const partnerDelta = tradePortfolioValue(game, partner.id, partnerNext) - tradePortfolioValue(game, partner.id, partner.properties || []);
-  if (botDelta + partnerDelta < 2 * TRADE_MIN_NET_GAIN) return null;
-  // Positive = the partner pays the bot, negative = the bot pays the partner. A seat
-  // that hands over a finishing deed bounds the cash from its side.
-  const handsSet = monopolyRequirement(game, giveIndexes, requestIndexes, partner.id);
-  const takesSet = monopolyRequirement(game, requestIndexes, giveIndexes, player.id);
-  const floor = handsSet.givesMonopoly ? handsSet.needCash : -Infinity;
-  const ceiling = takesSet.givesMonopoly ? -takesSet.needCash : Infinity;
-  if (floor > ceiling) return null;
-  // The partner is paid its own loss plus a margin (a tenth of the deeds it hands over, or half the surplus if smaller).
-  // It is not paid for the build value the bot gains from a finished set: splitting that evenly priced every
-  // completer beyond any bank balance.
-  const partnerShare = Math.min(Math.floor((botDelta + partnerDelta) / 2), tradeMargin(game, requestIndexes));
-  const net = Math.max(floor, Math.min(ceiling, partnerDelta - partnerShare));
-  const giveCash = Math.max(0, -net);
-  const requestCash = Math.max(0, net);
-  if (requestCash > Number(partner.cash || 0)) return null;
-  if (giveCash > 0 && giveCash > Number(player.cash || 0) - contractReserve(game)) return null;
-  const botGain = botDelta + net;
-  const partnerGain = partnerDelta - net;
-  if (botGain < TRADE_MIN_NET_GAIN || partnerGain < 0) return null;
-  return { giveCash, requestCash, botGain, partnerGain };
-}
-
-function tradePairs(tiles) {
-  const pairs = [];
-  for (let i = 0; i < tiles.length; i += 1) {
-    for (let j = i + 1; j < tiles.length; j += 1) pairs.push([tiles[i].index, tiles[j].index]);
-  }
-  return pairs;
-}
-
-// Two-for-two offers: the best priced pair of the first three deeds each side.
-function richTradeCandidate(game, player, partner, owned) {
-  const requested = tradeTiles(game, partner).slice(0, 3);
-  if (requested.length < 2) return [];
-  let best = null;
-  for (const giveIndexes of tradePairs(owned)) {
-    for (const requestIndexes of tradePairs(requested)) {
-      const terms = offerTerms(game, player, partner, giveIndexes, requestIndexes);
-      if (terms && (!best || terms.botGain > best.terms.botGain)) best = { giveIndexes, requestIndexes, terms };
-    }
-  }
-  if (!best) return [];
-  const { terms } = best;
-  return [{
-    id: 'trade:rich:' + partner.id,
-    kind: 'trade',
-    rich: true,
-    toPlayerId: partner.id,
-    toPlayerSeat: partnerSeatLabel(game, player, partner),
-    givePropertyIndexes: best.giveIndexes,
-    requestPropertyIndexes: best.requestIndexes,
-    giveCash: terms.giveCash,
-    requestCash: terms.requestCash,
-    risk: 0.3,
-    score: Math.max(8, Math.min(24, 16 + Math.floor(Math.min(terms.botGain, terms.partnerGain) / 100))),
-    strategicValue: terms.botGain,
-    partnerGain: terms.partnerGain
-  }];
-}
-
-// The portfolio model both trade paths price with: deeds, progress credit, and the build value of a finished set.
-// Proposals are one step more generous than acceptance (portfolioDeedValue in botTradeValuation.js). The spread is
-// harmless: the monopoly premium clamps cash both ways, and every proposal clears the partner's own acceptance bar.
-const tradePortfolioValue = portfolioValue;
-
-// The engine refuses a contract proposal while another table obligation is
-// open (contractLogic.js), so the bot must not offer one either.
-function canProposeContracts(game, player) {
-  if (!playerFinanceEnabled(game)) return false;
-  if (!player) return false;
-  if (player.id !== game.currentPlayerId) return false;
-  if (tableObligationOpen(game)) return false;
-  if (game.pendingTrade) return false;
-  if (game.pendingPlayerContract) return false;
-  if (player.isBot && Number(player.botDealActionsThisTurn) >= 1) return false;
-  return true;
-}
-
-function contractTargets(game, player, table, grudges) {
-  return game.activePlayers()
-    .filter(target => contractTargetEligible(target, player, table, grudges))
-    .sort((a, b) => Number(b.cash || 0) - Number(a.cash || 0));
-}
-
-function contractTargetEligible(target, player, table, grudges) {
-  if (target.id === player.id) return false;
-  if (target.bankrupt) return false;
-  if (target.disconnected) return false;
-  if (table.teaming && table.pair.includes(target.id)) return false;
-  return !grudgedOut(grudges, target.id);
-}
-
-function collectContractCandidates(ctx, target, out) {
-  const { game, lenderCash, reserve } = ctx;
-  const loan = loanContractCandidate(target, lenderCash, reserve);
-  if (loan) out.push(loan);
-  const property = targetTradeableProperty(game, target);
-  if (!property) return;
-  out.push(equityContractCandidate(target, property, lenderCash, reserve));
-}
-
-// Scoring the neediest borrower would reward the one seat that must decline: a $300 loan priced at $405 needs roughly $507 of cash to clear the accept gate.
-// A needy borrower burns the lender's one deal action on a sure rejection. A loan the borrower cannot service is not offered (rent-share offers still reach that seat),
-// and survivors rank by acceptance headroom, so a comfortable borrower outranks a bare-margin one.
-const LOAN_PREMIUM_RATE = 35;
-const LOAN_CONTRACT_BASE_SCORE = 10;
-const LOAN_CONTRACT_HEADROOM_SCORE = 4;
-
-// contractLogic prices a loan as amount + premium; the responder gate in
-// botLogic.shouldAcceptPlayerContract then clears it only when
-// totalDue <= cash * CONTRACT_REPAY_RATIO.
-function loanTotalDue(offer) {
-  const amount = Math.max(0, Math.floor(Number(offer?.amount) || 0));
-  return amount + Math.ceil(amount * (Number(offer?.premiumRate) || 0) / 100);
-}
-
-function borrowerRepayCapacity(target) {
-  return Number(target?.cash || 0) * CONTRACT_REPAY_RATIO;
-}
-
-function loanContractScore(totalDue, capacity) {
-  return LOAN_CONTRACT_BASE_SCORE + LOAN_CONTRACT_HEADROOM_SCORE * (capacity - totalDue) / capacity;
-}
-
-function loanContractCandidate(target, lenderCash, reserve) {
-  // Bots sign only interest-free loans (botContractPolicy.js), so a priced loan
-  // aimed at a bot is a sure refusal that still burns the one deal action.
-  if (target.isBot) return null;
-  const amount = Math.min(300, Math.max(100, Math.floor(Math.max(0, lenderCash - reserve) / 3)));
-  const offer = { toPlayerId: target.id, kind: 'loan', amount, premiumRate: LOAN_PREMIUM_RATE, durationRounds: 3, collateralTileIndex: null };
-  const totalDue = loanTotalDue(offer);
-  const capacity = borrowerRepayCapacity(target);
-  if (!(capacity > 0) || totalDue > capacity) return null;
-  return {
-    id: 'contract:loan:' + target.id,
-    kind: 'contract-propose',
-    offer,
-    risk: amount / lenderCash,
-    score: loanContractScore(totalDue, capacity)
-  };
-}
-
-function equityContractCandidate(target, property, lenderCash, reserve) {
-  const amount = Math.min(200, Math.max(50, Math.floor((lenderCash - reserve) / 5)));
-  return {
-    id: 'contract:equity:' + target.id + ':' + property.index,
-    kind: 'contract-propose',
-    offer: { toPlayerId: target.id, kind: 'equity', amount, premiumRate: 0, durationRounds: 3, propertyIndex: property.index, equityShare: 15, equityControl: 'passive', permanent: false },
-    risk: 0.2,
-    score: 8
-  };
-}
-
-function targetTradeableProperty(game, target) {
-  return (target.properties || [])
-    .map(index => game.getTile(index))
-    .find(tile => tile && game.isTradeableTile(tile) && tile.type === 'property' && tile.houseCount === 0 && !tile.mortgaged);
-}
-
-// The engine refuses market orders and casino bets while a payment, auction, purchase, sponsorship, trade or
-// contract is open (marketLogic.js, economyApi.js), including the bot's own offer, so offering them only burns the tick.
-// The deal collectors use the narrower tableObligationOpen (botContractPolicy.js): a pending payment never blocks a deal.
-function engineTableObligationPending(game) {
-  return typeof game.tableObligationPending === 'function' && game.tableObligationPending();
-}
-
-function marketTradingOpen(game) {
-  if (!game.settings.market) return false;
-  if (game.activeEventEffects?.().tradingEnabled === false) return false;
-  return true;
-}
-
-function marketActionAvailable(game, player) {
-  if ((player.marketActionsThisTurn || 0) >= 1) return false;
-  if (Number(game.consecutiveDoubles || 0) >= 2) return false;
-  return true;
-}
-
-// Opening book laps 1-3: deeds only, unless already holding a complete
-// set (ahead: speculation allowed).
-function marketBuyOpeningBook(game, player) {
-  if (Number(game.roundNumber || 99) > 3) return true;
-  return holdsCompleteSet(game, player);
-}
-
-function marketBuyEligible(game, player) {
-  if (!marketTradingOpen(game)) return false;
-  if (!marketActionAvailable(game, player)) return false;
-  return marketBuyOpeningBook(game, player);
-}
-
-function marketPositionQuantity(position) {
-  return Math.max(0, Math.floor(Number(position?.quantity) || 0));
-}
-
-function marketSellWanted(game, player, profitable) {
-  if (profitable) return true;
-  const startingCash = Number(game.settings.startingCash || 1500);
-  return Number(player.cash || 0) <= startingCash * 0.35;
-}
-
-function marketSellCandidate(game, player, id, position) {
-  const quantity = marketPositionQuantity(position);
-  if (!quantity) return null;
-  const quote = Number(game.marketQuotes?.[id]);
-  if (!Number.isInteger(quote) || quote <= 0) return null;
-  const average = Number(position.averageCost) || quote;
-  const profitable = quote > average;
-  if (!marketSellWanted(game, player, profitable)) return null;
-  const quoteForecast = forecastMarketOrder({
-    instrumentId: id,
-    quote,
-    quantity,
-    side: 'sell',
-    ...marketForecastContext(game)
-  });
-  return {
-    id: 'market:sell:' + id,
-    kind: 'market', instrumentId: id, side: 'sell', quantity,
-    risk: quoteForecast.volatilityPercent,
-    score: quoteForecast.expectedPnl,
-    expectedMarketPnl: quoteForecast.expectedPnl,
-    expectedMovePercent: quoteForecast.expectedMovePercent,
-    fee: quoteForecast.fee
-  };
-}
-
-function marketForecastContext(game) {
-  const event = game.globalEvent?.phase === 'active' ? game.globalEvent : null;
-  const effects = game.activeEventEffects?.() || {};
-  return {
-    history: game.marketQuoteHistory,
-    marketVolatility: effects.marketVolatility,
-    activeEventId: event?.id || null,
-    activeEventStartedRound: event?.startedRound,
-    eventPriceMultiplier: effects.marketPriceMultiplier
-  };
-}
-
-function marketBuyCandidates(game, player) {
-  if (!marketBuyEligible(game, player) || game.hasLoanBackedCash?.(player)) return [];
-  if (engineTableObligationPending(game) || game.marginMaintenanceDue?.(player) || Number(player.shortDefaultDebt) > 0) return [];
-  return Object.entries(game.marketQuotes || {}).flatMap(([instrumentId, rawQuote]) => {
-    const quote = Number(rawQuote);
-    if (!Number.isInteger(quote) || quote <= 0) return [];
-    const forecast = forecastMarketOrder({
-      instrumentId,
-      quote,
-      quantity: 1,
-      side: 'buy',
-      ...marketForecastContext(game)
-    });
-    if (!forecast.supported || Number(player.cash || 0) < quote + forecast.fee) return [];
-    return [{
-      id: 'market:' + instrumentId,
-      kind: 'market',
-      instrumentId,
-      side: 'buy',
-      quantity: 1,
-      risk: forecast.volatilityPercent,
-      score: forecast.expectedPnl,
-      expectedMarketPnl: forecast.expectedPnl,
-      expectedMovePercent: forecast.expectedMovePercent,
-      fee: forecast.fee
-    }];
-  });
-}
-
-function marketSellCandidates(game, player) {
-  return Object.entries(player.marketPositions || {})
-    .map(([id, position]) => marketSellCandidate(game, player, id, position))
-    .filter(Boolean);
-}
+// Cash a bot keeps in hand: builds, unmortgages and loan repayments never dip below it, and it mortgages only below it.
+const BOT_LIQUIDITY_FLOOR_CASH = 180;
 
 function belowSellThreshold(game, player) {
   return Number(player.cash || 0) < Number(game.settings.startingCash || 1500) * 0.5;
@@ -745,7 +252,7 @@ function repaymentPlan(contract, player) {
   const due = contract.status === 'due';
   const cash = Math.max(0, Math.floor(Number(player.cash || 0)));
   if (due) return { remaining, due, amount: cash >= remaining ? remaining : 0 };
-  return { remaining, due, amount: Math.min(remaining, Math.max(0, cash - 180)) };
+  return { remaining, due, amount: Math.min(remaining, Math.max(0, cash - BOT_LIQUIDITY_FLOOR_CASH)) };
 }
 
 function repaymentCandidate(contract, plan, player) {
@@ -774,12 +281,12 @@ function bankLoanRepayment(game, loan, player) {
   // Request the full balance to activate amnesty; the engine charges the discounted amount.
   if (remaining > 0 && game.globalEventIncludes?.('debt-amnesty')) {
     const cost = Math.min(remaining, settlementDiscount(game, loan));
-    const reserve = loan.status === 'due' ? 0 : 180;
+    const reserve = loan.status === 'due' ? 0 : BOT_LIQUIDITY_FLOOR_CASH;
     if (cash - reserve >= cost) return { remaining, amount: remaining };
   }
   // Same rule as player contracts: a due loan is paid in full or left alone.
   if (loan.status === 'due') return { remaining, amount: cash >= remaining ? remaining : 0 };
-  return { remaining, amount: Math.min(remaining, Math.max(0, cash - 180)) };
+  return { remaining, amount: Math.min(remaining, Math.max(0, cash - BOT_LIQUIDITY_FLOOR_CASH)) };
 }
 
 function bankLoanRepayCandidate(player, loan, repayment) {
@@ -843,13 +350,7 @@ const botApi = {
       .map(item => ({ id: `item-sell:${item.itemId}`, itemId: item.itemId, kind: 'item-sell', risk: 0, score: 4, mandatory: true }));
   },
   recordBotDecisionTrace(entry = {}) {
-    const trace = {
-      ...traceIdentityFields(entry),
-      ...tracePolicyFields(entry, this.settings),
-      ...traceActionFields(entry),
-      ...traceShadowFields(entry),
-      recordedAt: new Date().toISOString()
-    };
+    const trace = buildDecisionTraceRecord(entry, this.settings);
     this.botDecisionTrace = Array.isArray(this.botDecisionTrace) ? this.botDecisionTrace : [];
     this.botDecisionTrace.push(trace);
     if (this.botDecisionTrace.length > 200) this.botDecisionTrace.splice(0, this.botDecisionTrace.length - 200);
@@ -885,7 +386,7 @@ const botApi = {
   },
 
   // Roll is always available; the pre-roll table appends the remaining
-  // candidate sources in their historical order, then the stable sort ranks
+  // candidate sources in BOT_CANDIDATE_SOURCES order, then the stable sort ranks
   // them by score desc, development value desc (builds only), risk asc.
   getBotCandidates(player, options = {}) {
     if (!player?.isBot) return [];
@@ -953,7 +454,7 @@ const botApi = {
     return this.tiles
       .filter(tile => this.canBuildOnTile(player, tile))
       .filter(tile => !this.propertyOpenOfferRejection(tile))
-      .filter(tile => Number(player.cash || 0) >= this.getPropertyHouseCost(tile) + BOT_BUILD_RESERVE_CASH)
+      .filter(tile => Number(player.cash || 0) >= this.getPropertyHouseCost(tile) + BOT_LIQUIDITY_FLOOR_CASH)
       .map(tile => this.botBuildCandidateFor(tile, player));
   },
 
@@ -974,13 +475,13 @@ const botApi = {
   },
 
   botMortgageCandidates(player) {
-    if (player.cash >= 180) return [];
+    if (player.cash >= BOT_LIQUIDITY_FLOOR_CASH) return [];
     return this.tiles
       .filter(tile => this.canMortgageTile(player, tile))
       // A deed named by an open trade or contract cannot be managed (the
       // engine refuses it), so it is never offered as a rescue.
       .filter(tile => !this.propertyOpenOfferRejection(tile))
-      .map(tile => this.botMortgageCandidateFor(tile, player));
+      .map(tile => this.botMortgageCandidateFor(tile));
   },
 
   botSellCandidates(player) {
@@ -1000,13 +501,13 @@ const botApi = {
       .map(tile => {
         const multiplier = typeof this.propertyValueMultiplier === 'function' ? this.propertyValueMultiplier() : 1;
         const cost = unmortgageCostFor(tile.price, multiplier);
-        if (player.cash < cost + 180) return null;
+        if (player.cash < cost + BOT_LIQUIDITY_FLOOR_CASH) return null;
         return { id: 'unmortgage:' + tile.index, kind: 'unmortgage', tileIndex: tile.index, cost, risk: cost / Math.max(1, player.cash), score: 9 };
       })
       .filter(Boolean);
   },
 
-  botMortgageCandidateFor(tile, player) {
+  botMortgageCandidateFor(tile) {
     const valueMultiplier = Number(this.activeEventEffects?.().propertyValueMultiplier);
     const multiplier = Number.isFinite(valueMultiplier) && valueMultiplier > 0 ? valueMultiplier : 1;
     return {
@@ -1083,9 +584,9 @@ const botApi = {
     const table = coalitionAgainst(this, player.id);
     const targets = contractTargets(this, player, table, player.grudge);
     const ctx = { game: this, lenderCash, reserve };
-    const result = [];
-    targets.forEach(target => collectContractCandidates(ctx, target, result));
-    return result
+    const candidates = [];
+    targets.forEach(target => collectContractCandidates(ctx, target, candidates));
+    return candidates
       .sort((left, right) => Number(right.score || 0) - Number(left.score || 0) || Number(left.risk || 0) - Number(right.risk || 0))
       .slice(0, 8);
   },
@@ -1102,10 +603,6 @@ const botApi = {
 
   botMarketExpansionCandidates(player) {
     return marketExpansionCandidatesFor(this, player);
-  },
-
-  firstTradeableOwnedTile(player) {
-    return player.properties.map(index => this.getTile(index)).find(tile => tile && this.isTradeableTile(tile));
   },
 
   botMarketCandidate(player) {

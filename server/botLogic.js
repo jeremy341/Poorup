@@ -1,12 +1,12 @@
-import { playerFinanceEnabled } from './financeRules.js';
-// Pure bot decision policy, extracted verbatim from the scheduleBotTurn and scheduleBotAuction timers in server.js.
+// Pure bot decision policy: which phase a bot is in and what it does there.
 // Every function is deterministic and free of timers, sockets and IO, so it is characterization-testable
 // (server/botLogic.test.js pins the exact answers). The server only schedules and runs the answer through room.runBotAction.
+import { playerFinanceEnabled } from './financeRules.js';
 import { buildBotStrategicContext, BOT_RULE_VERSION } from './botStrategicContext.js';
 import { evaluateCandidate, planningHorizon } from './botFuturePlanner.js';
 import { groupBuildPlan } from './botDevelopmentForecast.js';
 import {
-  vetoTrade, portfolioDeedValue, tradeSetChanges, TRADE_MIN_NET_GAIN, TRADE_DECLINE_COOLDOWN_ROUNDS
+  vetoTrade, portfolioValue, tradeSetChanges, TRADE_MIN_NET_GAIN, TRADE_DECLINE_COOLDOWN_ROUNDS
 } from './botTradeValuation.js';
 import { CONTRACT_REPAY_RATIO, borrowerAcceptsContract } from './botContractPolicy.js';
 import { tickLedger, coalitionAgainst, addGrudge, coolOffTradePair, tradePairKey } from './botTableMind.js';
@@ -29,8 +29,8 @@ export { sponsorshipContributionAmount };
 export { debtMortgageCandidates } from './botCandidates.js';
 export { getBotChoiceCandidates, runPaymentChoice } from './advisorLogic.js';
 
-export const EVENT_POLICY = 'low-tax';
-export const TRADE_ACCEPT_RATIO = 0.8;
+const EVENT_POLICY = 'low-tax';
+const TRADE_ACCEPT_RATIO = 0.8;
 export { CONTRACT_REPAY_RATIO };
 export { AUCTION_BID_STEP, AUCTION_BID_INCREMENTS };
 const ADVISOR_CHOICE_PHASES = new Set(['vote', 'trade', 'contract', 'sponsorship', 'payment', 'auction']);
@@ -251,8 +251,8 @@ export function shouldAcceptTrade(trade, getTile, game = null) {
       ...responder.properties.filter(index => !outgoing.includes(Number(index))),
       ...incoming
     ])];
-    const propertyDelta = portfolioDeedValue(game, responder.id, nextProperties)
-      - portfolioDeedValue(game, responder.id, responder.properties);
+    const propertyDelta = portfolioValue(game, responder.id, nextProperties)
+      - portfolioValue(game, responder.id, responder.properties);
     // Set protection: a trade that costs the responder a complete colour set is
     // only taken when it hands another one back.
     const sets = tradeSetChanges(game, responder.id, outgoing, incoming);
@@ -349,16 +349,15 @@ function isSeatedActor(game, bot) {
   return Boolean(current?.isBot && current.id === bot.id && !current.bankrupt && !current.disconnected);
 }
 
-export function isVotingTurn(game) {
+function isVotingTurn(game) {
   return game.globalEvent?.phase === 'voting';
 }
 
-export function isPendingFor(game, bot) {
+function isPendingFor(game, bot) {
   return game.pendingTrade?.toPlayerId === bot.id || contractResponderId(game.pendingPlayerContract) === bot.id;
 }
 
-// Ordered phase state machine - the array order IS the historical if/else
-// priority, and each guard keeps its exact original condition.
+// Ordered phase state machine - the array order IS the priority: the first guard that matches wins.
 const PHASES = [
   { id: 'vote', guard: (game, bot) => isVotingTurn(game) && !votingBlocked(game) && !game.globalEvent.votes?.[bot.id] },
   { id: 'trade', guard: (game, bot) => game.pendingTrade?.toPlayerId === bot.id },
@@ -368,9 +367,8 @@ const PHASES = [
   { id: 'auction', guard: (game, bot) => Boolean(game.auction?.active)
     && (!Array.isArray(game.auction.participants) || !game.auction.participants.length
       || isAuctionBotParticipant(game.auction, bot)) },
-  // Preserve the original end-turn priority for jail/other resolved flows;
-  // the post-roll action guard below runs first only when finance actions are
-  // actually available.
+  // End-turn outranks the post-roll guard below for jail and other resolved flows;
+  // the post-roll guard runs first only when finance actions are actually available.
   { id: 'end-turn', guard: game => Boolean(game.awaitingEndTurn) && !game.hasRolled },
   { id: 'pre-roll', guard: game => !game.hasRolled },
   // A resolved landing still leaves the finance rail open. Give bots the
@@ -714,7 +712,7 @@ function deterministicPhaseDecision({ room, bot, game, phase, decisionContext })
 }
 
 // Executes the classified phase against the room (injected as a collaborator, never imported) and returns the action result.
-// Purchase offers carry over to the caller's tail resolution for the second pass, matching the original inline double-check.
+// Purchase offers carry over to the caller's tail resolution for a second pass.
 export async function runBotTurn(room, bot, advisor) {
   const game = room.game;
   const { phase, decisionContext } = beginBotTurn(room, bot, game);
@@ -734,8 +732,7 @@ export async function runBotTurn(room, bot, advisor) {
   return deterministicPhaseDecision({ room, bot, game, phase, decisionContext });
 }
 
-// Candidate kind: the room call it implies; the table order preserves the
-// original if/else chain, including roll as the unmatched fallback.
+// Candidate kind: the room call it implies. Roll is the fallback for an unmatched kind.
 export const CANDIDATE_RUNNERS = {
   'item-use': (room, bot, candidate) => room.runBotAction(bot.id, actor => room.useItem(actor, { itemId: candidate.itemId, requestId: `bot-use:${candidate.itemId}` })),
   'item-sell': (room, bot, candidate) => room.runBotAction(bot.id, actor => room.sellItem(actor, { itemId: candidate.itemId, requestId: `bot-sell:${candidate.itemId}` })),

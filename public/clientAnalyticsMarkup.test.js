@@ -9,8 +9,8 @@ const adminView = html.slice(adminViewStart, adminViewEnd);
 // One console: a single main landmark, one h1, one freshness chip.
 assert.equal((adminView.match(/<main\b/gi) || []).length, 1);
 assert.match(adminView, /<main class="admin-console" id="admin-analytics-main"/);
-assert.equal((adminView.match(/<h1\b/g) || []).length, 1, 'one h1; its text follows the open surface');
-assert.match(adminView, /<h1 class="[^"]*" id="admin-analytics-title">ANALYTICS<\/h1>/);
+assert.equal((adminView.match(/role="heading" aria-level="1"/g) || []).length, 1, 'one level-1 heading; its text follows the open surface');
+assert.match(adminView, /<div class="[^"]*" id="admin-analytics-title" role="heading" aria-level="1">ANALYTICS<\/div>/);
 assert.match(adminView, /id="admin-analytics-status"[^>]+role="status"[^>]+aria-live="polite"/i);
 assert.equal((adminView.match(/id="admin-analytics-status"/g) || []).length, 1, 'one freshness chip replaces the three freshness texts');
 assert.doesNotMatch(adminView, /data-analytics-last-verified|data-analytics-quality-strip|analytics-quality-strip|LAST VERIFIED/);

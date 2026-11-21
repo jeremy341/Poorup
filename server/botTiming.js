@@ -1,5 +1,5 @@
-export const BOT_TURN_DELAY_MS = 300;
-export const BOT_AUCTION_DELAY_MS = 450;
+const BOT_TURN_DELAY_MS = 300;
+const BOT_AUCTION_DELAY_MS = 450;
 // Prefer the whole shared roll timeline; the positional fallback supports
 // legacy/simulation callers that do not carry presentation metadata.
 export { BOT_MOVEMENT_STEP_MS } from '../public/gamePresentationTiming.js';

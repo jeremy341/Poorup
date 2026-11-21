@@ -111,8 +111,8 @@ handlers.get("get-public-player-card")({ accountId: "alice" }, value => { respon
 assert.equal(response.player.id, "alice");
 assert.deepEqual(response.player.recentMatches, []);
 
-// An anonymous socket cannot start or settle a server-authoritative run.
-assert.equal(PARLOR_PATROL_ENABLED, true);
+// Patrol is resting: an anonymous socket cannot start or settle a server-authoritative run.
+assert.equal(PARLOR_PATROL_ENABLED, false);
 for (const [event, payload] of [['start-patrol-run', {}], ['finish-patrol-run', { runToken: 'any', score: 9999 }]]) {
   response = null;
   handlers.get(event)(payload, value => { response = value; });
@@ -120,7 +120,7 @@ for (const [event, payload] of [['start-patrol-run', {}], ['finish-patrol-run', 
   assert.equal(Object.hasOwn(response, 'runToken'), false);
 }
 handlers.get('get-leaderboard')({ metric: 'patrol', scope: 'all' }, value => { response = value; });
-assert.equal(response.metric, 'patrol');
-assert.equal(response.rows[0].accountId, 'alice', 'patrol rankings retain public identity projection');
+assert.equal(response.metric, 'wins', 'a disabled patrol metric falls back to wins');
+assert.equal(response.rows[0].accountId, 'alice', 'public identity projection still applies');
 
 console.log("server social privacy/public identity tests: passed");

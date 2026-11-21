@@ -1,8 +1,8 @@
 // Landing resolution as a prototype mixin: what happens when a player's movement ends on a tile. gameLogic.js assigns this object
-// onto GameState.prototype. The original applyTile if/switch ladder became a type-keyed resolver table plus per-landing methods,
-// preserving every feed string, guard order and side-effect sequence pinned by gameLogic.test.js, applyCard.test.js and casino-bankruptcy.test.js.
+// onto GameState.prototype. Landing is a type-keyed resolver table plus per-landing methods; feed strings, guard order and
+// side-effect sequence are pinned by gameLogic.test.js, applyCard.test.js and casino-bankruptcy.test.js.
 
-// Landing outcome per tile type, exactly the old switch cases. Types with no
+// Landing outcome per tile type. Types with no
 // entry (and a missing tile) fall through to the shared resolve-tail branch.
 // Every entry takes the uniform (player, tile, options) landing signature.
 const LANDING_RESOLVERS = {
@@ -120,7 +120,7 @@ const tileApi = {
     return { success: true };
   },
 
-  // Event tax scaling in the original order: the inflation-spiral hard-code
+  // Event tax scaling, in this order: the inflation-spiral hard-code
   // wins outright, otherwise the generic multiplier applies, and the low-tax
   // platform shaves the survivor down to 60% (never below $1).
   taxAmountDue(tile) {
@@ -182,7 +182,7 @@ const tileApi = {
       this.resolveTurnAfterAction(options);
       return { success: true };
     }
-    if (tile.ownerId === null) return this.unownedTileOutcome(player, tile, options);
+    if (tile.ownerId === null) return this.unownedTileOutcome(player, tile);
     if (tile.ownerId === player.id) {
       this.feedMessage(`${player.nickname} landed on their own ${label}.`);
       this.resolveTurnAfterAction(options);
@@ -194,7 +194,7 @@ const tileApi = {
     return this.chargeLandedRent(player, tile, owner, options);
   },
 
-  unownedTileOutcome(player, tile, options) {
+  unownedTileOutcome(player, tile) {
     if (player.cash >= tile.price) {
       this.pendingPurchaseOffer = { playerId: player.id, tileIndex: tile.index };
       return { success: true, purchaseOffer: { tileIndex: tile.index, name: tile.name, price: tile.price } };

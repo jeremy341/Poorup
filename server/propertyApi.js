@@ -5,7 +5,7 @@ import { PROPERTY_HOUSE_COST_BY_GROUP } from './gameData.js';
 import { unmortgageCostFor } from './propertyRules.js';
 
 // Property action dispatch: the manageProperty verbs mapped to their
-// handler method names on GameState, replacing the original if/else ladder.
+// handler method names on GameState.
 const PROPERTY_ACTION_HANDLERS = {
   'build-house': 'buildHousePropertyAction',
   'sell-house': 'sellHousePropertyAction',
@@ -229,7 +229,7 @@ const propertyApi = {
     this.trySettlePendingPayment();
   },
 
-  // The shared gates of management actions, in historical order: existence and ownership first. Building follows the turn window;
+  // The shared gates of management actions, in check order: existence and ownership first. Building follows the turn window;
   // selling buildings stays legal off-turn for classic liquidity and debt rescue. Mortgage legs also skip the turn window;
   // live-seat and property-offer gates still apply.
   propertyActionRejection(player, tile, action) {
@@ -412,7 +412,7 @@ const propertyApi = {
     };
   },
 
-  sellDeedPropertyAction(player, tile) {
+  sellDeedPropertyAction() {
     return { success: false, error: BANK_DEED_BUYBACK_UNAVAILABLE };
   },
 

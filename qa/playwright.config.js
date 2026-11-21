@@ -26,6 +26,10 @@ export default defineConfig({
     cwd: '..',
     url: 'http://127.0.0.1:8080/',
     reuseExistingServer: true,
-    timeout: 30_000
+    timeout: 30_000,
+    // Parallel browser workers open many sockets from one loopback address.
+    // The production per-peer cap (default 5) is a DoS guard, not a fit for
+    // that harness shape; unit tests cover the cap itself.
+    env: { ...process.env, POORUP_SOCKET_MAX_PER_PEER: '1000' }
   }
 });

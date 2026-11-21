@@ -361,10 +361,10 @@ test('fixture captures grouped holdings, event log, debt modal, and body overflo
     const base = await captureView(capturePage, name, 'hud-holdings');
     readings.push(base.geometry);
     recordOverflowFailure(overflowFailures, name, null, base.geometry);
-    const groupOrder = await capturePage.locator('#rr-body [data-deed-open]').evaluateAll(nodes => nodes.map(node => node.dataset.deedOpen));
+    const groupOrder = await capturePage.locator('#right-rail-body [data-deed-open]').evaluateAll(nodes => nodes.map(node => node.dataset.deedOpen));
     expect(groupOrder).toEqual(['5', '12', '6', '8', '1', '3']);
-    await expect(capturePage.locator('#rr-body .holdings-deeds .prop-rent')).toHaveCount(0);
-    await expect(capturePage.locator('#rr-body .prop-meta').first()).toBeVisible();
+    await expect(capturePage.locator('#right-rail-body .holdings-deeds .prop-rent')).toHaveCount(0);
+    await expect(capturePage.locator('#right-rail-body .prop-meta').first()).toBeVisible();
 
     await capturePage.evaluate(async () => {
       const { toggleLogDrawerFromButton } = await import('/clientLogDrawer.js');
@@ -378,7 +378,7 @@ test('fixture captures grouped holdings, event log, debt modal, and body overflo
     await expect(capturePage.locator('#deed-modal')).not.toHaveClass(/is-hidden/);
     await expect(capturePage.locator('#popup')).toHaveClass(/is-hidden/);
     await expect(capturePage.locator('#log-drawer')).toHaveClass(/is-open/);
-    await capturePage.locator('#dd-close').click();
+    await capturePage.locator('#deed-detail-close').click();
     await expect(capturePage.locator('#deed-modal')).toHaveClass(/is-hidden/);
     await expect(capturePage.locator('.tile[data-tile="1"]')).toBeFocused();
     await expect(capturePage.locator('#log-drawer')).toHaveClass(/is-open/);
@@ -388,7 +388,7 @@ test('fixture captures grouped holdings, event log, debt modal, and body overflo
       window.__qaFixture.modals.openBankruptcyModal(0, 1450, 'Fixture Bank', 'Fixture rent is due.');
     });
     const numericFonts = await capturePage.evaluate(() => ({
-      sidebarPrice: getComputedStyle(document.querySelector('#rr-body .prop-meta')).fontFamily,
+      sidebarPrice: getComputedStyle(document.querySelector('#right-rail-body .prop-meta')).fontFamily,
       debtAmounts: [...document.querySelectorAll('#bankruptcy-card .numeric')].map(element => getComputedStyle(element).fontFamily),
     }));
     console.log(`NUMERIC FONTS ${name} ${JSON.stringify(numericFonts)}`);

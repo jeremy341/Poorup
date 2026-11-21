@@ -51,7 +51,7 @@ export function stubBidAmount(candidate) {
 // The stub plays the planner's best option. The advisor
 // shuffles the order (option-ID bias), so "first" is random. Pick on the planner score in the prompt (futureScore when
 // projected, else the static score), breaking ties on lower risk.
-export function stubPickCandidate(candidates) {
+function stubPickCandidate(candidates) {
   const projected = candidates.filter(candidate => Number.isFinite(candidate?.futureScore));
   const pool = projected.length ? projected : candidates;
   const value = candidate => (projected.length ? candidate.futureScore : Number(candidate?.score) || 0);

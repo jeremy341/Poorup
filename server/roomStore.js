@@ -1,4 +1,4 @@
-// Lobby persistence across restarts. A restart used to drop every table; now each unstarted lobby (identity, settings, human roster,
+// Lobby persistence across restarts: each unstarted lobby (identity, settings, human roster,
 // host, visibility, kick lists) is snapshotted into the authoritative room store (rooms.json) and restored at boot.
 //
 // Tier: lobbies only. A started GameState is not plain JSON (Sets, bounded replay maps, presentation objects, and timers/bot controllers

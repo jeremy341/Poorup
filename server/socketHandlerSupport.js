@@ -1,3 +1,5 @@
+import { RATE_LIMITED_CODE, RATE_LIMITED_MESSAGE } from './rateBuckets.js';
+
 // Shared building blocks for the socket layer: the crash-safe per-event emitter, the ack helpers every handler funnels through,
 // and the factory that installs repetitive room-verb handlers from a definition table (the pattern GAME_PASSTHROUGHS in rooms.js uses).
 // Pinned by server/server.test.js (null-payload storm) and the ack-shape checks in server/rooms.test.js.
@@ -111,6 +113,22 @@ function announceVerbResult(io, room, result, definition) {
   relayResultOffer(io, room, result, definition.relay);
 }
 
+// The refusal every rate-limited socket event answers with: a stable `code` a client can match, a retry hint, and no disconnect.
+// `options.check` (preferred) returns null or { retryAfterMs, blocked }; a plain `options.allow` boolean is still accepted.
+function socketLimitRefusal(socket, options) {
+  let denial = null;
+  if (typeof options.check === 'function') denial = options.check(socket.id);
+  else if (typeof options.allow === 'function' && !options.allow(socket.id)) denial = { retryAfterMs: 0 };
+  if (!denial) return null;
+  return {
+    success: false,
+    code: RATE_LIMITED_CODE,
+    error: RATE_LIMITED_MESSAGE,
+    retryAfterMs: Math.max(0, Math.ceil(Number(denial.retryAfterMs) || 0)),
+    ...(denial.blocked ? { blocked: true } : {}),
+  };
+}
+
 // Single scaffold for every socket event. Malformed payloads (null, strings, numbers) would reach handler bodies written against
 // `payload = {}` defaults, which only guard undefined, and a throw inside a socket.io listener would kill the whole server.
 // The wrapper normalizes the payload, provides a callable callback, and turns any handler failure into a logged, ack'd error.
@@ -121,8 +139,9 @@ function createSafeEmitter(socket, options = {}) {
       const noPayload = typeof rawPayload === 'function';
       const payload = normalizeWirePayload(noPayload ? undefined : rawPayload);
       const callback = normalizeWireCallback(noPayload ? rawPayload : rawCallback);
-      if (typeof options.allow === 'function' && !options.allow(socket.id)) {
-        callback({ success: false, error: 'Too many requests. Try again shortly.' });
+      const refusal = socketLimitRefusal(socket, options);
+      if (refusal) {
+        callback(refusal);
         return;
       }
       const trackedCallback = response => {
@@ -174,4 +193,4 @@ function isPromiseLike(result) {
   return typeof result.catch === 'function';
 }
 
-export { createSafeEmitter, emitResultMessage, getRoomForSocket, makeRoomVerbHandler, publicActionHistoryKind, relayResultOffer, reply, resolveAccount, roomVerbAck };
+export { createSafeEmitter, emitResultMessage, getRoomForSocket, makeRoomVerbHandler, publicActionHistoryKind, reply, resolveAccount, roomVerbAck };

@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("Batch 3 responsive and accessibility contracts", () => {
+test.describe("responsive and accessibility contracts", () => {
   test("modal close controls keep a 40px hit height", async ({ page }) => {
     await page.goto("/");
     await page.locator("#open-create-btn").click();
@@ -139,7 +139,7 @@ test.describe("Batch 3 responsive and accessibility contracts", () => {
     await page.goto("/");
     await expect(page.locator("#view-home .hdr-right > .online")).toHaveCount(0);
     await expect(page.locator("#view-home .chair-flag")).toHaveCount(0);
-    await expect(page.locator("#tn-connection-note")).toHaveCount(0);
-    await expect(page.locator("#view-game .tn-group > .online")).toHaveCount(0);
+    await expect(page.locator("#topnav-connection-note")).toHaveCount(0);
+    await expect(page.locator("#view-game .topnav-group > .online")).toHaveCount(0);
   });
 });

@@ -136,11 +136,6 @@ function tileIndexById(variant, tileId) {
   return found ? found.index : null;
 }
 
-function tileIdAt(variant, index) {
-  const set = TILE_SETS[variant === 'metro-52' ? 'metro-52' : 'standard-40'];
-  return set[index]?.tileId || null;
-}
-
 function boardDefinition(variant = 'standard-40') {
   const key = variant === 'metro-52' ? 'metro-52' : 'standard-40';
   return {
@@ -151,13 +146,6 @@ function boardDefinition(variant = 'standard-40') {
     maxPlayers: key === 'metro-52' ? 6 : 4,
     tiles: TILE_SETS[key].map(tile => ({ ...tile }))
   };
-}
-
-export class BoardRegistry {
-  get(variant = 'standard-40') { return boardDefinition(variant); }
-  cloneTiles(variant = 'standard-40') { return tilesForVariant(variant); }
-  tileIndex(variant, tileId) { return tileIndexById(variant, tileId); }
-  variants() { return ['standard-40', 'metro-52']; }
 }
 
 function deckForVariant(source, variant) {
@@ -189,7 +177,6 @@ export {
   boardDefinition,
   decksForVariant,
   ITEM_REWARD_CARDS,
-  tileIdAt,
   tileIndexById,
   tilesForVariant
 };

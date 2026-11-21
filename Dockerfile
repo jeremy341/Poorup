@@ -1,4 +1,6 @@
-FROM node:22-bookworm-slim
+# Pinned by digest (the multi-arch index of node:22-bookworm-slim) so a re-pushed tag cannot change the base under a build. Bump the digest
+# deliberately when the Node patch or Debian security update is wanted.
+FROM node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee
 
 WORKDIR /app
 
@@ -13,8 +15,11 @@ COPY ecosystem.config.cjs ./
 
 ENV NODE_ENV=production
 ENV PORT=8080
-# Required at run time: -e POORUP_ALLOWED_ORIGINS=<your origin> (boot fails
-# without it; see serverConfig.js assertProductionCors).
+# Required at run time: -e POORUP_ALLOWED_ORIGINS=<your origin> and a declared
+# network posture: -e POORUP_TRUST_PROXY_HOPS=<n>, or
+# -e POORUP_TRUSTED_PROXY_ADDRESSES=<proxy IPs>, or
+# -e POORUP_DIRECT_INTERNET=true when the app port is public with no proxy.
+# Boot fails without both (serverConfig.js assertProductionCors / assertProxyPosture).
 # Production refuses to boot without explicit positive rate limits; these match
 # the defaults in .env.example.
 ENV POORUP_HTTP_RATE_LIMIT=240

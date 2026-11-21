@@ -80,7 +80,10 @@ function clearSave() {
 /** Shared restore-session ack: report real failures visibly, clear the
     room mute, and only return to the parlor view when the player is mid-room. */
 function reportRestoreFailure(response, explicit) {
-  if (!explicit && state.phase === "home") return;
+  // A fresh tab's first restore-session failure can arrive after the client
+  // has already rendered local state. Only tear the game down when there is
+  // an actual room session to lose.
+  if (!explicit && (state.phase === "home" || !state.roomCode)) return;
   parlorNotice("CONNECTION", response.error || "No active room session was found.", "error");
   if (!explicit) {
     // A connected socket with no authoritative room is a terminal restart

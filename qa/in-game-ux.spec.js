@@ -15,10 +15,10 @@ async function createTwoPlayerGame(page, context, code) {
   await page.goto('/');
   await page.locator('#home-alias').fill('UXHOST');
   await page.locator('#open-create-btn').click();
-  await page.locator('#rc-vis-selector [data-vis="private"]').click();
-  await page.locator('#rc-room-code').fill(code);
-  await page.locator('#rc-create-btn').click();
-  await page.locator('#su-start').click();
+  await page.locator('#room-create-visibility-selector [data-vis="private"]').click();
+  await page.locator('#room-create-code').fill(code);
+  await page.locator('#room-create-btn').click();
+  await page.locator('#setup-start-btn').click();
 
   await guest.goto('/');
   await guest.locator('#home-alias').fill('UXGUEST');
@@ -27,7 +27,7 @@ async function createTwoPlayerGame(page, context, code) {
   await guest.locator('#join-nickname').fill('UXGUEST');
   await guest.locator('#join-room-submit').click();
   await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
-  if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
+  if (await guest.locator('#setup-start-btn').isVisible()) await guest.locator('#setup-start-btn').click();
   await expect(page.locator('#player-list')).toContainText('UXGUEST');
   await page.locator('#lobby-start-btn').click();
   await expect(page.locator('#view-game')).toBeVisible();
@@ -82,7 +82,7 @@ async function installUxFixture(page) {
         state.offers = [offer];
         modals.openOfferModal(offer);
       },
-      renderTradeRail() { document.querySelector('#rr-body').innerHTML = rail.playerContractRailHTML('needs-you'); },
+      renderTradeRail() { document.querySelector('#right-rail-body').innerHTML = rail.playerContractRailHTML('needs-you'); },
       renderSocketOnlyOffer(id) {
         const local = state.players[0];
         const other = state.players.find(player => player.serverId !== local.serverId);
@@ -92,7 +92,7 @@ async function installUxFixture(page) {
           fromPlayerName: other.name, toPlayerName: local.name,
           giveCash: 200, requestCash: 100, requestPropertyIndexes: [12], givePropertyIndexes: [],
         })];
-        document.querySelector('#rr-body').innerHTML = rail.playerContractRailHTML('needs-you');
+        document.querySelector('#right-rail-body').innerHTML = rail.playerContractRailHTML('needs-you');
       },
       openTradeDetails(id) { deal.openDealDetails('trade', id); },
       closeTradeDetails() { deal.closeDealDetails(); },
@@ -133,7 +133,7 @@ async function captureSurface(context, surface) {
     fallbackPath: visualOutput({ ...context, name: surface.name }),
   });
   if (surface.name === 'property-inspector') {
-    const titleFont = await page.locator('#popup-card .dd-title').evaluate(element => getComputedStyle(element).fontFamily);
+    const titleFont = await page.locator('#popup-card .deed-detail-title').evaluate(element => getComputedStyle(element).fontFamily);
     expect(titleFont).toContain('Pixelify Sans');
   }
   await page.evaluate(method => window.__poorupUxFixture[method](), surface.closeMethod);
@@ -208,7 +208,7 @@ async function verifyTradeOfferLifecycle(context) {
 async function verifyPendingDealFromRail(context, offerId, outputPath) {
   const { page, testInfo } = context;
   await page.evaluate(() => window.__poorupUxFixture.renderTradeRail());
-  const dealRow = page.locator(`#rr-body [data-deal-view="trade:${offerId}"]`);
+  const dealRow = page.locator(`#right-rail-body [data-deal-view="trade:${offerId}"]`);
   await expect(dealRow).toHaveCount(1);
   await dealRow.click();
   await expect(page.locator('#deal-detail-modal')).not.toHaveClass(/is-hidden/);
@@ -223,7 +223,7 @@ async function verifyPendingDealFromRail(context, offerId, outputPath) {
 async function verifySocketSnapshotOffer(page, offerId) {
   const socketOnlyId = `${offerId}-snapshot-race`;
   await page.evaluate(id => window.__poorupUxFixture.renderSocketOnlyOffer(id), socketOnlyId);
-  const dealRow = page.locator(`#rr-body [data-deal-view="trade:${socketOnlyId}"]`);
+  const dealRow = page.locator(`#right-rail-body [data-deal-view="trade:${socketOnlyId}"]`);
   await expect(dealRow).toHaveCount(1);
   await dealRow.click();
   await expect(page.locator('#deal-detail-card')).toContainText('NEEDS YOU');
@@ -292,7 +292,7 @@ async function runInGameUxScenario({ page, context, testInfo }) {
   const managers = [
     { name: 'property-manager', index: 1 }, { name: 'airport-manager', index: 5 },
     { name: 'electric-manager', index: 12 }, { name: 'water-manager', index: 28 },
-  ].map(tile => ({ ...tile, modal: '#deed-modal', openMethod: 'openManager', args: [tile.index], closeMethod: 'closeManager', focusSelector: '#dd-close' }));
+  ].map(tile => ({ ...tile, modal: '#deed-modal', openMethod: 'openManager', args: [tile.index], closeMethod: 'closeManager', focusSelector: '#deed-detail-close' }));
   await captureSurfaceSet(captureContext, managers);
   await captureSurface(captureContext, {
     name: 'emergency-liquidity', modal: '#bank-loan-modal', openMethod: 'openBank',

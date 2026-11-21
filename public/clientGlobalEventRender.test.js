@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 globalThis.window = { matchMedia: () => ({ matches: false }), addEventListener() {} };
 const renderer = await import("./clientGlobalEventRender.js");
 const html = readFileSync(new URL("./index.html", import.meta.url), "utf8");
-const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
-const presentationStyles = readFileSync(new URL("./ux-surfaces.css", import.meta.url), "utf8");
+const styles = siteCss();
+const presentationStyles = siteCss();
 
 const checks = [];
 function check(name, fn) {
