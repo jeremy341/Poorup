@@ -101,7 +101,7 @@ export const TEST_GROUPS = Object.freeze({
     'server/marketQuoteHistory.test.js', 'server/marketViewerProjection.test.js', 'public/clientChatActivity.test.js',
     'public/clientChatScroll.test.js', 'public/clientActionErrorNotice.test.js', 'public/clientBankLoanUi.test.js',
     'public/clientDeedSaleUi.test.js',
-    'public/clientFinancingAmount.test.js', 'public/clientRankingPicker.test.js',
+    'public/clientFinancingAmount.test.js', 'public/clientFinancingUi.test.js', 'public/clientRankingPicker.test.js',
     'public/clientRecoveryUi.test.js',
     'public/clientSocialTableLayout.test.js',
     'public/clientMarketUi.test.js', 'public/clientCasinoUi.test.js', 'public/clientFriendRequestActions.test.js',

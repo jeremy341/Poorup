@@ -31,6 +31,7 @@
     "public/clientDomWrites.test.js": 100,
     "public/clientFinanceRules.test.js": 218,
     "public/clientFinancingAmount.test.js": 141,
+    "public/clientFinancingUi.test.js": 120,
     "public/clientFriendRequestActions.test.js": 222,
     "public/clientGameResults.test.js": 179,
     "public/clientGameSave.test.js": 226,
