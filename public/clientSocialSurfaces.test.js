@@ -8,7 +8,13 @@ globalThis.document = { querySelector: () => null };
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 
 const surfaces = await import("./clientSocialSurfaces.js");
-const source = readFileSync(new URL("./clientSocialSurfaces.js", import.meta.url), "utf8");
+// Source assertions cover the whole module family now that the barrel is thin.
+const source = [
+  "clientSocialSurfaces.js", "clientSocialRuntime.js", "clientSocialToast.js",
+  "clientSharedSurfaceBits.js", "clientRankingModel.js", "clientSocialData.js",
+  "clientSocialView.js", "clientRankingsView.js", "clientRulesView.js",
+  "clientPlayerView.js", "clientSocialControllers.js",
+].map(name => readFileSync(new URL(`./${name}`, import.meta.url), "utf8")).join("\n");
 const rulesSource = readFileSync(new URL("./rulesSections.js", import.meta.url), "utf8");
 const responsiveSource = readFileSync(new URL("./clientResponsiveSocialSurfaces.js", import.meta.url), "utf8");
 const bindings = readFileSync(new URL("./clientParlorBindings.js", import.meta.url), "utf8");
@@ -25,13 +31,13 @@ function check(name, assertion) {
 }
 
 check("rankingArrowNavigationPreservesExistingMetricSnapshots", () => {
-  assert.equal(surfaces.RANKING_ORDER.length, 15);
-  assert.ok(surfaces.RANKING_ORDER.includes("patrol"), "Parlor Patrol is a ranking metric");
+  assert.equal(surfaces.RANKING_ORDER.length, 14);
+  assert.ok(!surfaces.RANKING_ORDER.includes("patrol"), "Parlor Patrol is disabled");
   for (const metric of surfaces.RANKING_ORDER) assert.ok(surfaces.RANKING_LABELS[metric]);
   const html = surfaces.rankingMetricNavigationHTML("market");
   assert.match(html, /class="btn-dark ranking-step" type="button" data-ranking-step="-1" aria-label="Previous ranking category"/);
   assert.match(html, /class="btn-dark ranking-step" type="button" data-ranking-step="1" aria-label="Next ranking category"/);
-  assert.match(html, /<strong class="t-label f12 g100">11 \/ 15<\/strong>/);
+  assert.match(html, /<strong class="t-label f12 g100">11 \/ 14<\/strong>/);
   assert.doesNotMatch(source, /RANKING_METRIC_FAMILIES|ranking-family-control/);
 });
 
@@ -150,6 +156,22 @@ function renderInto(id, render) {
 }
 
 const { state } = await import("./clientState.js");
+const { RULES_SECTIONS } = await import("./rulesSections.js");
+
+check("rulesRendererKeepsEveryChapterAndAnchorInTheDom", () => {
+  state.rulesSection = "start-here";
+  const html = renderInto("rules-page-content", surfaces.renderRulesSurface);
+  for (const section of RULES_SECTIONS) {
+    assert.ok(html.includes(`id="rules-${section.id}"`), `${section.id} keeps its #rules-${section.id} anchor`);
+    assert.ok(html.includes(section.title), `${section.id} keeps its chapter title`);
+    assert.ok(html.includes(section.summary), `${section.id} keeps its summary`);
+  }
+  assert.equal((html.match(/<section class="rules-book-section"/g) || []).length, RULES_SECTIONS.length - 1, "every inactive chapter stays in the DOM");
+  assert.match(html, /class="rules-book-extra is-hidden"/, "inactive chapters are hidden, not dropped");
+  assert.match(html, /id="rules-book-page-heading"/);
+  assert.match(html, /id="rules-book-page-scroll"/);
+  assert.equal((html.match(/class="rules-article-body"/g) || []).length, 1, "one article body keeps the existing locators unique");
+});
 
 check("inGameRankingsAndSocialShareThePageContentAndReturnToTheTable", () => {
   state.roomCode = "UXCAP1";

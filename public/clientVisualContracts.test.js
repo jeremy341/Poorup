@@ -117,7 +117,7 @@ check("toast dismiss target is at least 24x24 CSS px", () => {
 check("auction tag and rankings empty state are readable and actionable", () => {
   assert.match(rule(".auction-leader-name"), /font-size:\s*15px/);
   assert.match(rule(".auction-bid-box .t-micro"), /font-size:\s*12px/);
-  const social = readFileSync(join(root, "clientSocialSurfaces.js"), "utf8");
+  const social = readFileSync(join(root, "clientRankingsView.js"), "utf8");
   const empty = social.slice(social.indexOf("function ledgerEmptyHTML()"), social.indexOf("function rankingErrorHTML"));
   assert.match(empty, /SHOW ALL-TIME RANKINGS/);
   assert.match(empty, /Sign in and finish a match/);
