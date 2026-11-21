@@ -188,4 +188,40 @@ import { registerAccountSocketHandlers } from './serverSocketAccount.js';
   assert.equal(typeof runtime.abuseBudgets?.accountWrite?.take, 'function');
 }
 
+// The fixed-window rewrite: a token budget refills continuously, so a client cannot spend a full allowance on each side of a rollover.
+{
+  let clock = 0;
+  const budget = createActionBudget({ limit: 2, windowMs: 1000, now: () => clock });
+  assert.equal(budget.take('boundary-account'), null, 'first action opens the window at t=0');
+  clock = 999;
+  assert.equal(budget.take('boundary-account'), null, 'the allowance is full just before the rollover');
+  clock = 1000;
+  assert.equal(budget.take('boundary-account'), null, 'only the tokens that refilled since the burst are available');
+  assert.ok(budget.take('boundary-account') > 0, 'no second full allowance one millisecond after the rollover');
+  clock = 2000;
+  assert.equal(budget.take('boundary-account'), null, 'the budget recovers after a full refill window');
+}
+
+// Per-socket and per-peer event budgets both reject the second burst at a window rollover.
+{
+  let clock = 0;
+  const perSocket = createSocketRateLimiter({ max: 2, peerMax: 1000, windowMs: 1000, now: () => clock });
+  const peer = '203.0.113.90';
+  assert.equal(perSocket.check('s1', peer), null);
+  clock = 999;
+  assert.equal(perSocket.check('s1', peer), null);
+  clock = 1000;
+  assert.equal(perSocket.check('s1', peer), null);
+  assert.ok(perSocket.check('s1', peer), 'a socket cannot double its allowance at the boundary');
+
+  clock = 0;
+  const perPeer = createSocketRateLimiter({ max: 1000, peerMax: 2, windowMs: 1000, now: () => clock });
+  assert.equal(perPeer.check('a', peer), null);
+  clock = 999;
+  assert.equal(perPeer.check('b', peer), null);
+  clock = 1000;
+  assert.equal(perPeer.check('c', peer), null, 'a fresh socket cannot double the peer allowance at the boundary');
+  assert.ok(perPeer.check('d', peer), 'reconnecting across the boundary does not refill the peer budget');
+}
+
 console.log('rate limit coverage: all passed');

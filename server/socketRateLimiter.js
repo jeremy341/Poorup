@@ -1,4 +1,4 @@
-import { RATE_LIMITED_CODE, peerBucketKey, pruneWindowBuckets, windowBucket } from './rateBuckets.js';
+import { RATE_LIMITED_CODE, peerBucketKey, pruneWindowBuckets, spendToken, windowBucket } from './rateBuckets.js';
 
 // A blank env var (POORUP_SOCKET_RATE_LIMIT=) is unset, not zero: Number('')
 // is 0, which would deny every event or collapse the window to its floor.
@@ -40,14 +40,11 @@ export function createSocketRateLimiter({ max = 240, peerMax, windowMs = 10_000,
   const threshold = positiveSetting(blockThreshold, DEFAULT_BLOCK_THRESHOLD, 1_000_000);
   const blockWindow = positiveSetting(blockMs, DEFAULT_BLOCK_MS, 86_400_000);
 
-  // Returns the milliseconds to wait when the budget is spent, or 0 after spending one unit.
+  // Returns the milliseconds to wait when the budget is spent, or 0 after spending one unit. A token bucket refills between events,
+  // so a peer cannot spend a full allowance on each side of a window rollover by timing its events around the boundary.
   function spend(map, key, cap, current) {
     const bucket = windowBucket(map, key, current, window);
-    if (bucket.count < cap) {
-      bucket.count += 1;
-      return 0;
-    }
-    return Math.max(1, bucket.startedAt + window - current);
+    return spendToken(bucket, cap, current, window) ?? 0;
   }
 
   function refusal(retryAfterMs, blockedPeer = false) {
@@ -116,16 +113,35 @@ export function createSocketRateLimiter({ max = 240, peerMax, windowMs = 10_000,
 }
 
 // Connection admission is a separate, pre-socket guard. The per-socket limiter protects event volume after a connection exists; this
-// seam stops a client creating unlimited fresh sockets to reset that counter. Active connections come from Engine.IO, and handshakes
-// are bounded per peer over a short rolling window.
-export function createSocketAdmission({ maxConnections = 2_000, maxHandshakes = 120, windowMs = 10_000, now = () => Date.now() } = {}) {
+// seam stops a client creating unlimited fresh sockets to reset that counter. Active connections come from Engine.IO, handshakes
+// are bounded per peer over a short rolling window, and a single peer holds at most `maxPerPeer` concurrent sockets so it cannot
+// occupy every global slot.
+const DEFAULT_MAX_PER_PEER = 5;
+// Keep a slice of the global cap for every other peer, even if maxPerPeer is configured above it.
+const MAX_RESERVED_CONNECTIONS = 100;
+
+function positiveCount(value, fallback) {
+  if (value === undefined || value === null || String(value).trim() === '') return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 1 ? Math.min(100_000, Math.floor(parsed)) : fallback;
+}
+
+export function createSocketAdmission({ maxConnections = 2_000, maxPerPeer = DEFAULT_MAX_PER_PEER, maxHandshakes = 120, windowMs = 10_000, now = () => Date.now() } = {}) {
   const connectionLimit = Math.max(1, Math.min(100_000, Math.floor(Number(maxConnections) || 2_000)));
+  const perPeerLimit = positiveCount(maxPerPeer, DEFAULT_MAX_PER_PEER);
+  const reservedConnections = Math.max(1, Math.min(MAX_RESERVED_CONNECTIONS, Math.floor(connectionLimit * 0.05)));
+  const perPeerCeiling = Math.max(1, connectionLimit - reservedConnections);
   const handshakeLimit = Math.max(1, Math.min(100_000, Math.floor(Number(maxHandshakes) || 120)));
   const window = Math.max(100, Math.min(86_400_000, Math.floor(Number(windowMs) || 10_000)));
   const buckets = new Map();
 
-  function allow(peerKey, activeConnections = 0) {
-    if (Number.isFinite(Number(activeConnections)) && Number(activeConnections) >= connectionLimit) return false;
+  // peerConnections is the caller's live count for this peer. It is a separate argument so existing callers that pass only the
+  // global count keep the handshake and global checks they had before.
+  function allow(peerKey, activeConnections = 0, peerConnections = 0) {
+    const active = Number(activeConnections);
+    if (Number.isFinite(active) && active >= connectionLimit) return false;
+    const peerActive = Number(peerConnections);
+    if (Number.isFinite(peerActive) && peerActive >= Math.min(perPeerLimit, perPeerCeiling)) return false;
     const key = peerBucketKey(peerKey || 'unknown') || 'unknown';
     const observed = Number(now());
     const current = Number.isFinite(observed) ? observed : Date.now();
@@ -133,11 +149,10 @@ export function createSocketAdmission({ maxConnections = 2_000, maxHandshakes = 
     // abusive direct-connect client can neither hide in nor DoS the crowd.
     const effective = key === 'unknown' ? Math.max(1, Math.floor(handshakeLimit / 10)) : handshakeLimit;
     const bucket = windowBucket(buckets, key, current, window);
-    if (bucket.count >= effective) return false;
-    bucket.count += 1;
+    if (spendToken(bucket, effective, current, window) !== null) return false;
     pruneWindowBuckets(buckets, current, window);
     return true;
   }
 
-  return { allow, size: () => buckets.size };
+  return { allow, size: () => buckets.size, maxPerPeer: perPeerLimit };
 }

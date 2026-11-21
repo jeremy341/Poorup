@@ -20,9 +20,9 @@ import { registerGameSocketHandlers } from './serverSocketGame.js';
 import { registerSocialSocketHandlers } from './serverSocketSocial.js';
 import { assertProductionStoragePaths, resolveAuxiliaryStorePaths, resolveBackupDirectory, resolveDataDirectory, resolveRetiredStorePaths, resolveStorePaths } from './serverStorePaths.js';
 import { TelemetryStore } from './telemetryModule.js';
-import { assertProductionCors, assertTrustedProxyConfig, createCorsOrigin, expressTrustProxy, isAllowedSocketOrigin, parseAllowedOrigins, proxyTrustAdvisory, readAbuseLimits, readSocketEventLimits, readTrustedProxy, resolveClientAddress, resolveHandshakeSession } from './serverConfig.js';
+import { assertProductionCors, assertProxyPosture, assertTrustedProxyConfig, createCorsOrigin, expressTrustProxy, isAllowedSocketOrigin, parseAllowedOrigins, proxyTrustAdvisory, readAbuseLimits, readSocketEventLimits, readTrustedProxy, resolveClientAddress, resolveHandshakeSession } from './serverConfig.js';
 import { createSocketAdmission, createSocketRateLimiter } from './socketRateLimiter.js';
-import { assertRateLimitConfig, createHttpRateLimiter } from './httpRateLimiter.js';
+import { assertRateLimitConfig, createHttpRateLimiter, effectiveHttpLimit } from './httpRateLimiter.js';
 import { createHttpRouteBudgets } from './abuseBudgets.js';
 import { backupJsonStores, isBackupStoreCandidate } from './backupStore.js';
 import { assertPersistenceMode } from './persistenceMode.js';
@@ -35,10 +35,10 @@ import { createRoomActivityTracker } from './adminOpsReports.js';
 import { normalizeAdminIds } from './analyticsApi.js';
 import { createPseudonymizer } from './analyticsPrivacy.js';
 import { createAnalyticsRollupStore } from './analyticsRollupStore.js';
-import { createMetadataRouter, gateIndexEnv, metadataConfig } from './metadata.js';
+import { createMetadataRouter, gateIndexEnv, indexingWarning, metadataConfig } from './metadata.js';
 import { createStaticAssets } from './staticAssets.js';
 import { answerHttpError, createHttpErrorHandler } from './httpErrors.js';
-import { attachSocketHttpHeaders, createSecurityMiddleware, hardenHttpServer } from './securityHeaders.js';
+import { attachSocketHttpHeaders, createSecurityMiddleware, createSocketHttpGuard, hardenHttpServer, parseAllowedHosts } from './securityHeaders.js';
 import { registerSeoRoutes } from './seoRoutes.js';
 import { registerAccountHttpRoutes, createRequestAccount } from './accountHttpRoutes.js';
 import { registerAnalyticsRoutes } from './analyticsRoutes.js';
@@ -67,6 +67,8 @@ const __dirname = path.dirname(__filename);
 assertProductionStoragePaths(process.env);
 assertPersistenceMode(process.env);
 assertProductionCors(process.env);
+// Production must declare whether a reverse proxy fronts the app (or opt out explicitly); undeclared budgets collapse to the proxy.
+assertProxyPosture(process.env);
 
 // ── 1. HTTP shell: security middleware, static files, rate limits ──
 const app = express();
@@ -81,10 +83,16 @@ const productionRuntime = String(process.env.NODE_ENV || '').trim().toLowerCase(
 // HTTPS-only behaviour (HSTS, Secure cookies): production, or an explicit secure-cookie deployment behind a TLS proxy.
 const httpsDeployment = productionRuntime || String(process.env.POORUP_COOKIE_SECURE || '').toLowerCase() === 'true';
 const configuredPublicOrigin = metadataConfig({ env: process.env, path: '/' }).origin;
+// A public origin without an explicit policy looks configured but keeps the site
+// closed; say so at boot instead of leaving it to be discovered in robots.txt.
+const indexingNote = indexingWarning(process.env);
+if (indexingNote) console.warn(indexingNote);
 const connectSources = configuredPublicOrigin
   ? ["'self'", configuredPublicOrigin]
   : (productionRuntime ? ["'self'"] : ["'self'", 'ws:', 'wss:']);
 assertRateLimitConfig(process.env);
+// Parsed once: Express's Host guard and the Engine.IO guard below must agree on the same list.
+const allowedHosts = parseAllowedHosts(process.env.POORUP_ALLOWED_HOSTS);
 // Security headers, method and Host guards, and the private-file guard run before anything else (static files included).
 app.use(...createSecurityMiddleware({
   connectSources,
@@ -106,11 +114,16 @@ app.use(express.static(publicPath, {
   index: false,
   setHeaders: (response, filePath, stat) => staticAssets.setStaticHeaders(response, filePath, stat)
 }));
-const httpRateLimit = createHttpRateLimiter({ max: process.env.POORUP_HTTP_RATE_LIMIT, windowMs: process.env.POORUP_HTTP_RATE_WINDOW_MS, trustProxy: trustedProxy.enabled });
+const httpRateLimit = createHttpRateLimiter({ max: effectiveHttpLimit(process.env), windowMs: process.env.POORUP_HTTP_RATE_WINDOW_MS, trustProxy: trustedProxy.enabled });
+// Crawler text files bypass the limiter: a 429 on robots.txt or sitemap.xml
+// makes a crawler back off, and these are small static responses. The pages they
+// describe (/about, /rules) still spend the budget like any other page.
+const CRAWLER_TEXT_PATHS = new Set(['/robots.txt', '/sitemap.xml', '/llms.txt', '/llms-full.txt', '/about.md', '/rules.md']);
 app.use((req, res, next) => {
   // Health probes bypass the limiter: a traffic burst must never make the
   // orchestrator restart a healthy pod with 429s.
   if (req.path === '/healthz' || req.path === '/readyz') return next();
+  if (CRAWLER_TEXT_PATHS.has(req.path)) return next();
   return httpRateLimit(req, res, next);
 });
 // Route budgets for mail-sending, token-checking, export and admin-aggregation routes (see abuseBudgets.js). They sit behind the global IP budget.
@@ -119,6 +132,7 @@ app.use(createHttpRouteBudgets({ limits: readAbuseLimits(process.env), trustProx
 const socketRateLimiter = createSocketRateLimiter(readSocketEventLimits(process.env));
 const socketAdmission = createSocketAdmission({
   maxConnections: process.env.POORUP_SOCKET_MAX_CONNECTIONS,
+  maxPerPeer: process.env.POORUP_SOCKET_MAX_PER_PEER,
   maxHandshakes: process.env.POORUP_SOCKET_HANDSHAKE_RATE,
   windowMs: process.env.POORUP_SOCKET_HANDSHAKE_WINDOW_MS
 });
@@ -131,9 +145,19 @@ function isOriginAllowedForSocket(origin) {
   return !origin;
 }
 
+// Live sockets per resolved peer. The handshake admission reads it so one address cannot occupy every global connection slot; the
+// connection handler increments it and the disconnect handler always releases it. Both sides resolve the peer from the same raw
+// request (falling back to the handshake fields), so the key that counted a socket is the key that is released.
+const peerSocketCounts = new Map();
+function socketPeerKey(request, handshake) {
+  return request
+    ? resolveClientAddress({ request }, trustedProxy)
+    : resolveClientAddress({ address: handshake?.address, headers: handshake?.headers }, trustedProxy);
+}
+
 function isPeerAllowedForSocket(request) {
   const peerKey = resolveClientAddress({ request }, trustedProxy);
-  return socketAdmission.allow(peerKey, io?.engine?.clientsCount || 0);
+  return socketAdmission.allow(peerKey, io?.engine?.clientsCount || 0, peerSocketCounts.get(peerKey) || 0);
 }
 
 const io = new Server(server, {
@@ -150,6 +174,13 @@ const io = new Server(server, {
   maxHttpBufferSize: 100_000
 });
 attachSocketHttpHeaders(server);
+// Engine.IO requests skip Express entirely. Apply the same Host/method guards and the shared HTTP IP budget inside Engine.IO, so a
+// foreign Host or an exhausted address budget is refused before a polling or WebSocket handshake is admitted.
+io.engine.use(createSocketHttpGuard({
+  allowedHosts,
+  httpRateLimit,
+  resolveAddress: request => resolveClientAddress({ request }, trustedProxy)
+}));
 
 // ── 3. Shared state: rooms, metrics, maintenance/drain mode, lobby persistence, analytics ──
 const roomManager = new RoomManager();
@@ -506,7 +537,21 @@ io.on('connection', (socket) => {
 
   // The peer key outlives the socket: a reconnect gets a new socket id but the
   // same address, so the peer budget keeps counting across reconnects.
-  const peerKey = resolveClientAddress({ address: socket.handshake?.address, headers: socket.handshake?.headers, request: socket.request }, trustedProxy);
+  const peerKey = socketPeerKey(socket.request || socket.conn?.request, socket.handshake);
+  // Count and release before any other work so an exception in a handler cannot leak a reserved slot. Both 'disconnect' and the
+  // engine connection's 'close' can fire for a dropped transport; the flag makes the release exactly once.
+  peerSocketCounts.set(peerKey, (peerSocketCounts.get(peerKey) || 0) + 1);
+  let peerSlotReleased = false;
+  const releasePeerSlot = () => {
+    if (peerSlotReleased) return;
+    peerSlotReleased = true;
+    const remaining = (peerSocketCounts.get(peerKey) || 0) - 1;
+    if (remaining > 0) peerSocketCounts.set(peerKey, remaining);
+    else peerSocketCounts.delete(peerKey);
+  };
+  socket.once('disconnect', releasePeerSlot);
+  socket.conn?.once?.('close', releasePeerSlot);
+
   const safeOn = createSafeEmitter(socket, {
     check: socketId => socketRateLimiter.check(socketId, peerKey),
     onAccepted: (socketId, eventName) => runtime.noteSocketEvent(socketId, eventName),

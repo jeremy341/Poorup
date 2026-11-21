@@ -115,6 +115,9 @@ function startServer(dataDir) {
       POORUP_DATA_DIR: dataDir,
       POORUP_TEST_RECONNECT_GRACE_MS: String(GRACE_MS),
       POORUP_SHUTDOWN_DRAIN_MS: '1000',
+      // These scenarios track many live sockets from the same loopback address,
+      // so raise the production per-peer cap (default 5) for the harness.
+      POORUP_SOCKET_MAX_PER_PEER: '1000',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

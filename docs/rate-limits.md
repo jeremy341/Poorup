@@ -24,23 +24,27 @@ Forwarding headers are believed only from proxies you name.
 | --- | --- | --- |
 | `POORUP_TRUST_PROXY_HOPS` | `0` | Trust the last N entries of `X-Forwarded-For`. The same rule Express applies to `req.ip`. |
 | `POORUP_TRUSTED_PROXY_ADDRESSES` | unset | Comma-separated proxy peer addresses (plain IPs, no CIDR). Forwarding headers are believed only when the socket peer is on this list, and the chain is walked back through listed proxies. Use this whenever the app port can be reached without the proxy. A CIDR or malformed entry stops the server at boot. |
+| `POORUP_DIRECT_INTERNET` | unset | Explicit opt-out for a deployment whose app port is genuinely public with no proxy. Set `true` only in that topology. Production refuses to start unless this is true, `POORUP_TRUST_PROXY_HOPS` is above 0, or `POORUP_TRUSTED_PROXY_ADDRESSES` is non-empty. |
 
-With both unset, `X-Forwarded-For` is ignored and every client is keyed by its socket address. An attacker who reaches the app port directly therefore cannot pick a bucket by sending a header. Setting `POORUP_TRUST_PROXY_HOPS=1` behind a proxy that is reachable directly would let such a client choose its key, so set `POORUP_TRUSTED_PROXY_ADDRESSES` in that deployment.
+With all three unset, `X-Forwarded-For` is ignored and every client is keyed by its socket address. An attacker who reaches the app port directly therefore cannot pick a bucket by sending a header. Setting `POORUP_TRUST_PROXY_HOPS=1` behind a proxy that is reachable directly would let such a client choose its key, so set `POORUP_TRUSTED_PROXY_ADDRESSES` in that deployment.
+
+Production cannot detect a proxy, so it now fails fast: an undeclared posture stops the boot (`assertProxyPosture` in `serverConfig.js`) rather than silently pooling every client into one budget. Development still boots and logs the advisory.
 
 ## Global budgets (env)
 
 | Budget | Env | Default | Notes |
 | --- | --- | --- | --- |
-| HTTP per IP | `POORUP_HTTP_RATE_LIMIT`, `POORUP_HTTP_RATE_WINDOW_MS` | off in development; required in production (boot fails if unset) | Static files and `/healthz`, `/readyz` are not counted. A 429 carries `Retry-After`. |
-| Socket per socket | `POORUP_SOCKET_RATE_LIMIT`, `POORUP_SOCKET_RATE_WINDOW_MS` | 240 per 10 s | Every socket event. |
+| HTTP per IP | `POORUP_HTTP_RATE_LIMIT`, `POORUP_HTTP_RATE_WINDOW_MS` | off in development; required in production (boot fails if unset) | Static files, `/healthz`, `/readyz` and the crawler text files (`CRAWLER_TEXT_PATHS` in `server/server.js`) are not counted. Engine.IO (`/socket.io/`) requests spend the same address budget through the Engine.IO middleware, because those requests never reach Express. A 429 carries `Retry-After`. |
+| Socket per socket | `POORUP_SOCKET_RATE_LIMIT`, `POORUP_SOCKET_RATE_WINDOW_MS` | 240 per 10 s | Every socket event. `0` is refused at boot: it would answer `RATE_LIMITED` to every event, not disable the budget. |
 | Socket per peer | `POORUP_SOCKET_PEER_RATE_LIMIT` | 4 × the socket limit (960 per 10 s) | Survives reconnects. |
 | Socket escalation | `POORUP_SOCKET_BLOCK_THRESHOLD`, `POORUP_SOCKET_BLOCK_MS` | 300 refused events per window, then 60 s | A peer that keeps refusing is blocked for its events. The socket stays connected and the peer receives `RATE_LIMITED` answers. |
 | Handshakes per peer | `POORUP_SOCKET_HANDSHAKE_RATE`, `POORUP_SOCKET_HANDSHAKE_WINDOW_MS` | 120 per 10 s (unknown peers 12) | Refused at admission. |
-| Open connections | `POORUP_SOCKET_MAX_CONNECTIONS` | 2000 | |
+| Concurrent sockets per peer | `POORUP_SOCKET_MAX_PER_PEER` | 5 | Checked beside the global connection cap, so one address cannot occupy every slot. A peer at its cap is refused at handshake; its existing sockets keep playing. |
+| Open connections | `POORUP_SOCKET_MAX_CONNECTIONS` | 2000 | A single peer is capped below this (see the previous row), and about 5% of the global cap is reserved for other peers even if `POORUP_SOCKET_MAX_PER_PEER` is raised above it. |
 
 ## Per-identity budgets (env)
 
-Each budget is overridable with `<PREFIX>_LIMIT` and `<PREFIX>_WINDOW_MS`. A blank value means the default. An explicit `0` disables that one budget, so use it only for a known load test.
+Each budget in this table is overridable with `<PREFIX>_LIMIT` and `<PREFIX>_WINDOW_MS`. A blank value means the default. An explicit `0` disables that one per-identity budget, so use it only for a known load test. This "0 disables" rule does not apply to the global socket event budget above: `POORUP_SOCKET_RATE_LIMIT=0` is rejected at boot because every event would be refused.
 
 | Budget | Prefix | Default | Key | Applies to |
 | --- | --- | --- | --- | --- |
@@ -60,6 +64,8 @@ The social budgets are fixed at 30 per 60 s per account and action (anonymous ca
 
 Memory: every map above is bounded at 10 000 live keys (`MAX_TRACKED_BUCKETS`). When it is full, expired windows are dropped first. A new key then takes over the oldest live slot with the spend it already carries, so rotating addresses cannot reset a budget. The social action map is capped at 50 000 keys, and a new key is refused rather than evicting a live window. The socket block table is capped at 10 000 peers.
 
+Windows are token buckets, not fixed windows. Each key holds a token counter that refills continuously at `limit / windowMs` tokens per millisecond, capped at `limit`, and every allowed request or event spends one token. After a full burst the bucket is empty, so a client cannot spend its whole allowance just before a window rollover and another whole allowance just after it: it has to wait for tokens to accrue. State stays O(1) per key (one counter and one refill timestamp), so the caps above still hold, and `Retry-After` is the time until the next token is free. A client that has been idle can still spend up to `limit` requests at once; that burst is the configured allowance, not a boundary artifact. Size the budgets for the burst you are willing to see rather than assuming a perfectly smooth rate.
+
 ## Refusal shapes
 
 - **HTTP:** `429` with `Retry-After` (seconds) and a plain-text body.
@@ -72,7 +78,9 @@ Memory: every map above is bounded at 10 000 live keys (`MAX_TRACKED_BUCKETS`). 
 | --- | --- | --- | --- | --- | --- |
 | Static files under `public/` (`/assets`, `/themes`, `/client`, `/css`, `/favicon.svg`, other files) | none | n/a | n/a | n/a | **Intentional.** Served before the limiter so one page load (100+ requests) is not counted. A CDN or edge should cap these. |
 | `/healthz`, `/readyz` | bypass | n/a | n/a | n/a | **Intentional.** A burst must not make an orchestrator restart a healthy instance. |
-| SPA pages (`/`, `/play`, `/rooms`, `/profile`, `/rankings`, `/social`, `/rules`, `/admin/analytics`), `/about`, `/rules`, `/robots.txt`, `/sitemap.xml`, `/maintenance/*` | global HTTP per IP | IP | `POORUP_HTTP_RATE_WINDOW_MS` | `POORUP_HTTP_RATE_LIMIT` | Covered. SEO and metadata routes are owned by another change and are not modified here. |
+| `/socket.io/*` (Engine.IO polling and WebSocket upgrade) | global HTTP per IP (Engine.IO middleware) + handshake admission | IP / Peer | `POORUP_HTTP_RATE_WINDOW_MS` | `POORUP_HTTP_RATE_LIMIT` | Covered. Express never sees these requests, so the Host/method guards and the IP budget are applied inside Engine.IO. |
+| `/robots.txt`, `/sitemap.xml`, `/llms.txt`, `/llms-full.txt`, `/about.md`, `/rules.md` | bypass | n/a | n/a | n/a | **Intentional.** Crawler text bypasses the IP budget so a 429 cannot make crawlers back off; the pages those files describe still count. |
+| SPA pages (`/`, `/play`, `/rooms`, `/profile`, `/rankings`, `/social`, `/admin/analytics`), `/about`, `/rules`, `/maintenance/*` | global HTTP per IP | IP | `POORUP_HTTP_RATE_WINDOW_MS` | `POORUP_HTTP_RATE_LIMIT` | Covered. |
 | `GET /account/session`, `POST /account/logout` | global HTTP per IP | IP | as above | as above | **Global only.** Cheap, no secret checked. |
 | `GET /account/export` | global + `accountExport` | IP | 10 min | 5 | **Now covered** (was global only). |
 | `POST /account/profile` | global + `profileWrite` | IP | 60 s | 60 | **Now covered** (was global only). |
@@ -90,7 +98,7 @@ Telemetry and analytics ingestion: **there is no ingestion route.** Telemetry is
 
 ## Socket coverage
 
-Connection admission (before any event): per-peer handshake budget, a tighter budget for unresolvable peers, and the open-connection cap. Session cookies are resolved on handshake.
+Connection admission (before any event): per-peer handshake budget, a tighter budget for unresolvable peers, the open-connection cap, and the per-peer concurrent-socket cap. Session cookies are resolved on handshake.
 
 ### Account, auth and room lifecycle (`serverSocketAccount.js`)
 
@@ -157,5 +165,5 @@ AI and bot advisor: **no public endpoint.** Advisor calls run server-side. The a
 ## Tuning
 
 - A player who reaches a per-identity budget is told so with a stable `code`. Raise the matching `<PREFIX>_LIMIT` rather than the global budget.
-- Budgets that could trip real play are: `roomCreate` (60 per minute per peer; far above what one person creates, but a shared NAT address pools it), `accountWrite` (60 per minute per account), and the social action budgets (30 per minute per account). For a load test, set the relevant `<PREFIX>_LIMIT=0`, or the global `POORUP_SOCKET_RATE_LIMIT`, and never disable the global socket budget in production.
+- Budgets that could trip real play are: `roomCreate` (60 per minute per peer; far above what one person creates, but a shared NAT address pools it), `accountWrite` (60 per minute per account), and the social action budgets (30 per minute per account). A shared NAT also pools `POORUP_SOCKET_MAX_PER_PEER`, so raise it if a household or office legitimately runs more than five concurrent game sockets behind one address. The capacity harness is a special case: it connects every simulated client from the operator workstation's single address, so raise `POORUP_SOCKET_MAX_PER_PEER` (and `POORUP_SOCKET_HANDSHAKE_RATE`) on the testing host for the run, then restore them. For a load test, set the relevant `<PREFIX>_LIMIT=0` (per-identity budgets only). The global socket event budget cannot be disabled: `POORUP_SOCKET_RATE_LIMIT=0` is refused at boot. Leave it at the default or set a positive value.
 - An escalated block affects every client behind one peer address, so a shared NAT (school, office, mobile carrier) can be slowed together. Raise `POORUP_SOCKET_BLOCK_THRESHOLD` if that happens.

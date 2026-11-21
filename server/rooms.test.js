@@ -87,7 +87,10 @@ async function withServer(runScenarios) {
       PORT: String(PORT),
       POORUP_DATA_DIR: dataDir,
       POORUP_SHUTDOWN_DRAIN_MS: '1000',
-      POORUP_TEST_RECONNECT_GRACE_MS: '1000'
+      POORUP_TEST_RECONNECT_GRACE_MS: '1000',
+      // The scenario harness keeps every socket open from one loopback address;
+      // the production per-peer cap (default 5) is far too low for that shape.
+      POORUP_SOCKET_MAX_PER_PEER: '1000'
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
