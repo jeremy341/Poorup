@@ -15,6 +15,10 @@ server/backups/
 !.env.example
 dist
 dist-ssr
+# The generated CSS bundle is committed so fresh checkouts and the image can
+# serve it without a build step; only other dist/ directories stay ignored.
+!public/dist/
+!public/dist/**
 *.local
 coverage/
 qa-artifacts/

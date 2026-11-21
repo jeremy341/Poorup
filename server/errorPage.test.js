@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { renderErrorPage } from './errorPage.js';
 import { siteStylesheetPaths } from '../qa/support/siteSource.mjs';
 
 const page = renderErrorPage('Confirm recovery email', 'Use this address for recovery.', '<form method="post" action="/account/recovery/verify"><input type="hidden" name="token" value="safe-token"><button type="submit">CONFIRM RECOVERY EMAIL</button></form>');
 assert.match(page, /<html lang="en">/);
-// The error page links the tokens, the base rules and the system-pages sheet, in the same order as the app does.
+// The error page links the tokens, the base rules and the system-pages sheet,
+// in the same order as the app's generated stylesheet bundle.
 const errorPageSheets = [...page.matchAll(/rel="stylesheet" href="\/([^"]+)"/g)].map(match => match[1]);
 assert.deepEqual(errorPageSheets, ['css/01-tokens-and-fonts.css', 'css/02-base-and-helpers.css', 'css/38-admin-and-system-pages.css']);
-assert.deepEqual(siteStylesheetPaths().filter(sheet => errorPageSheets.includes(sheet)), errorPageSheets);
+const manifest = JSON.parse(fs.readFileSync(new URL('../public/dist/manifest.json', import.meta.url), 'utf8'));
+assert.deepEqual(siteStylesheetPaths(), [manifest.stylesheet.replace(/^\//, '')]);
+const bundledSheets = manifest.files.map(file => `css/${file}`);
+assert.deepEqual(bundledSheets.filter(sheet => errorPageSheets.includes(sheet)), errorPageSheets);
 assert.match(page, /<h1>Confirm recovery email<\/h1>/);
 assert.match(page, /method="post" action="\/account\/recovery\/verify"/);
 assert.match(page, /name="token" value="safe-token"/);
