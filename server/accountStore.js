@@ -36,7 +36,9 @@ const ACCOUNT_LOCKED_ERROR = 'Too many failed sign-in attempts. Try again later.
 
 // One resolver per leaderboard metric. Adding a rank type is one row here. Unknown metrics fall back to wins.
 // Keep the server feature flag aligned with the client. New Patrol scores use verified fields; prior records remain available separately.
-export const PARLOR_PATROL_ENABLED = true;
+// Patrol is resting while it is being fixed: its socket handlers answer with PARLOR_PATROL_OFF_MESSAGE,
+// the ranking metric is omitted, and already-saved scores remain intact for when the flag returns.
+export const PARLOR_PATROL_ENABLED = false;
 
 export const PARLOR_PATROL_OFF_MESSAGE = 'Parlor Patrol is resting for now. Your saved scores are safe.';
 

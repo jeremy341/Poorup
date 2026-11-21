@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test';
 
+// Parlor Patrol is disabled while it is being fixed (PARLOR_PATROL_ENABLED = false).
+// These checks cover dormant code; re-enable them when the flag is restored.
+test.skip('Parlor Patrol is disabled');
+
 async function enable(page) {
   await page.addInitScript(() => {
     // The no-op collaborators configureNightShift needs; each scenario overrides only the callbacks it observes.

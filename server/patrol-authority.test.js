@@ -2,11 +2,18 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { AccountStore } from './accountStore.js';
+import { AccountStore, PARLOR_PATROL_ENABLED } from './accountStore.js';
 import { Server } from 'socket.io';
 import { io as connect } from 'socket.io-client';
 import { createSocialApi } from './socketSocialApi.js';
 import { registerSocialSocketHandlers } from './serverSocketSocial.js';
+
+// Parlor Patrol is disabled while it is being fixed. Its authority suite covers
+// dormant code and runs again when the flag is restored.
+if (!PARLOR_PATROL_ENABLED) {
+  console.log('patrol authority tests: skipped (Parlor Patrol is disabled)');
+  process.exit(0);
+}
 
 const http = createServer();
 const io = new Server(http);

@@ -4,6 +4,10 @@ import { Server } from 'socket.io';
 import { createSocialApi } from '../server/socketSocialApi.js';
 import { registerSocialSocketHandlers } from '../server/serverSocketSocial.js';
 
+// Parlor Patrol is disabled while it is being fixed (PARLOR_PATROL_ENABLED = false).
+// These checks cover dormant code; re-enable them when the flag is restored.
+test.skip('Parlor Patrol is disabled');
+
 // Records each settled patrol score in `saved` and reports a fixed account.
 function wireAccountStore(saved) {
   return {

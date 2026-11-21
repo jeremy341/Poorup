@@ -61,20 +61,19 @@ const store = buildStore();
 for (const metric of Object.keys(GOLDEN)) {
   check(`leaderboard metric ${metric}`, () => assert.deepStrictEqual(rank(store, metric), GOLDEN[metric]));
 }
-check('patrol ranks server-derived scores while preserving legacy records', () => {
-  assert.strictEqual(PARLOR_PATROL_ENABLED, true);
-  assert.deepStrictEqual(rank(store, 'patrol'), [], 'legacy-only scores do not enter the leaderboard');
+check('patrol is off: new scores are refused, the metric is absent, and legacy records stay readable', () => {
+  assert.strictEqual(PARLOR_PATROL_ENABLED, false);
+  assert.deepStrictEqual(rank(store, 'patrol'), [], 'a disabled patrol has no leaderboard');
   const alice = store.accounts.get('alice');
-  const bob = store.accounts.get('bob');
-  assert.strictEqual(store.recordPatrolResult(alice.id, { score: 125 }).success, true);
-  assert.strictEqual(store.recordPatrolResult(bob.id, { score: 200 }).success, true);
-  assert.deepStrictEqual(rank(store, 'patrol'), ['bob:200', 'alice:125']);
+  const refused = store.recordPatrolResult(alice.id, { score: 125 });
+  assert.strictEqual(refused.success, false);
+  assert.match(refused.error, /resting/i);
+  assert.deepStrictEqual(rank(store, 'patrol'), []);
   assert.strictEqual(alice.stats.patrolBest, 900, 'legacy personal best remains readable');
   assert.strictEqual(alice.stats.patrolAceRuns, 3, 'legacy ace count remains readable');
-  assert.deepStrictEqual(store.getLeaderboardSnapshot(['patrol', 'wins']).metrics.patrol.map(row => row.value), [200, 125]);
 });
 check('snapshot exposes the full metric set', () => {
-  assert.deepStrictEqual(Object.keys(store.getLeaderboardSnapshot().metrics), [...Object.keys(GOLDEN), 'patrol']);
+  assert.deepStrictEqual(Object.keys(store.getLeaderboardSnapshot().metrics), Object.keys(GOLDEN));
 });
 check('window stats with no cutoff mirror stored stats', () => {
   const alice = store.accounts.get('alice');

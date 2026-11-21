@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test';
 
+// Parlor Patrol is disabled while it is being fixed (PARLOR_PATROL_ENABLED = false).
+// These checks cover dormant code; re-enable them when the flag is restored.
+test.skip('Parlor Patrol is disabled');
+
 test('aircraft remain in the visible skyline until near their escape deadline', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.setViewportSize({ width: 1366, height: 768 });
