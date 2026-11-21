@@ -1,6 +1,5 @@
-// LOBBY UI: the setup-overlay appearance chooser, the lobby settings rail and
-// parlor navigation. emitServer, updateServerSetting, showView, renderAll, say,
-// renderChat, clearSave, renderPlayers and closeRoomsModal are injected by the entry module.
+// LOBBY UI BARREL: parlor entry/lobby orchestration and the public lobby UI API.
+// Pure rendering, wire and settings helpers live in the clientLobby* sibling modules.
 import { $, esc, clamp } from "./clientDom.js";
 import {
   state,
@@ -8,16 +7,8 @@ import {
   syncLocalAppearance,
   buildPlayers,
   getAppearanceMeta,
-  getProfileById,
 } from "./clientState.js";
-import {
-  APPEARANCES,
-  MAX_PROFILES,
-  profileDesignName,
-  saveActiveDesignId,
-  hasSavedActiveDesign,
-} from "./clientSanitize.js";
-import { avatarHTML } from "./clientSprites.js";
+import { saveActiveDesignId, hasSavedActiveDesign } from "./clientSanitize.js";
 import { accountAppearancePayload, saveFaceToAccount } from "./clientAccountAppearance.js";
 import { placePieces } from "./clientBoardRender.js";
 import { setBoardVariant } from "./clientBoardData.js";
@@ -31,6 +22,9 @@ import {
 import { closeAllSurfaces, focusSurface } from "./clientSurfaces.js";
 import { parlorNotice } from "./clientSocialSurfaces.js";
 import { stopAuctionTimer } from "./clientAuctionUi.js";
+import { sendRoomEntryWithRetries, roomEntryAckFromSnapshot, chooseQuickTableRoom } from "./clientLobbyWire.js";
+import { renderSetup } from "./clientLobbyAppearance.js";
+import { normalizeSettingValue, isSettingField, stepperLimits, clampBotsToSeats, isStepperEnabled } from "./clientLobbySettings.js";
 
 let host = {
   emitServer: noop,
@@ -55,8 +49,6 @@ function noop() {}
 
 const QUICK_TABLE_MAX_RETRIES = 2;
 const QUICK_TABLE_DIRECTORY_TIMEOUT_MS = 5000;
-const ROOM_ENTRY_ACK_TIMEOUT_MS = 4000;
-const ROOM_ENTRY_ACK_RETRIES = 2;
 let quickTableFlow = false;
 let quickTableRetryCount = 0;
 let quickTableRequestId = 0;
@@ -69,85 +61,6 @@ let pendingJoinRoomCode = "";
 let soloEntryIntent = false;
 let soloEntry = false;
 let soloAutoStart = null;
-
-export function sendRoomEntryWithRetries({
-  emit,
-  event,
-  payload,
-  onResponse,
-  onTimeout,
-  timeoutMs = ROOM_ENTRY_ACK_TIMEOUT_MS,
-  maxRetries = ROOM_ENTRY_ACK_RETRIES,
-  schedule = setTimeout,
-  cancel = clearTimeout,
-}) {
-  let active = true;
-  let retries = 0;
-  let timer = null;
-
-  const stopTimer = () => {
-    if (timer !== null) cancel(timer);
-    timer = null;
-  };
-  const finish = (response) => {
-    if (!active) return;
-    active = false;
-    stopTimer();
-    onResponse(response);
-  };
-  const send = () => {
-    timer = schedule(() => {
-      if (!active) return;
-      timer = null;
-      if (retries < maxRetries) {
-        retries += 1;
-        send();
-        return;
-      }
-      active = false;
-      onTimeout();
-    }, timeoutMs);
-    emit(event, payload, finish);
-  };
-
-  send();
-  return {
-    cancel() {
-      if (!active) return;
-      active = false;
-      stopTimer();
-    },
-  };
-}
-
-export function roomEntryAckFromSnapshot(snapshot, clientId) {
-  const room = snapshot?.room;
-  const players = snapshotPlayers(snapshot);
-  const player = players.find(candidate => candidate?.clientId === clientId);
-  if (!room) return null;
-  if (!player) return null;
-  return {
-    success: true,
-    created: true,
-    roomCode: roomCodeFromSnapshot(room),
-    visibility: visibilityFromSnapshot(room),
-    hostId: firstValue(room.hostId),
-    playerId: firstValue(player.id, player.roomPlayerId),
-    bots: players.filter(candidate => candidate?.isBot).length,
-  };
-}
-
-function firstValue(...values) {
-  return values.find(Boolean) || null;
-}
-
-function roomCodeFromSnapshot(room) {
-  return Object.prototype.hasOwnProperty.call(room, "roomCode") ? room.roomCode : null;
-}
-
-function visibilityFromSnapshot(room) {
-  return room.visibility === "public" ? "public" : "private";
-}
 
 export function reconcileParlorEntrySnapshot(snapshot) {
   if (!state.roomEntryPending) return false;
@@ -170,22 +83,6 @@ function entryAckMatchesPendingRoom(ack) {
   const ackCode = String(ack.roomCode || "").trim().toUpperCase();
   if (entryCode || ackCode) return entryCode === ackCode;
   return ack.visibility === "public" && state.roomVisibility === "public";
-}
-
-/**
- * Pick open public tables so Quick Table fills an existing lobby first. This is
- * only a preference: join-room still checks every join on the server.
- */
-export function chooseQuickTableRoom(rooms = []) {
-  return (Array.isArray(rooms) ? rooms : [])
-    .filter(isOpenQuickTableRoom)
-    .sort((a, b) => {
-      const openA = Number(a.cap) - Number(a.seats);
-      const openB = Number(b.cap) - Number(b.seats);
-      // Fill the table with the fewest free seats first, then use the stable
-      // public id as a tie-breaker so two clients make the same choice.
-      return openA - openB || String(a.roomId).localeCompare(String(b.roomId));
-    });
 }
 
 export function configureLobbyUi(hooks) {
@@ -226,184 +123,6 @@ function clearTableAppearanceOverride() {
   renderSetup();
   renderLobbyRail();
   syncServerAppearance();
-}
-
-function renderSetup() {
-  const wrap = $("#setup-wrap");
-  wrap.classList.toggle("is-hidden", state.phase !== "setup");
-  if (state.phase !== "setup") return;
-
-  const entryButton = $("#setup-start-btn");
-  if (entryButton) {
-    entryButton.disabled = Boolean(state.roomEntryPending);
-    const label = entryButton.querySelector(".cta-text");
-    if (label) label.textContent = state.roomEntryPending ? "Connecting…" : "Enter Parlor";
-  }
-
-  // Server is authoritative for identity: if the table auto-assigned a
-  // different colour than the local design, the picker must show the seat
-  // colour as the active row, not the (rejected) design choice.
-  const choice = setupAppearanceChoice();
-  const meta = getAppearanceMeta(choice);
-  paintSetupIdentity(choice, meta);
-  paintSetupTabs();
-  paintSetupGrid(choice);
-}
-
-function setupSeatColor() {
-  const seat = state.players.find((p) => p.clientId === state.clientId);
-  return String(seat?.color || "").toLowerCase();
-}
-
-function setupAppearanceChoice() {
-  const seatColor = setupSeatColor();
-  // Identity first: a custom design is its own identity and must never
-  // collapse onto a color-matching preset. When the local design already
-  // explains the seat color, it IS the choice.
-  const local = activeAppearance();
-  const localColor = String(getAppearanceMeta(local).color || "").toLowerCase();
-  if (localColor && localColor === seatColor) return local;
-  // Server-authoritative fallback: the table assigned a color the local
-  // design does not explain, so the seat color shows as the active row.
-  const seatPreset = APPEARANCES.findIndex((a) => String(a.color).toLowerCase() === seatColor);
-  if (seatPreset >= 0) return seatPreset;
-  return local;
-}
-
-// Taken-ness is identity (color plus face), mirroring faceSignature in
-// server/appearanceApi.js: same color with a different face is a different
-// icon, so only an exact duplicate greys a preset out.
-function setupFaceSignature(avatarGrid) {
-  if (!Array.isArray(avatarGrid)) return "generic";
-  const inked = avatarGrid.some((row) => Array.isArray(row) && row.some((cell) => Boolean(cell)));
-  if (!inked) return "generic";
-  return JSON.stringify(avatarGrid, (key, value) => (typeof value === "string" ? value.toLowerCase() : value));
-}
-
-function setupIdentityKey(color, avatarGrid) {
-  return `${String(color || "").toLowerCase()}|${setupFaceSignature(avatarGrid)}`;
-}
-
-function setupTakenIdentities() {
-  const seated = state.players
-    .filter((p) => p.clientId !== state.clientId)
-    .filter((p) => p.online !== false)
-    .filter((p) => !p.bankrupt);
-  return new Set(seated.map((p) => setupIdentityKey(p.color, p.avatarGrid)));
-}
-
-function selectedDesignName(choice, meta) {
-  if (typeof choice !== "string") return meta.label;
-  const selectedProfile = getProfileById(choice);
-  if (!selectedProfile) return meta.label;
-  return profileDesignName(selectedProfile);
-}
-
-function activeDesignName() {
-  if (typeof state.appearance !== "string") return getAppearanceMeta(state.appearance).label;
-  const activeProfile = getProfileById(state.appearance);
-  if (!activeProfile) return getAppearanceMeta(state.appearance).label;
-  return profileDesignName(activeProfile);
-}
-
-function tableAppearanceIsDifferent() {
-  const override = state.tableAppearanceOverride;
-  if (override == null) return false;
-  return override !== state.appearance;
-}
-
-function paintSetupIdentity(choice, meta) {
-  // The active design is the default. The chooser is opt-in, so joining a table
-  // never asks the player to make the same identity decision twice.
-  const selectedName = selectedDesignName(choice, meta);
-  const sourceLabel = state.tableAppearanceOverride == null ? "ACTIVE DESIGN" : "THIS TABLE ONLY";
-  const activeName = activeDesignName();
-  const activeIsDifferent = tableAppearanceIsDifferent();
-  const activeCard = $("#setup-active-card");
-  if (activeCard) {
-    activeCard.innerHTML = `<div class="setup-active-avatar">${avatarHTML({ color: meta.color, avatarGrid: meta.avatarGrid }, 4, 0)}</div><div class="setup-active-copy"><span class="t-micro ${activeIsDifferent ? "g400" : "green"}">${sourceLabel}</span><strong class="t-label f14 setup-active-name" style="color:${meta.textColor}">${esc(selectedName)}</strong><span class="t-micro ink-3">${activeIsDifferent ? `ACTIVE DESIGN · ${esc(activeName)}` : "READY TO ENTER THE PARLOR"}</span></div>`;
-  }
-  toggleSetupOverrideButtons(!activeIsDifferent);
-  $("#setup-chooser")?.classList.remove("is-hidden");
-}
-
-function toggleSetupOverrideButtons(hidden) {
-  $("#setup-active-actions")?.classList.toggle("is-hidden", hidden);
-  $("#setup-reset-btn")?.classList.toggle("is-hidden", hidden);
-  $("#setup-make-active-btn")?.classList.toggle("is-hidden", hidden);
-}
-
-function paintSetupTabs() {
-  document.querySelectorAll(".setup-tab").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.dataset.suTab === state.setupTab);
-    btn.setAttribute("aria-selected", String(btn.dataset.suTab === state.setupTab));
-  });
-  $("#setup-custom-count").textContent = `${state.profiles.length}/${MAX_PROFILES}`;
-  $("#setup-grid")?.setAttribute("aria-labelledby", `su-tab-${state.setupTab}`);
-}
-
-function paintSetupGrid(choice) {
-  if (state.setupTab === "custom") {
-    $("#setup-grid").innerHTML = customDesignsHTML(choice);
-    return;
-  }
-  $("#setup-grid").innerHTML = presetDesignsHTML(choice);
-}
-
-function customDesignsHTML(choice) {
-  if (!state.profiles.length) {
-    return `<p class="setup-empty-custom">No custom designs yet. Create one from the home screen, then pick it here.</p>`;
-  }
-  return state.profiles
-    .map((p, i) => customDesignCardHTML(p, choice === p.id, i))
-    .join("");
-}
-
-function customStatusText(active, id) {
-  if (active) return tableOrActiveDesign();
-  if (id === state.appearance) return "ACTIVE DESIGN";
-  return "AVAILABLE";
-}
-
-function presetStatusText(active, taken, index) {
-  if (active) return tableOrActiveDesign();
-  if (taken) return "TAKEN";
-  if (state.appearance === index) return "ACTIVE DESIGN";
-  return "AVAILABLE";
-}
-
-function tableOrActiveDesign() {
-  if (tableAppearanceIsDifferent()) return "THIS TABLE";
-  return "ACTIVE DESIGN";
-}
-
-function customDesignCardHTML(p, active, i) {
-  const status = customStatusText(active, p.id);
-  return `<button type="button" class="setup-option setup-option-profile${active ? " is-active" : ""}" data-app="${esc(p.id)}">
-              <div class="setup-avatar">${avatarHTML(p, 5, i)}</div>
-              <div>
-              <div class="t-label f13" style="color:${p.color}">${esc(profileDesignName(p))}</div>
-                <div class="t-micro ink-3 setup-state">${status}</div>
-              </div>
-            </button>`;
-}
-
-function presetDesignsHTML(choice) {
-  const taken = setupTakenIdentities();
-  return APPEARANCES.map((a, i) => presetDesignCardHTML(a, i, choice, taken)).join("");
-}
-
-function presetDesignCardHTML(a, i, choice, takenIdentities) {
-  const active = choice === i;
-  const taken = !active && takenIdentities.has(setupIdentityKey(a.color, null));
-  const status = presetStatusText(active, taken, i);
-  return `<button type="button" class="setup-option${active ? " is-active" : ""}${taken ? " is-taken" : ""}" data-app="${i}"${taken ? " disabled aria-disabled=\"true\" title=\"This icon is taken at the table\"" : ""}>
-      <div class="setup-avatar">${avatarHTML(a, 5, i)}</div>
-      <div>
-        <div class="t-label f13" style="color:${taken ? "var(--text-muted)" : a.textColor}">${a.label}</div>
-        <div class="t-micro ink-3 setup-state">${status}</div>
-      </div>
-    </button>`;
 }
 
 function tog(id, value) {
@@ -1055,20 +774,6 @@ function applyEntryVisibility(response) {
   if (response?.visibility) state.roomVisibility = response.visibility === "public" ? "public" : "private";
 }
 
-function isOpenQuickTableRoom(room) {
-  const seats = Number(room?.seats);
-  const cap = Number(room?.cap);
-  const surface = `${room?.visibility || ""}:${room?.state || ""}`;
-  const capacity = `${Number.isFinite(seats)}:${Number.isFinite(cap)}:${seats < cap}`;
-  return surface === "public:open" && Boolean(room?.roomId) && capacity === "true:true:true";
-}
-
-function snapshotPlayers(snapshot) {
-  const gamePlayers = snapshot?.game?.players;
-  if (Array.isArray(gamePlayers)) return gamePlayers;
-  return Array.isArray(snapshot?.room?.players) ? snapshot.room.players : [];
-}
-
 function inRoomSession() {
   return ["setup", "lobby", "playing"].includes(state.phase);
 }
@@ -1083,23 +788,12 @@ function onLobbySettingsClick(e) {
   if (isStepperEnabled(stepBtn)) onStepperSetting(stepBtn);
 }
 
-function isStepperEnabled(stepBtn) {
-  if (!stepBtn) return false;
-  return !stepBtn.disabled;
-}
-
 function onToggleSetting(togBtn) {
   if (togBtn.disabled) return;
   const key = togBtn.dataset.setting;
   state.settings[key] = !state.settings[key];
   host.updateServerSetting(key, state.settings[key]);
   renderLobbyRail();
-}
-
-function stepperLimits(key) {
-  if (key === "maxPlayers") return [2, state.settings.boardVariant === "metro-52" ? 6 : 4];
-  if (key === "bots") return [0, Math.max(0, Number(state.settings.maxPlayers) - 1)];
-  return [0, 999];
 }
 
 function onStepperSetting(stepBtn) {
@@ -1110,31 +804,6 @@ function onStepperSetting(stepBtn) {
   if (key === "maxPlayers") clampBotsToSeats();
   host.updateServerSetting(key, state.settings[key]);
   renderLobbyRail();
-}
-
-function clampBotsToSeats() {
-  state.settings.bots = clamp(Number(state.settings.bots) || 0, 0, Math.max(0, state.settings.maxPlayers - 1));
-}
-
-const NUMERIC_SETTING_KEYS = ["startingCash"];
-
-function numericSettingValue(value) {
-  if (typeof value !== "string" || value.trim() === "") return { valid: false };
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) return { valid: false };
-  return { valid: true, value: Math.floor(parsed) };
-}
-
-export function normalizeSettingValue({ key, value, checked, inputType } = {}) {
-  if (key === "houseLimit" || key === "hotelLimit") return { valid: false };
-  if (NUMERIC_SETTING_KEYS.includes(key)) return numericSettingValue(value);
-  return { valid: true, value: inputType === "checkbox" ? checked : value };
-}
-
-function isSettingField(el) {
-  if (!el) return false;
-  if (el.tagName === "SELECT") return true;
-  return el.matches("input[data-setting]");
 }
 
 const applySettingField = (e) => {
@@ -1218,4 +887,12 @@ export function bindLobbyUi() {
   $("#lobby-settings-body").addEventListener("change", applySettingField);
 }
 
-export { renderSetup, renderLobbyRail, setActiveAppearance };
+export {
+  renderSetup,
+  renderLobbyRail,
+  setActiveAppearance,
+  sendRoomEntryWithRetries,
+  roomEntryAckFromSnapshot,
+  chooseQuickTableRoom,
+  normalizeSettingValue,
+};
