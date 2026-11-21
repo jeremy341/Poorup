@@ -477,7 +477,7 @@ const parsing = buildHarness();
 const parsingServer = await listen(parsing.app);
 try {
   await check('an unsupported request Content-Encoding answers 415 JSON, not the 500 page', async () => {
-    const response = await call(parsingServer.base, '/admin/ops/maintenance', { method: 'POST', body: '{"mode":"normal"}', headers: { 'content-encoding': 'br' } });
+    const response = await call(parsingServer.base, '/admin/ops/maintenance', { method: 'POST', body: '{"mode":"normal"}', headers: { 'content-encoding': 'compress' } });
     assert.equal(response.status, 415);
     assert.match(response.headers.get('content-type') || '', /json/);
     assert.equal((await response.json()).success, false);
@@ -500,7 +500,7 @@ try {
     assert.equal((await malformed.json()).success, false);
     const oversized = await call(parsingServer.base, '/admin/ai/providers', { method: 'POST', body: JSON.stringify({ pad: 'x'.repeat(20_000) }) });
     assert.equal(oversized.status, 413);
-    const encoded = await call(parsingServer.base, '/admin/ai/providers', { method: 'POST', body: '{}', headers: { 'content-encoding': 'br' } });
+    const encoded = await call(parsingServer.base, '/admin/ai/providers', { method: 'POST', body: '{}', headers: { 'content-encoding': 'compress' } });
     assert.equal(encoded.status, 415);
   });
 } finally {

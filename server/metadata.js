@@ -196,7 +196,7 @@ export function gateIndexEnv(env = process.env) {
 
 export function createMetadataRouter({ env = process.env, indexFile = "", getOptions } = {}) {
   const router = express.Router();
-  router.get("*", (req, res, next) => {
+  router.get("/{*path}", (req, res, next) => {
     if (!METADATA_PATHS.has(req.path) || !indexFile) return next();
     let html;
     try {

@@ -42,7 +42,7 @@ try {
     assert.equal((await bad.json()).success, false);
     const big = await post('/account/json', JSON.stringify({ pad: 'x'.repeat(4000) }));
     assert.equal(big.status, 413);
-    const encoded = await post('/account/json', '{}', { 'content-encoding': 'br' });
+    const encoded = await post('/account/json', '{}', { 'content-encoding': 'compress' });
     assert.equal(encoded.status, 415);
     assert.deepEqual(counted, []);
   });
