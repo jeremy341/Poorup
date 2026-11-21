@@ -4,11 +4,13 @@ import fs from "node:fs";
 import { siteCss } from "../qa/support/siteSource.mjs";
 
 const read = (name) => fs.readFileSync(new URL(`./${name}`, import.meta.url), "utf8");
+const FINANCING_MODULES = ["clientFinancingUi.js", "clientFinancingState.js", "clientFinancingPreview.js", "clientFinancingTransfer.js", "clientFinancingDeal.js", "clientFinancingNegotiation.js", "clientFinancingModal.js"];
+const SOCIAL_MODULES = ["clientSocialSurfaces.js", "clientSocialRuntime.js", "clientSocialToast.js", "clientSharedSurfaceBits.js", "clientRankingModel.js", "clientSocialData.js", "clientSocialView.js", "clientRankingsView.js", "clientRulesView.js", "clientPlayerView.js", "clientSocialControllers.js"];
 const modals = read("clientGameModalsUi.js");
 const keyboard = read("clientKeyboard.js");
 const surfaces = read("clientSurfaces.js");
 const auction = read("clientAuctionUi.js");
-const trade = read("clientFinancingUi.js") + read("clientTradeModal.js");
+const trade = FINANCING_MODULES.map(read).join("\n") + read("clientTradeModal.js");
 const deal = read("clientDealUi.js");
 const rail = read("clientRailRender.js");
 const styles = siteCss();
@@ -16,7 +18,7 @@ const hud = read("clientHudRender.js");
 const logDrawer = read("clientLogDrawer.js");
 const main = read("main.js");
 // Rule copy lives either in the renderer or the shared data module (rulesSections.js).
-const social = read("clientSocialSurfaces.js") + read("rulesSections.js");
+const social = SOCIAL_MODULES.map(read).join("\n") + read("rulesSections.js");
 const parlor = read("clientParlorBindings.js");
 
 let passed = 0;
@@ -54,7 +56,7 @@ check("live auction updates keep the card shell and announce meaningful changes"
 
 check("loan preview distinguishes secured and unsecured terms", () => {
   assert.match(trade, /function loanPreviewCopy\(tile, amount\) \{[\s\S]*UNSECURED LOAN/);
-  assert.match(trade, /financingPreviewMode === "loan"[\s\S]*financingEligibleCollateralIndex/);
+  assert.match(trade, /financingState\.previewMode === "loan"[\s\S]*financingEligibleCollateralIndex/);
   assert.match(trade, /contract\.collateralTileIndex/);
 });
 
