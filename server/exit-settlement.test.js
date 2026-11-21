@@ -508,7 +508,7 @@ function plantLoan(game, lender, borrower, tile, status = 'active') {
 const LOAN_CANCELLED_FEED = "B's $300 loan from C was cancelled: the $330 still owed is forgiven, B keeps the funds received, and the collateral is released.";
 const LOAN_CANCELLED_NOTICE = 'C left the table, so your loan is cancelled. The $330 still owed is forgiven, you keep the funds already received, and your collateral is released.';
 
-check('a lender removed by disconnect expiry cancels its loan, and the borrower hears it on its own socket (F-064)', () => {
+check('a lender removed by disconnect expiry cancels its loan, and the borrower hears it on its own socket', () => {
   const table = liveTable(['A', 'B', 'C']);
   const [A, B, C] = table.seats;
   table.game.currentPlayerId = A.id;

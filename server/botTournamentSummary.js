@@ -8,7 +8,7 @@ function completedMatches(matches) {
   return matches.filter(match => match.completed ?? (match.ended && match.winnerPolicyId != null));
 }
 
-export const COMPLETION_KINDS = Object.freeze(['winner', 'round-limit', 'step-limit', 'stall']);
+const COMPLETION_KINDS = Object.freeze(['winner', 'round-limit', 'step-limit', 'stall']);
 const CENSORED_KINDS = new Set(['step-limit', 'stall']);
 
 // Matches written before completionKind existed are classified from their flags.

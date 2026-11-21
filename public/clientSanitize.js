@@ -385,13 +385,7 @@ const MAX_PROFILES = 4;
 
 export {
   APPEARANCES,
-  PROFILE_KEY,
-  LIBRARY_KEY,
   ACCOUNT_SESSION_KEY,
-  GUEST_ALIAS_KEY,
-  ACTIVE_DESIGN_KEY,
-  SOUND_KEY,
-  MUSIC_KEY,
   sanitizeProfile,
   profileDesignName,
   loadProfiles,
@@ -408,6 +402,5 @@ export {
   sanitizeAccountSession,
   loadAccountSession,
   persistAccountSession,
-  POORUP_STORAGE_PREFIX,
   MAX_PROFILES,
 };

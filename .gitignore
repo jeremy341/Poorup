@@ -15,6 +15,10 @@ server/backups/
 !.env.example
 dist
 dist-ssr
+# The generated CSS bundle is committed so fresh checkouts and the image can
+# serve it without a build step; only other dist/ directories stay ignored.
+!public/dist/
+!public/dist/**
 *.local
 coverage/
 qa-artifacts/
@@ -27,8 +31,7 @@ skills-lock.json
 .impeccable/
 
 # Editor directories and files
-.vscode/*
-!.vscode/extensions.json
+.vscode/
 .idea
 .DS_Store
 *.suo
@@ -36,11 +39,12 @@ skills-lock.json
 *.njsproj
 *.sln
 *.sw?
-server/backups/
 .nyc_output/
 blob-report/
 playwright-report/
 .test-timings/
+# Evidence written by qa/load (see qa/load/README.md)
+qa/load/evidence-*.json
 
 # Local-only folders (not part of the repo)
 richup-ux-matrix/

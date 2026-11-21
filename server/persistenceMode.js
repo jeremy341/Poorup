@@ -41,13 +41,3 @@ export function assertPersistenceMode(env = process.env, adapter = null) {
   if (!mode.ready) throw new Error(mode.error);
   return mode;
 }
-
-// Non-secret readiness projection for bootstrap/readiness routes. Callers
-// supply actual store and backup verification results; no credentials, paths,
-// or raw adapter diagnostics cross this boundary.
-export function buildReadinessProjection({ storeLoaded = false, backupFresh = false, maintenance = 'normal' } = {}) {
-  const state = ['normal', 'maintenance', 'draining'].includes(maintenance) ? maintenance : 'maintenance';
-  const loaded = storeLoaded === true;
-  const fresh = backupFresh === true;
-  return { ready: loaded && fresh && state === 'normal', storeLoaded: loaded, backupFresh: fresh, maintenance: state };
-}

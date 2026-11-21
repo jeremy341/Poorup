@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { AccountStore } from './accountStore.js';
 import { MatchStore } from './matchStore.js';
-import { annotateMatchAchievements } from './socketRuntime.js';
+import { annotateMatchAchievements } from './matchTelemetry.js';
 import { summarizeMatchHistoryRecordForViewer } from './roomSetup.js';
 
 const grid = Array.from({ length: 8 }, () => Array.from({ length: 8 }, () => '#f0d9ac'));

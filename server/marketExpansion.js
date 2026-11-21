@@ -1,6 +1,9 @@
-// Optional market obligations for the staged Market Complexity setting. The
-// module contains deterministic, fully-collateralized actions only; it never
-// introduces real securities, cash withdrawal, or naked exposure.
+// The optional "Market Complexity" layers on top of plain index trading: margin longs, short sales and options.
+// Each action is deterministic and fully collateralized (cash is reserved up front), so there is no naked exposure.
+// This file holds the rules and the cash/collateral arithmetic; marketLogic.js is the basic buy/sell book, and
+// economyApi.js is the GameState layer that validates socket requests and calls in here.
+import { MARKET_FEE_RATE } from './marketLogic.js';
+
 const COMPLEXITY_RANK = Object.freeze({ basic: 0, margin: 1, shorting: 2, derivatives: 3 });
 const MARGIN_MAINTENANCE_RATE = 0.25;
 // Initial margin is the same disclosed cash percentage as the maintenance requirement. It is held apart from free cash until the
@@ -11,15 +14,33 @@ const SHORT_COLLATERAL_RATE = 0.5;
 // A short's borrow fee is one charge at open (SHORT_BORROW_FEE_RATE of the notional), collected prorated when the short is covered.
 // No round step accrues either. server/margin-carry-rule.test.js pins this; a per-round charge is a rule change, not a fix.
 const SHORT_BORROW_FEE_RATE = 0.01;
-const OPTION_EXPIRY_MAX = 20;
+// Options (only bought, never written; see optionTerms) are underwritten by a house reserve of dollars. The premium
+// buys the right to be paid out of that reserve, so a winning option can never create more cash than the reserve holds.
+const OPTION_EXPIRY_MAX_ROUNDS = 20;
+const OPTION_EXPIRY_DEFAULT_ROUNDS = 3;
+const OPTION_MAX_QUANTITY = 100;
+const OPTION_DEFAULT_PREMIUM_RATE = 0.05; // of the strike, per unit
+// Closing an option early pays only this share of its intrinsic value, so holding to exercise is always better.
+const OPTION_EARLY_CLOSE_PAYOUT_RATE = 0.8;
 const OPTION_RESERVE_INITIAL = 100_000;
+// How many units of each instrument the bank can lend to short sellers when a match starts.
+const STARTING_SHORT_INVENTORY = 50;
+// A forced margin sale only recovers this share of the quote, the cost of liquidating in a hurry.
+const MARGIN_LIQUIDATION_RECOVERY_RATE = 0.98;
+// A short is bought back by force once the quote climbs past this multiple of its entry quote.
+const FORCED_SHORT_BUY_IN_MULTIPLE = 1.5;
+const MAX_ORDER_QUANTITY = 1000;
+const MIN_QUOTE = 10;
+// Minimum free cash before the bot candidate list advertises opening each kind of position (the real cost is checked on submit).
+const MIN_CASH_TO_ADVERTISE_MARGIN_OR_OPTION = 100;
+const MIN_CASH_TO_ADVERTISE_SHORT = 200;
 
 function complexityAllows(game, required) {
   const current = String(game?.settings?.marketComplexity || 'basic').toLowerCase();
   return (COMPLEXITY_RANK[current] || 0) >= (COMPLEXITY_RANK[required] || 0);
 }
 
-function integerAmount(value, max = 1000) {
+function integerAmount(value, max = MAX_ORDER_QUANTITY) {
   const amount = Math.floor(Number(value));
   return Number.isInteger(amount) && amount >= 1 && amount <= max ? amount : 0;
 }
@@ -29,7 +50,12 @@ function nonNegativeNumber(value) {
 }
 
 function quoteFor(game, instrument) {
-  return Math.max(10, Number(game.marketQuotes?.[instrument.id]) || Number(instrument.price) || 100);
+  return Math.max(MIN_QUOTE, Number(game.marketQuotes?.[instrument.id]) || Number(instrument.price) || 100);
+}
+
+// The trade fee every margin, short and forced order pays on its gross value: at least $1.
+function tradeFee(gross) {
+  return Math.max(1, Math.ceil(gross * MARKET_FEE_RATE));
 }
 
 function marketInstrument(instruments, id) {
@@ -157,7 +183,7 @@ function openMargin(game, player, instrument, amount) {
   ensurePlayerMarketState(player);
   const quote = quoteFor(game, instrument);
   const gross = quote * amount;
-  const fee = Math.max(1, Math.ceil(gross * 0.02));
+  const fee = tradeFee(gross);
   const collateral = Math.ceil(gross * MARGIN_COLLATERAL_RATE);
   if (player.cash < fee + collateral) {
     return {
@@ -222,7 +248,7 @@ function openShort(game, player, { instrument, amount, inventory }) {
   if (inventory[instrument.id] < amount) return { success: false, error: 'There is not enough borrowable inventory for that short.' };
   const quote = quoteFor(game, instrument);
   const gross = quote * amount;
-  const fee = Math.max(1, Math.ceil(gross * 0.02));
+  const fee = tradeFee(gross);
   const collateral = Math.ceil(gross * SHORT_COLLATERAL_RATE);
   if (player.cash < collateral) return { success: false, error: 'Short positions require disclosed cash collateral.' };
   inventory[instrument.id] -= amount;
@@ -248,7 +274,7 @@ function coverShort(game, player, { instrument, amount, inventory }) {
   if (!position || position.quantity < amount) return { success: false, error: 'You do not hold enough short inventory to cover.' };
   const quote = quoteFor(game, instrument);
   const gross = quote * amount;
-  const fee = Math.max(1, Math.ceil(gross * 0.02));
+  const fee = tradeFee(gross);
   const collateralRelease = Math.ceil((position.collateral / position.quantity) * amount);
   const cashAvailable = Math.max(0, Number(player.cash) || 0);
   // Borrow fee accrues at open but is never debited there: charge the
@@ -278,18 +304,20 @@ function coverShort(game, player, { instrument, amount, inventory }) {
 }
 
 function optionExpiry(round, requested) {
-  const duration = Math.max(1, Math.min(OPTION_EXPIRY_MAX, Math.floor(Number(requested) || 3)));
+  const duration = Math.max(1, Math.min(OPTION_EXPIRY_MAX_ROUNDS, Math.floor(Number(requested) || OPTION_EXPIRY_DEFAULT_ROUNDS)));
   return round + duration;
 }
 
 function optionTerms(game, player, instrument, payload) {
-  const quantity = integerAmount(payload.quantity, 100);
-  if (!quantity) return { error: 'Option quantity must be between 1 and 100.' };
+  const quantity = integerAmount(payload.quantity, OPTION_MAX_QUANTITY);
+  if (!quantity) return { error: `Option quantity must be between 1 and ${OPTION_MAX_QUANTITY}.` };
   const side = payload.side === 'put' ? 'put' : 'call';
   const role = payload.role === 'writer' ? 'writer' : 'buyer';
+  // Writing is not offered yet. The writer branches in the settle functions below only exist so a record that
+  // somehow carries role 'writer' still settles cleanly.
   if (role === 'writer') return { error: 'Option writing requires an assigned counterparty.' };
-  const strike = Math.max(10, Math.floor(Number(payload.strike) || quoteFor(game, instrument)));
-  const premium = Math.max(1, Math.floor(Number(payload.premium) || Math.ceil(strike * 0.05)));
+  const strike = Math.max(MIN_QUOTE, Math.floor(Number(payload.strike) || quoteFor(game, instrument)));
+  const premium = Math.max(1, Math.floor(Number(payload.premium) || Math.ceil(strike * OPTION_DEFAULT_PREMIUM_RATE)));
   return {
     quantity,
     side,
@@ -386,24 +414,23 @@ function closeOption(game, player, optionId) {
   // Expired options settle at zero through expiry, never through close:
   // without this, holding past expiry then closing extracts value.
   if (game.roundNumber > option.expiryRound) return { success: false, error: 'That option has expired.' };
-  const quote = optionQuote(game, option);
-  const intrinsic = optionIntrinsic(option, quote);
+  let payout = 0;
   if (option.role === 'writer') {
     player.cash += option.collateral;
     player.reservedCash = Math.max(0, player.reservedCash - option.collateral);
   } else {
+    const intrinsic = optionIntrinsic(option, optionQuote(game, option));
     const reserveHeld = Math.max(0, Number(option.reserveHeld) || 0);
-    const payout = Math.min(Math.floor(intrinsic * option.quantity * 0.8), reserveHeld);
+    // Capped by the reserve actually held for this option, not by its maxPayout.
+    payout = Math.min(Math.floor(intrinsic * option.quantity * OPTION_EARLY_CLOSE_PAYOUT_RATE), reserveHeld);
     ensureOptionReserve(game);
     player.cash += payout;
     game.marketOptionReserve += reserveHeld - payout;
   }
-  // Receipt matches the credited payout (reserveHeld cap), not maxPayout.
-  const reported = option.role === 'writer' ? 0 : Math.min(Math.floor(intrinsic * option.quantity * 0.8), Math.max(0, Number(option.reserveHeld) || 0));
   option.reserveHeld = 0;
   option.collateral = 0;
   option.status = 'closed';
-  return { success: true, action: 'close-position', optionId, payout: reported };
+  return { success: true, action: 'close-position', optionId, payout };
 }
 
 function addCandidate(candidates, condition, candidate) {
@@ -423,7 +450,7 @@ function hasExercisableOption(options) {
 }
 
 function canOpenMargin(game, player, canOpen) {
-  return canOpen && complexityAllows(game, 'margin') && player.cash > 100;
+  return canOpen && complexityAllows(game, 'margin') && player.cash > MIN_CASH_TO_ADVERTISE_MARGIN_OR_OPTION;
 }
 
 function canReduceMargin(game, player, canManage = true) {
@@ -431,14 +458,14 @@ function canReduceMargin(game, player, canManage = true) {
 }
 
 function canOpenShort(game, player, canOpen) {
-  return canOpen && complexityAllows(game, 'shorting') && player.cash > 200;
+  return canOpen && complexityAllows(game, 'shorting') && player.cash > MIN_CASH_TO_ADVERTISE_SHORT;
 }
 
 function canOpenOption(game, player, canOpen) {
   // Without a server pricing policy every option order fails closed
   // (OPTION_TERMS_SERVER_REQUIRED): never advertise a candidate that
   // cannot succeed.
-  return canOpen && complexityAllows(game, 'derivatives') && Boolean(game.optionPricingPolicy) && player.cash > 100;
+  return canOpen && complexityAllows(game, 'derivatives') && Boolean(game.optionPricingPolicy) && player.cash > MIN_CASH_TO_ADVERTISE_MARGIN_OR_OPTION;
 }
 
 function forceShortBuyIn(game, player, { id, position, quantity, inventory }) {
@@ -447,7 +474,7 @@ function forceShortBuyIn(game, player, { id, position, quantity, inventory }) {
   // the borrowed units, and remove the position so it cannot be reused.
   const quote = Number(game.marketQuotes?.[id]) || Number(position.entryQuote) || 0;
   const gross = quote * quantity;
-  const fee = Math.max(1, Math.ceil(gross * 0.02));
+  const fee = tradeFee(gross);
   // The accrued borrow fee must not vanish with the position: charge the
   // prorated portion exactly as the voluntary cover path does.
   const feePortion = Math.ceil(Number(position.borrowFee || 0) * (quantity / Math.max(1, Number(position.quantity) || 0)));
@@ -506,7 +533,7 @@ function settleShortPosition(game, player, { id, position, inventory }) {
 function marginLiquidationProceeds(game, player) {
   return Object.entries(player.marginPositions || {}).reduce((sum, [id, position]) => {
     const value = (Number(game.marketQuotes?.[id]) || 0) * (Number(position.quantity) || 0);
-    return sum + Math.max(0, Math.floor(value * 0.98));
+    return sum + Math.max(0, Math.floor(value * MARGIN_LIQUIDATION_RECOVERY_RATE));
   }, 0);
 }
 
@@ -522,7 +549,7 @@ function recordForcedMarginPnl(game, player) {
     const quantity = Math.max(0, Number(position?.quantity) || 0);
     if (!quantity) return;
     const quote = Math.max(0, Number(game.marketQuotes?.[id]) || 0);
-    const proceeds = Math.max(0, Math.floor(quote * quantity * 0.98));
+    const proceeds = Math.max(0, Math.floor(quote * quantity * MARGIN_LIQUIDATION_RECOVERY_RATE));
     const cost = (Number(position.averageCost) || 0) * quantity;
     player.marketPositions ||= {};
     const spot = player.marketPositions[id] || { quantity: 0, averageCost: 0, realizedPnl: 0 };
@@ -622,7 +649,7 @@ function forcedShortActions(game, player, inventory) {
   const actions = [];
   Object.entries(player.shortPositions).forEach(([id, position]) => {
     const quote = Number(game.marketQuotes?.[id]) || position.entryQuote;
-    if (quote <= position.entryQuote * 1.5) return;
+    if (quote <= position.entryQuote * FORCED_SHORT_BUY_IN_MULTIPLE) return;
     const result = settleShortPosition(game, player, { id, position, inventory });
     if (result.success && result.action !== 'short-empty') actions.push(result.action);
   });
@@ -658,13 +685,12 @@ export {
   MARGIN_COLLATERAL_RATE,
   MARGIN_MAINTENANCE_RATE,
   OPTION_RESERVE_INITIAL,
-  OPTION_EXPIRY_MAX,
   SHORT_BORROW_FEE_RATE,
   SHORT_COLLATERAL_RATE,
+  STARTING_SHORT_INVENTORY,
   complexityAllows,
   coverShort,
   closeOption,
-  ensurePlayerMarketState,
   expansionCandidates,
   expansionGuard,
   exerciseOption,

@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs';
 
 export const TIMINGS_BASELINE_PATH = 'qa/test-timings.json';
-export const DEFAULT_SUITE_MS = 5000;
+const DEFAULT_SUITE_MS = 5000;
 
 // The bot-policy smoke suite is the one oversized suite in the manifest. The
 // runner splits its fixed game window across shards (see
@@ -17,7 +17,7 @@ export const DEFAULT_SUITE_MS = 5000;
 export const BOT_SIMULATION_SUITE = 'server/bot-simulation.test.js';
 export const BOT_SIMULATION_TOTAL_GAMES = 10;
 
-export function estimatedDuration(suite, timings, shardCount = 1) {
+function estimatedDuration(suite, timings, shardCount = 1) {
   const full = suiteDuration(suite, timings);
   if (suite === BOT_SIMULATION_SUITE && shardCount > 1) {
     const perShard = Math.ceil(BOT_SIMULATION_TOTAL_GAMES / shardCount);
@@ -60,7 +60,7 @@ function readFileSyncSafe(filePath) {
   }
 }
 
-export function suiteDuration(suite, timings) {
+function suiteDuration(suite, timings) {
   const recorded = timings?.[suite];
   if (Number.isFinite(recorded)) return recorded;
   return DEFAULT_SUITE_MS;

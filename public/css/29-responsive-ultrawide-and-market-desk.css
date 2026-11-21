@@ -1,0 +1,206 @@
+/* The 2560x1440 game surround and the market desk workbench. */
+
+/* 2560×1440 gets a wider game surround and larger in-game work surfaces.
+   The centered board column remains height-limited, so the board and HUD do
+   not change size when the side rails grow. */
+@media (orientation: landscape) and (min-width: 2400px) and (max-width: 3199px) {
+  #view-game .game-main {
+    --game-rail-width: minmax(360px, 1fr);
+    width: 100%;
+    margin-inline: 0;
+    grid-template-columns:
+      minmax(360px, 1fr)
+      minmax(0, calc(min(1600px, calc(100dvh - 160px)) + 8px))
+      minmax(360px, 1fr);
+  }
+
+  :is(#popup, #trade-modal, #choice-modal, #auction-modal, #offer-modal, #deed-modal,
+    #financing-modal, #bank-loan-modal, #wallet-modal, #market-modal, #casino-modal,
+    #deal-detail-modal, #sponsorship-modal, #bankruptcy-modal, #card-modal, #gameover-modal,
+    #confirm-modal, #achievement-modal, #rankings-modal, #social-modal) .popup-card {
+    max-width: 500px;
+    max-height: min(94dvh, 1180px);
+  }
+  :is(#popup, #trade-modal, #choice-modal, #auction-modal, #offer-modal, #deed-modal,
+    #financing-modal, #bank-loan-modal, #wallet-modal, #market-modal, #casino-modal,
+    #deal-detail-modal, #sponsorship-modal, #bankruptcy-modal, #card-modal, #gameover-modal,
+    #confirm-modal, #achievement-modal, #rankings-modal, #social-modal) .popup-card .t-section { font-size: 18px; }
+  :is(#popup, #trade-modal, #choice-modal, #auction-modal, #offer-modal, #deed-modal,
+    #financing-modal, #bank-loan-modal, #wallet-modal, #market-modal, #casino-modal,
+    #deal-detail-modal, #sponsorship-modal, #bankruptcy-modal, #card-modal, #gameover-modal,
+    #confirm-modal, #achievement-modal, #rankings-modal, #social-modal) .popup-card .t-label { font-size: 14px; }
+  :is(#popup, #trade-modal, #choice-modal, #auction-modal, #offer-modal, #deed-modal,
+    #financing-modal, #bank-loan-modal, #wallet-modal, #market-modal, #casino-modal,
+    #deal-detail-modal, #sponsorship-modal, #bankruptcy-modal, #card-modal, #gameover-modal,
+    #confirm-modal, #achievement-modal, #rankings-modal, #social-modal) .popup-card .t-micro { font-size: 12px; }
+  :is(#popup, #trade-modal, #choice-modal, #auction-modal, #offer-modal, #deed-modal,
+    #financing-modal, #bank-loan-modal, #wallet-modal, #market-modal, #casino-modal,
+    #deal-detail-modal, #sponsorship-modal, #bankruptcy-modal, #card-modal, #gameover-modal,
+    #confirm-modal, #achievement-modal, #rankings-modal, #social-modal) .popup-card .t-tile { font-size: 13px; }
+  :is(#popup, #trade-modal, #choice-modal, #auction-modal, #offer-modal, #deed-modal,
+    #financing-modal, #bank-loan-modal, #wallet-modal, #market-modal, #casino-modal,
+    #deal-detail-modal, #sponsorship-modal, #bankruptcy-modal, #card-modal, #gameover-modal,
+    #confirm-modal, #achievement-modal, #rankings-modal, #social-modal) .popup-card .t-body { font-size: 14px; }
+  :is(#popup, #trade-modal, #choice-modal, #auction-modal, #offer-modal, #deed-modal,
+    #financing-modal, #bank-loan-modal, #wallet-modal, #market-modal, #casino-modal,
+    #deal-detail-modal, #sponsorship-modal, #bankruptcy-modal, #card-modal, #gameover-modal,
+    #confirm-modal, #achievement-modal, #rankings-modal, #social-modal) .popup-card .t-money { font-size: 44px; }
+  :is(#popup, #trade-modal, #choice-modal, #auction-modal, #offer-modal, #deed-modal,
+    #financing-modal, #bank-loan-modal, #wallet-modal, #market-modal, #casino-modal,
+    #deal-detail-modal, #sponsorship-modal, #bankruptcy-modal, #card-modal, #gameover-modal,
+    #confirm-modal, #achievement-modal, #rankings-modal, #social-modal) .popup-card .f11 { font-size: 12px; }
+  :is(#popup, #trade-modal, #choice-modal, #auction-modal, #offer-modal, #deed-modal,
+    #financing-modal, #bank-loan-modal, #wallet-modal, #market-modal, #casino-modal,
+    #deal-detail-modal, #sponsorship-modal, #bankruptcy-modal, #card-modal, #gameover-modal,
+    #confirm-modal, #achievement-modal, #rankings-modal, #social-modal) .popup-card .f12 { font-size: 13px; }
+  :is(#popup, #trade-modal, #choice-modal, #auction-modal, #offer-modal, #deed-modal,
+    #financing-modal, #bank-loan-modal, #wallet-modal, #market-modal, #casino-modal,
+    #deal-detail-modal, #sponsorship-modal, #bankruptcy-modal, #card-modal, #gameover-modal,
+    #confirm-modal, #achievement-modal, #rankings-modal, #social-modal) .popup-card .f13 { font-size: 14px; }
+  :is(#popup, #trade-modal, #choice-modal, #auction-modal, #offer-modal, #deed-modal,
+    #financing-modal, #bank-loan-modal, #wallet-modal, #market-modal, #casino-modal,
+    #deal-detail-modal, #sponsorship-modal, #bankruptcy-modal, #card-modal, #gameover-modal,
+    #confirm-modal, #achievement-modal, #rankings-modal, #social-modal) .popup-card :is(button, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+    min-height: 48px;
+  }
+
+  #choice-modal .choice-card,
+  #bankruptcy-modal .choice-card,
+  #gameover-modal .choice-card,
+  #confirm-modal .confirm-card,
+  #auction-modal .auction-card,
+  #offer-modal .offer-card { max-width: 520px; }
+  #popup #popup-card,
+  #deed-modal .deed-detail-card { max-width: 600px; }
+  #trade-modal .trade-card { max-width: 740px; }
+  #bank-loan-modal .bank-loan-card {
+    width: min(600px, calc(100vw - 128px));
+    max-width: 600px;
+    max-height: min(94dvh, 900px);
+  }
+  #financing-modal .financing-card { max-width: 800px; }
+  #sponsorship-modal .sponsorship-card { max-width: 720px; }
+  #deal-detail-modal .deal-detail-card { max-width: 760px; }
+  #card-modal .card-reveal { max-width: 520px; }
+  #rankings-modal .social-surface-card,
+  #social-modal .social-surface-card { max-width: min(1200px, calc(100vw - 128px)); }
+  #player-modal #player-card { width: min(480px, calc(100vw - 32px)); max-width: 480px; max-height: min(82dvh, 700px); }
+  #account-modal .account-card { max-width: 560px; max-height: min(94dvh, 900px); }
+  #account-modal .account-modal-body { padding: 20px; }
+  #account-modal .account-card .t-section { font-size: 18px; }
+  #account-modal .account-card .t-label { font-size: 14px; }
+  #account-modal .account-card .t-micro { font-size: 12px; }
+  #account-modal .account-card .t-body { font-size: 14px; }
+  #account-modal .account-card :is(button, input, select, textarea) { min-height: 48px; }
+
+  #wallet-modal .wallet-card {
+    width: min(760px, calc(100vw - 128px));
+    max-width: 760px;
+    max-height: min(90dvh, 900px);
+  }
+  #wallet-modal .wallet-modal-body,
+  #bank-loan-modal .bank-offer-content,
+  #casino-modal .casino-modal-body,
+  #financing-modal .financing-body,
+  #sponsorship-modal .sponsorship-body,
+  #deal-detail-modal .deal-detail-body { padding: 24px; }
+
+  #casino-modal .casino-desk-card {
+    width: min(680px, calc(100vw - 128px));
+    max-width: 680px;
+    max-height: min(90dvh, 900px);
+  }
+  #casino-modal .casino-modal-head > button,
+  #financing-modal .financing-close { min-height: 48px; }
+
+  #market-modal .market-desk-card {
+    width: min(1500px, calc(100vw - 128px));
+    max-width: 1500px;
+    max-height: min(1300px, calc(100dvh - 64px));
+  }
+  #market-modal .market-desk-body { padding: 20px; }
+  #market-modal .market-desk-head { top: -20px; margin: -20px -20px 0; padding: 14px 20px 12px; }
+  #market-modal #market-modal-close { min-height: 48px; }
+  #market-modal .market-order-side-button,
+  #market-modal .market-order-submit { min-height: 48px; }
+
+  #card-gallery .card-gallery-shell { width: min(1400px, 100%); max-height: min(94dvh, 1100px); }
+  #card-gallery .card-gallery-head { padding: 24px 26px 18px; }
+  #card-gallery .card-gallery-grid { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; padding: 20px; }
+}
+
+/* The Market Desk is a compact workbench at every supported profile. */
+#market-modal .market-desk-card {
+  display: flex;
+  flex-direction: column;
+  width: min(1320px, calc(100vw - 48px));
+  max-width: 1320px;
+  max-height: min(900px, calc(100dvh - 48px));
+  overflow: hidden;
+}
+#market-modal .market-desk-body {
+  flex: 0 1 auto;
+  max-height: min(900px, calc(100dvh - 48px));
+  padding: 14px;
+}
+#market-modal .market-desk-head { top: -14px; margin: -14px -14px 0; padding: 10px 14px 9px; }
+#market-modal .market-desk-summary { min-height: 44px; margin-top: 8px; gap: 6px 8px; padding: 5px 8px; }
+#market-modal .market-desk-summary .market-index-select {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  flex: 1 1 340px;
+  gap: 8px;
+  min-width: 260px;
+  max-width: 520px;
+  margin: 0 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+#market-modal .market-desk-summary .market-index-select select { min-height: 42px; }
+#market-modal .market-index-rail,
+#market-modal .market-index-strip { display: none; }
+#market-modal #market-modal-close { min-height: 44px; }
+
+@media (min-width: 1400px) {
+  #market-modal .market-view-tabs { display: none; }
+  #market-modal .market-desk-layout {
+    grid-template-columns: minmax(0, 1.32fr) minmax(340px, .78fr);
+    gap: 12px;
+    height: min(56dvh, 560px);
+    min-height: 420px;
+  }
+  #market-modal .market-desk-center { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 8px; }
+  #market-modal .market-history { display: flex; flex: 1 1 0; flex-direction: column; min-height: 0; }
+  #market-modal .market-history-range { display: grid; grid-template-columns: auto minmax(130px, 160px); }
+  #market-modal .market-history-range-note { display: block; }
+  #market-modal .market-quote-chart { flex: 1 1 0; height: auto; min-height: 180px; }
+  #market-modal .market-trade-ticket { height: 100%; gap: 8px; padding: 10px; }
+  #market-modal .market-trade-ticket .market-order-submit { margin-top: auto; }
+}
+
+@media (min-width: 768px) and (max-width: 1399px) {
+  #market-modal .market-desk-card { width: min(980px, calc(100vw - 64px)); max-width: 980px; }
+  #market-modal .market-desk-head p { display: none; }
+  #market-modal .market-desk-summary {
+    display: grid;
+    grid-template-columns: auto auto auto auto minmax(0, 1fr);
+    gap: 5px 7px;
+    padding: 5px 7px;
+  }
+  #market-modal .market-desk-summary .market-index-select {
+    grid-template-columns: auto minmax(0, 1fr);
+    flex: initial;
+    grid-column: auto;
+    gap: 6px;
+    min-width: 0;
+    max-width: none;
+    margin: 0;
+  }
+  #market-modal .market-position-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+  #market-modal .market-position-strip > div { gap: 4px; padding: 7px 6px; }
+  #market-modal .market-quote-chart { height: clamp(140px, 18dvh, 170px); min-height: 140px; }
+  #market-modal .market-trade-ticket { gap: 7px; padding: 9px; }
+  #market-modal .market-order-breakdown { gap: 6px 8px; min-height: 82px; padding: 9px; }
+}
+

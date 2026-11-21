@@ -26,4 +26,16 @@ assert.deepEqual(shown, ['home']);
 assert.deepEqual(statuses.at(-1), { status: 'online', announce: true });
 assert.ok(removedKeys.includes('poorup.save.v1'));
 
-console.log('client game-save restore failure: stale game view cleared');
+// A failed restore on a tab that never held a room seat must leave local state
+// alone; the first restore ack can arrive after the client has moved on.
+state.phase = 'playing';
+state.roomCode = '';
+const shownBefore = shown.length;
+const statusesBefore = statuses.length;
+handleRestoreSessionResponse({ success: false, error: 'No active session found.' }, false);
+assert.equal(state.phase, 'playing');
+assert.equal(state.roomCode, '');
+assert.equal(shown.length, shownBefore);
+assert.equal(statuses.length, statusesBefore);
+
+console.log('client game-save restore failure: stale game view cleared, room-less state preserved');

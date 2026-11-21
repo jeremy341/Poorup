@@ -214,5 +214,3 @@ export function createAccountDeletionCoordinator({ accountStore, sessionStore, r
 
   return { request, cancel, runDue, purge, status, constants: { gracePeriodMs: Math.max(60_000, Number(gracePeriodMs) || GRACE_PERIOD_MS), confirmationPhrase: CONFIRMATION_PHRASE } };
 }
-
-export { GRACE_PERIOD_MS, CONFIRMATION_PHRASE };

@@ -6,21 +6,17 @@ import { rentAtLevel } from './botDevelopmentForecast.js';
 import { trafficPercent } from './botTradeValuation.js';
 import { TILE_SETS } from './boardRegistry.js';
 import { netWorth } from './netWorth.js';
+import { finiteNumber } from './numberUtils.js';
 
 // Net worth has one definition (netWorth.js: cash, deeds, houses at resale, spot units, margin, shorts, options, loans and contracts).
 // Re-exported here because the bot brain and its callers have always imported it from here.
 export { netWorth };
 
-function number(value, fallback = 0) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function BotTiles(game) {
+function gameTiles(game) {
   return Array.isArray(game?.tiles) ? game.tiles : [];
 }
 
-function livePlayers(game) {
+export function livePlayers(game) {
   return (Array.isArray(game?.players) ? game.players : []).filter(
     player => player && !player.bankrupt && !player.disconnected
   );
@@ -39,7 +35,7 @@ export function standings(game) {
 function tileCount(game) {
   const variant = game?.boardVariant || 'standard-40';
   const canonical = TILE_SETS[variant === 'metro-52' ? 'metro-52' : 'standard-40'];
-  return Math.max(1, canonical?.length || BotTiles(game).length);
+  return Math.max(1, canonical?.length || gameTiles(game).length);
 }
 
 // Expected rent I pay per full circuit, per opponent: sum over their
@@ -47,7 +43,7 @@ function tileCount(game) {
 export function threatPerCircuit(game, playerId, opponentId) {
   void playerId;
   let threat = 0;
-  for (const tile of BotTiles(game)) {
+  for (const tile of gameTiles(game)) {
     if (tile?.ownerId !== opponentId || tile?.mortgaged) continue;
     if (tile.type !== 'property' && tile.type !== 'railroad' && tile.type !== 'utility') continue;
     threat += Math.floor(rentAtLevel(tile, tile.houseCount) * trafficPercent(tile.group) / 100 / tileCount(game));
@@ -75,12 +71,12 @@ function groupTiles(game, group) {
       return [];
     }
   }
-  return BotTiles(game).filter(tile => tile?.group === group);
+  return gameTiles(game).filter(tile => tile?.group === group);
 }
 
 // Groups where the player owns all-but-one (or all) deeds.
 export function nearCompleteGroups(game, playerId) {
-  const groups = [...new Set(BotTiles(game).map(tile => tile?.group).filter(Boolean))];
+  const groups = [...new Set(gameTiles(game).map(tile => tile?.group).filter(Boolean))];
   const out = [];
   for (const group of groups) {
     const tiles = groupTiles(game, group);
@@ -91,13 +87,13 @@ export function nearCompleteGroups(game, playerId) {
   return out;
 }
 
-export function isBuildReady(game, player) {
-  return Math.max(0, Math.floor(number(player?.cash))) >= 100;
+function isBuildReady(game, player) {
+  return Math.max(0, Math.floor(finiteNumber(player?.cash))) >= 100;
 }
 
 // Primary win path: nearest completable group + reserve target.
 export function winPath(game, playerId) {
-  const groups = [...new Set(BotTiles(game).map(tile => tile?.group).filter(Boolean))];
+  const groups = [...new Set(gameTiles(game).map(tile => tile?.group).filter(Boolean))];
   let target = null;
   for (const group of groups) {
     const tiles = groupTiles(game, group);
@@ -142,10 +138,10 @@ export function endgameClock(game) {
 // normalization): the endgame currency.
 function rawThreatDealt(game, ownerId) {
   let total = 0;
-  for (const tile of BotTiles(game)) {
+  for (const tile of gameTiles(game)) {
     if (tile?.ownerId !== ownerId || tile?.mortgaged) continue;
     if (tile.type !== 'property' && tile.type !== 'railroad' && tile.type !== 'utility') continue;
-    total += Math.floor(Math.max(0, Math.floor(number(tile.rent))) * trafficPercent(tile.group) / 100);
+    total += Math.floor(Math.max(0, Math.floor(finiteNumber(tile.rent))) * trafficPercent(tile.group) / 100);
   }
   return total;
 }

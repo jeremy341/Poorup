@@ -1,3 +1,4 @@
+// Operator tool: erases every account and everything derived from it (stores and backup copies). Needs the exact confirmation phrase.
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { Buffer } from 'node:buffer';
@@ -10,7 +11,7 @@ import { resolveAuxiliaryStorePaths, resolveStorePaths } from '../server/serverS
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, '..');
-export const ACCOUNT_PURGE_CONFIRMATION = 'DELETE ALL POORUP ACCOUNT DATA';
+const ACCOUNT_PURGE_CONFIRMATION = 'DELETE ALL POORUP ACCOUNT DATA';
 
 const STORE_NAMES = {
   accounts: 'accounts.json',

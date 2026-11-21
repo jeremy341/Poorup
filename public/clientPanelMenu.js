@@ -102,7 +102,7 @@ export function closePanelMenu({ restore = true } = {}) {
   returnFocus = null;
 }
 
-export function openPanelMenu(trigger = null) {
+function openPanelMenu(trigger = null) {
   const menu = $("#panel-menu");
   if (!menu) return;
   if (trigger instanceof HTMLElement) returnFocus = trigger;

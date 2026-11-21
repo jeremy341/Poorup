@@ -483,7 +483,7 @@ function refundSponsoredExcess({ game, buyer, contributions, total, excess }) {
   const shares = sponsorRefundShares(contributions, total, excess);
   const refunded = contributions.reduce((sum, entry, index) => sum + refundSponsorContribution({ game, entry, share: shares[index] }), 0);
   // A share the escrow cannot deliver (departed or bankrupt sponsor) falls to
-  // the buyer, exactly as before; a fully payable escrow refunds every dollar
+  // the buyer; a fully payable escrow refunds every dollar
   // and leaves the buyer nothing.
   buyer.cash += Math.max(0, excess - refunded);
 }

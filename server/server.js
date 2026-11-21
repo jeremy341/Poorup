@@ -1,5 +1,6 @@
 // Server bootstrap: builds the HTTP and socket.io shell, the stores, and the shared socket runtime, then delegates every wire handler
 // to the domain registration modules (account and room lifecycle, in-game verbs, social). Static UI serving, PORT binding and crash guards live here only.
+// Read top to bottom: Express runs middleware and routes in registration order, and the stores must exist before the runtime that uses them.
 import express from 'express';
 import path from 'path';
 import http from 'http';
@@ -19,9 +20,10 @@ import { registerGameSocketHandlers } from './serverSocketGame.js';
 import { registerSocialSocketHandlers } from './serverSocketSocial.js';
 import { assertProductionStoragePaths, resolveAuxiliaryStorePaths, resolveBackupDirectory, resolveDataDirectory, resolveRetiredStorePaths, resolveStorePaths } from './serverStorePaths.js';
 import { TelemetryStore } from './telemetryModule.js';
-import { assertProductionCors, createCorsOrigin, isAllowedSocketOrigin, parseAllowedOrigins, resolveClientAddress, resolveHandshakeSession, resolveRetentionToken, tokensMatch } from './serverConfig.js';
+import { assertProductionCors, assertProxyPosture, assertTrustedProxyConfig, createCorsOrigin, expressTrustProxy, isAllowedSocketOrigin, parseAllowedOrigins, proxyTrustAdvisory, readAbuseLimits, readSocketEventLimits, readTrustedProxy, resolveClientAddress, resolveHandshakeSession } from './serverConfig.js';
 import { createSocketAdmission, createSocketRateLimiter } from './socketRateLimiter.js';
-import { assertRateLimitConfig, createHttpRateLimiter } from './httpRateLimiter.js';
+import { assertRateLimitConfig, createHttpRateLimiter, effectiveHttpLimit } from './httpRateLimiter.js';
+import { createHttpRouteBudgets } from './abuseBudgets.js';
 import { backupJsonStores, isBackupStoreCandidate } from './backupStore.js';
 import { assertPersistenceMode } from './persistenceMode.js';
 import { bootMaintenanceMode, bootMaintenanceRecord, corruptMaintenanceMarker, createDrainController, SHUTDOWN_RELEASE_ID, shutdownDrainMessage } from './drainController.js';
@@ -30,14 +32,18 @@ import { createMetricsRegistry, instrumentHandler } from './metricsRegistry.js';
 import { createAdminAuditLog } from './adminAuditLog.js';
 import { registerAdminOpsRoutes } from './adminOpsRoutes.js';
 import { createRoomActivityTracker } from './adminOpsReports.js';
-import { buildAnalyticsBalance, buildAnalyticsDrilldown, buildAnalyticsSummary, normalizeAdminIds, setAnalyticsNoStoreHeaders, withAdminFlag } from './analyticsApi.js';
+import { normalizeAdminIds } from './analyticsApi.js';
 import { createPseudonymizer } from './analyticsPrivacy.js';
 import { createAnalyticsRollupStore } from './analyticsRollupStore.js';
-import { createMetadataRouter, gateIndexEnv, indexingApproved as isIndexingApproved, metadataConfig } from './metadata.js';
+import { createMetadataRouter, gateIndexEnv, indexingWarning, metadataConfig } from './metadata.js';
 import { createStaticAssets } from './staticAssets.js';
-import { asyncRoute, createHttpErrorHandler } from './httpErrors.js';
-import { renderAboutPage } from './aboutPage.js';
-import { renderRulesPage } from './rulesPage.js';
+import { answerHttpError, createHttpErrorHandler } from './httpErrors.js';
+import { attachSocketHttpHeaders, createSecurityMiddleware, createSocketHttpGuard, hardenHttpServer, parseAllowedHosts } from './securityHeaders.js';
+import { registerSeoRoutes } from './seoRoutes.js';
+import { registerAccountHttpRoutes, createRequestAccount } from './accountHttpRoutes.js';
+import { registerAnalyticsRoutes } from './analyticsRoutes.js';
+import { registerInternalRoutes } from './internalRoutes.js';
+import { countWaitingRooms, registerHealthRoutes } from './healthRoutes.js';
 import { renderErrorPage as errorPage } from './errorPage.js';
 import { isQuarantinedStore, loadJson, writeJson } from './storeIO.js';
 import { createAuthoritativeStore } from './authoritativeStore.js';
@@ -61,40 +67,39 @@ const __dirname = path.dirname(__filename);
 assertProductionStoragePaths(process.env);
 assertPersistenceMode(process.env);
 assertProductionCors(process.env);
+// Production must declare whether a reverse proxy fronts the app (or opt out explicitly); undeclared budgets collapse to the proxy.
+assertProxyPosture(process.env);
 
+// ── 1. HTTP shell: security middleware, static files, rate limits ──
 const app = express();
-const server = http.createServer(app);
-let httpAccountResolver = () => null;
-let httpAccountRights = null;
-let httpAccountRecovery = null;
-let httpRetentionJob = null;
-const trustedProxyHops = Math.max(0, Math.floor(Number(process.env.POORUP_TRUST_PROXY_HOPS) || 0));
-if (trustedProxyHops > 0) app.set('trust proxy', trustedProxyHops);
+const server = hardenHttpServer(http.createServer(app));
+assertTrustedProxyConfig(process.env);
+// One trusted-proxy view for Express (req.ip) and the socket resolver, so HTTP and socket budgets count the same client.
+const trustedProxy = readTrustedProxy(process.env);
+if (trustedProxy.enabled) app.set('trust proxy', expressTrustProxy(trustedProxy));
 app.disable('x-powered-by');
 const configuredSocketOrigins = parseAllowedOrigins(process.env);
 const productionRuntime = String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+// HTTPS-only behaviour (HSTS, Secure cookies): production, or an explicit secure-cookie deployment behind a TLS proxy.
+const httpsDeployment = productionRuntime || String(process.env.POORUP_COOKIE_SECURE || '').toLowerCase() === 'true';
 const configuredPublicOrigin = metadataConfig({ env: process.env, path: '/' }).origin;
+// A public origin without an explicit policy looks configured but keeps the site
+// closed; say so at boot instead of leaving it to be discovered in robots.txt.
+const indexingNote = indexingWarning(process.env);
+if (indexingNote) console.warn(indexingNote);
 const connectSources = configuredPublicOrigin
   ? ["'self'", configuredPublicOrigin]
   : (productionRuntime ? ["'self'"] : ["'self'", 'ws:', 'wss:']);
 assertRateLimitConfig(process.env);
-app.use((_req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'same-origin');
-  // process isolation: keeps this app's documents and its window handles from
-  // being shared with any other site the browser may have open.
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-  res.setHeader('Origin-Agent-Cluster', '?1');
-  // Only meaningful over TLS; the same conditions that force secure cookies
-  // force HTTPS, so they gate the header here too.
-  const forceSecure = productionRuntime || String(process.env.POORUP_COOKIE_SECURE || '').toLowerCase() === 'true';
-  if (forceSecure) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  res.setHeader('Content-Security-Policy', `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src ${connectSources.join(' ')}; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'`);
-  next();
-});
+// Parsed once: Express's Host guard and the Engine.IO guard below must agree on the same list.
+const allowedHosts = parseAllowedHosts(process.env.POORUP_ALLOWED_HOSTS);
+// Security headers, method and Host guards, and the private-file guard run before anything else (static files included).
+app.use(...createSecurityMiddleware({
+  connectSources,
+  allowedHosts: process.env.POORUP_ALLOWED_HOSTS,
+  errorPage,
+  forceHsts: httpsDeployment
+}));
 // Static files are served before the HTTP rate limiter: one cold load is over a
 // hundred requests, so counting them would 429 a third page load in a minute.
 // A path that is not a file falls through and is counted like any other.
@@ -109,19 +114,25 @@ app.use(express.static(publicPath, {
   index: false,
   setHeaders: (response, filePath, stat) => staticAssets.setStaticHeaders(response, filePath, stat)
 }));
-const httpRateLimit = createHttpRateLimiter({ max: process.env.POORUP_HTTP_RATE_LIMIT, windowMs: process.env.POORUP_HTTP_RATE_WINDOW_MS, trustProxy: trustedProxyHops > 0 });
+const httpRateLimit = createHttpRateLimiter({ max: effectiveHttpLimit(process.env), windowMs: process.env.POORUP_HTTP_RATE_WINDOW_MS, trustProxy: trustedProxy.enabled });
+// Crawler text files bypass the limiter: a 429 on robots.txt or sitemap.xml
+// makes a crawler back off, and these are small static responses. The pages they
+// describe (/about, /rules) still spend the budget like any other page.
+const CRAWLER_TEXT_PATHS = new Set(['/robots.txt', '/sitemap.xml', '/llms.txt', '/llms-full.txt', '/about.md', '/rules.md']);
 app.use((req, res, next) => {
   // Health probes bypass the limiter: a traffic burst must never make the
   // orchestrator restart a healthy pod with 429s.
   if (req.path === '/healthz' || req.path === '/readyz') return next();
+  if (CRAWLER_TEXT_PATHS.has(req.path)) return next();
   return httpRateLimit(req, res, next);
 });
-const socketRateLimiter = createSocketRateLimiter({
-  max: process.env.POORUP_SOCKET_RATE_LIMIT,
-  windowMs: process.env.POORUP_SOCKET_RATE_WINDOW_MS
-});
+// Route budgets for mail-sending, token-checking, export and admin-aggregation routes (see abuseBudgets.js). They sit behind the global IP budget.
+app.use(createHttpRouteBudgets({ limits: readAbuseLimits(process.env), trustProxy: trustedProxy.enabled }));
+// ── 2. Socket.IO server and its handshake admission ──
+const socketRateLimiter = createSocketRateLimiter(readSocketEventLimits(process.env));
 const socketAdmission = createSocketAdmission({
   maxConnections: process.env.POORUP_SOCKET_MAX_CONNECTIONS,
+  maxPerPeer: process.env.POORUP_SOCKET_MAX_PER_PEER,
   maxHandshakes: process.env.POORUP_SOCKET_HANDSHAKE_RATE,
   windowMs: process.env.POORUP_SOCKET_HANDSHAKE_WINDOW_MS
 });
@@ -134,9 +145,19 @@ function isOriginAllowedForSocket(origin) {
   return !origin;
 }
 
+// Live sockets per resolved peer. The handshake admission reads it so one address cannot occupy every global connection slot; the
+// connection handler increments it and the disconnect handler always releases it. Both sides resolve the peer from the same raw
+// request (falling back to the handshake fields), so the key that counted a socket is the key that is released.
+const peerSocketCounts = new Map();
+function socketPeerKey(request, handshake) {
+  return request
+    ? resolveClientAddress({ request }, trustedProxy)
+    : resolveClientAddress({ address: handshake?.address, headers: handshake?.headers }, trustedProxy);
+}
+
 function isPeerAllowedForSocket(request) {
-  const peerKey = resolveClientAddress({ request }, trustedProxyHops);
-  return socketAdmission.allow(peerKey, io?.engine?.clientsCount || 0);
+  const peerKey = resolveClientAddress({ request }, trustedProxy);
+  return socketAdmission.allow(peerKey, io?.engine?.clientsCount || 0, peerSocketCounts.get(peerKey) || 0);
 }
 
 const io = new Server(server, {
@@ -152,9 +173,16 @@ const io = new Server(server, {
   // rate limiter gets a chance to reject them.
   maxHttpBufferSize: 100_000
 });
+attachSocketHttpHeaders(server);
+// Engine.IO requests skip Express entirely. Apply the same Host/method guards and the shared HTTP IP budget inside Engine.IO, so a
+// foreign Host or an exhausted address budget is refused before a polling or WebSocket handshake is admitted.
+io.engine.use(createSocketHttpGuard({
+  allowedHosts,
+  httpRateLimit,
+  resolveAddress: request => resolveClientAddress({ request }, trustedProxy)
+}));
 
-// The supplied plain-client project is the production static UI. Keep the
-// protected SVG references in public/assets and serve the HTML/CSS/JS directly.
+// ── 3. Shared state: rooms, metrics, maintenance/drain mode, lobby persistence, analytics ──
 const roomManager = new RoomManager();
 const metrics = createMetricsRegistry();
 metrics.initializeCounter('restore-failures', { source: 'room-session' });
@@ -191,6 +219,8 @@ const maintenanceAccess = createMaintenanceAccess({
 if (maintenanceAccess.enabled && String(process.env.POORUP_MAINTENANCE_PASSWORD).trim().length < 12) {
   console.warn('POORUP_MAINTENANCE_PASSWORD is shorter than 12 characters; choose a longer one.');
 }
+const trustProxyNote = proxyTrustAdvisory(process.env);
+if (trustProxyNote) console.warn(trustProxyNote);
 const bootMode = bootMaintenanceMode(persistedMaintenanceStore, process.env.POORUP_MAINTENANCE_MODE);
 // Each socket gets its own copy of the state with its own bypass flag, so the
 // broadcast is per socket. Until the runtime exists nobody has a bypass.
@@ -248,313 +278,28 @@ const adminAuditLog = createAdminAuditLog({
 const roomActivity = createRoomActivityTracker();
 const roomActivityTimer = setInterval(() => roomActivity.observe(roomManager.rooms.values()), 5_000);
 roomActivityTimer.unref?.();
-let storesLoaded = false;
-let backupHealth = { configured: false, fresh: true, lastRunAt: null, failures: 0 };
-let backupIntervalMs = null;
-const maintenanceToken = String(process.env.POORUP_MAINTENANCE_TOKEN || '').trim();
-// The token is checked before the body is parsed, so the route answers 404 when
-// it is not configured and 403 to a stranger whatever they send.
-function requireMaintenanceToken(req, res, next) {
-  if (!maintenanceToken) return res.status(404).json({ success: false, error: 'Not found.' });
-  if (!tokensMatch(req.get('x-poorup-maintenance-token'), maintenanceToken)) {
-    return res.status(403).json({ success: false, error: 'Forbidden.' });
-  }
-  return next();
-}
-const unsavedNote = () => (maintenance.lastPersistFailed() ? { persisted: false } : {});
-// The internal route has no account behind it, so the audit entry carries a
-// stable internal actor: the same label for every token-held change, so the
-// log shows one actor and not a crowd of anonymous ones.
-const INTERNAL_MAINTENANCE_ACTOR = 'internal-maintenance';
-// Records one release-mode or lockout change. The log is best effort for the
-// change itself, but a change that was not recorded is reported: the operator
-// must know the trail has a hole in it.
-function auditMaintenance(action, target, outcome) {
-  try {
-    const entry = adminAuditLog?.record({ area: 'release', action, target, accountId: INTERNAL_MAINTENANCE_ACTOR, outcome });
-    if (!entry) {
-      console.error('Maintenance audit entry was rejected.');
-      return { auditPersisted: false };
-    }
-    if (entry.persisted === false) {
-      console.error('Maintenance audit entry could not be saved.');
-      return { auditPersisted: false };
-    }
-    return {};
-  } catch (error) {
-    console.error('Maintenance audit failed:', error?.message || 'unknown error');
-    return { auditPersisted: false };
-  }
-}
-app.post('/internal/maintenance', requireMaintenanceToken, express.json({ limit: '4kb' }), (req, res) => {
-  const mode = String(req.body?.mode || '').trim().toLowerCase();
-  if (mode === 'draining') {
-    const snapshot = maintenance.beginDrain({
-      releaseId: req.body?.releaseId,
-      deadline: req.body?.deadline,
-      message: req.body?.message
-    });
-    // A drain asked for while the table is in maintenance changes nothing.
-    const outcome = snapshot.mode === 'draining' ? 'ok' : 'failed';
-    return res.status(200).json({ success: true, maintenance: snapshot, ...unsavedNote(), ...auditMaintenance('mode', 'draining', outcome) });
-  }
-  if (mode === 'maintenance') {
-    // lockout: true|false turns the public "under maintenance" panel on or
-    // off; absent, an existing lockout is kept.
-    const wantedLockout = typeof req.body?.lockout === 'boolean' ? req.body.lockout : null;
-    const snapshot = maintenance.enterMaintenance({
-      releaseId: req.body?.releaseId,
-      message: req.body?.message,
-      lockout: wantedLockout === null ? undefined : wantedLockout
-    });
-    const action = wantedLockout === null ? 'mode' : 'lockout';
-    const target = wantedLockout === null ? 'maintenance' : (wantedLockout ? 'on' : 'off');
-    const outcome = wantedLockout === null
-      ? (snapshot.mode === 'maintenance' ? 'ok' : 'failed')
-      : (snapshot.lockout === wantedLockout ? 'ok' : 'failed');
-    return res.status(200).json({ success: true, maintenance: snapshot, ...unsavedNote(), ...auditMaintenance(action, target, outcome) });
-  }
-  if (mode === 'normal') {
-    const snapshot = maintenance.finishMaintenance();
-    const outcome = snapshot.mode === 'normal' ? 'ok' : 'failed';
-    return res.status(200).json({ success: true, maintenance: snapshot, ...unsavedNote(), ...auditMaintenance('mode', 'normal', outcome) });
-  }
-  return res.status(400).json({ success: false, error: 'Choose normal, draining, or maintenance.', ...auditMaintenance('mode', 'invalid', 'failed') });
-});
+// ── 4. HTTP pages that need no stores: operator sign-in, page metadata, SEO files, the single-page-app fallback ──
 // GET/POST /maintenance/unlock and POST /maintenance/logout. Mounted before the
 // metadata router and static files so the 404 for an unset password is JSON.
 registerMaintenanceAccessRoutes(app, {
   access: maintenanceAccess,
   publicOrigin: configuredPublicOrigin,
-  forceSecure: productionRuntime || String(process.env.POORUP_COOKIE_SECURE || '').toLowerCase() === 'true',
-  trustProxy: trustedProxyHops > 0
+  forceSecure: httpsDeployment,
+  trustProxy: trustedProxy.enabled
 });
-// An analytics call can be the first to trade a legacy bearer token for a cookie
-// session; the cookie must reach the caller or the token is spent for nothing.
-function analyticsAccount(req, res) {
-  const account = httpAccountResolver(req) || accountStore.sessionAccount(req.get('x-poorup-session-token') || '');
-  if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);
-  return account;
-}
-app.get('/admin/analytics/summary', (req, res) => {
-  const account = analyticsAccount(req, res);
-  const result = buildAnalyticsSummary(metrics, account?.id, adminAccountIds, req.query?.range);
-  setAnalyticsNoStoreHeaders(res);
-  return res.status(result.success ? 200 : result.status).json(result);
-});
-app.get('/admin/analytics/balance', (req, res) => {
-  const account = analyticsAccount(req, res);
-  const result = buildAnalyticsBalance({
-    rollup: analyticsRollupStore,
-    registry: metrics,
-    accountId: account?.id,
-    adminIds: adminAccountIds,
-    query: req.query
-  });
-  setAnalyticsNoStoreHeaders(res);
-  return res.status(result.success ? 200 : result.status).json(result);
-});
-app.get('/admin/analytics/drilldown', (req, res) => {
-  const account = analyticsAccount(req, res);
-  const result = buildAnalyticsDrilldown({
-    rollup: analyticsRollupStore,
-    accountId: account?.id,
-    adminIds: adminAccountIds,
-    query: req.query
-  });
-  setAnalyticsNoStoreHeaders(res);
-  return res.status(result.success ? 200 : result.status).json(result);
-});
-
 // Metadata is mounted before static serving so per-route tags cannot be
 // swallowed by express.static's index fallback.
 // Page tags follow the same two-key gate as robots.txt (see gateIndexEnv).
 const pageEnv = gateIndexEnv(process.env);
 app.use(createMetadataRouter({ env: pageEnv, indexFile: path.join(publicPath, 'index.html') }));
+registerSeoRoutes(app, { env: process.env, pageEnv, publicOrigin: configuredPublicOrigin });
 
-// A plain, crawlable page that explains the game in words (also feeds the FAQ rich result).
-app.get('/about', (_req, res) => {
-  res.setHeader('Cache-Control', 'no-cache');
-  res.type('html').send(renderAboutPage({ env: pageEnv }));
-});
-
-app.get('/rules', (_req, res) => {
-  res.setHeader('Cache-Control', 'no-cache');
-  res.type('html').send(renderRulesPage({ env: pageEnv }));
-});
-
-const metadataOrigin = metadataConfig({ env: process.env, path: '/' }).origin;
-const indexingApproved = isIndexingApproved(process.env);
-app.get('/sitemap.xml', (_req, res, next) => {
-  if (!indexingApproved) return next();
-  const publicRoutes = ['/', '/about', '/rules'];
-  const escapeXml = value => String(value).replace(/[<>&"']/g, character => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[character]));
-  const body = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${publicRoutes.map(route => `<url><loc>${escapeXml(`${metadataOrigin}${route}`)}</loc></url>`).join('')}</urlset>`;
-  return res.type('application/xml').send(body);
-});
-app.get('/account/session', (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  const account = httpAccountResolver(req);
-  if (!account) return res.status(401).json({ success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in again.' });
-  if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);
-  return res.json({ success: true, account: withAdminFlag(accountStore.getAccountSnapshot(account.id), adminAccountIds) });
-});
-function isRetentionAuthorized(req, token) {
-  if (!token) return { authorized: false, status: 404, error: 'Not found.' };
-  if (!tokensMatch(req.get('x-poorup-retention-token'), token)) return { authorized: false, status: 403, error: 'Forbidden.' };
-  return { authorized: true };
-}
-
-app.post('/internal/retention/run', asyncRoute(async (req, res) => {
-  const token = resolveRetentionToken(process.env);
-  const auth = isRetentionAuthorized(req, token);
-  if (!auth.authorized) return res.status(auth.status).json({ success: false, error: auth.error });
-  const result = await httpRetentionJob?.runOnce?.();
-  return res.status(200).json({ success: true, result: result || null });
-}));
-app.get('/account/export', (req, res) => {
-  const account = httpAccountResolver(req);
-  if (!account || !httpAccountRights?.export) return res.status(401).json({ success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in to download your account data.' });
-  try {
-    const result = httpAccountRights.export({ account, req });
-    if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
-    return res.type('application/json').status(200).send(JSON.stringify(result.document));
-  } catch {
-    return res.status(500).json({ success: false, code: 'ACCOUNT_EXPORT_FAILED', error: 'Account export is temporarily unavailable.' });
-  }
-});
-// Saves the signed-in player's face and colour. The sign-in token is exchanged for a cookie session (which revokes the token), so a
-// socket opened before sign-in can no longer prove who it is; this endpoint authenticates with the cookie. Only the two appearance
-// fields are accepted, and the JSON content type keeps it out of reach of cross-site form posts.
-app.post('/account/profile', express.json({ limit: '8kb' }), (req, res) => {
-  const account = httpAccountResolver(req);
-  if (!account) return res.status(401).json({ success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in again.' });
-  if (account.accountDeactivated === true) return res.status(403).json({ success: false, error: 'This account is restricted.' });
-  if (req.sessionCookie) res.setHeader('Set-Cookie', req.sessionCookie);
-  const body = req.body && typeof req.body === 'object' ? req.body : {};
-  const patch = {};
-  if (typeof body.color === 'string') patch.color = body.color;
-  if (Array.isArray(body.avatarGrid)) patch.avatarGrid = body.avatarGrid;
-  if (!Object.keys(patch).length) return res.status(400).json({ success: false, error: 'Nothing to save.' });
-  const result = accountStore.updateProfileForAccount(account, patch);
-  res.setHeader('Cache-Control', 'no-store');
-  if (!result?.success) return res.status(400).json({ success: false, error: result?.error || 'Could not save.' });
-  return res.json({ success: true, account: withAdminFlag(accountStore.getAccountSnapshot(result.account.id), adminAccountIds) });
-});
-app.post('/account/logout', (req, res) => {
-  const cookies = parseCookieHeader(req.headers.cookie || '');
-  const legacyToken = req.get('x-poorup-session-token') || '';
-  try {
-    // Revoke the bearer first so any exchange started after this request cannot
-    // mint a new cookie. The cookie lineage covers exchanges that completed
-    // just before logout but whose Set-Cookie response has not arrived yet.
-    if (legacyToken) accountStore.logout(legacyToken);
-    sessionStore.revoke(cookies[SESSION_COOKIE_NAME]);
-    if (legacyToken) {
-      if (typeof sessionStore.revokeLegacyTokenSessions !== 'function') throw new Error('Legacy session lineage is unavailable.');
-      sessionStore.revokeLegacyTokenSessions(legacyToken);
-    }
-  } catch {
-    return res.status(503).json({ success: false, code: 'ACCOUNT_LOGOUT_FAILED', error: 'Sign out could not be completed.' });
-  }
-  res.setHeader('Set-Cookie', sessionStore.clearCookie());
-  return res.json({ success: true });
-});
-// Mail links land on a confirmation page first. Only the POST consumes the
-// single-use token, so a mail scanner that prefetches the link cannot burn it.
-const recoveryFormParsers = [express.urlencoded({ extended: false, limit: '8kb' }), express.json({ limit: '8kb' })];
-function recoveryToken(req) {
-  const source = req.method === 'GET' ? req.query : req.body;
-  return typeof source?.token === 'string' ? source.token : '';
-}
-app.get('/account/recovery/verify', (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  const token = recoveryToken(req);
-  return res.type('html').send(errorPage('Confirm recovery email', 'Confirm this address to use it for password recovery.', `<form method="post" action="/account/recovery/verify"><input type="hidden" name="token" value="${escapeHtmlText(token)}"><button type="submit">CONFIRM RECOVERY EMAIL</button></form>`));
-});
-app.post('/account/recovery/verify', ...recoveryFormParsers, asyncRoute(async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  const verified = await httpAccountRecovery?.consumeEmailVerification?.(recoveryToken(req));
-  return res.status(verified ? 200 : 400).type('html').send(errorPage(verified ? 'Recovery email verified' : 'Recovery link expired', verified ? 'Your recovery email is now active. Return to the parlor.' : 'That single-use link is invalid or expired.'));
-}));
-app.post('/account/recovery/request', express.json({ limit: '8kb' }), asyncRoute(async (req, res) => {
-  const result = await httpAccountRecovery?.requestPasswordReset?.({ username: req.body?.username, email: req.body?.email });
-  // Uniform response: the sent flag would otherwise oracle valid
-  // username+email pairs to enumerators.
-  void result;
-  return res.status(200).json({ success: true, sent: true });
-}));
-app.get('/account/recovery/reset', (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  const token = recoveryToken(req);
-  return res.type('html').send(errorPage('Set a new password', 'Choose a new password. This link works once.', `<form method="post" action="/account/recovery/reset"><input type="hidden" name="token" value="${escapeHtmlText(token)}"><label>New password <input name="newPassword" type="password" autocomplete="new-password" minlength="8" maxlength="72" required></label><button type="submit">SET NEW PASSWORD</button></form>`));
-});
-app.post('/account/recovery/reset', ...recoveryFormParsers, asyncRoute(async (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  const reset = await httpAccountRecovery?.consumePasswordReset?.(recoveryToken(req), req.body?.newPassword);
-  if (req.is('application/x-www-form-urlencoded')) {
-    return res.status(reset ? 200 : 400).type('html').send(errorPage(reset ? 'Password updated' : 'Reset link expired', reset ? 'Your password is updated. Sign in from the parlor.' : 'That single-use link is invalid or expired.'));
-  }
-  return res.status(reset ? 200 : 400).json(reset ? { success: true } : { success: false, code: 'RECOVERY_TOKEN_INVALID', error: 'That reset link is invalid or expired.' });
-}));
-app.get('/healthz', (_req, res) => {
-  res.status(200).json({ status: 'ok', service: 'poorup', releaseId: process.env.POORUP_RELEASE_ID || 'local' });
-});
-function isBackupReady() {
-  return !backupHealth.configured || backupHealth.fresh;
-}
-
-function isSystemReady(snapshot) {
-  if (snapshot.mode !== 'normal') return false;
-  if (!storesLoaded) return false;
-  if (!isBackupReady()) return false;
-  return true;
-}
-
-function readinessStatus(snapshot, ready) {
-  if (ready) return 'ready';
-  if (snapshot.mode === 'draining') return 'draining';
-  return 'unavailable';
-}
-
-// A lobby that is not started but holds a human seat is waiting for its round.
-// A reload drops it, so the deploy gate waits for these as well as for rounds.
-function countWaitingRooms() {
-  return [...roomManager.rooms.values()].filter(room => !room.destroyed && !room.game.started && room.game.players.some(player => !player.isBot)).length;
-}
-
-function buildReadinessPayload(snapshot, rollupHealth, ready) {
-  return {
-    status: readinessStatus(snapshot, ready),
-    acceptingNewRounds: snapshot.mode === 'normal',
-    activeRounds: snapshot.activeRounds,
-    waitingRooms: countWaitingRooms(),
-    storeLoaded: storesLoaded,
-    backupConfigured: backupHealth.configured,
-    backupFresh: backupHealth.configured ? backupHealth.fresh : null,
-    analyticsRollup: { loaded: rollupHealth.loaded, fresh: rollupHealth.fresh, lagSeconds: rollupHealth.lagSeconds, pendingWrites: rollupHealth.pendingWrites },
-    releaseId: snapshot.releaseId || process.env.POORUP_RELEASE_ID || 'local'
-  };
-}
-
-app.get('/readyz', (_req, res) => {
-  const snapshot = maintenance.snapshot();
-  const rollupHealth = analyticsRollupStore.health();
-  const ready = isSystemReady(snapshot);
-  res.status(ready ? 200 : 503).json(buildReadinessPayload(snapshot, rollupHealth, ready));
-});
-app.get('/robots.txt', (_req, res) => {
-  if (!indexingApproved) return res.type('text').send('User-agent: *\nDisallow: /\n');
-  return res.type('text').send(`User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /game/\n\nSitemap: ${metadataOrigin}/sitemap.xml\n`);
-});
 const SPA_PATHS = new Set(['/', '/play', '/rooms', '/profile', '/rankings', '/social', '/rules', '/admin/analytics']);
 function isStaticRequest(requestPath) {
   return requestPath.startsWith('/assets/')
     || requestPath.startsWith('/themes/')
     || requestPath.startsWith('/client')
-    || requestPath === '/styles.css'
+    || requestPath.startsWith('/css/')
     || requestPath === '/favicon.svg';
 }
 app.get('*', (req, res, next) => {
@@ -564,10 +309,11 @@ app.get('*', (req, res, next) => {
     if (err) next(err);
   });
 });
-function escapeHtmlText(value) {
-  return String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
-}
 
+// ── 5. Account/social stores, sessions, recovery mail, backups ──
+let storesLoaded = false;
+let backupHealth = { configured: false, fresh: true, lastRunAt: null, failures: 0 };
+let backupIntervalMs = null;
 const storePaths = resolveStorePaths(process.env);
 const auxiliaryStorePaths = resolveAuxiliaryStorePaths(process.env);
 const retiredStorePaths = resolveRetiredStorePaths(process.env);
@@ -592,8 +338,9 @@ const telemetryStore = new TelemetryStore(auxiliaryStorePaths.telemetry, { rollu
 storesLoaded = true;
 const sessionStore = createSessionStore({
   filePath: dataDirectory ? path.join(dataDirectory, 'sessions.json') : '',
-  secure: productionRuntime || String(process.env.POORUP_COOKIE_SECURE || '').toLowerCase() === 'true'
+  secure: httpsDeployment
 });
+const requestAccount = createRequestAccount({ accountStore, sessionStore });
 io.use((socket, next) => {
   const cookies = parseCookieHeader(socket.handshake?.headers?.cookie || socket.request?.headers?.cookie || '');
   const session = resolveHandshakeSession(value => sessionStore.resolve(value), cookies[SESSION_COOKIE_NAME]);
@@ -668,6 +415,7 @@ if (backupDirectory) {
   const backupTimer = setInterval(runBackup, intervalMs);
   backupTimer.unref?.();
 }
+// ── 6. Provider and admin routes, the socket runtime and account rights, then the remaining HTTP routes and the 404/error handlers ──
 const botAdvisor = createBotAdvisor();
 const aiProviderStore = createAiProviderStore({
   filePath: auxiliaryStorePaths.aiProviders || '',
@@ -702,8 +450,6 @@ registerAdminOpsRoutes(app, {
   })
 });
 
-app.use((_req, res) => res.status(404).type('html').send(errorPage('404 · Table not found', 'That route is not part of this parlor.')));
-app.use(createHttpErrorHandler({ metrics, errorPage }));
 
 const social = createSocialApi({ io, accountStore, socialStore, matchStore, achievementStore, sessionStore });
 const achievementMirrorReconciliation = social.reconcileAchievementMirrors();
@@ -774,51 +520,40 @@ runtime.accountRights = {
   requestRecoveryEmail: input => accountRecovery.requestEmailVerification(input),
   verifyRecoveryEmail: input => accountRecovery.consumeEmailVerification(input.token, { accountId: input.accountId })
 };
-function accountFromCookie(req) {
-  const cookies = parseCookieHeader(req.headers.cookie || '');
-  const session = sessionStore.resolve(cookies[SESSION_COOKIE_NAME]);
-  if (!session?.accountId) return null;
-  return accountStore.getAccountById(session.accountId);
-}
-
-function accountFromLegacyToken(req) {
-  const legacy = req.get('x-poorup-session-token') || '';
-  if (!legacy) return null;
-  const account = accountStore.sessionAccount(legacy);
-  if (!account) return null;
-  return { legacy, account };
-}
-
-function maybeExchangeLegacy(req, legacy, account) {
-  const exchanged = sessionStore.exchangeLegacy(legacy, token => accountStore.sessionAccount(token)?.id || null);
-  if (!exchanged) return;
-  req.sessionCookie = sessionStore.cookie(exchanged.cookieValue);
-  accountStore.revokeSessionToken?.(legacy);
-}
-
-function requestAccount(req) {
-  const cookieAccount = accountFromCookie(req);
-  if (cookieAccount) return cookieAccount;
-  const legacyResult = accountFromLegacyToken(req);
-  if (!legacyResult) return null;
-  maybeExchangeLegacy(req, legacyResult.legacy, legacyResult.account);
-  return legacyResult.account;
-}
-httpAccountResolver = requestAccount;
-httpAccountRights = runtime.accountRights;
-httpAccountRecovery = accountRecovery;
-httpRetentionJob = retentionJob;
 retentionJob.runOnce().catch(error => console.error('Retention job failed:', error?.message || 'unknown error'));
 retentionJob.start();
 
+// Routes that need the stores and runtime. The 404 and error handlers go last so they catch everything above.
+registerAccountHttpRoutes(app, { requestAccount, accountStore, sessionStore, accountRecovery, accountRights: runtime.accountRights, adminIds: adminAccountIds });
+registerAnalyticsRoutes(app, { requestAccount, accountStore, metrics, analyticsRollupStore, adminIds: adminAccountIds });
+registerInternalRoutes(app, { maintenance, adminAuditLog, retentionJob });
+registerHealthRoutes(app, { roomManager, maintenance, analyticsRollupStore, isStoresLoaded: () => storesLoaded, getBackupHealth: () => backupHealth });
+app.use((req, res) => answerHttpError(req, res, 404, errorPage));
+app.use(createHttpErrorHandler({ metrics, errorPage }));
+
+// ── 7. Per-socket wiring ──
 io.on('connection', (socket) => {
   console.log('A socket connected:', socket.id);
 
   // The peer key outlives the socket: a reconnect gets a new socket id but the
   // same address, so the peer budget keeps counting across reconnects.
-  const peerKey = resolveClientAddress({ address: socket.handshake?.address, headers: socket.handshake?.headers, request: socket.request }, trustedProxyHops);
+  const peerKey = socketPeerKey(socket.request || socket.conn?.request, socket.handshake);
+  // Count and release before any other work so an exception in a handler cannot leak a reserved slot. Both 'disconnect' and the
+  // engine connection's 'close' can fire for a dropped transport; the flag makes the release exactly once.
+  peerSocketCounts.set(peerKey, (peerSocketCounts.get(peerKey) || 0) + 1);
+  let peerSlotReleased = false;
+  const releasePeerSlot = () => {
+    if (peerSlotReleased) return;
+    peerSlotReleased = true;
+    const remaining = (peerSocketCounts.get(peerKey) || 0) - 1;
+    if (remaining > 0) peerSocketCounts.set(peerKey, remaining);
+    else peerSocketCounts.delete(peerKey);
+  };
+  socket.once('disconnect', releasePeerSlot);
+  socket.conn?.once?.('close', releasePeerSlot);
+
   const safeOn = createSafeEmitter(socket, {
-    allow: socketId => socketRateLimiter.allow(socketId, peerKey),
+    check: socketId => socketRateLimiter.check(socketId, peerKey),
     onAccepted: (socketId, eventName) => runtime.noteSocketEvent(socketId, eventName),
   });
   // Times every handler for the admin status (P95 latency) and counts the ones
@@ -841,6 +576,7 @@ io.on('connection', (socket) => {
   });
 });
 
+// ── 8. Listen, graceful shutdown, crash guards ──
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
   console.log('Server is running!');
@@ -861,7 +597,7 @@ function disposeRuntimeResources() {
   maintenance.dispose();
   retentionJob.stop();
   runtime.unsubscribeBotProviderStatus?.();
-  runtime.stopAuctionWatchdog?.();
+  runtime.dispose();
   pubsubAdapter.close?.();
 }
 
@@ -894,7 +630,7 @@ function waitForDrain(deadline) {
   const check = setInterval(() => {
     // A lobby that has not started yet still holds seats: a deploy that dropped
     // it would take those players away, so the drain waits for it as well.
-    const drained = maintenance.activeRoundCount() === 0 && countWaitingRooms() === 0;
+    const drained = maintenance.activeRoundCount() === 0 && countWaitingRooms(roomManager) === 0;
     if (!drained && Date.now() < deadline) return;
     clearInterval(check);
     closeServerResources();

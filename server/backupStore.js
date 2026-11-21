@@ -27,12 +27,6 @@ function checksumBytes(bytes) {
   return crypto.createHash('sha256').update(bytes).digest('hex');
 }
 
-function checksumFile(filePath) {
-  const absolute = safePath(filePath);
-  if (!absolute || !fs.existsSync(absolute)) return null;
-  return checksumBytes(fs.readFileSync(absolute));
-}
-
 function atomicWrite(filePath, bytes) {
   const temp = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
   let fd = null;
@@ -472,5 +466,3 @@ export function restoreJsonBackup(backupPath, destinationPath, { allowDirs = [] 
   }
   return { success: true, checksum: verified.checksum, path: destination };
 }
-
-export { DEFAULT_RETENTION, checksumFile };

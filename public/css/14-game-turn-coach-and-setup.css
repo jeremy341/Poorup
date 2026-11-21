@@ -1,0 +1,101 @@
+/* The first-turn coach and the table setup overlay. */
+
+/* First-turn coach: a small raised strip in the dead space under the controls. It sits out of flow so
+   showing or dismissing it never moves the roll button, and it stays off the ring of tiles. */
+.turn-coach {
+  position: absolute; z-index: 4; left: 50%; bottom: 4%; transform: translateX(-50%);
+  display: flex; align-items: flex-start; gap: 8px;
+  width: min(80%, 380px); box-sizing: border-box; padding: 8px 8px 8px 12px;
+  background: var(--surface-2); border: 1px solid var(--line-active); box-shadow: var(--shadow-panel), var(--shadow-inset);
+  /* The strip is a dismissable aside, never a control surface: clicks on whatever it
+     happens to overlap must fall through to the HUD. Only its close button is live. */
+  pointer-events: none;
+}
+.turn-coach[hidden] { display: none; }
+.turn-coach-text {
+  flex: 1 1 auto; min-width: 0; margin: 0;
+  font-family: var(--font-body); font-size: 12px; line-height: 1.4; letter-spacing: .02em;
+  text-transform: none; color: var(--text-primary);
+}
+.turn-coach button.surface-close.turn-coach-close { width: 28px; height: 28px; min-width: 28px; min-height: 28px; pointer-events: auto; }
+
+.deck {
+  position: absolute; bottom: 8%;
+  display: none; align-items: center; justify-content: center;
+  width: 132px; height: 86px;
+}
+.deck-chest {
+  left: 10%;
+  background: #042526;
+  border: 2px solid var(--line-board);
+  box-shadow: inset 0 0 0 3px var(--surface-board-center), inset 0 0 0 4px #6f6039;
+  transform: rotate(-7deg);
+}
+.deck-chance {
+  right: 10%;
+  background: #280f0f;
+  border: 2px solid var(--red-dark);
+  box-shadow: inset 0 0 0 3px #1a0a0a, inset 0 0 0 4px #a5352c;
+  transform: rotate(7deg);
+}
+
+/* setup overlay: fixed so it centers in the viewport and never clips inside the square board */
+.setup-wrap { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.setup-scrim { position: fixed; inset: 0; background: var(--theme-setup-scrim); }
+.setup-card { position: relative; z-index: 2; width: 100%; max-width: 460px; padding: 16px; max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto; }
+.setup-tag { margin-left: auto; }
+.setup-copy { margin-bottom: 16px; }
+.setup-active-card {
+  display: flex; align-items: center; gap: 12px;
+  min-height: 76px; padding: 10px 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--line-active);
+  border-radius: 2px;
+  box-shadow: var(--shadow-active);
+}
+.setup-active-avatar {
+  width: 54px; height: 54px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface-inset); border: 1px solid var(--line-active);
+}
+.setup-active-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.setup-active-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-active-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.setup-active-actions > button { min-height: 34px; padding: 0 10px; }
+.setup-active-actions > button:first-child { flex: 1 1 180px; }
+.setup-active-actions > button:not(:first-child) { flex: 0 1 auto; }
+.setup-chooser { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line-subtle); }
+
+.setup-tabs { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 12px; border-bottom: 1px solid var(--line-subtle); }
+.setup-tab { position: relative; padding: 10px 4px; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: 8px; transition: background var(--dur-xs) var(--ease-snap), color var(--dur-xs) var(--ease-snap); }
+.setup-tab.is-active { background: var(--surface-board-hover); color: var(--gold-300); }
+.setup-tab.is-active::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--gold-400); }
+.setup-tab-count { color: var(--text-muted); }
+.setup-tab.is-active .setup-tab-count { color: var(--gold-muted); }
+
+.setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.setup-empty-custom { padding: 20px 4px; text-align: center; color: var(--text-muted); font-family: var(--font-body); font-size: 12px; grid-column: 1 / -1; }
+.setup-option {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px; text-align: left;
+  background: var(--surface-panel-raised);
+  border: 1px solid var(--line-subtle);
+  border-radius: 2px;
+  box-shadow: inset 0 1px 0 rgb(240 217 172 / 4%);
+  transition: background var(--dur-xs) var(--ease-snap), border-color var(--dur-xs) var(--ease-snap);
+}
+.setup-option.is-active { background: var(--surface-active); border: 2px solid var(--line-active); box-shadow: var(--shadow-active); }
+.setup-avatar {
+  width: 50px; height: 50px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface-inset); border: 1px solid var(--line-subtle);
+}
+.setup-option.is-active .setup-avatar { border-color: var(--line-active); }
+.setup-option-profile .setup-avatar { border-color: var(--gold-500); }
+.setup-state { margin-top: 6px; display: block; }
+.setup-option.is-taken { border-style: dashed; border-color: var(--line-dark); background: var(--surface-panel-deep); }
+.setup-option.is-taken .setup-avatar { filter: grayscale(1); opacity: 0.45; border-color: var(--line-dark); }
+.setup-option.is-taken .setup-state { color: var(--red-bright); }
+.setup-actions { margin-top: 16px; display: flex; gap: 12px; }
+.setup-start-btn { flex: 1; height: 52px; padding: 0 20px; }
+

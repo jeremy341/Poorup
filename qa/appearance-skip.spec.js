@@ -9,8 +9,8 @@ async function createTable(page, name) {
     await page.locator('#home-alias-form').evaluate(form => form.requestSubmit());
   }
   await page.click('#open-create-btn');
-  await page.fill('#rc-name', name);
-  await page.click('#rc-create-btn');
+  await page.fill('#room-create-name', name);
+  await page.click('#room-create-btn');
 }
 
 test('a saved design skips the appearance step on later tables', async ({ page, browser }, testInfo) => {
@@ -21,7 +21,7 @@ test('a saved design skips the appearance step on later tables', async ({ page, 
   const overlay = page.locator('#setup-wrap');
   await expect(overlay).toBeVisible();
   await expect(overlay.getByText('Choose Your Player Appearance')).toBeVisible();
-  await page.locator('#su-start').click();
+  await page.locator('#setup-start-btn').click();
   await expect(overlay).toBeHidden();
   await expect.poll(() => page.evaluate(() => localStorage.getItem('poorup.active-design.v1'))).not.toBeNull();
 

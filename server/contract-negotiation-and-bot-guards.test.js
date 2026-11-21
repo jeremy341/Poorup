@@ -1,0 +1,520 @@
+// Contract negotiation, collateral and loan-backed-cash guards, plus bot candidate guards (market snapshot,
+// option and equity candidates, threat normalisation), each pinned at the public GameState seam.
+import assert from 'node:assert/strict';
+import { RoomManager } from './gameLogic.js';
+import { contractSettlementRejection } from './bankruptcyLogic.js';
+import { contractLastProposerId, contractResponderId } from './contractLogic.js';
+import { buildBotStrategicContext } from './botStrategicContext.js';
+import { expansionCandidates } from './marketExpansion.js';
+import { rentFactsFromGame, calculateRentFromFacts } from './botRentForecast.js';
+import { threatPerCircuit } from './botTableBrain.js';
+
+const failures = [];
+function check(name, run) {
+  try {
+    run();
+    console.log(`PASS - ${name}`);
+  } catch (error) {
+    failures.push({ name, error });
+    console.log(`FAIL - ${name}: ${error.stack || error.message}`);
+  }
+}
+
+function startedRoom(options = {}) {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ rulesProfile: 'advanced', socketId: 'a', clientId: 'a', nickname: 'A', ...options });
+  room.addOrReconnectPlayer({ socketId: 'b', clientId: 'b', nickname: 'B' });
+  assert.equal(room.startGame().success, true);
+  room.game.currentPlayerId = room.game.players[0].id;
+  return room;
+}
+
+function threeSeatRoom(options = {}) {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ rulesProfile: 'advanced', socketId: 'a', clientId: 'a', nickname: 'A', ...options });
+  room.addOrReconnectPlayer({ socketId: 'b', clientId: 'b', nickname: 'B' });
+  room.addOrReconnectPlayer({ socketId: 'c', clientId: 'c', nickname: 'C' });
+  assert.equal(room.startGame().success, true);
+  room.game.currentPlayerId = room.game.players[0].id;
+  return room;
+}
+
+check('loan-backed cash cannot fund margin or short positions', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }, marketComplexity: 'shorting' });
+  const game = room.game;
+  const player = game.players[0];
+  player.bankLoan = { status: 'active', remaining: 500, collateralTileIndex: null };
+  assert.deepEqual(room.openMargin('a', 'brazil', 2, 'f2-margin'), {
+    success: false,
+    error: 'Loan-backed cash cannot fund margin, short, or option positions.'
+  });
+  assert.deepEqual(room.openShort('a', 'brazil', 1, 'f2-short'), {
+    success: false,
+    error: 'Loan-backed cash cannot fund margin, short, or option positions.'
+  });
+  player.bankLoan = null;
+  assert.equal(room.openShort('a', 'brazil', 1, 'f2-clear').success, true);
+});
+
+check('equity-transfer counters respect the negotiation limit', () => {
+  const room = threeSeatRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const [seller, owner, buyer] = game.players;
+  const tile = game.getTile(1);
+  tile.ownerId = owner.id;
+  owner.properties.push(tile.index);
+  tile.equityShares = [{ holderId: seller.id, share: 40, contractId: 'src-f3', control: 'passive' }];
+  game.playerContracts.push({
+    id: 'src-f3', kind: 'equity', fromPlayerId: seller.id, toPlayerId: owner.id,
+    propertyIndex: tile.index, equityShare: 40, equityControl: 'passive', permanent: false,
+    expiresRound: game.roundNumber + 4, amount: 100, status: 'active', createdRound: game.roundNumber
+  });
+  const proposal = game.proposeEquityShareTransfer('a', {
+    fromPlayerId: seller.id, toPlayerId: buyer.id, contractId: 'src-f3',
+    sharePct: 15, price: 60, requestId: 'f3-1'
+  });
+  assert.equal(proposal.success, true);
+  const first = room.counterPlayerContract('c', { contractId: proposal.transfer.id, sharePct: 15, price: 70 });
+  assert.equal(first.success, true);
+  const second = room.counterPlayerContract('a', { contractId: proposal.transfer.id, sharePct: 15, price: 65 });
+  assert.equal(second.success, true);
+  const third = room.counterPlayerContract('c', { contractId: proposal.transfer.id, sharePct: 15, price: 75 });
+  assert.deepEqual(third, { success: false, error: 'This contract has reached its negotiation limit.' });
+});
+
+check('settlement revalidates every deed of a collateral basket', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const borrower = game.players[0];
+  const tileA = game.getTile(1);
+  const tileB = game.getTile(3);
+  tileA.ownerId = borrower.id;
+  tileB.ownerId = borrower.id;
+  borrower.properties = [tileA.index, tileB.index];
+  const contract = {
+    id: 'basket-f4', kind: 'loan', status: 'active', fromPlayerId: game.players[1].id, toPlayerId: borrower.id,
+    amount: 200, remaining: 230, totalDue: 230,
+    collateralTileIndices: [tileA.index, tileB.index], collateralTileIndex: tileA.index
+  };
+  tileB.mortgaged = true;
+  assert.deepEqual(contractSettlementRejection(game, borrower, contract), {
+    success: false, error: 'The loan collateral is no longer available.'
+  }, 'a mortgaged basket deed voids acceptance, not just the first index');
+  // A deed that left the borrower (sold) between proposal and acceptance
+  // must void the whole basket, not just skip the lost deed.
+  tileB.mortgaged = false;
+  tileB.ownerId = null;
+  assert.deepEqual(contractSettlementRejection(game, borrower, contract), {
+    success: false, error: 'The loan collateral is no longer available.'
+  });
+});
+
+check('bankruptcy announces the bank when the creditor cannot receive', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const [a, b] = game.players;
+  b.bankrupt = true;
+  a.cash = 100;
+  game.handleBankruptcy(a, b);
+  const texts = game.feed.map(entry => entry.text);
+  assert.equal(texts.includes('A is bankrupt. Assets transferred to the bank.'), true);
+  assert.equal(texts.includes('A is bankrupt. Assets transferred to B.'), false);
+});
+
+check('a retried adjust with a used requestId replays instead of clearing the offer', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const first = room.proposeTrade('a', { toPlayerId: game.players[1].id, giveCash: 50, requestId: 't1-r1' });
+  assert.equal(first.success, true);
+  const adjusted = room.adjustTrade('a', { toPlayerId: game.players[1].id, giveCash: 80, requestId: 't1-r2' });
+  assert.equal(adjusted.success, true);
+  const replayed = room.adjustTrade('a', { toPlayerId: game.players[1].id, giveCash: 80, requestId: 't1-r2' });
+  assert.equal(replayed.success, true);
+  assert.notEqual(game.pendingTrade, null, 'a requestId replay must not destroy the live offer');
+  assert.equal(game.pendingTrade.giveCash, 80);
+});
+
+check('equity cannot be issued on a deed pledged as live loan collateral', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const [lender, borrower] = game.players;
+  void lender;
+  const tile = game.getTile(1);
+  tile.ownerId = borrower.id;
+  borrower.properties = [tile.index];
+  borrower.bankLoan = { status: 'active', remaining: 400, collateralTileIndex: tile.index };
+  const result = room.proposePlayerContract('a', {
+    toPlayerId: borrower.id, kind: 'equity', propertyIndex: tile.index, equityShare: 30, amount: 100
+  });
+  assert.deepEqual(result, { success: false, error: 'Rent shares need an unencumbered deed owned by the recipient.' });
+  borrower.bankLoan = null;
+  assert.equal(room.proposePlayerContract('a', {
+    toPlayerId: borrower.id, kind: 'equity', propertyIndex: tile.index, equityShare: 30, amount: 100
+  }).success, true);
+});
+
+check('the deed owner cannot buy their own deed\'s equity', () => {
+  const room = threeSeatRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const [seller, owner, buyer] = game.players;
+  const tile = game.getTile(1);
+  tile.ownerId = owner.id;
+  owner.properties.push(tile.index);
+  tile.equityShares = [{ holderId: seller.id, share: 40, contractId: 'src-t6', control: 'passive' }];
+  game.playerContracts.push({
+    id: 'src-t6', kind: 'equity', fromPlayerId: seller.id, toPlayerId: owner.id,
+    propertyIndex: tile.index, equityShare: 40, equityControl: 'passive', permanent: false,
+    expiresRound: game.roundNumber + 4, amount: 100, status: 'active', createdRound: game.roundNumber
+  });
+  assert.deepEqual(game.proposeEquityShareTransfer('a', {
+    fromPlayerId: seller.id, toPlayerId: owner.id, contractId: 'src-t6',
+    sharePct: 15, price: 60, requestId: 't6-owner'
+  }), { success: false, error: 'The property owner cannot buy equity in their own deed.' });
+  assert.equal(game.proposeEquityShareTransfer('a', {
+    fromPlayerId: seller.id, toPlayerId: buyer.id, contractId: 'src-t6',
+    sharePct: 15, price: 60, requestId: 't6-ok'
+  }).success, true);
+});
+
+check('negotiation relay authority follows lastProposerId, not depth parity', () => {
+  // Equity transfers pin counterDepth at 2 while the proposer keeps
+  // alternating; the relay must route by the recorded proposer.
+  const contract = {
+    id: 'relay-t8', kind: 'equity-transfer', fromPlayerId: 'seller', toPlayerId: 'buyer',
+    counterDepth: 2, lastProposerId: 'buyer'
+  };
+  assert.equal(contractLastProposerId(contract), 'buyer');
+  assert.equal(contractResponderId(contract), 'seller');
+  contract.lastProposerId = 'seller';
+  assert.equal(contractResponderId(contract), 'buyer');
+  // Legacy contracts without lastProposerId still fall back to parity.
+  const legacy = { id: 'relay-legacy', kind: 'loan', fromPlayerId: 'lender', toPlayerId: 'borrower', counterDepth: 1 };
+  assert.equal(contractResponderId(legacy), 'lender');
+  assert.equal(contractLastProposerId(legacy), 'borrower');
+});
+
+check('a departed seat\'s ballot is not tallied', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const event = {
+    id: 'anti-monopoly', phase: 'voting',
+    choices: [{ id: 'enforce' }, { id: 'dismiss' }],
+    votes: {}
+  };
+  game.players.forEach((player, index) => { event.votes[player.id] = index === 0 ? 'enforce' : 'dismiss'; });
+  game.globalEvent = event;
+  // Two seats split 1-1 is no strict majority of the active seats.
+  assert.equal(game.globalEventVoteChoice(event), null);
+  game.players[0].disconnected = true;
+  assert.equal(game.globalEventVoteChoice(event), 'dismiss');
+  game.players[0].disconnected = false;
+  game.players[0].bankrupt = true;
+  assert.equal(game.globalEventVoteChoice(event), 'dismiss');
+});
+
+check('combo events freeze unmortgage through the merged effect set', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const tile = game.getTile(1);
+  tile.ownerId = game.players[0].id;
+  tile.mortgaged = true;
+  // Either firing order must leave the merged effects on the active event;
+  // the unmortgage gate must read them, not only the parent IDs.
+  game.globalEvent = {
+    id: 'foreclosure-spiral', phase: 'active',
+    effects: { constructionBlocked: true, bankLoansBlocked: true, mortgagesBlocked: true, rentMultiplier: 0.55 }
+  };
+  assert.equal(game.canUnmortgageTile(game.players[0], tile), false);
+  // Without the effect key (pure ID gate) the legacy behavior still holds.
+  game.globalEvent = { id: 'unrelated', phase: 'active', effects: {} };
+  assert.equal(game.canUnmortgageTile(game.players[0], tile), true);
+});
+
+check('the strategic snapshot carries live market quotes', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  game.marketQuotes = { ...game.marketQuotes, brazil: 123 };
+  const context = buildBotStrategicContext(game, game.players[0], 'pre-roll', 0);
+  assert.equal(context.marketQuotes.brazil, 123);
+});
+
+check('no open-option candidate is advertised without a server pricing policy', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }, marketComplexity: 'derivatives' });
+  const game = room.game;
+  const player = game.players[0];
+  game.optionPricingPolicy = null;
+  const withoutPolicy = expansionCandidates(game, player, true);
+  assert.equal(withoutPolicy.some(candidate => candidate.id === 'market:open-option'), false);
+  game.optionPricingPolicy = { mode: 'approved-test-policy' };
+  const withPolicy = expansionCandidates(game, player, true);
+  assert.equal(withPolicy.some(candidate => candidate.id === 'market:open-option'), true);
+});
+
+check('bot equity candidates never target railroads', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const bot = game.players[1];
+  bot.isBot = true;
+  const railroad = game.tiles.find(tile => tile.type === 'railroad');
+  railroad.ownerId = game.players[0].id;
+  game.players[0].properties = [railroad.index];
+  game.currentPlayerId = bot.id;
+  const candidates = game.botContractCandidates(bot);
+  assert.equal(candidates.some(candidate => candidate.offer?.kind === 'equity'), false);
+  assert.equal(candidates.some(candidate => candidate.offer?.kind === 'hybrid'), false);
+  assert.equal(candidates.some(candidate => candidate.offer?.kind === 'loan'), true,
+    'loan candidates stay available; only the equity legs require a property');
+});
+
+check('a loaned bot produces no contract candidates', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const bot = game.players[1];
+  bot.isBot = true;
+  bot.cash = 1000;
+  game.currentPlayerId = bot.id;
+  assert.equal(game.botContractCandidates(bot).length > 0, true);
+  bot.bankLoan = { status: 'active', remaining: 500, collateralTileIndex: null };
+  assert.deepEqual(game.botContractCandidates(bot), []);
+});
+
+check('threat per circuit normalizes by the live board size', () => {
+  const standard = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const metro = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true }, boardVariant: 'metro-52' });
+  const setup = (game) => {
+    const tile = game.tiles.find(candidate => candidate.type === 'property' && candidate.group);
+    tile.ownerId = game.players[1].id;
+    tile.rent = 100;
+    tile.houseCount = 5;
+    tile.mortgaged = false;
+    return tile;
+  };
+  setup(standard.game);
+  const metroTile = setup(metro.game);
+  const standardThreat = threatPerCircuit(standard.game, standard.game.players[0].id, standard.game.players[1].id);
+  const metroThreat = threatPerCircuit(metro.game, metro.game.players[0].id, metro.game.players[1].id);
+  assert.equal(metroThreat > 0, true);
+  assert.equal(metroThreat < standardThreat, true,
+    `metro-52 (${metroThreat} on tile ${metroTile.index}) must dilute per-circuit threat vs standard-40 (${standardThreat})`);
+});
+
+check('bankruptcy settles an outstanding bank loan before deeds move', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const [a] = game.players;
+  const tile = game.getTile(1);
+  tile.ownerId = a.id;
+  a.properties = [tile.index];
+  tile.houseCount = 2;
+  a.bankLoan = { status: 'active', remaining: 500, collateralTileIndex: tile.index };
+  game.handleBankruptcy(a, null);
+  assert.equal(a.bankLoan.status, 'defaulted');
+  assert.equal(a.bankLoan.remaining, 0);
+  assert.equal(tile.ownerId, null, 'secured collateral is seized to the bank');
+  assert.equal(tile.houseCount, 0);
+  assert.equal(a.properties.includes(tile.index), false);
+});
+
+check('a bankrupt auction leader no longer holds the bid floor', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const [a, b] = game.players;
+  game.auction = {
+    active: true, participants: [a.id, b.id],
+    highestBidderId: a.id, highestBid: 240, tileIndex: 1, endsAt: Date.now() + 5000
+  };
+  game.markPlayerBankrupt(a);
+  assert.equal(game.auction.highestBidderId, null);
+  assert.equal(game.auction.highestBid, 0);
+  assert.equal(game.auction.participants.includes(a.id), false);
+});
+
+check('anti-monopoly rent follows the declared leaderRentMultiplier effect', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const tile = game.tiles.find(candidate => candidate.type === 'property');
+  tile.ownerId = game.players[0].id;
+  game.globalEvent = {
+    id: 'anti-monopoly', phase: 'active', resolvedChoice: 'enforce',
+    targetPlayerId: game.players[0].id,
+    effects: { leaderRentMultiplier: 0.4, marketPriceMultiplier: 0.9 }
+  };
+  const facts = rentFactsFromGame(game, tile);
+  assert.equal(facts.eventFactors.includes(0.4), true,
+    `expected the declared 0.4 multiplier, got [${facts.eventFactors.join(', ')}]`);
+  assert.equal(calculateRentFromFacts(facts), Math.floor(Math.floor(tile.rent) * 0.4));
+});
+
+check('an in-flight auction keeps its clock under bank-run (intended behavior)', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const [a, b] = game.players;
+  game.globalEvent = { id: 'bank-run', phase: 'active', effects: { bankActionsBlocked: true, auctionBlocked: true, marketPriceMultiplier: 0.75, tradingEnabled: false, casinoMaxBet: 250 } };
+  game.auction = {
+    active: true, participants: [a.id, b.id],
+    highestBidderId: null, highestBid: 0, tileIndex: 1, endsAt: Date.now() + 5000
+  };
+  assert.equal(room.placeAuctionBid('b', 60).success, true,
+    'a running auction is not frozen by the event; only new auctions are blocked');
+  assert.equal(game.auction.highestBid, 60);
+  game.auction = null;
+  const newAuction = game.startAuction(game.getTile(3), a.id);
+  assert.equal(newAuction.success, false,
+    'starting a new auction during bank-run is blocked');
+  assert.equal(newAuction.error, 'Auctions are paused by the active Bank Run.');
+});
+
+check('totalCash normalizes by active seats, excluding departed wealth (intended behavior)', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const [a, b] = game.players;
+  a.cash = 1000;
+  b.cash = 500;
+  assert.equal(game.totalCash(), 1500);
+  b.bankrupt = true;
+  b.cash = 5000;
+  assert.equal(game.totalCash(), 1000,
+    'a bankrupt whale\'s stranded cash must not inflate the economy used by event thresholds');
+});
+
+check('loan-backed cash cannot fund equity transfers, at proposal or acceptance', () => {
+  const room = threeSeatRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const [seller, owner, buyer] = game.players;
+  const tile = game.getTile(1);
+  tile.ownerId = owner.id;
+  owner.properties.push(tile.index);
+  tile.equityShares = [{ holderId: seller.id, share: 40, contractId: 'src-t2a', control: 'passive' }];
+  game.playerContracts.push({
+    id: 'src-t2a', kind: 'equity', fromPlayerId: seller.id, toPlayerId: owner.id,
+    propertyIndex: tile.index, equityShare: 40, equityControl: 'passive', permanent: false,
+    expiresRound: game.roundNumber + 4, amount: 100, status: 'active', createdRound: game.roundNumber
+  });
+  buyer.bankLoan = { status: 'active', remaining: 500, collateralTileIndex: null };
+  assert.deepEqual(game.proposeEquityShareTransfer('a', {
+    fromPlayerId: seller.id, toPlayerId: buyer.id, contractId: 'src-t2a',
+    sharePct: 15, price: 60, requestId: 't2a-1'
+  }), { success: false, error: 'Loan-backed cash cannot fund equity transfers.' });
+  buyer.bankLoan = null;
+  const proposal = game.proposeEquityShareTransfer('a', {
+    fromPlayerId: seller.id, toPlayerId: buyer.id, contractId: 'src-t2a',
+    sharePct: 15, price: 60, requestId: 't2a-2'
+  });
+  assert.equal(proposal.success, true);
+  buyer.bankLoan = { status: 'active', remaining: 500, collateralTileIndex: null };
+  assert.deepEqual(game.respondPlayerContract('c', true, 't2a-accept', proposal.transfer.id), {
+    success: false, error: 'Loan-backed cash cannot fund equity transfers.'
+  }, 'acceptance revalidates the buyer\'s taint exactly as contract acceptance does');
+  assert.equal(game.pendingPlayerContract, null);
+});
+
+check('an Advanced room\'s explicit optional systems survive the first ruleset meta write', () => {
+  const manager = new RoomManager();
+  const room = manager.createRoom({ rulesProfile: 'advanced', socketId: 'a', clientId: 'a', nickname: 'A' });
+  room.addOrReconnectPlayer({ socketId: 'b', clientId: 'b', nickname: 'B' });
+  room.setRoomSetting('bankLoans', true);
+  room.setRoomSetting('casino', true);
+  room.setRoomSetting('market', true);
+  room.setRoomSetting('globalEvents', true);
+  const boardVariantResult = room.setRoomSetting('boardVariant', 'standard-40');
+  assert.equal(boardVariantResult.rejected, false);
+  assert.equal(room.game.settings.bankLoans, true, 'explicit bankLoans override must survive metadata writes');
+  assert.equal(room.game.settings.casino, true);
+  assert.equal(room.game.settings.market, true);
+  assert.equal(room.ruleset.effectiveSettings.globalEvents, true,
+    'the ruleset flow must preserve the explicit optional overrides');
+});
+
+check('a lender cannot accept the contract they adjusted themselves', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const [lender, borrower] = game.players;
+  const proposed = room.proposePlayerContract('a', {
+    toPlayerId: borrower.id, kind: 'loan', amount: 100, premiumRate: 0, durationRounds: 3, requestId: 'b01-propose'
+  });
+  assert.equal(proposed.success, true);
+  const adjusted = room.adjustPlayerContract('a', {
+    contractId: game.pendingPlayerContract.id, kind: 'loan', amount: 800, premiumRate: 100, durationRounds: 1
+  });
+  assert.equal(adjusted.success, true);
+  const pending = game.pendingPlayerContract;
+  assert.equal(pending.amount, 800);
+  assert.equal(pending.lastProposerId, lender.id,
+    'a mutated pending contract records the acting seat as the last proposer');
+  assert.equal(contractResponderId(pending), borrower.id,
+    'the seat that did not act last is the one awaiting the decision');
+  assert.deepEqual(room.respondPlayerContract('a', true, 'b01-self-accept', pending.id), {
+    success: false, error: 'No matching player contract was found.'
+  }, 'the lender of record must not be able to accept their own adjusted terms');
+  assert.equal(game.pendingPlayerContract, pending, 'the rejected self-accept leaves the offer open');
+  const accepted = room.respondPlayerContract('b', true, 'b01-borrower-accept', pending.id);
+  assert.equal(accepted.success, true);
+  assert.equal(accepted.contract.totalDue, 1600);
+  assert.equal(lender.cash, 1500 - 800);
+  assert.equal(borrower.cash, 1500 + 800);
+});
+
+check('a replayed response requestId cannot settle a different contract', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const [lender, borrower] = game.players;
+  const first = room.proposePlayerContract('a', {
+    toPlayerId: borrower.id, kind: 'loan', amount: 100, premiumRate: 0, durationRounds: 2, requestId: 'b20-first'
+  });
+  assert.equal(first.success, true);
+  assert.equal(room.respondPlayerContract('b', true, 'REUSE', first.contract.id).success, true);
+  const second = room.proposePlayerContract('a', {
+    toPlayerId: borrower.id, kind: 'loan', amount: 300, premiumRate: 0, durationRounds: 2, requestId: 'b20-second'
+  });
+  assert.equal(second.success, true);
+  const replayed = room.respondPlayerContract('b', true, 'REUSE', second.contract.id);
+  assert.equal(replayed.success, true);
+  assert.equal(replayed.contract?.id, second.contract.id,
+    'the replayed requestId must settle contract 2, not replay contract 1 memo');
+  assert.equal(game.pendingPlayerContract, null, 'the table obligation resolves instead of stranding');
+  assert.equal(lender.cash, 1500 - 400);
+  assert.equal(borrower.cash, 1500 + 400);
+  const third = room.proposePlayerContract('a', {
+    toPlayerId: borrower.id, kind: 'loan', amount: 50, premiumRate: 0, durationRounds: 1, requestId: 'b20-third'
+  });
+  assert.equal(third.success, true, 'the table is not stranded after the reused requestId');
+});
+
+check('an equity rent share the owner cannot pay is carried, not destroyed', () => {
+  const room = startedRoom({ rulesetOverrides: { bankLoans: true, casino: true, market: true, globalEvents: true } });
+  const game = room.game;
+  const [holder, owner] = game.players;
+  const tile = game.getTile(1);
+  tile.ownerId = owner.id;
+  owner.properties = [tile.index];
+  const contract = {
+    id: 'b21-equity', kind: 'equity', fromPlayerId: holder.id, toPlayerId: owner.id,
+    propertyIndex: tile.index, equityShare: 70, equityControl: 'passive', permanent: true,
+    expiresRound: null, amount: 100, status: 'active', createdRound: game.roundNumber
+  };
+  game.playerContracts.push(contract);
+  tile.equityShares = [{ holderId: holder.id, share: 70, contractId: contract.id, control: 'passive' }];
+  owner.cash = 0;
+  const holderBefore = holder.cash;
+  game.settleEquityShares(tile, owner, 26);
+  assert.equal(holder.cash, holderBefore, 'a broke owner never mints the share out of nothing');
+  assert.equal(contract.unpaidRentShare, 18, 'the unpaid 70% of $26 stays owed on the contract');
+  owner.cash = 10;
+  game.settleEquityShares(tile, owner, 10);
+  assert.equal(holder.cash, holderBefore + 10, 'the owner cash is the only source of a share payout');
+  assert.equal(owner.cash, 0);
+  assert.equal(contract.unpaidRentShare, 15, 'only the covered part of the carried share is paid');
+  owner.cash = 30;
+  game.settleEquityShares(tile, owner, 10);
+  assert.equal(holder.cash, holderBefore + 32, 'the holder ends up with 70% of every rent collected');
+  assert.equal(owner.cash, 8);
+  assert.equal(contract.unpaidRentShare, 0);
+  assert.equal(contract.rentCollected, 32);
+});
+
+if (failures.length) {
+  console.error(`\ncontract negotiation and bot guards: ${failures.length} failed`);
+  process.exitCode = 1;
+} else {
+  console.log('contract negotiation and bot guards: all passed');
+}

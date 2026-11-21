@@ -1,4 +1,6 @@
-// Bank loans, debt settlement and pending payments on a game state.
+// Debt on GameState: bank loan wrappers and the pending-payment ledger. A debt a player cannot cover from cash (rent, tax, card
+// fine) is parked in pendingPayment, later claims queue behind it in pendingPaymentQueue, and the table waits while the debtor
+// mortgages, sells or goes bankrupt (bankruptcyApi.js). Loan terms and rules are in loanLogic.js.
 import { bankLoanOffer, bankLoanTerms, defaultBankLoan, processBankLoans, repayBankLoan, takeBankLoan } from './loanLogic.js';
 
 export const gameDebtApi = {
@@ -52,14 +54,11 @@ export const gameDebtApi = {
     });
   },
 
+  // Collects debt.amount from debt.player for debt.creditor (null = the bank), then lets the turn carry on.
+  // Shape: { player, creditor, amount, message, turnOptions, hooks: { onPaid, equityTileIndex, equityOwnerId } }.
   chargePlayer(debt) {
-    // Nothing to collect from a missing payer or a non-debt: the turn just
-    // resolves normally.
-    if (!debt.player) {
-      this.resolveTurnAfterAction(debt.turnOptions);
-      return;
-    }
-    if (debt.amount <= 0) {
+    // Nothing to collect from a missing payer or a non-debt: the turn just resolves normally.
+    if (!debt.player || debt.amount <= 0) {
       this.resolveTurnAfterAction(debt.turnOptions);
       return;
     }
@@ -90,7 +89,7 @@ export const gameDebtApi = {
       this.tenderPartialDebt(player, creditor, partial, hooks);
     }
     const remaining = amount - partial;
-    const pending = {
+    const claim = {
       playerId: player.id,
       creditorId: creditor ? creditor.id : null,
       amountRemaining: remaining,
@@ -98,37 +97,39 @@ export const gameDebtApi = {
       equityTileIndex: hooks.equityTileIndex ?? null,
       equityOwnerId: hooks.equityOwnerId ?? null
     };
-    if (this.pendingPayment) {
-      // Round processing can mature several independent debts at once. Keep
-      // the existing table gate and queue later claims instead of silently
-      // overwriting the first debtor.
-      this.pendingPaymentQueue ||= [];
-      // The active roller must never wait behind another seat's claim: the
-      // settle flow reads the head, so promote the roller's claim and requeue
-      // the one it displaces.
-      if (pending.playerId === this.currentPlayerId && this.pendingPayment.playerId !== pending.playerId) {
-        this.pendingPaymentQueue.unshift({
-          payment: this.pendingPayment,
-          hooks: this.pendingPaymentHooks,
-          turnOptions: this.pendingPaymentTurnOptions
-        });
-        this.pendingPayment = pending;
-        this.pendingPaymentHooks = hooks;
-        this.pendingPaymentTurnOptions = turnOptions;
-        this.syncDebtFlags();
-        this.feedMessage(`${player.nickname} owes $${remaining}; the payment takes priority over the queued debt.`);
-        return;
-      }
-      this.pendingPaymentQueue.push({ payment: pending, hooks, turnOptions });
+    if (!this.pendingPayment) {
+      this.setHeadClaim(claim, hooks, turnOptions);
       this.syncDebtFlags();
-      this.feedMessage(`${player.nickname} owes $${remaining}; the payment is queued behind the current debt.`);
+      this.feedMessage(`${player.nickname} owes $${remaining}. Mortgage or sell buildings to raise funds, or declare bankruptcy.`);
       return;
     }
-    this.pendingPayment = pending;
+    // Round processing can mature several independent debts at once. Keep the existing table gate and queue
+    // later claims instead of silently overwriting the first debtor.
+    this.pendingPaymentQueue ||= [];
+    // The active roller must never wait behind another seat's claim: the settle flow reads the head, so
+    // promote the roller's claim and requeue the one it displaces.
+    const rollerOutranksHead = claim.playerId === this.currentPlayerId && this.pendingPayment.playerId !== claim.playerId;
+    if (rollerOutranksHead) {
+      this.pendingPaymentQueue.unshift({
+        payment: this.pendingPayment,
+        hooks: this.pendingPaymentHooks,
+        turnOptions: this.pendingPaymentTurnOptions
+      });
+      this.setHeadClaim(claim, hooks, turnOptions);
+      this.syncDebtFlags();
+      this.feedMessage(`${player.nickname} owes $${remaining}; the payment takes priority over the queued debt.`);
+      return;
+    }
+    this.pendingPaymentQueue.push({ payment: claim, hooks, turnOptions });
+    this.syncDebtFlags();
+    this.feedMessage(`${player.nickname} owes $${remaining}; the payment is queued behind the current debt.`);
+  },
+
+  // Makes a claim the one the table is waiting on, with the hooks and turn options to replay when it is paid.
+  setHeadClaim(claim, hooks, turnOptions) {
+    this.pendingPayment = claim;
     this.pendingPaymentHooks = hooks;
     this.pendingPaymentTurnOptions = turnOptions;
-    this.syncDebtFlags();
-    this.feedMessage(`${player.nickname} owes $${remaining}. Mortgage or sell buildings to raise funds, or declare bankruptcy.`);
   },
 
   tenderPartialDebt(player, creditor, partial, hooks) {
@@ -323,9 +324,5 @@ export const gameDebtApi = {
     from.cash -= amount;
     to.cash += amount;
     this.feedMessage(message);
-  },
-
-  deductMoney(player, amount, message) {
-    this.chargePlayer({ player, amount, message, turnOptions: {} });
   }
 };

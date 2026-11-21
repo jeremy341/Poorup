@@ -5,12 +5,8 @@ import { trafficPercent, groupDevelopmentGain, rentAtLevel as sharedRentAtLevel 
 // The engine's own rent math: the event modifiers and the rent cap change
 // what a seat actually pays, so a forecast that ignores them over-states the
 // hit the reserve has to cover.
-import { calculateRentFromFacts, rentFactsFromSnapshot } from './botRentForecast.js';
-
-function number(value, fallback = 0) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
+import { rentFromSnapshot } from './botRentForecast.js';
+import { finiteNumber } from './numberUtils.js';
 
 // Expected rent at a house level (level 0..5, 5 = hotel). The ladder itself
 // is the shared one in botTradeValuation, so the forecast and the trade
@@ -22,7 +18,7 @@ export function rentAtLevel(tile, level) {
 // Extra rent per full opponent circuit if this tile gains one house,
 // traffic-weighted. Abstract "circuits" currency shared with payback.
 export function houseDeltaPerCircuit(tile) {
-  const level = Math.max(0, Math.min(5, Math.floor(number(tile?.houseCount))));
+  const level = Math.max(0, Math.min(5, Math.floor(finiteNumber(tile?.houseCount))));
   if (level >= 5) return 0;
   const delta = Math.max(0, rentAtLevel(tile, level + 1) - rentAtLevel(tile, level));
   return Math.floor(delta * trafficPercent(tile?.group) / 100);
@@ -33,7 +29,7 @@ export function houseDeltaPerCircuit(tile) {
 export function buildPaybackRounds(tile, houseCost) {
   const gain = houseDeltaPerCircuit(tile);
   if (gain <= 0) return Number.MAX_SAFE_INTEGER;
-  return Math.max(1, Math.ceil(Math.max(0, Math.floor(number(houseCost))) / gain));
+  return Math.max(1, Math.ceil(Math.max(0, Math.floor(finiteNumber(houseCost))) / gain));
 }
 
 function ownGroupTiles(board, group, seat = 'self') {
@@ -59,10 +55,10 @@ export function groupBuildPlan(board, group, houseCostOf) {
   let buildRounds = 0;
   for (const tile of tiles) {
     if (tile?.mortgaged || tile?.constructionBlocked) return null;
-    const level = Math.max(0, Math.min(5, Math.floor(number(tile?.houseCount))));
+    const level = Math.max(0, Math.min(5, Math.floor(finiteNumber(tile?.houseCount))));
     const need = Math.max(0, 3 - level);
     if (!need) continue;
-    const unit = Math.max(0, Math.floor(number(houseCostOf?.(tile))));
+    const unit = Math.max(0, Math.floor(finiteNumber(houseCostOf?.(tile))));
     if (!unit) return null;
     cost += unit * need;
     housesToThree += need;
@@ -122,7 +118,7 @@ function hitRent(board, tile, snapshot) {
     // A utility is the one tile whose rent grows with the dice, so the
     // worst case is the highest total.
     const diceTotal = type === 'utility' ? 12 : 7;
-    return calculateRentFromFacts(rentFactsFromSnapshot({ ...snapshot, board }, tile, diceTotal));
+    return rentFromSnapshot({ ...snapshot, board }, tile, diceTotal);
   }
   return rentAtLevel(tile, tile?.houseCount);
 }
@@ -130,9 +126,40 @@ function hitRent(board, tile, snapshot) {
 // Biggest single rent hit an opponent can deal next circuit: max over
 // opponent-owned, unmortgaged, developed tiles of traffic-weighted rent.
 // Drives the dynamic liquidity target (cover the max live hit).
-export function forecastMaxHit(board, snapshot = null) {
+// Every tile field the hit reads (the rent facts and the group weights) goes into the key, so a memo hit can only return the
+// value the scan would compute. One snapshot prices its reserve once per distinct board, not once per candidate.
+const MAX_HIT_MEMO = new WeakMap();
+const HIT_FIELDS = 6;
+
+function hitFieldsOf(board) {
+  const fields = new Array(board.length * HIT_FIELDS);
+  board.forEach((tile, index) => {
+    const at = index * HIT_FIELDS;
+    fields[at] = tile?.ownerSeat;
+    fields[at + 1] = tile?.houseCount;
+    fields[at + 2] = tile?.mortgaged;
+    fields[at + 3] = tile?.type;
+    fields[at + 4] = tile?.group;
+    fields[at + 5] = tile?.rent;
+  });
+  return fields;
+}
+
+// Strict equality on every field: any difference (even a string versus a number) is a miss, never a wrong hit.
+function sameHitFields(fields, board) {
+  if (fields.length !== board.length * HIT_FIELDS) return false;
+  for (let index = 0; index < board.length; index += 1) {
+    const tile = board[index];
+    const at = index * HIT_FIELDS;
+    if (fields[at] !== tile?.ownerSeat || fields[at + 1] !== tile?.houseCount || fields[at + 2] !== tile?.mortgaged
+      || fields[at + 3] !== tile?.type || fields[at + 4] !== tile?.group || fields[at + 5] !== tile?.rent) return false;
+  }
+  return true;
+}
+
+function scanMaxHit(board, snapshot) {
   let max = 0;
-  for (const tile of board || []) {
+  for (const tile of board) {
     const seat = tile?.ownerSeat || 'bank';
     if (!seat.startsWith('opponent') || tile?.mortgaged) continue;
     const rent = hitRent(board, tile, snapshot);
@@ -140,6 +167,17 @@ export function forecastMaxHit(board, snapshot = null) {
     if (weighted > max) max = weighted;
   }
   return max;
+}
+
+export function forecastMaxHit(board, snapshot = null) {
+  const list = board || [];
+  if (!snapshot || typeof snapshot !== 'object') return scanMaxHit(list, snapshot);
+  // The last board priced for this snapshot, with the fields the scan reads. Planner candidates re-price one board many times.
+  const last = MAX_HIT_MEMO.get(snapshot);
+  if (last && sameHitFields(last.fields, list)) return last.value;
+  const value = scanMaxHit(list, snapshot);
+  MAX_HIT_MEMO.set(snapshot, { fields: hitFieldsOf(list), value });
+  return value;
 }
 
 // Table stage from development facts: early (no monopolies yet), mid
@@ -156,8 +194,8 @@ export function developmentStage(board) {
     for (const tile of tiles) {
       const seat = tile?.ownerSeat || 'bank';
       bySeat.set(seat, (bySeat.get(seat) || 0) + 1);
-      houses += Math.max(0, Math.min(4, Math.floor(number(tile?.houseCount))));
-      if (Math.floor(number(tile?.houseCount)) >= 5) hotels += 1;
+      houses += Math.max(0, Math.min(4, Math.floor(finiteNumber(tile?.houseCount))));
+      if (Math.floor(finiteNumber(tile?.houseCount)) >= 5) hotels += 1;
     }
     for (const [seat, count] of bySeat) {
       if (seat !== 'bank' && count >= tiles.length) monopolies += 1;
@@ -171,7 +209,7 @@ export function developmentStage(board) {
 // Dynamic liquidity target: cover the forecast max hit plus one house of headroom, bounded to sane whole dollars.
 // Replaces the static 120/180 in planning math. The snapshot, when present, prices the hit the way the engine charges it.
 export function dynamicReserve(board, houseCost = 100, snapshot = null) {
-  const target = forecastMaxHit(board, snapshot) + Math.max(0, Math.floor(number(houseCost)));
+  const target = forecastMaxHit(board, snapshot) + Math.max(0, Math.floor(finiteNumber(houseCost)));
   return Math.max(120, Math.min(1000, target));
 }
 

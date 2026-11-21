@@ -1,6 +1,9 @@
-// Game state for one room: players, turns, the board, and the rules that
-// connect them. Domain methods are attached from the mixin modules below.
+// GameState: the authoritative state of one room's match (players, board, decks, pending offers, ledgers).
+// The class itself only owns construction, reset and seat lookup. Every rule lives in a mixin module whose
+// methods are copied onto GameState.prototype at the bottom of this file, so `this` inside them is the game.
+// It is not the room (rooms.js: seats, sockets, timers) and not the bot policy (botLogic.js).
 import { createMarketQuotePoint, freshMarketQuotes, MARKET_INSTRUMENTS } from './marketLogic.js';
+import { OPTION_RESERVE_INITIAL, STARTING_SHORT_INVENTORY } from './marketExpansion.js';
 import { DEFAULT_ROOM_SETTINGS, stripRetiredRoomSettings } from './roomSettings.js';
 import { resolveRuleset } from './rulesetRegistry.js';
 import { START_TILE_INDEX } from './gameData.js';
@@ -130,8 +133,18 @@ function isHumanActionSeat(player) {
   return !player.disconnected;
 }
 
+const FEED_MAX_ENTRIES = 40;
+const TELEMETRY_LOG_MAX_ENTRIES = 200;
+
+const REPLAY_MAP_MAX_ENTRIES = 1_000;
+const REPLAY_MAP_TTL_MS = 15 * 60_000;
+
+// Remembers the result of each request id so a client that resends an action (flaky network, double click) gets the
+// original answer back instead of running the action twice. The map is bounded two ways: an entry older than the TTL
+// or pushed past the size limit is forgotten, but its id is kept in `terminal` until its own TTL passes, so a very
+// late resend is answered with REQUEST_ID_EXPIRED instead of being executed as a new action.
 class BoundedReplayMap extends Map {
-  constructor(limit = 1_000, ttlMs = 15 * 60_000) {
+  constructor(limit = REPLAY_MAP_MAX_ENTRIES, ttlMs = REPLAY_MAP_TTL_MS) {
     super();
     this.limit = limit;
     this.ttlMs = ttlMs;
@@ -219,13 +232,13 @@ class GameState {
     this.reset();
   }
 
-  reset() {
+  // Everything about the table except its seats: turn state, pending offers, ledgers, decks.
+  // Shared by the constructor (reset) and by a rematch (resetForNewGame).
+  resetTableState() {
     this.tiles = tilesForVariant(this.boardVariant);
-    this.players = [];
-    this.turnOrder = [];
     this.currentPlayerId = null;
+    this.turnOrder = [];
     this.lastDice = [0, 0];
-    this.diceRollSequence = 0;
     this.presentation = null;
     this._activePresentation = null;
     this.hasRolled = false;
@@ -236,7 +249,6 @@ class GameState {
     this.pendingPurchaseOffer = null;
     this.pendingSponsoredPurchase = null;
     this.started = false;
-    this.startedAt = null;
     this.feed = [];
     this.auction = null;
     this.pendingTrade = null;
@@ -256,7 +268,6 @@ class GameState {
     this.lastEndReason = null;
     this.finalNetWorthById = null;
     this.vacationPool = 0;
-    this.roundNumber = 0;
     this.globalEvent = null;
     this.globalEventHistory = [];
     this.globalEventCooldown = 0;
@@ -269,8 +280,7 @@ class GameState {
     this.economyTransactions = new BoundedReplayMap();
     this.marketQuotes = freshMarketQuotes();
     this.marketQuoteHistory = [createMarketQuotePoint(this, 0, null)];
-    this.marketOptionReserve = 100_000;
-    this.marketShortInventory = {};
+    this.marketOptionReserve = OPTION_RESERVE_INITIAL;
     this.marketInstruments = MARKET_INSTRUMENTS;
     this.marketRound = 0;
     this.marketModifierEventKey = null;
@@ -285,6 +295,15 @@ class GameState {
     const decks = decksForVariant(this.boardVariant);
     this.surpriseDeck = decks.surprise.map(card => ({ ...card }));
     this.treasureDeck = decks.treasure.map(card => ({ ...card }));
+  }
+
+  reset() {
+    this.resetTableState();
+    this.players = [];
+    this.diceRollSequence = 0;
+    this.startedAt = null;
+    this.roundNumber = 0;
+    this.marketShortInventory = {};
   }
 
   resetPlayerState(player) {
@@ -308,7 +327,7 @@ class GameState {
       data: safeData,
       roundNumber: Math.max(0, Number(this.roundNumber) || 0)
     });
-    if (this.telemetryLog.length > 200) this.telemetryLog.splice(0, this.telemetryLog.length - 200);
+    if (this.telemetryLog.length > TELEMETRY_LOG_MAX_ENTRIES) this.telemetryLog.splice(0, this.telemetryLog.length - TELEMETRY_LOG_MAX_ENTRIES);
   }
 
   recordHumanAction(player) {
@@ -323,72 +342,13 @@ class GameState {
   }
 
   resetForNewGame() {
-    this.presentation = null;
-    this._activePresentation = null;
     this.boardVariant = this.settings.boardVariant || this.boardVariant || 'standard-40';
-    this.tiles = tilesForVariant(this.boardVariant);
-    this.currentPlayerId = null;
-    this.turnOrder = [];
-    this.lastDice = [0, 0];
-    this.hasRolled = false;
-    this.consecutiveDoubles = 0;
-    this.extraRollPending = false;
-    this.turnAllowsExtraRoll = false;
-    this.awaitingEndTurn = false;
-    this.pendingPurchaseOffer = null;
-    this.pendingSponsoredPurchase = null;
-    this.started = false;
+    this.resetTableState();
     this.startedAt = Date.now();
-    this.feed = [];
-    this.auction = null;
-    this.pendingTrade = null;
-    this.pendingPlayerContract = null;
-    this.playerContracts = [];
-    this.contractTransactions = new BoundedReplayMap();
-    this.tradeTransactions = new BoundedReplayMap();
-    this.tradesCompleted = 0;
-    this.auctionsCompleted = 0;
-    this.pendingPayment = null;
-    this.pendingPaymentQueue = [];
-    this.pendingPaymentTurnOptions = null;
-    this.pendingPaymentHooks = null;
-    this.syncDebtFlags();
-    this.defaultClaims = [];
-    this.borrowerNotices = [];
-    this.lastWinner = null;
-    this.lastEndReason = null;
-    this.finalNetWorthById = null;
-    this.vacationPool = 0;
     this.roundNumber = 1;
-    this.globalEvent = null;
-    this.globalEventHistory = [];
-    this.globalEventCooldown = 0;
-    this.globalEventsTriggered = 0;
-    this.globalEventTriggerSource = null;
-    this.midpointMarked = false;
-    this.casinoLastResult = null;
-    this.casinoLedger = [];
-    this.marketLedger = [];
     this.globalEventVoteTransactions = null;
-    this.economyTransactions = new BoundedReplayMap();
-    this.marketQuotes = freshMarketQuotes();
-    this.marketQuoteHistory = [createMarketQuotePoint(this, 0, null)];
-    this.marketOptionReserve = 100_000;
-    this.marketShortInventory = Object.fromEntries(Object.keys(this.marketQuotes).map(id => [id, 50]));
-    this.marketInstruments = MARKET_INSTRUMENTS;
-    this.marketRound = 0;
-    this.marketModifierEventKey = null;
-    this.botDecisionSequence = 0;
-    this.botDecisionTrace = [];
-    this.publicActionHistory = [];
-    this.netWorthTimeline = [];
-    this.humanActionCount = 0;
-    this.afkTurnCount = 0;
-    this.telemetryLog = [];
-    this.itemTransactions = new Map();
-    const decks = decksForVariant(this.boardVariant);
-    this.surpriseDeck = decks.surprise.map(card => ({ ...card }));
-    this.treasureDeck = decks.treasure.map(card => ({ ...card }));
+    this.marketShortInventory = Object.fromEntries(Object.keys(this.marketQuotes).map(id => [id, STARTING_SHORT_INVENTORY]));
+    this.syncDebtFlags();
     this.players.forEach(player => {
       // A seat still inside its reconnect grace stays disconnected across a
       // rematch: its expiry timer is still armed, and clearing the flag here
@@ -435,9 +395,7 @@ class GameState {
 
   feedMessage(text) {
     this.feed.unshift({ text, timestamp: Date.now() });
-    if (this.feed.length > 40) {
-      this.feed.length = 40;
-    }
+    if (this.feed.length > FEED_MAX_ENTRIES) this.feed.length = FEED_MAX_ENTRIES;
   }
 
   getCurrentPlayer() {

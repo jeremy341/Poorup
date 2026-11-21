@@ -44,7 +44,7 @@ function kpiUnit(item, id) {
   return 'value';
 }
 
-export function isPercentUnit(unit) { return unit === 'percent' || unit === 'adoption' || unit.endsWith('rate'); }
+function isPercentUnit(unit) { return unit === 'percent' || unit === 'adoption' || unit.endsWith('rate'); }
 function scaledPercent(number) { return Math.abs(number) <= 1 ? number * 100 : number; }
 
 function displayValue(value, unit) {
@@ -114,24 +114,10 @@ function renderKpi(item) {
 }
 
 // Contract order first, anything else after, each in the order received.
-export function orderedKpis(snapshot) {
+function orderedKpis(snapshot) {
   const items = Array.isArray(snapshot?.overview?.kpis) ? snapshot.overview.kpis : [];
   const rank = item => { const index = OVERVIEW_KPIS.findIndex(entry => entry.id === item.id); return index === -1 ? OVERVIEW_KPIS.length : index; };
   return items.map((item, position) => ({ item, position })).sort((a, b) => rank(a.item) - rank(b.item) || a.position - b.position).map(entry => entry.item).slice(0, OVERVIEW_KPIS.length);
 }
 
 export function kpiMarkup(snapshot) { return orderedKpis(snapshot).map(renderKpi).join(''); }
-
-// The same tiles as export rows: value with its numerator and denominator.
-export function kpiPoints(snapshot) {
-  return orderedKpis(snapshot).map(item => {
-    const unit = kpiUnit(item, String(item.id || '').toLowerCase());
-    const value = finiteNumber(item.value);
-    const point = { label: `KPI · ${item.label || item.id || 'Metric'}`, value, unit: isPercentUnit(unit) ? 'percent' : unit };
-    const numerator = finiteNumber(item.numerator);
-    const denominator = finiteNumber(item.denominator);
-    if (numerator !== null) point.numerator = numerator;
-    if (denominator !== null) point.denominator = denominator;
-    return point;
-  });
-}

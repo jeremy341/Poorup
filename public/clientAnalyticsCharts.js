@@ -192,4 +192,4 @@ export function renderBoardMetricMap(container, board, options = {}) {
   return { tiles, element: container.firstElementChild };
 }
 
-export { CHART_COLORS, CHART_ROLES, MAX_POINTS };
+export { CHART_COLORS };

@@ -164,4 +164,4 @@ export function sanitizeAnalyticsResponse(value) {
   return sanitizeResponseValue(value) || {};
 }
 
-export { FORBIDDEN_KEYS, ALLOWED_ROW_KEYS };
+export { FORBIDDEN_KEYS };

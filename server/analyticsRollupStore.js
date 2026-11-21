@@ -17,7 +17,6 @@ export const ALLOWED_ROLLUP_KINDS = new Set([
   'airport-flight', 'achievement-unlocked', 'reward-claimed', 'bot-outcome', 'bankruptcy', 'comeback'
 ]);
 
-const DIMENSION_KEYS = new Set(ALLOWED_ANALYTICS_DIMENSIONS);
 const BUCKET_MS = 3_600_000;
 const DURATION_SAMPLE_LIMIT = 2048;
 const MAX_FUTURE_SKEW_MS = 24 * 3_600_000;
@@ -941,4 +940,4 @@ export function createAnalyticsRollupStore({ filePath = null, now = () => Date.n
   return Object.freeze({ close, flush, health, prune, purgeAccount, query, record });
 }
 
-export { DIMENSION_KEYS, dimensionKey };
+export { dimensionKey };

@@ -1,4 +1,4 @@
-function escapeHtmlText(value) {
+export function escapeHtmlText(value) {
   return String(value ?? '').replace(/[&<>"']/g, character => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   })[character]);
@@ -20,8 +20,9 @@ export function renderErrorPage(title, message, extraHtml = '') {
     <meta name="theme-color" content="#01070a">
     <title>${safeTitle} · Poorup</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css">
-    <link rel="stylesheet" href="/ui-review-system.css">
+    <link rel="stylesheet" href="/css/01-tokens-and-fonts.css">
+    <link rel="stylesheet" href="/css/02-base-and-helpers.css">
+    <link rel="stylesheet" href="/css/38-admin-and-system-pages.css">
   </head>
   <body class="ui-error-page">
     <main class="ui-error-card noise${safeExtra ? ' has-form' : ''}">

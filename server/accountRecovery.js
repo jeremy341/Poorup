@@ -339,4 +339,4 @@ export function createAccountRecovery({ accountStore, mailAdapter, sessionStore 
   return { requestEmailVerification, consumeEmailVerification, requestPasswordReset, consumePasswordReset, prune, purgeAccount, tokenCount: () => tokens.size };
 }
 
-export { TOKEN_TTL_MS, hashToken };
+export { hashToken };

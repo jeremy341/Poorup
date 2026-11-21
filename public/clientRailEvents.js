@@ -1,4 +1,4 @@
-// RAIL EVENTS: click and submit dispatch tables for #rr-body (holdings, deals, activity, market,
+// RAIL EVENTS: click and submit dispatch tables for #right-rail-body (holdings, deals, activity, market,
 // bank loans, financing, trades, casino). Handlers run in if-chain order; disabled controls fall through.
 // Game-bound functions come from the entry module. Repayment controls pass an optional amount,
 // and the server's full-pay default still applies.

@@ -88,4 +88,29 @@ const late = windowBucket(locked, 'peer-late', start + 1, 60_000, cap);
 assert.equal(locked.get('peer-late'), late, 'a late key is tracked in the map itself');
 assert.equal(late.count, 1, 'a late key starts from a spent budget, so the limit fails closed');
 assert.equal([...locked.values()].reduce((sum, bucket) => sum + bucket.count, 0), spentBefore, 'no budget is lost when the table is full');
-console.log('http rate limiter: 17 passed, 0 failed');
+// The fixed-window rewrite: a client cannot spend a full per-IP allowance on each side of a window rollover.
+// With a fixed window this address would spend 1 at t=0, 99 at t=999 and another 100 at t=1000 (200 in one instant).
+{
+  let clock = 0;
+  const boundary = createHttpRateLimiter({ max: 100, windowMs: 1000, now: () => clock });
+  const ip = () => ({ headers: {}, socket: { remoteAddress: '203.0.113.11' } });
+  const passed = () => {
+    let allowed = false;
+    boundary(ip(), response(), () => { allowed = true; });
+    return allowed;
+  };
+  assert.equal(passed(), true, 'the first request opens the window at t=0');
+  clock = 999;
+  let before = 0;
+  for (let index = 0; index < 100; index += 1) if (passed()) before += 1;
+  assert.equal(before, 100, 'a full allowance is available just before the rollover');
+  clock = 1000;
+  let after = 0;
+  for (let index = 0; index < 100; index += 1) if (passed()) after += 1;
+  assert.equal(after, 0, 'no second full allowance one millisecond after the rollover');
+  const refused = response();
+  boundary(ip(), refused, () => {});
+  assert.equal(refused.headers['Retry-After'], '1', 'a refused request still carries a bounded Retry-After');
+}
+
+console.log('http rate limiter: 18 passed, 0 failed');

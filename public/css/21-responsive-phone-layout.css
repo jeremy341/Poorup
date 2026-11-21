@@ -1,0 +1,120 @@
+/* Phone game layout, touch targets and the portrait home band. */
+
+/* Phone game layout: single column with turn controls first. The board,
+   rails, and chat stack below in DOM order instead of burying the roll
+   button and timer off-screen during timed auctions. */
+@media (hover: none) and (pointer: coarse) {
+  /* 44px touch floors for fast-tap game controls. Scoped to touch so the
+     desktop pixel aesthetic keeps its authored sizes. */
+  .hud-jail-action { min-height: 44px; }
+  .rules-page-turn { min-height: 44px; }
+  /* The landscape touch shell parks the roll/jail action column against the
+     board's bottom edge, which is exactly where the first-turn coach's dead
+     space sits on desktop. Lift the coach above the action column. */
+  .turn-coach { bottom: 12%; }
+  /* Crosshair cursors fight affordance on touch/trackpads: default there.
+     Desktop keeps the authored reticle theme. */
+  body, button:not(:disabled), a, [role="button"],
+  #view-home .home-main, #view-home .home-main button:not(:disabled), #view-home .home-main a,
+  #view-home .home-main [role="button"], #view-home .home-main summary,
+  button.home-patrol-hint, button.home-helicopter, button.night-target,
+  #board-grid, #board-grid .tile, #board-grid button:not(:disabled) { cursor: default; }
+}
+@media (max-width: 767px) {
+  #view-game { height: auto; min-height: 100vh; overflow: visible; }
+  #view-game .game-main { display: flex; flex-direction: column; height: auto; overflow: visible; }
+  #view-game .rail-center { display: contents; }
+  #view-game .hud { order: -1; }
+  #view-game .board-area { min-height: 0; }
+  #view-game .rail-left, #view-game .right-rail { height: auto; }
+}
+
+@media (max-width: 767px) {
+  /* The global destinations remain reachable on phones as a compact second
+     header row instead of disappearing with the desktop nav. Horizontal
+     scrolling keeps every tab at a readable touch target. */
+  .hdr { min-height: 76px; height: auto; flex-wrap: wrap; gap: 7px; padding-block: 8px; }
+  .hdr .home-nav { display: flex; order: 3; flex: 1 0 100%; width: 100%; max-width: 100%; margin: 0; overflow-x: auto; scrollbar-width: none; mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 22px), transparent 100%); -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 22px), transparent 100%); }
+  .hdr .home-nav::-webkit-scrollbar { display: none; }
+  .hdr .home-nav-tab { flex: 0 0 auto; min-width: max-content; padding-inline: 10px; }
+
+  #view-home {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+  #view-home .home-main {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 8px 10px 12px;
+  }
+  #view-home .title-screen { flex: 0 0 auto; min-height: 0; }
+
+  @media (hover: none) and (pointer: coarse) {
+    .hdr .home-nav { scrollbar-width: thin; scrollbar-color: var(--line-default) var(--surface-panel-deep); }
+    .hdr .home-nav::-webkit-scrollbar { display: block; height: 4px; }
+    .hdr .home-nav::-webkit-scrollbar-track { background: var(--surface-panel-deep); }
+    .hdr .home-nav::-webkit-scrollbar-thumb { background: var(--line-default); }
+  }
+
+}
+
+/* Portrait/mobile Home keeps the patrol readouts in a reserved band above
+   the title. The scenic layers remain absolute so the authored pixel scene
+   and fly-by paths do not change, only the readout flow does. */
+@media (max-width: 767px) {
+  .field,
+  .setting-select { font-size: 16px; }
+}
+
+@media (max-width: 640px) {
+  #view-home .home-sky-atmosphere {
+    position: static;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "time score" "hint hint";
+    align-items: center;
+    gap: 6px 16px;
+    min-height: 110px;
+    padding: 12px 16px 8px;
+    overflow: visible;
+  }
+  #view-home .home-local-time { position: static; grid-area: time; }
+  #view-home .home-patrol-score { position: static; grid-area: score; justify-self: end; }
+  #view-home .home-patrol-hint { position: static; grid-area: hint; justify-self: end; text-align: right; }
+}
+
+@media (orientation: portrait) and (max-width: 1100px) {
+  .field,
+  .setting-select { font-size: 16px; }
+  #view-home .home-sky-atmosphere {
+    position: static;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "time score" "hint hint";
+    align-items: center;
+    gap: 6px 16px;
+    min-height: 110px;
+    padding: 12px 16px 8px;
+    overflow: visible;
+  }
+  #view-home .home-local-time { position: static; grid-area: time; }
+  #view-home .home-patrol-score { position: static; grid-area: score; justify-self: end; }
+  #view-home .home-patrol-hint { position: static; grid-area: hint; justify-self: end; text-align: right; }
+}
+
+/* With Parlor Patrol off only the clock remains: no reserved band, no empty row. */
+@media (max-width: 640px), (orientation: portrait) and (max-width: 1100px) {
+  #view-home .home-sky-atmosphere:not(:has([data-parlor-patrol]:not([hidden]))) {
+    grid-template-areas: "time time";
+    min-height: 0;
+  }
+}
+

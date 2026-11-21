@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 const index = readFileSync(new URL("./index.html", import.meta.url), "utf8");
-const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+const styles = siteCss();
 const profileBindings = readFileSync(new URL("./clientProfileBindings.js", import.meta.url), "utf8");
 
 const checks = [];
@@ -28,9 +29,9 @@ check("document exposes a skip link, named mains, and a browser theme color", ()
 });
 
 check("rankings and social page shells expose a page-level heading", () => {
-  expectMatch(index, /<h1[^>]+id="rankings-page-heading"[^>]*>Global Rankings<\/h1>/i, "rankings page H1 is missing");
+  expectMatch(index, /<div[^>]+id="rankings-page-heading"[^>]*role="heading"[^>]*aria-level="1"[^>]*>Global Rankings<\/div>/i, "rankings page H1 is missing");
   expectMatch(index, /<main[^>]+id="rankings-page-content"[^>]+aria-labelledby="rankings-page-heading"/i, "rankings main label is missing");
-  expectMatch(index, /<h1[^>]+id="social-page-heading"[^>]*>Parlor Social<\/h1>/i, "social page H1 is missing");
+  expectMatch(index, /<div[^>]+id="social-page-heading"[^>]*role="heading"[^>]*aria-level="1"[^>]*>Parlor Social<\/div>/i, "social page H1 is missing");
   expectMatch(index, /<main[^>]+id="social-page-content"[^>]+aria-labelledby="social-page-heading"/i, "social main label is missing");
 });
 
@@ -92,8 +93,8 @@ check("event summaries wrap at narrow widths", () => {
 
 check("static duplicate status nodes are removed", () => {
   assert.ok(!/class="chair-flag"/.test(index), "static chair status remains");
-  assert.ok(!/id="tn-connection-note"/.test(index), "static game connection note remains");
-  assert.ok(!/<div class="online">[\s\S]*id="tn-online"/.test(index), "static game online status remains");
+  assert.ok(!/id="topnav-connection-note"/.test(index), "static game connection note remains");
+  assert.ok(!/<div class="online">[\s\S]*id="topnav-online"/.test(index), "static game online status remains");
   assert.ok(!/#view-home \.hdr-right > \.online/.test(styles), "global duplicate-status suppression remains");
 });
 

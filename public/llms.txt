@@ -1,5 +1,7 @@
 # Poorup
 
+Last updated: 2026-11-20
+
 > Poorup is a free, browser-based, real-time multiplayer property-trading board game in the style of Monopoly. Two to four players (up to six on the Metro-52 board; guests need no account) can host a public table (listed in the room directory) or a private room shared through a six-character invite code, buy, rent, build, mortgage and trade properties, bid at auctions, and try to be the last solvent player. No download or signup is needed to play.
 
 Poorup is an independent game. It is not made by, endorsed by or affiliated with Hasbro (the owner of Monopoly) or Richup.io. It describes itself as a Monopoly-style and Richup-style game only as a description of the kind of play.
@@ -11,8 +13,8 @@ Poorup is an independent game. It is not made by, endorsed by or affiliated with
 - Players: 2 to 4 per Standard-40 table, up to 6 on Metro-52 (the in-game rules describe seating and host controls).
 - Boards: Standard-40 and Metro-52, with room-specific rules set by the host.
 - Multiplayer: live rooms with public discovery or private invite codes, chat, and reconnect support.
-- Bots: deterministic NO-AI bots and optional AI-advisor bots with difficulty settings.
-- Persistence: no database; optional accounts store profile, match history and achievements in local JSON files on the server.
+- Computer players: NO-AI COMPUTER players run offline; AI COMPUTER players use an AI provider and fall back automatically when it is unavailable.
+- Accounts: optional. An account keeps profile, match history and achievements in JSON files on the game server.
 - Open source: MIT License, source at https://github.com/jeremy341/Poorup
 
 ## Pages
@@ -20,11 +22,14 @@ Poorup is an independent game. It is not made by, endorsed by or affiliated with
 - [Home](/): play the game in the browser.
 - [About](/about): what Poorup is, how it plays, how it compares with Monopoly-style online board games, and frequently asked questions.
 - [Rules](/rules): the full rules book covering turns, buying, rent, houses and hotels, auctions, trades, jail, loans and bankruptcy.
+## Full text
+
+- [Full text](/llms-full.txt): the About and Rules pages as one Markdown file, generated from the same source as the pages.
 
 ## Frequently asked
 
 - Is Poorup free? Yes. Play in the browser without downloading anything.
 - Is Poorup Monopoly? No. It is an independent Monopoly-style property-trading game and is not affiliated with Hasbro.
 - Can I play with friends online? Yes. Create a private room, share its six-character code, and friends join from their own browsers. Public tables are listed in the room directory.
-- Can I play with bots? Yes. Bots are available as opponents in deterministic (NO-AI) and optional AI-advisor modes, with difficulty settings chosen in the lobby.
+- Can I play with bots? Yes. The lobby lets a host seat NO-AI COMPUTER players (offline) or AI COMPUTER players (AI provider, with automatic fallback).
 - Do I need an account? No. Guests can play; an optional account keeps profile, match history and achievements.

@@ -1,6 +1,6 @@
 // The account and room-lifecycle socket domain: registration, login, session restore, public-room browsing, and the create, join,
 // leave, set-setting and start-game handlers. Their guard chains follow the propertyApi.js style. Every ack payload, system message
-// and emit order is wire-identical (server/rooms.test.js pins the error strings and order).
+// and emit order are a contract with the client (server/rooms.test.js pins the error strings and order).
 import {
   normalizeClientId,
   normalizeRequestId,
@@ -15,12 +15,34 @@ import {
   toJoinPlayerInfo
 } from './roomSetup.js';
 import { reply } from './socketHandlerSupport.js';
-import { resolveClientAddress } from './serverConfig.js';
+import { readAbuseLimits, readTrustedProxy, resolveClientAddress } from './serverConfig.js';
+import { createAbuseBudgets } from './abuseBudgets.js';
 import { withAdminFlag } from './analyticsApi.js';
-import { peerBucketKey, pruneWindowBuckets, windowBucket } from './rateBuckets.js';
+import { RATE_LIMITED_CODE, RATE_LIMITED_MESSAGE, peerBucketKey, pruneWindowBuckets, windowBucket } from './rateBuckets.js';
 
-const AUTH_ATTEMPT_WINDOW_MS = 60_000;
-const AUTH_ATTEMPT_LIMIT = 8;
+// Limits come from readAbuseLimits unless the runtime carries its own (tests do). Per-identity budgets live on the runtime, so every
+// socket of one server shares them and a reconnect cannot reset them.
+let defaultAbuseLimits = null;
+function limitsFor(runtime) {
+  if (runtime.abuseLimits) return runtime.abuseLimits;
+  defaultAbuseLimits ||= readAbuseLimits(process.env);
+  return defaultAbuseLimits;
+}
+function budgetsFor(runtime) {
+  if (!runtime.abuseBudgets) runtime.abuseBudgets = createAbuseBudgets(limitsFor(runtime));
+  return runtime.abuseBudgets;
+}
+// Stable refusals: `code` is the contract, `error` is text for people. Ack shapes of the existing handlers are unchanged.
+function limitRefusal(error) {
+  return { success: false, code: RATE_LIMITED_CODE, error };
+}
+function budgetRefusal(retryAfterMs) {
+  return { success: false, code: RATE_LIMITED_CODE, error: RATE_LIMITED_MESSAGE, retryAfterMs: Math.max(0, Math.ceil(retryAfterMs)) };
+}
+function accountBudgetKey(socket, account) {
+  return account?.id ? `account:${account.id}` : `peer:${authAttemptKey(socket)}`;
+}
+
 const AUTH_ATTEMPT_LIMITED = 'Too many account attempts. Try again shortly.';
 const authAttempts = new Map();
 const CREATE_ROOM_REPLAY_TTL_MS = 2 * 60_000;
@@ -81,56 +103,54 @@ function rememberCreateRoomReplay(key, entry) {
 // The per-address key every pre-auth budget (and the anonymous social budgets)
 // uses: the proxy-aware client address, with an IPv6 client collapsed to its /64.
 export function authAttemptKey(socket) {
-  const trustedProxyHops = Math.max(0, Math.floor(Number(process.env.POORUP_TRUST_PROXY_HOPS) || 0));
   const address = resolveClientAddress({
     address: socket.handshake?.address || socket.request?.socket?.remoteAddress,
     headers: socket.handshake?.headers || socket.request?.headers,
     request: socket.request
-  }, trustedProxyHops);
+  }, readTrustedProxy(process.env));
   return (address && peerBucketKey(address)) || String(socket.id || 'unknown');
 }
 
 // Every password-checking event (login, register, delete request or cancel, recovery-email request) spends this per-address budget.
 // A success never refunds it: an attacker could otherwise interleave a login to an account they own between guesses at someone else's password.
-function allowAuthAttempt(socket) {
+function allowAuthAttempt(socket, { limit, windowMs }) {
+  if (!limit) return true;
   const now = Date.now();
-  const bucket = windowBucket(authAttempts, authAttemptKey(socket), now, AUTH_ATTEMPT_WINDOW_MS);
+  const bucket = windowBucket(authAttempts, authAttemptKey(socket), now, windowMs);
   bucket.count += 1;
-  pruneWindowBuckets(authAttempts, now, AUTH_ATTEMPT_WINDOW_MS);
-  return bucket.count <= AUTH_ATTEMPT_LIMIT;
+  pruneWindowBuckets(authAttempts, now, windowMs);
+  return bucket.count <= limit;
 }
 
 // Username availability answers "is this name registered", so it is walked at
 // socket speed unless each address has its own budget.
-const USERNAME_CHECK_WINDOW_MS = 60_000;
-const USERNAME_CHECK_LIMIT = 30;
 const USERNAME_CHECK_LIMITED = 'Too many username checks. Try again shortly.';
 const usernameChecks = new Map();
 
-function allowUsernameCheck(socket, now = Date.now()) {
-  const bucket = windowBucket(usernameChecks, authAttemptKey(socket), now, USERNAME_CHECK_WINDOW_MS);
+function allowUsernameCheck(socket, { limit, windowMs }, now = Date.now()) {
+  if (!limit) return true;
+  const bucket = windowBucket(usernameChecks, authAttemptKey(socket), now, windowMs);
   bucket.count += 1;
-  pruneWindowBuckets(usernameChecks, now, USERNAME_CHECK_WINDOW_MS);
-  return bucket.count <= USERNAME_CHECK_LIMIT;
+  pruneWindowBuckets(usernameChecks, now, windowMs);
+  return bucket.count <= limit;
 }
 
 // Private invite codes are short enough to guess at socket speed, so each peer
 // gets a budget of failed joins per window. Successful joins never count.
-const JOIN_FAILURE_WINDOW_MS = 10 * 60_000;
-const JOIN_FAILURE_LIMIT = 30;
 const joinFailures = new Map();
 const JOIN_THROTTLED_ERROR = 'Too many join attempts. Try again shortly.';
 
-function joinAttemptsExhausted(socket, now = Date.now()) {
+function joinAttemptsExhausted(socket, { limit, windowMs }, now = Date.now()) {
+  if (!limit) return false;
   const current = joinFailures.get(authAttemptKey(socket));
-  if (!current || now - current.startedAt >= JOIN_FAILURE_WINDOW_MS) return false;
-  return current.count >= JOIN_FAILURE_LIMIT;
+  if (!current || now - current.startedAt >= windowMs) return false;
+  return current.count >= limit;
 }
 
-function recordJoinFailure(socket, now = Date.now()) {
-  const bucket = windowBucket(joinFailures, authAttemptKey(socket), now, JOIN_FAILURE_WINDOW_MS);
+function recordJoinFailure(socket, { windowMs }, now = Date.now()) {
+  const bucket = windowBucket(joinFailures, authAttemptKey(socket), now, windowMs);
   bucket.count += 1;
-  pruneWindowBuckets(joinFailures, now, JOIN_FAILURE_WINDOW_MS);
+  pruneWindowBuckets(joinFailures, now, windowMs);
 }
 
 function joinRoomTarget(roomManager, roomCode, roomId) {
@@ -149,11 +169,14 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   const { accountStore, roomManager } = runtime;
   const accountRights = runtime.accountRights || {};
   const restrictedError = { success: false, code: 'ACCOUNT_DELETION_PENDING', error: 'Account deletion is pending.' };
+  const limits = limitsFor(runtime);
+  const budgets = budgetsFor(runtime);
+  const joinBudget = () => limits.joinFailure;
 
   on('check-username', (payload = {}, callback) => {
     // Availability is a read-only hint for the form. Registration still
     // performs the authoritative uniqueness check inside AccountStore.
-    if (!allowUsernameCheck(socket)) return reply(callback, { success: false, error: USERNAME_CHECK_LIMITED });
+    if (!allowUsernameCheck(socket, limits.usernameCheck)) return reply(callback, limitRefusal(USERNAME_CHECK_LIMITED));
     reply(callback, accountStore.checkUsername(payload.username));
   });
 
@@ -167,12 +190,22 @@ function registerAccountSocketHandlers(on, socket, runtime) {
         if (typeof runtime.sessionStore?.revokeLegacyTokenSessions !== 'function') throw new Error('Legacy session lineage is unavailable.');
         runtime.sessionStore.revokeLegacyTokenSessions(legacyToken);
       }
+      revokeSocketCookieSession();
       reply(callback, result);
     } catch {
       reply(callback, { success: false, code: 'ACCOUNT_LOGOUT_FAILED', error: 'Sign out could not be completed.' });
     }
     refreshLockoutState();
   });
+
+  // The socket was opened with a cookie session (bound at the handshake). Sign-out must end it as the HTTP logout does: otherwise the
+  // next social call re-binds the account from that cookie and the socket stays signed in after a successful sign-out.
+  function revokeSocketCookieSession() {
+    const sessionId = socket.data.sessionId;
+    socket.data.sessionId = null;
+    socket.data.sessionAccountId = null;
+    if (sessionId) runtime.sessionStore?.revoke?.(sessionId);
+  }
 
   on('account-update', handleAccountUpdate);
   on('restore-session', handleRestoreSession);
@@ -188,7 +221,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   on('set-player-appearance', handleSetPlayerAppearance);
 
   on('account-register', sessionGrantHandler(payload => accountStore.register(payload), false, true));
-  on('account-login', sessionGrantHandler(payload => accountStore.login(payload), false, true));
+  on('account-login', sessionGrantHandler(payload => accountStore.login(payload, { source: authAttemptKey(socket) }), false, true));
   // Restore presents a 256-bit session token, not a guessable secret, so it
   // does not spend the password-attempt budget.
   on('account-restore', sessionGrantHandler(payload => accountStore.restore(payload.sessionToken), true, false));
@@ -196,6 +229,9 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   on('account-export', (payload = {}, callback) => {
     const account = runtime.social.accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in to download your account data.' });
+    // An export walks every record the account owns, so it is the most expensive read this socket can ask for.
+    const exportWait = budgets.accountExport.take(`account:${account.id}`);
+    if (exportWait) return reply(callback, budgetRefusal(exportWait));
     try {
       const result = typeof accountRights.export === 'function'
         ? accountRights.export({ account, payload, socket })
@@ -218,7 +254,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   on('account-delete-request', async (payload = {}, callback) => {
     const account = runtime.social.accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in to manage your account.' });
-    if (!allowAuthAttempt(socket)) return reply(callback, { success: false, error: AUTH_ATTEMPT_LIMITED });
+    if (!allowAuthAttempt(socket, limits.authAttempt)) return reply(callback, limitRefusal(AUTH_ATTEMPT_LIMITED));
     const room = roomManager.getRoomBySocket(socket.id);
     const result = typeof accountRights.requestDeletion === 'function'
       ? await accountRights.requestDeletion({ accountId: account.id, sessionId: socket.data.sessionId || null, sessionToken: payload.sessionToken || null, currentPassword: payload.currentPassword, typedPhrase: payload.typedPhrase, requestId: payload.requestId, activeRoom: Boolean(room) })
@@ -230,7 +266,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   on('account-delete-cancel', async (payload = {}, callback) => {
     const account = runtime.social.accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in to manage your account.' });
-    if (!allowAuthAttempt(socket)) return reply(callback, { success: false, error: AUTH_ATTEMPT_LIMITED });
+    if (!allowAuthAttempt(socket, limits.authAttempt)) return reply(callback, limitRefusal(AUTH_ATTEMPT_LIMITED));
     const result = typeof accountRights.cancelDeletion === 'function'
       ? await accountRights.cancelDeletion({ accountId: account.id, currentPassword: payload.currentPassword, requestId: payload.requestId })
       : { success: false, code: 'ACCOUNT_DELETION_UNAVAILABLE', error: 'Account deletion is not configured.' };
@@ -241,7 +277,7 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   on('account-recovery-email-request', async (payload = {}, callback) => {
     const account = runtime.social.accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in to manage recovery email.' });
-    if (!allowAuthAttempt(socket)) return reply(callback, { success: false, error: AUTH_ATTEMPT_LIMITED });
+    if (!allowAuthAttempt(socket, limits.authAttempt)) return reply(callback, limitRefusal(AUTH_ATTEMPT_LIMITED));
     const result = typeof accountRights.requestRecoveryEmail === 'function'
       ? await accountRights.requestRecoveryEmail({ accountId: account.id, currentPassword: payload.currentPassword, email: payload.email })
       : { success: false, code: 'ACCOUNT_RECOVERY_UNAVAILABLE', error: 'Recovery email is not configured.' };
@@ -252,6 +288,8 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     // Only the account that requested the address may confirm it from a socket.
     const account = runtime.social.accountForSocket(socket, payload);
     if (!account) return reply(callback, { success: false, code: 'ACCOUNT_SESSION_REQUIRED', error: 'Sign in to verify your recovery email.' });
+    // The token is single-use and unguessable, but every guess still costs a lookup, so it draws from the password-attempt budget.
+    if (!allowAuthAttempt(socket, limits.authAttempt)) return reply(callback, limitRefusal(AUTH_ATTEMPT_LIMITED));
     const result = typeof accountRights.verifyRecoveryEmail === 'function'
       ? await accountRights.verifyRecoveryEmail({ token: payload.token, accountId: account.id })
       : false;
@@ -270,8 +308,8 @@ function registerAccountSocketHandlers(on, socket, runtime) {
 
   function sessionGrantHandler(run, clearOnFailure = false, rateLimit = false) {
     return function sessionGrant(payload = {}, callback) {
-      if (rateLimit && !allowAuthAttempt(socket)) {
-        reply(callback, { success: false, error: AUTH_ATTEMPT_LIMITED });
+      if (rateLimit && !allowAuthAttempt(socket, limits.authAttempt)) {
+        reply(callback, limitRefusal(AUTH_ATTEMPT_LIMITED));
         return;
       }
       const result = stampOwnerAccount(run(payload));
@@ -319,6 +357,8 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   function handleAccountUpdate(payload = {}, callback) {
     const current = runtime.social.accountForSocket(socket, payload);
     if (current?.accountDeactivated === true) return reply(callback, restrictedError);
+    const writeWait = budgets.accountWrite.take(accountBudgetKey(socket, current));
+    if (writeWait) return reply(callback, budgetRefusal(writeWait));
     const hasBearerToken = typeof payload.sessionToken === 'string' && payload.sessionToken !== '';
     const result = stampOwnerAccount(hasBearerToken
       ? accountStore.updateProfile(payload.sessionToken, payload)
@@ -431,6 +471,9 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   }
 
   function handleCreateRoom(payload, callback) {
+    // Creating a table allocates a room that lives until it is emptied, so a socket cannot create them faster than a person could.
+    const createWait = budgets.roomCreate.take(authAttemptKey(socket));
+    if (createWait) return reply(callback, budgetRefusal(createWait));
     if (typeof runtime.canCreateRoom === 'function' && !runtime.canCreateRoom(socket)) {
       return reply(callback, maintenanceRefusal('New rooms are paused for maintenance.'));
     }
@@ -533,12 +576,12 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     if (!existingRoom) return null;
     // Answering 'in use' confirms a live code, so probing it spends the same
     // failed-join budget join-room does.
-    if (joinAttemptsExhausted(socket)) return JOIN_THROTTLED_ERROR;
+    if (joinAttemptsExhausted(socket, joinBudget())) return JOIN_THROTTLED_ERROR;
     if (!existingRoom.hasHumanSeats() && !existingRoom.isSeatBlocked(clientId, account?.id)) {
       runtime.destroyRoom(existingRoom);
       return null;
     }
-    recordJoinFailure(socket);
+    recordJoinFailure(socket, joinBudget());
     return 'That private room code is already in use. Choose another.';
   }
 
@@ -632,12 +675,12 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   }
 
   function rejectJoin(callback, error) {
-    recordJoinFailure(socket);
+    recordJoinFailure(socket, joinBudget());
     return reply(callback, { success: false, error });
   }
 
   function handleJoinRoom(payload, callback) {
-    if (joinAttemptsExhausted(socket)) return reply(callback, { success: false, error: JOIN_THROTTLED_ERROR });
+    if (joinAttemptsExhausted(socket, joinBudget())) return reply(callback, { success: false, error: JOIN_THROTTLED_ERROR });
     const roomCode = normalizeRoomCode(payload?.roomCode);
     const roomId = normalizeRoomId(payload?.roomId);
     const account = runtime.social.accountForSocket(socket, payload);
@@ -705,6 +748,8 @@ function registerAccountSocketHandlers(on, socket, runtime) {
   function handleSetPlayerAppearance(payload = {}, callback) {
     const account = runtime.social.accountForSocket(socket, payload);
     if (account?.accountDeactivated === true) return reply(callback, restrictedError);
+    const writeWait = budgets.accountWrite.take(accountBudgetKey(socket, account));
+    if (writeWait) return reply(callback, budgetRefusal(writeWait));
     const { color, nickname } = payload;
     const avatarGrid = requestedAvatarGrid(payload.avatarGrid);
     const room = roomManager.getRoomBySocket(socket.id);
@@ -724,6 +769,8 @@ function registerAccountSocketHandlers(on, socket, runtime) {
     const { key, value } = payload;
     const account = runtime.social.accountForSocket(socket, payload);
     if (account?.accountDeactivated === true) return reply(callback, restrictedError);
+    const writeWait = budgets.accountWrite.take(accountBudgetKey(socket, account));
+    if (writeWait) return reply(callback, budgetRefusal(writeWait));
     const room = runtime.getRoomForSocket(socket, callback);
     if (!room) return;
     const player = room.getPlayerBySocket(socket.id);

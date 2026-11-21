@@ -1,7 +1,8 @@
 // Sponsorship domain policy: who may fund a pending sponsored purchase, when a request is dead, which seat owns the reaction, and the room action each seat takes.
-// Pure decisions plus the injected room seam; botLogic.js owns the phase state machine. Each gate keeps the logic of the original inline chain, so bot balance is unchanged.
+// Pure decisions plus the injected room seam; botLogic.js owns the phase state machine.
 // The loan-taint check in sponsorshipContributionAmount is the one gate every funder decision reads.
 import { playerFinanceEnabled } from './financeRules.js';
+import { isLivePlayer } from './playerPresence.js';
 import { hasLoanBackedCash } from './loanLogic.js';
 
 // A sponsor keeps this much cash in reserve before gifting.
@@ -12,7 +13,7 @@ export const SPONSORSHIP_RESERVE_CASH = 180;
 // round-based death rule alone would never fire.
 export const SPONSORSHIP_HUMAN_WINDOW_MS = 30_000;
 
-export function sponsorshipContributed(sponsorship) {
+function sponsorshipContributed(sponsorship) {
   return (sponsorship.contributions || []).reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
 }
 
@@ -95,7 +96,7 @@ function sponsorshipAgedOneRound(game, sponsorship) {
 // A sponsorship request is dead when the shortfall persists, a full round
 // has passed (humans had their chance), and no live bot can fund it.
 // Canceling refunds contributors and unblocks the purchase resolution.
-export function sponsorshipDead(game, bot, sponsorship) {
+function sponsorshipDead(game, bot, sponsorship) {
   if (!sponsorship || sponsorship.buyerId !== bot?.id) return false;
   if (sponsorshipShortfall(game, sponsorship, bot.cash) <= 0) return false;
   if (!sponsorshipAgedOneRound(game, sponsorship)) return false;
@@ -106,12 +107,6 @@ function sponsorshipHumanWindowElapsed(sponsorship) {
   const createdAt = Number(sponsorship.createdAt);
   if (!Number.isFinite(createdAt)) return false;
   return Date.now() - createdAt >= SPONSORSHIP_HUMAN_WINDOW_MS;
-}
-
-function isLivePlayer(player) {
-  if (!player) return false;
-  if (player.bankrupt) return false;
-  return !player.disconnected;
 }
 
 function livePlayers(game) {

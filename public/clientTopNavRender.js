@@ -37,7 +37,7 @@ function topNavOnlineText(view) {
 }
 
 function renderTopNavConnection(view) {
-  const gameLabel = $("#tn-online");
+  const gameLabel = $("#topnav-online");
   if (gameLabel) setText(gameLabel, topNavOnlineText(view));
 }
 
@@ -49,7 +49,7 @@ function renderConnectionDots(view) {
 }
 
 function renderConnectionNote(view) {
-  const note = $("#tn-connection-note");
+  const note = $("#topnav-connection-note");
   if (!note) return;
   note.dataset.connection = view.status;
   const text = note.querySelector(".t-micro");
@@ -87,7 +87,7 @@ function roomCopyLabel(code, isPublic) {
 }
 
 function renderRoomCopy(code, isPublic) {
-  const btn = $("#tn-room-copy");
+  const btn = $("#topnav-room-copy");
   if (!btn) return;
   btn.classList.toggle("is-public", isPublic);
   btn.disabled = isPublic;
@@ -111,12 +111,12 @@ export function turnTagText() {
 export function renderTopNav() {
   const code = state.roomCode || "----";
   const isPublic = state.roomVisibility === "public";
-  setText($("#tn-room"), isPublic ? "PUBLIC" : code);
+  setText($("#topnav-room"), isPublic ? "PUBLIC" : code);
   renderRoomCopy(code, isPublic);
-  setText($("#tn-lobby"), lobbyTagText(code, isPublic));
+  setText($("#topnav-lobby"), lobbyTagText(code, isPublic));
   const view = connectionView();
-  setText($("#tn-online"), topNavOnlineText(view));
-  setText($("#tn-turnlabel"), turnTagText());
-  $("#tn-turnlabel").setAttribute('aria-label', `Current turn: ${turnTagText()}`);
+  setText($("#topnav-online"), topNavOnlineText(view));
+  setText($("#topnav-turn-label"), turnTagText());
+  $("#topnav-turn-label").setAttribute('aria-label', `Current turn: ${turnTagText()}`);
   renderConnectionStatus();
 }

@@ -132,7 +132,7 @@ function popColorSetRows(tile) {
 
 function popRentSectionHTML(tile, buyable) {
   if (!buyable) return "";
-  return `<div class="pop-effect-head">${spriteHTML("diamond", 3)}<span class="t-label f12 g300">RENT SCHEDULE</span></div><div class="dd-ladder">${deedLadderHTML(tile)}</div>`;
+  return `<div class="pop-effect-head">${spriteHTML("diamond", 3)}<span class="t-label f12 g300">RENT SCHEDULE</span></div><div class="deed-detail-ladder">${deedLadderHTML(tile)}</div>`;
 }
 
 function popEffectHeading(tile) {
@@ -194,17 +194,17 @@ export function popupCardHTML({ tile, owner, buyable, unowned, level }) {
   const ownerLabel = popOwnerLabel(owner, buyable);
   const buildTag = popBuildTag(buyable, level);
   return `
-    <div class="pop-rail dd-rail" style="background:${accentOf(tile)}"></div>
-    <div class="dd-body">
-      <div class="dd-head">
-        <div class="dd-icon">${popIconHTML(tile)}</div>
+    <div class="pop-rail deed-detail-rail" style="background:${accentOf(tile)}"></div>
+    <div class="deed-detail-body">
+      <div class="deed-detail-head">
+        <div class="deed-detail-icon">${popIconHTML(tile)}</div>
         <div class="pop-headtext">
           <div class="t-micro g400">${kindLabel(tile)}</div>
-          <h3 class="t-section dd-title" id="popup-card-title">${tile.name}${buildTag}</h3>
+          <h3 class="t-section deed-detail-title" id="popup-card-title">${tile.name}${buildTag}</h3>
         </div>
-        ${closeButtonHTML({ id: "pop-close", label: "Close property details", className: "dd-close" })}
+        ${closeButtonHTML({ id: "pop-close", label: "Close property details", className: "deed-detail-close" })}
       </div>
-      <div class="dd-stats">
+      <div class="deed-detail-stats">
         ${tile.kind === "tax" ? popRow("TAX", rent, "green") : ""}
         ${["property", "railroad", "utility"].includes(tile.kind) ? popRow("OWNER", ownerLabel, owner ? "ink" : "g-muted") : ""}
         ${popColorSetRows(tile)}
@@ -215,7 +215,7 @@ export function popupCardHTML({ tile, owner, buyable, unowned, level }) {
       <div class="pop-effect"><p class="t-body ink-2">${effectText(tile)}</p></div>`}
       ${popBuyRowHTML(tile, unowned)}
       ${popManageRowHTML(tile, owner)}
-      <div class="pop-foot dd-foot">
+      <div class="pop-foot deed-detail-foot">
         ${popOwnerFootHTML(owner)}
       </div>
     </div>`;

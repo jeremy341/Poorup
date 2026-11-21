@@ -9,10 +9,10 @@ async function startTwoPlayerGame(page, context, code) {
   await page.goto('/');
   await page.locator('#home-alias').fill('RGHOST');
   await page.locator('#open-create-btn').click();
-  await page.locator('#rc-vis-selector [data-vis="private"]').click();
-  await page.locator('#rc-room-code').fill(code);
-  await page.locator('#rc-create-btn').click();
-  await page.locator('#su-start').click();
+  await page.locator('#room-create-visibility-selector [data-vis="private"]').click();
+  await page.locator('#room-create-code').fill(code);
+  await page.locator('#room-create-btn').click();
+  await page.locator('#setup-start-btn').click();
 
   await guest.goto('/');
   await guest.locator('#home-alias').fill('RGGUEST');
@@ -21,7 +21,7 @@ async function startTwoPlayerGame(page, context, code) {
   await guest.locator('#join-nickname').fill('RGGUEST');
   await guest.locator('#join-room-submit').click();
   await guest.waitForFunction(() => [...document.querySelectorAll('#setup-wrap, #lobby-start-btn')].some(el => el.getClientRects().length > 0));
-  if (await guest.locator('#su-start').isVisible()) await guest.locator('#su-start').click();
+  if (await guest.locator('#setup-start-btn').isVisible()) await guest.locator('#setup-start-btn').click();
   await expect(page.locator('#player-list')).toContainText('RGGUEST');
   await page.locator('#lobby-start-btn').click();
   await expect(page.locator('#view-game')).toBeVisible();
@@ -51,9 +51,9 @@ test('unchanged renders leave the rail, dice and top bar DOM alone and changed s
     const renderAll = () => { top.renderTopNav(); hud.renderHud(); rail.renderRightRail(); };
     state.tab = 'holdings';
     renderAll();
-    const body = document.querySelector('#rr-body');
+    const body = document.querySelector('#right-rail-body');
     const dice = document.querySelector('#hud-dice');
-    const online = document.querySelector('#tn-online');
+    const online = document.querySelector('#topnav-online');
     const railNode = body.firstElementChild;
     const diceNode = dice.firstElementChild;
     const onlineText = online.firstChild;
@@ -69,7 +69,7 @@ test('unchanged renders leave the rail, dice and top bar DOM alone and changed s
 
     const records = [];
     const observer = new MutationObserver((list) => records.push(...list));
-    for (const target of [body, dice, online, document.querySelector('#hud-cash'), document.querySelector('#tn-room')]) {
+    for (const target of [body, dice, online, document.querySelector('#hud-cash'), document.querySelector('#topnav-room')]) {
       observer.observe(target, { subtree: true, childList: true, characterData: true });
     }
     renderAll();

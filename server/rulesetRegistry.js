@@ -272,22 +272,16 @@ export class RulesetRegistry {
 }
 
 export {
-  BALANCE_REVISION,
   BOARD_VARIANTS,
-  BOARD_VARIANT_META,
-  EXPOSED_BOARD_VARIANTS,
   KNOWN_OVERRIDE_KEYS,
   HISTORICAL_OVERRIDE_KEYS,
   MARKET_COMPLEXITIES,
   ADD_ON_DEFAULTS,
   OPTIONAL_SYSTEM_KEYS,
-  RULESET_REVISION,
   boardVariantMeta,
   createRulesetDigest,
   effectiveSettingsFor,
   normalizeOverrides,
   resolveRuleset,
-  safeBoardVariant,
-  safeMarketComplexity,
-  stableSerialize
+  safeBoardVariant
 };

@@ -1,10 +1,14 @@
-
-import { createMarketQuotePoint } from './marketLogic.js';
+// Match lifecycle on GameState: who may join, starting a game, advancing the round counter (loans, contracts, events, market),
+// the round-limit finish, and ending a game. Turn-by-turn flow is gameTurns.js; bankruptcy is bankruptcyApi.js.
+import { createMarketQuotePoint, MARKET_HISTORY_MAX_POINTS } from './marketLogic.js';
 import { ROUND_LIMIT, shuffleArray } from './gameData.js';
 import { netWorth, netWorthBreakdown } from './netWorth.js';
 
 // Net-worth rows kept per game; the stored match record keeps a downsampled copy of at most 40.
 const NET_WORTH_TIMELINE_LIMIT = 400;
+// The round-limit warning is posted this many rounds before the limit, and again closer to it.
+const FIRST_ROUND_LIMIT_WARNING = 50;
+const FINAL_ROUND_LIMIT_WARNING = 10;
 
 function endGameMessage(winner, reason) {
   if (reason === 'round-limit') {
@@ -25,16 +29,19 @@ export const gameRoundApi = {
     return this.players.length < this.settings.maxPlayers;
   },
 
+  // Seats that are still in the match and connected: the ones that vote, pay and can be dealt with.
   activePlayers() {
     return this.players.filter(player => !player.bankrupt && !player.disconnected);
   },
 
-  nonBankruptPlayers() {
-    return this.players.filter(player => !player.bankrupt);
+  // Same set as activePlayers(); the turn-order code uses this name because it is about who can take a turn.
+  connectedNonBankruptPlayers() {
+    return this.activePlayers();
   },
 
-  connectedNonBankruptPlayers() {
-    return this.players.filter(player => !player.bankrupt && !player.disconnected);
+  // Still in the match, connected or not.
+  nonBankruptPlayers() {
+    return this.players.filter(player => !player.bankrupt);
   },
 
   configureStartOrder() {
@@ -66,12 +73,6 @@ export const gameRoundApi = {
     return { success: true };
   },
 
-  // Catch-up rule: strictly last by cash among 2+ live seats. Ties and
-  // solo tables pay no bonus.
-  liveContestants() {
-    return (this.players || []).filter(entry => entry && !entry.bankrupt && !entry.disconnected);
-  },
-
   // One row per finished round, keyed by player id because seats can leave mid-game. The final row
   // is taken after market positions are liquidated; a repeated round number replaces its row.
   recordNetWorthSnapshot() {
@@ -97,10 +98,7 @@ export const gameRoundApi = {
       this.processPlayerContracts();
       this.maybeTriggerGlobalEvent();
       this.advanceMarket();
-      if (this.settings.market) {
-        const activeEventId = this.globalEvent?.phase === 'active' ? this.globalEvent.id : null;
-        this.marketQuoteHistory = [...(Array.isArray(this.marketQuoteHistory) ? this.marketQuoteHistory : []), createMarketQuotePoint(this, this.marketRound, activeEventId)].slice(-128);
-      }
+      this.recordMarketQuotePoint();
       this.players.forEach(player => {
         player.rentPayersThisRound = new Set();
         player.casinoBetsThisRound = 0;
@@ -114,9 +112,18 @@ export const gameRoundApi = {
     }
   },
 
+  // The quote chart gets one point per round, tagged with the global event that was active when it was drawn.
+  recordMarketQuotePoint() {
+    if (!this.settings.market) return;
+    const activeEventId = this.globalEvent?.phase === 'active' ? this.globalEvent.id : null;
+    const history = Array.isArray(this.marketQuoteHistory) ? this.marketQuoteHistory : [];
+    this.marketQuoteHistory = [...history, createMarketQuotePoint(this, this.marketRound, activeEventId)].slice(-MARKET_HISTORY_MAX_POINTS);
+  },
+
   // The round limit is announced twice before it lands.
   warnRoundLimit() {
-    if (this.roundNumber !== ROUND_LIMIT - 50 && this.roundNumber !== ROUND_LIMIT - 10) return;
+    const roundsLeft = ROUND_LIMIT - this.roundNumber;
+    if (roundsLeft !== FIRST_ROUND_LIMIT_WARNING && roundsLeft !== FINAL_ROUND_LIMIT_WARNING) return;
     this.feedMessage(`The game ends after round ${ROUND_LIMIT}; richest player wins.`);
   },
 

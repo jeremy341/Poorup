@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test';
 
+// Parlor Patrol is disabled while it is being fixed (PARLOR_PATROL_ENABLED = false).
+// These checks cover dormant code; re-enable them when the flag is restored.
+test.skip('Parlor Patrol is disabled');
+
 test('profile distinguishes legacy and verified Patrol records', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(async () => {

@@ -18,10 +18,10 @@ export function tradePlayerRowHTML(p, seed) {
 const deedCount = TILES.filter((t) => state.owners[t.i] === p.id).length;
   const canTrade = state.phase === "playing";
   return `<div class="trade-player-row">
-    <div class="tp-av">${avatarHTML(p, 4, seed)}</div>
-    <div class="tp-mid">
+    <div class="trade-player-avatar">${avatarHTML(p, 4, seed)}</div>
+    <div class="trade-player-info">
       <span class="t-label f13" style="color:${p.textColor}">${esc(p.name)}</span>
-      <span class="t-micro ink-3 tp-sub">$${displayCash(p)} · ${deedCount} DEED${deedCount === 1 ? "" : "S"}</span>
+      <span class="t-micro ink-3 trade-player-detail">$${displayCash(p)} · ${deedCount} DEED${deedCount === 1 ? "" : "S"}</span>
     </div>
     <button class="btn-dark" data-trade="${p.id}" ${canTrade ? "" : "disabled"}><span class="t-label f11">TRADE</span></button>
   </div>`;
@@ -239,7 +239,7 @@ function tradeChipsHTML() {
 
 function propertyListHTML(owned) {
   const head = `<div class="rail-section-head"><span class="t-micro g400" id="holdings-deeds-heading">MY PROPERTIES</span><span class="t-micro ink-3">${owned.length}</span></div>`;
-  if (!owned.length) return `<section class="rail-section holdings-deeds" aria-labelledby="holdings-deeds-heading">${head}<p class="t-body rr-empty">NO PROPERTIES YET. LAND ON A VACANT LOT AND BUY IT.</p></section>`;
+  if (!owned.length) return `<section class="rail-section holdings-deeds" aria-labelledby="holdings-deeds-heading">${head}<p class="t-body right-rail-empty">NO PROPERTIES YET. LAND ON A VACANT LOT AND BUY IT.</p></section>`;
   const rows = [...owned].sort((a, b) => Number(b.price || 0) - Number(a.price || 0) || a.i - b.i)
     .map(tile => propertyRowHTML(tile, { showRent: false })).join("");
   return `<section class="rail-section holdings-deeds" aria-labelledby="holdings-deeds-heading">${head}<div class="prop-list">${rows}</div></section>`;
@@ -256,9 +256,9 @@ function dealsFilterHTML() {
 
 function dealsPlayerDirectoryHTML(filter) {
   if (filter !== "needs-you") return "";
-  if (!state.settings.trading) return `<section class="rail-section deals-directory"><span class="t-micro ink-3">PLAYER DEALS</span><p class="t-body ink-3 rr-empty">TRADING IS OFF FOR THIS ROUND.</p></section>`;
+  if (!state.settings.trading) return `<section class="rail-section deals-directory"><span class="t-micro ink-3">PLAYER DEALS</span><p class="t-body ink-3 right-rail-empty">TRADING IS OFF FOR THIS ROUND.</p></section>`;
   const others = state.players.filter((player) => player.id !== "p1");
-  if (!others.length) return `<section class="rail-section deals-directory"><span class="t-micro ink-3">PLAYER DEALS</span><p class="t-body ink-3 rr-empty">NO OTHER PLAYERS AT THE TABLE.</p></section>`;
+  if (!others.length) return `<section class="rail-section deals-directory"><span class="t-micro ink-3">PLAYER DEALS</span><p class="t-body ink-3 right-rail-empty">NO OTHER PLAYERS AT THE TABLE.</p></section>`;
   const rows = others.map((player) => tradePlayerRowHTML(player, state.players.indexOf(player))).join("");
   return `<section class="rail-section deals-directory" aria-labelledby="deals-directory-heading"><div class="rail-section-head"><span class="t-micro g400" id="deals-directory-heading">PLAYER DEALS</span><span class="t-micro ink-3">${others.length} AVAILABLE</span></div><div class="deals-player-list">${rows}</div></section>`;
 }
@@ -304,7 +304,7 @@ function spectatorRailHTML(player) {
 }
 
 function renderRailBody(owned) {
-  const body = $("#rr-body");
+  const body = $("#right-rail-body");
   const tab = normalizeRailTab(state.tab);
   state.tab = tab;
   if (tab === "deals") {
@@ -357,15 +357,15 @@ function railCountText(tab, owned) {
 
 function renderRailHeader(owned) {
   const tab = state.tab;
-  const title = $("#rr-title");
+  const title = $("#right-rail-title");
   if (title) setText(title, railTitleText(tab));
-  setText($("#rr-count"), railCountText(tab, owned));
+  setText($("#right-rail-count"), railCountText(tab, owned));
   document.querySelectorAll(".tab").forEach((tb) => {
     const selected = tb.dataset.tab === tab;
     tb.classList.toggle("is-active", selected);
     tb.setAttribute("aria-selected", String(selected));
   });
-  $("#rr-body")?.setAttribute("aria-labelledby", `tab-${tab}`);
+  $("#right-rail-body")?.setAttribute("aria-labelledby", `tab-${tab}`);
 }
 
 export function renderRightRail() {
@@ -373,7 +373,7 @@ export function renderRightRail() {
   state.tab = normalizeRailTab(state.tab);
   renderRailHeader(owned);
   if (state.players[0]?.spectating || (state.players[0]?.bankrupt && !state.players[0]?.bot)) {
-    const body = $("#rr-body");
+    const body = $("#right-rail-body");
     if (body) setHtml(body, spectatorRailHTML(state.players[0]));
     return;
   }

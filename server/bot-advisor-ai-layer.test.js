@@ -6,7 +6,7 @@ import { RoomManager } from './gameLogic.js';
 import { AiAdvisor, DeterministicAdvisor } from './botAdvisor.js';
 import { buildBotStrategicContext } from './botStrategicContext.js';
 import { runBotTurn } from './botLogic.js';
-import { classifyBotDecision } from './socketRuntime.js';
+import { classifyBotDecision } from './matchTelemetry.js';
 
 const failures = [];
 async function check(name, run) {

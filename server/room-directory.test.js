@@ -8,4 +8,4 @@ assert.equal(room.visibility, 'public');
 assert.equal(summary.code, null);
 assert.equal(typeof summary.roomId, 'string');
 
-console.log('rooms directory audit: 1 passed, 0 failed');
+console.log('room directory: 1 passed, 0 failed');

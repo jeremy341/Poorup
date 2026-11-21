@@ -1,14 +1,11 @@
 import assert from "node:assert/strict";
 import process from "node:process";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { THEME_IDS, getTheme } from "./clientThemeData.js";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 // Contrast guard computed from
-// the per-theme token maps (original = the :root block in styles.css).
-const root = dirname(fileURLToPath(import.meta.url));
-const css = readFileSync(join(root, "styles.css"), "utf8");
+// the per-theme token maps (original = the :root block in public/css/01-tokens-and-fonts.css).
+const css = siteCss();
 const rootStart = css.indexOf(":root {");
 const baseTokens = {};
 for (const m of css.slice(rootStart, css.indexOf("\n}", rootStart)).matchAll(/(--[\w-]+):\s*([^;]+);/g)) baseTokens[m[1]] = m[2].trim();
@@ -103,7 +100,7 @@ check("home hero uses theme text tokens instead of fixed dark-on-scene colours",
 check("CTA labels and sublabels come from opaque tokens, not translucent literals", () => {
   assert.match(rule(".cta-red"), /color:\s*var\(--cta-label\)/);
   assert.match(rule(".cta-red:disabled"), /color:\s*var\(--cta-label-disabled\)/);
-  for (const selector of [".choice-buy .t-micro", ".dd-build-btn .t-micro"]) {
+  for (const selector of [".choice-buy .t-micro", ".deed-detail-build-btn .t-micro"]) {
     const body = rule(selector);
     assert.match(body, /color:\s*var\(--cta-label-muted\)/, `${selector} must use --cta-label-muted`);
     assert.doesNotMatch(body, /\/\s*\d+%/, `${selector} must not use alpha`);

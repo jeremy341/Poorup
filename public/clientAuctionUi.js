@@ -283,9 +283,9 @@ function auctionPlayerRow(p, a) {
   const { status, cls } = auctionPlayerStatus(p, a);
   const leading = p.id === a.leaderId ? " is-leading" : "";
   return `<div class="auction-player${leading}">
-        <span class="ap-av">${avatarHTML(p, 2, state.players.indexOf(p))}</span>
-        <span class="t-label ap-name" style="color:${p.textColor}">${esc(p.name)}</span>
-        <span class="t-micro ap-st ${cls}">${status}</span>
+        <span class="auction-player-avatar">${avatarHTML(p, 2, state.players.indexOf(p))}</span>
+        <span class="t-label auction-player-name" style="color:${p.textColor}">${esc(p.name)}</span>
+        <span class="t-micro auction-player-status ${cls}">${status}</span>
       </div>`;
 }
 

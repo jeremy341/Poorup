@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Switch the Nest host back to the previous release and reopen the table.
+
 # Pin PM2 to the invoking user's daemon (see deploy-nest.sh).
 export PM2_HOME="${PM2_HOME:-$HOME/.pm2}"
 

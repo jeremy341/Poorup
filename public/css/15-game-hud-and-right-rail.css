@@ -1,0 +1,144 @@
+/* The turn HUD, dice faces, right rail tabs and the panel menu. */
+
+/* HUD */
+.hud { display: grid; gap: 16px; flex-shrink: 0; }
+.hud-cell {
+  display: flex; flex-direction: column; justify-content: space-between;
+  min-height: 132px; padding: 14px;
+  background: var(--surface-panel);
+  border: 1px solid var(--line-default);
+  border-radius: 2px;
+  box-shadow: inset 0 1px 0 rgb(240 217 172 / 5%), 0 2px 8px rgb(0 0 0 / 45%);
+}
+.hud-body { display: flex; align-items: center; gap: 12px; flex: 1; width: 100%; }
+.hud-top-row { display: flex; align-items: center; gap: 8px; }
+.hud-stage { padding: 2px 6px; border: 1px solid var(--line-active); border-radius: 2px; color: var(--gold-300); }
+.hud-split { justify-content: space-between; }
+.hud-cash-action {
+  width: 100%;
+  min-height: 58px;
+  padding: 0;
+  text-align: left;
+  border: 1px solid transparent;
+  color: inherit;
+  background: transparent;
+  transition: background var(--dur-xs) var(--ease-snap), border-color var(--dur-xs) var(--ease-snap);
+}
+.hud-cash-action:hover:not(:disabled) { background: var(--surface-button-dark); border-color: var(--line-subtle); }
+.hud-cash-action:active:not(:disabled) { transform: translateY(1px); }
+.hud-cash-action:focus-visible { outline: 2px solid var(--theme-focus, var(--gold-100)); outline-offset: 3px; }
+.hud-cash-action:disabled { cursor: not-allowed; opacity: .7; }
+.hud-dice { justify-content: center; gap: 16px; }
+.hud-pool { gap: 12px; }
+.hud-name {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 32px; font-weight: 700; line-height: 1;
+  color: var(--gold-300);
+  text-shadow: 0 2px 0 rgb(0 0 0 / 55%);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) { .hud-bot-status.is-thinking { animation: none; } }
+.hud-jail-action { margin-top: 10px; min-height: 32px; padding: 0 10px; }
+.hud-primary-actions { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.hud-jail-actions { display: grid; gap: 6px; }
+.hud-primary-actions .hud-jail-action { width: 100%; margin-top: 0; white-space: normal; }
+.t-money { text-shadow: 0 2px 0 rgb(0 0 0 / 50%); }
+.pool-val { font-size: 30px; }
+.pool-swatches { margin-top: 6px; display: flex; gap: 4px; }
+.pool-swatches span { display: block; width: 11px; height: 11px; }
+.hud-roll { min-height: 132px; padding: 0 18px; }
+.hud-primary-actions .hud-roll { width: 100%; flex: 1 1 auto; }
+.hud-roll .cta-text { font-size: 17px; }
+
+.die {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 3px;
+  width: 46px; height: 46px; padding: 7px;
+  background: var(--gold-050);
+  border: 1px solid var(--line-board);
+  border-radius: 3px;
+  box-shadow: inset -2px -2px 0 rgb(155 120 61 / 45%), 0 2px 4px rgb(0 0 0 / 45%);
+}
+.die span { display: block; }
+.die span.on { background: #0d1b16; }
+/* Forced colors drop authored backgrounds, so pips painted with a background vanish. Keep the
+   face on Canvas and draw each pip as a solid CanvasText block; the role="img" label carries the value. */
+@media (forced-colors: active) {
+  .die { forced-color-adjust: none; background: Canvas; border-color: CanvasText; box-shadow: none; }
+  .die span.on { background: CanvasText; forced-color-adjust: none; }
+  .die-blank { forced-color-adjust: none; background: Canvas; color: CanvasText; border-color: CanvasText; box-shadow: none; }
+}
+.die-blank {
+  display: flex; align-items: center; justify-content: center;
+  width: 46px; height: 46px;
+  background: #e5d0a4;
+  border: 1px solid var(--line-board);
+  border-radius: 3px;
+  box-shadow: inset -2px -2px 0 rgb(155 120 61 / 45%), 0 2px 4px rgb(0 0 0 / 45%);
+  font-family: var(--font-ui); font-size: 18px; font-weight: 700; color: #0d1b16;
+}
+
+/* right rail */
+.right-rail { position: relative; display: flex; flex-direction: column; min-height: 520px; }
+.right-rail-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 0; }
+.right-rail-count { margin-left: auto; }
+#view-game .rail-left :is(.player-row-tag, .player-row-timer, .chat-unread),
+#view-game .right-rail .right-rail-head .t-micro,
+#view-game .right-rail .prop-row :is(.prop-meta, .prop-rent) { font-size: 12px; }
+.tabs { margin-top: 12px; display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line-subtle); }
+.tab { position: relative; padding: 10px 4px; color: var(--text-muted); transition: background var(--dur-xs) var(--ease-snap), color var(--dur-xs) var(--ease-snap); }
+.tab.is-active { background: var(--surface-board-hover); color: var(--gold-300); }
+.tab-underline { display: none; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--gold-400); }
+.tab.is-active .tab-underline { display: block; }
+.right-rail-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.right-rail-foot { padding: 0 12px 12px; }
+.right-rail-empty { padding: 24px 4px; text-align: center; color: var(--text-muted); }
+.lobby-start-btn { height: 56px; width: 100%; }
+.lobby-start-btn .cta-text { font-size: 24px; }
+.panel-menu { position: absolute; top: 58px; right: 14px; z-index: 68; width: min(360px, calc(100vw - 28px)); padding: 14px; background: var(--surface-panel); border: 1px solid var(--line-active); box-shadow: var(--shadow-panel); }
+.panel-menu.is-hidden { display: none; }
+.panel-menu.is-open { animation: panel-menu-in 140ms var(--ease-out) both; }
+@keyframes panel-menu-in { from { opacity: .72; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+.panel-menu-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line-dark); }
+.panel-menu-head h2 { margin-top: 5px; color: var(--gold-100); }
+.panel-menu-head button { min-height: 32px; padding: 0 8px; }
+.panel-menu-options { display: grid; gap: 6px; margin-top: 12px; }
+.panel-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 7px 9px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); cursor: pointer; }
+.panel-option > span { display: grid; gap: 3px; min-width: 0; }
+.panel-option strong { color: var(--gold-100); }
+.panel-option small { color: var(--text-muted); }
+.panel-option input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--gold-400); }
+.panel-option select { width: 112px; min-height: 34px; padding-inline: 7px; font-size: 12px; }
+.panel-menu-note { margin-top: 10px; line-height: 1.45; text-transform: none; }
+.rail-left.is-players-hidden > .panel:first-child { display: none; }
+.rail-left.is-chat-hidden > .chat-panel { display: none; }
+.rail-left.is-panel-hidden { display: none; }
+.right-rail.is-panel-hidden { display: none; }
+.hud.is-compact .hud-cell { min-height: 92px; padding: 10px; }
+.hud.is-compact .hud-cell:first-child .hud-note,
+.hud.is-compact .hud-cell:first-child .hud-bot-status { display: none !important; }
+.hud.is-compact .hud-roll { min-height: 92px; }
+.rail-section { display: grid; gap: 8px; min-width: 0; padding: 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.rail-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; padding-bottom: 7px; border-bottom: 1px solid var(--line-dark); }
+.rail-section-head > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deals-player-list, .prediction-list { display: grid; gap: 6px; min-width: 0; }
+.holding-item-glyph { display: grid; place-items: center; width: 22px; height: 22px; color: var(--gold-400); border: 1px solid var(--line-active); font-family: var(--font-numeric); font-size: 12px; }
+.deals-surface, .activity-surface { display: grid; gap: 8px; min-width: 0; }
+.activity-data-status { margin: 0; letter-spacing: .08em; }
+.spectator-rail { display: grid; gap: 10px; padding: 16px; border-color: var(--line-subtle); }
+.spectator-rail-kicker { color: var(--text-muted); letter-spacing: .1em; }
+.spectator-rail .btn-dark { min-height: 44px; }
+.deals-filter-bar, .activity-mode-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; padding: 3px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.deals-filter, .activity-mode-tab { min-height: 36px; padding: 0 5px; color: var(--text-muted); border: 1px solid transparent; }
+.deals-filter:hover, .activity-mode-tab:hover { color: var(--gold-100); background: var(--surface-button-dark); }
+.deals-filter.is-active, .activity-mode-tab.is-active { color: var(--gold-050); background: var(--surface-panel-raised); border-color: var(--line-active); }
+.deals-note { line-height: 1.45; }
+.activity-mode-content { min-width: 0; }
+.prediction-summary-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 8px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.prediction-summary-row > div { display: grid; gap: 4px; min-width: 0; }
+.prediction-summary-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+

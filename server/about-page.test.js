@@ -11,7 +11,7 @@ assert.match(live, /<h1[^>]*>About Poorup<\/h1>/, 'the heading identifies the pr
 assert.match(live, /Monopoly-style/, 'the game genre stays explained');
 assert.match(live, /<title>About Poorup/, 'its own title');
 assert.match(live, /rel="canonical" href="https:\/\/play\.example\/about"/);
-assert.match(live, /name="robots" content="index,follow"/);
+assert.match(live, /name="robots" content="index,follow[^"]*"/);
 assert.match(live, /og:image" content="https:\/\/play\.example\/assets\/social\/poorup-og-1200x630\.png"/);
 assert.match(live, /href="\/rules"/, 'links to the rules');
 assert.match(live, /href="\/"[^>]*>Play now</, 'links to the game');

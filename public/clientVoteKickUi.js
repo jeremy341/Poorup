@@ -26,7 +26,7 @@ function requestId(createRequestId) {
     : `room-votekick-${globalThis.crypto?.randomUUID?.() || Date.now().toString(36)}`;
 }
 
-export function voteRejectionCopy(error) {
+function voteRejectionCopy(error) {
   const text = String(error ?? "").trim();
   if (!text) return "The room vote could not be updated.";
   if (Object.prototype.hasOwnProperty.call(REJECTION_COPY, text)) return REJECTION_COPY[text];

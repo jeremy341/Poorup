@@ -31,7 +31,7 @@ function surfaceVisible(el) {
   return !el.classList.contains("is-hidden");
 }
 
-// EXIT MOTION (visual only): a closed .popup keeps `.is-closing` for one short fall-away (styles.css
+// EXIT MOTION (visual only): a closed .popup keeps `.is-closing` for one short fall-away (public/css/17-popups-rules-social-and-rankings.css
 // parlor-modal-exit) while every logical state (is-hidden, aria-hidden, the stack, inert, focus) already
 // reflects "closed". The closing node is inert and click-through, and reopening it cancels the exit.
 export const MODAL_EXIT_MS = 130;

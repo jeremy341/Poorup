@@ -1,5 +1,6 @@
 import { MARKET_FEE_RATE } from './marketLogic.js';
 import { SHORT_BORROW_FEE_RATE } from './marketExpansion.js';
+import { clamp } from './numberUtils.js';
 
 // Bot-side pricing of the staged-complexity orders (margin long, short). These are planner and candidate-gate constants,
 // not market rules: fees, collateral, borrow fee and forced buy-in live in marketExpansion.js. A short's loss is unbounded
@@ -10,16 +11,12 @@ export const SHORT_TAIL_RESERVE_RATE = 0.02;
 export const SHORT_HOLD_CHARGE_RATE = 0.04;
 // "Clearly positive": expected value after every cost must also clear this share
 // of the notional (and at least LEVERAGED_MIN_EDGE dollars) before a bot opens.
-export const LEVERAGED_EDGE_HURDLE_RATE = 0.01;
-export const LEVERAGED_MIN_EDGE = 3;
+const LEVERAGED_EDGE_HURDLE_RATE = 0.01;
+const LEVERAGED_MIN_EDGE = 3;
 
 function positiveInteger(value) {
   const number = Number(value);
   return Number.isInteger(number) && number > 0 ? number : null;
-}
-
-function clamp(value, minimum, maximum) {
-  return Math.max(minimum, Math.min(maximum, value));
 }
 
 function quoteSeries(history, instrumentId, currentQuote) {
@@ -84,7 +81,20 @@ function unsupportedForecast() {
   return { supported: false, expectedPnl: null, expectedMove: null, fee: null, expectedMovePercent: null, volatilityPercent: null };
 }
 
-function orderFee(gross) {
+// The live event and quote history every forecast call needs, read off the game once.
+export function marketForecastContext(game) {
+  const event = game.globalEvent?.phase === 'active' ? game.globalEvent : null;
+  const effects = game.activeEventEffects?.() || {};
+  return {
+    history: game.marketQuoteHistory,
+    marketVolatility: effects.marketVolatility,
+    activeEventId: event?.id || null,
+    activeEventStartedRound: event?.startedRound,
+    eventPriceMultiplier: effects.marketPriceMultiplier
+  };
+}
+
+export function orderFee(gross) {
   return Math.max(1, Math.ceil(gross * MARKET_FEE_RATE));
 }
 

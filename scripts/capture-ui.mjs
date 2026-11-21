@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /* global console */
+// `npm run capture:ui`: screenshots the client at several viewports with Playwright and builds an HTML gallery.
 import { spawnSync } from 'node:child_process';
 import { access, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';

@@ -3,7 +3,7 @@ import { rentShareConstructionAllowed } from './rentShareRules.js';
 // Versioned, provider-safe bot projection. It only reshapes the authoritative GameState and never executes an action
 // or exposes stable account or socket identifiers. It stays separate from bot execution so a simulator and the AI adapter
 // can consume the same snapshot contract.
-import { JAIL_FINE, JAIL_MAX_TURNS, START_TILE_INDEX } from './gameData.js';
+import { JAIL_FINE, JAIL_MAX_TURNS, START_PASS_CASH, START_TILE_INDEX } from './gameData.js';
 import { decksForVariant } from './boardRegistry.js';
 import { MARKET_FEE_RATE, marketQuoteHistorySnapshot } from './marketLogic.js';
 import { COMPLEXITY_RANK, MARGIN_MAINTENANCE_RATE } from './marketExpansion.js';
@@ -37,9 +37,15 @@ function cashBand(cash, startingCash) {
 export function seatOf(game, bot, playerId) {
   if (!playerId) return 'bank';
   if (playerId === bot.id) return 'self';
-  const opponents = (game.players || []).filter(player => player.id !== bot.id);
-  const index = opponents.findIndex(player => player.id === playerId);
-  return index < 0 ? 'unknown' : `opponent-${index + 1}`;
+  // Position among the opponents (every seat except the bot), found without building the opponent list per call.
+  let opponentIndex = -1;
+  let seen = 0;
+  for (const player of game.players || []) {
+    if (player.id === bot.id) continue;
+    if (player.id === playerId) { opponentIndex = seen; break; }
+    seen += 1;
+  }
+  return opponentIndex < 0 ? 'unknown' : `opponent-${opponentIndex + 1}`;
 }
 
 function tileView(game, bot, tile) {
@@ -473,7 +479,7 @@ function rulesDigest(game) {
     boardSize: Array.isArray(game.tiles) ? game.tiles.length : 40,
     ...rulesetMetadata(game),
     startTileIndex: START_TILE_INDEX,
-    passStartCash: 200,
+    passStartCash: START_PASS_CASH,
     doubleGo: settings.doubleGo === true,
     doubleRent: settings.doubleRent === true,
     jailFine: JAIL_FINE,

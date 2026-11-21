@@ -52,4 +52,4 @@ SHA-256 checksums for the downloaded files:
 pixel-hit-pack-cc0.wav 9CBC24BF6233147DC8818AF4FA37D7C6AB6E4475D4C8409AAAA7E2CBF640B41A
 ```
 
-`Pondering the Cosmos` remains the separate home soundtrack candidate documented in `../README.md`. It is also CC0 and has not been changed by this asset pack.
+`Pondering the Cosmos` remains the separate home soundtrack candidate documented in `../audio/README.md`. It is also CC0 and has not been changed by this asset pack.

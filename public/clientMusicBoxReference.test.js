@@ -4,10 +4,11 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MUSIC_MANIFEST } from "./clientMusicData.js";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const index = readFileSync(join(root, "index.html"), "utf8");
-const styles = readFileSync(join(root, "styles.css"), "utf8");
+const styles = siteCss();
 const main = readFileSync(join(root, "main.js"), "utf8");
 const player = readFileSync(join(root, "clientMusicPlayer.js"), "utf8");
 

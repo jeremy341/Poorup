@@ -326,7 +326,7 @@ export class TelemetryStore {
   }
 }
 
-export { ALLOWED_KINDS, ALLOWED_ANALYTICS_DIMENSIONS, DEFAULT_FILE as TELEMETRY_STORE_FILE, MAX_EVENTS, PRIVATE_KEYS, PAYLOAD_ALLOWLISTS, sanitizeTelemetryValue as sanitize };
+export { ALLOWED_ANALYTICS_DIMENSIONS, PRIVATE_KEYS, sanitizeTelemetryValue as sanitize };
 
 function sanitizeTelemetryValue(value) {
   return sanitize(value);

@@ -101,8 +101,8 @@ test.describe('About in the parlor shell', () => {
     await page.goto('/');
     await page.locator('#home-alias').fill('ABOUTSEAT');
     await page.locator('#open-create-btn').click();
-    await page.locator('#rc-create-btn').click();
-    await page.locator('#su-start').click();
+    await page.locator('#room-create-btn').click();
+    await page.locator('#setup-start-btn').click();
     await expect.poll(() => page.evaluate(async () => (await import('/clientState.js')).state.phase)).toBe('lobby');
     const before = await page.evaluate(async () => {
       const { state } = await import('/clientState.js');

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { siteCss } from '../qa/support/siteSource.mjs';
 
 globalThis.window = { matchMedia: () => ({ matches: false }) };
 globalThis.document = { querySelector: () => null, querySelectorAll: () => [] };
@@ -17,7 +17,7 @@ const {
   openSponsorshipModal,
 } = await import("./clientSponsorshipUi.js");
 
-const economyStyles = await readFile(new URL("./ux-surfaces.css", import.meta.url), "utf8");
+const economyStyles = siteCss();
 assert.match(economyStyles, /\.sponsorship-card:has\(\.sponsorship-request-form\)\s*\{[^}]*width: min\(580px/, "request width is scoped to the funding composer");
 assert.match(economyStyles, /\.sponsorship-request-form \.sponsorship-mode-options\s*\{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/, "gift and equity remain equal side-by-side choices");
 assert.match(economyStyles, /\.sponsorship-request-form \.sponsorship-mode-options label\s*\{[^}]*flex-direction: column;[^}]*align-items: flex-start;[^}]*min-height: 96px/, "funding options retain the top radio and text layout");

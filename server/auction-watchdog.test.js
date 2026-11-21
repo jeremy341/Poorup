@@ -170,7 +170,7 @@ function testWatchdogIsUnrefedAndStoppable() {
   const h = harness();
   const watchdog = h.intervals.find(interval => interval.ms > 0 && interval.unrefed);
   assert.ok(watchdog, 'the watchdog interval is unref-ed so it cannot hold the process open');
-  h.runtime.stopAuctionWatchdog();
+  h.runtime.dispose();
   assert.equal(watchdog.cleared, true, 'shutdown clears the watchdog interval');
 }
 
@@ -219,7 +219,7 @@ function testBackgroundIntervalsAreUnrefedAndStoppable() {
   const h = harness();
   assert.ok(h.intervals.length >= 4);
   assert.ok(h.intervals.every(interval => interval.unrefed), 'no interval holds the process open');
-  h.runtime.stopAuctionWatchdog();
+  h.runtime.dispose();
   assert.ok(h.intervals.every(interval => interval.cleared), 'shutdown clears every interval');
 }
 

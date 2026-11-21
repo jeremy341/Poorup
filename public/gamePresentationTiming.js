@@ -1,7 +1,7 @@
 // Shared, data-only timing policy used by the server and the browser.
 export const DICE_ROLL_MS = 800;
-export const DICE_TOTAL_ENTER_MS = 240;
-export const DICE_TOTAL_PAUSE_MS = 200;
+const DICE_TOTAL_ENTER_MS = 240;
+const DICE_TOTAL_PAUSE_MS = 200;
 export const DICE_SHAKE_CYCLE_MS = 240;
 export const HUMAN_MOVEMENT_STEP_MS = 300;
 export const BOT_MOVEMENT_STEP_MS = 400;
@@ -12,9 +12,9 @@ export const ROLL_LEAD_MS = DICE_ROLL_MS + DICE_TOTAL_ENTER_MS + DICE_TOTAL_PAUS
 // WALK_FAST_AFTER_STEPS tiles, ~63% of it beyond that, and a longer settle on the landing tile.
 // Additive and pure: the server only imports names, so existing exports are untouched. The server's
 // segment durationMs/offsetMs/readyAt must adopt walkDurationMs() before the shorter walk shortens the turn.
-export const WALK_FAST_AFTER_STEPS = 6;
-export const WALK_FAST_RATIO = 0.63;
-export const WALK_SETTLE_EXTRA_MS = 80;
+const WALK_FAST_AFTER_STEPS = 6;
+const WALK_FAST_RATIO = 0.63;
+const WALK_SETTLE_EXTRA_MS = 80;
 
 export function walkStepDurationsMs(count, baseStepMs) {
   const base = Math.max(1, Number(baseStepMs) || 1);

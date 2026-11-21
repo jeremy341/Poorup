@@ -919,6 +919,7 @@ function testStoresCharacterization() {
   const saved = { ...[...accounts.accounts.values()][0] };
   delete saved.passwordSalt;
   delete saved.passwordHash;
+  delete saved.passwordKdf;
   delete saved.sessionTokenHash;
   const savedNormalized = normalizeDynamic(saved);
   // The persisted matchHistory embeds a full copy of the match record; that shape is already

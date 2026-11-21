@@ -1,0 +1,37 @@
+/* Poorup SVG charts (.chart-*), drawn by clientChartRender and mounted by clientChartMount. */
+
+/* Poorup charts: drawn by clientChartRender, mounted by clientChartMount. Colour comes only from
+   these tokens, so themes and forced-colors restyle every chart (admin, market, history) at once. */
+[data-chart-engine="svg"]:focus-visible { outline: 2px solid var(--theme-focus); outline-offset: 1px; }
+.pc-svg { display: block; max-width: 100%; overflow: visible; }
+.pc-svg title { pointer-events: none; }
+.pc-svg text { fill: var(--text-muted); font: 12px var(--font-body); font-variant-numeric: tabular-nums; shape-rendering: auto; }
+.pc-svg .pc-cat { fill: var(--text-secondary); font-weight: 600; letter-spacing: .03em; text-transform: uppercase; }
+.pc-tone-primary { --pc-c: var(--analytics-primary); }
+.pc-tone-comparison { --pc-c: var(--analytics-comparison); }
+.pc-tone-ai { --pc-c: var(--analytics-ai); }
+.pc-tone-warning { --pc-c: var(--analytics-warning); }
+.pc-tone-bot { --pc-c: var(--analytics-bot); }
+.pc-tone-positive { --pc-c: var(--analytics-positive); }
+.pc-grid line { stroke: var(--analytics-grid); stroke-opacity: .7; shape-rendering: crispEdges; }
+.pc-axis line { stroke: var(--line-active); shape-rendering: crispEdges; }
+.pc-line, .pc-legend-swatch { fill: none; stroke: var(--pc-c); stroke-width: 2; stroke-linecap: square; stroke-linejoin: miter; }
+.pc-area { fill: var(--pc-c); fill-opacity: .14; stroke: none; pointer-events: none; }
+.pc-dot { fill: var(--pc-c); stroke: var(--surface-panel); stroke-width: 1; }
+.pc-bar { fill: var(--pc-c); stroke: var(--surface-panel-deep); stroke-width: 1; shape-rendering: crispEdges; }
+.pc-bar.is-active { stroke: var(--gold-050); stroke-width: 2; }
+.pc-values text { fill: var(--text-primary); font-weight: 600; }
+.pc-legend text { fill: var(--gold-100); font-weight: 600; letter-spacing: .04em; }
+.pc-marker path { stroke: var(--surface-panel); stroke-width: 1; }
+.pc-marker-event path { fill: var(--analytics-warning); }
+.pc-marker-buy path { fill: var(--analytics-positive); }
+.pc-marker-sell path { fill: var(--analytics-negative); }
+.pc-marker-note path { fill: var(--text-muted); }
+.pc-cursor { stroke: var(--gold-050); stroke-opacity: .6; stroke-dasharray: 3 3; shape-rendering: crispEdges; }
+.pc-ring { fill: none; stroke: var(--gold-050); stroke-width: 2; }
+.pc-readout rect { fill: var(--surface-panel-deep); stroke: var(--line-active); }
+.pc-readout text { fill: var(--text-primary); }
+.pc-empty { fill: var(--text-muted); letter-spacing: .08em; }
+.pc-spark { display: inline-block; vertical-align: middle; overflow: visible; }
+.pc-spark .pc-line { stroke-width: 1.5; }
+.analytics-chart-summary { margin: 0; }

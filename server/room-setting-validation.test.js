@@ -120,12 +120,12 @@ test('legacy raw supply-limit settings are stripped from ruleset projections and
   }), clean.digest);
 });
 
-test('B-35 globalEvents resolves identically through both doors', () => {
+test('globalEvents resolves identically through both doors', () => {
   const spread = [...GLOBAL_EVENT_ON_VALUES, 'off', 'false', 0, 'maybe', undefined, 'unlimited'];
   for (const value of spread) assertDoorsAgree('globalEvents', value);
 });
 
-test("B-35 globalEvents 'rare' and 'hardcore' no longer invert", () => {
+test("globalEvents 'rare' and 'hardcore' no longer invert", () => {
   for (const value of ['rare', 'hardcore']) {
     const { creation, setter } = assertDoorsAgree('globalEvents', value);
     assert.equal(creation.value, true, `${value} turns global events ON through creation`);
@@ -134,7 +134,7 @@ test("B-35 globalEvents 'rare' and 'hardcore' no longer invert", () => {
   }
 });
 
-test('B-35 every other shared key agrees across creation and the setter', () => {
+test('every other shared key agrees across creation and the setter', () => {
   const spread = {
     startingCash: [0, 1, 1500, 1_000_000, '2000.5', 1_000_001, -5, 'abc', 'unlimited'],
     bots: [0, 1, 2, 3, 4, 7, 8, -1, '2', 3.7, 'abc']
@@ -144,7 +144,7 @@ test('B-35 every other shared key agrees across creation and the setter', () => 
   }
 });
 
-test('B-35 accepted values still work through both doors (no over-tightening)', () => {
+test('accepted values still work through both doors (no over-tightening)', () => {
   const accepted = {
     globalEvents: [...GLOBAL_EVENT_ON_VALUES],
     startingCash: [0, 1500, 1_000_000],
@@ -161,7 +161,7 @@ test('B-35 accepted values still work through both doors (no over-tightening)', 
   }
 });
 
-test('B-35 maxPlayers is not a creation override and its dead range config is gone', () => {
+test('maxPlayers is not a creation override and its dead range config is gone', () => {
   assert.equal(KNOWN_OVERRIDE_KEYS.has('maxPlayers'), false);
   assert.equal(HISTORICAL_OVERRIDE_KEYS.has('maxPlayers'), false);
   for (const value of [0, 2, 4, 6, 8, -1, '4', 'unlimited', 'abc']) {
@@ -180,7 +180,7 @@ test('B-35 maxPlayers is not a creation override and its dead range config is go
   assert.equal(creationDoor('maxPlayers', 6).value, 4);
 });
 
-test('B-36b every add-on key is carry-forwardable', () => {
+test('every add-on key is carry-forwardable', () => {
   // OPTIONAL_SYSTEM_KEYS drives the legacy to ruleset carry-forward. It is
   // derived from ADD_ON_DEFAULTS so a new add-on key cannot silently be
   // reverted by the first meta write.
@@ -189,9 +189,9 @@ test('B-36b every add-on key is carry-forwardable', () => {
   }
 });
 
-test("B-36b an Advanced room's first marketComplexity write sticks", () => {
+test("an Advanced room's first marketComplexity write sticks", () => {
   const room = advancedRoomWithOptionalSystems();
-  assert.equal(room.rulesetExplicit, true, 'fixture uses explicit Advanced rules');
+  assert.equal(room.game.legacyRuleset, false, 'fixture uses explicit Advanced rules');
   assert.equal(room.settings.marketComplexity, 'basic');
 
   const result = room.setRoomSetting('marketComplexity', 'margin');
@@ -215,7 +215,7 @@ test("B-36b an Advanced room's first marketComplexity write sticks", () => {
   assert.equal(room.ruleset.effectiveSettings.globalEvents, true);
 });
 
-test('B-36b marketComplexity survives refreshRuleset and later writes', () => {
+test('marketComplexity survives refreshRuleset and later writes', () => {
   const room = advancedRoomWithOptionalSystems();
   room.setRoomSetting('marketComplexity', 'shorting');
 
@@ -238,7 +238,7 @@ test('B-36b marketComplexity survives refreshRuleset and later writes', () => {
   assert.equal(room.game.settings.marketComplexity, 'shorting');
 });
 
-test("B-36b an Advanced room's optional systems survive the first ruleset meta write (T9)", () => {
+test("an Advanced room's optional systems survive the first ruleset meta write", () => {
   const room = advancedRoomWithOptionalSystems();
   const result = room.setRoomSetting('boardVariant', 'standard-40');
   assert.equal(result.rejected, false);
@@ -249,7 +249,7 @@ test("B-36b an Advanced room's optional systems survive the first ruleset meta w
     'the ruleset flow must preserve the explicit optional overrides');
 });
 
-test('B-36a: add-on overrides accumulate and a later toggle keeps the earlier ones', () => {
+test('add-on overrides accumulate and a later toggle keeps the earlier ones', () => {
   // Presets do not clear overrides on a switch. With no presets, every
   // add-on choice stays on the table until the host changes it.
   const room = newRoom({ rulesetOverrides: [{ key: 'bankLoans', value: true }] });

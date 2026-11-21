@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { assertProductionCors, isOriginAllowed, parseAllowedOrigins, resolveClientAddress } from './serverConfig.js';
+import { assertProductionCors, parseAllowedOrigins, resolveClientAddress } from './serverConfig.js';
 import * as serverConfig from './serverConfig.js';
 import * as httpRateLimiter from './httpRateLimiter.js';
 import { createSocketAdmission, createSocketRateLimiter } from './socketRateLimiter.js';
@@ -8,7 +8,6 @@ assert.equal(typeof serverConfig.isAllowedSocketOrigin, 'function');
 assert.equal(serverConfig.isAllowedSocketOrigin('https://play.example', ['https://play.example']), true);
 assert.equal(serverConfig.isAllowedSocketOrigin('https://evil.example', ['https://play.example']), false);
 assert.equal(serverConfig.isAllowedSocketOrigin('ws://play.example', ['https://play.example']), false);
-assert.equal(isOriginAllowed('https://evil.example', ['https://play.example']), false);
 assert.equal(resolveClientAddress({ address: '127.0.0.1', headers: { 'x-forwarded-for': '10.0.0.2, 10.0.0.1' } }, 0), '127.0.0.1');
 // One trusted hop: the rightmost entry is the address the proxy appended, the
 // same entry Express picks for req.ip. The leftmost entry is client-supplied.
@@ -24,8 +23,9 @@ assert.equal(resolveClientAddress({ address: '127.0.0.1', headers: { 'x-forwarde
 assert.deepEqual(parseAllowedOrigins({ POORUP_ALLOWED_ORIGINS: 'https://play.example,https://play.example/' }), ['https://play.example', 'https://play.example']);
 assert.throws(() => assertProductionCors({ NODE_ENV: 'production', POORUP_ALLOWED_ORIGINS: 'https://play.example,ws://evil' }), /valid origins/);
 assert.equal(typeof httpRateLimiter.assertRateLimitConfig, 'function');
-assert.throws(() => httpRateLimiter.assertRateLimitConfig({ NODE_ENV: 'production', POORUP_HTTP_RATE_LIMIT: '0', POORUP_SOCKET_RATE_LIMIT: '0' }), /rate limit/i);
-assert.equal(httpRateLimiter.assertRateLimitConfig({ NODE_ENV: 'development', POORUP_HTTP_RATE_LIMIT: '0', POORUP_SOCKET_RATE_LIMIT: '0' }).development, true);
+assert.throws(() => httpRateLimiter.assertRateLimitConfig({ NODE_ENV: 'production', POORUP_HTTP_RATE_LIMIT: '0', POORUP_SOCKET_RATE_LIMIT: '0' }), /positive number|rate limit/i);
+assert.throws(() => httpRateLimiter.assertRateLimitConfig({ NODE_ENV: 'development', POORUP_SOCKET_RATE_LIMIT: '0' }), /positive number/, 'an explicit zero socket budget is refused at boot, not read as "disabled"');
+assert.equal(httpRateLimiter.assertRateLimitConfig({ NODE_ENV: 'development', POORUP_HTTP_RATE_LIMIT: '0', POORUP_SOCKET_RATE_LIMIT: '' }).development, true);
 
 const limiter = createSocketRateLimiter({ max: 0, windowMs: 1000 });
 assert.equal(limiter.allow('socket-a'), false);
@@ -51,6 +51,23 @@ assert.equal(admission.allow('peer-b', 2), false);
 now = 1001;
 assert.equal(admission.allow('peer-a', 0), true);
 
+// A per-peer concurrent cap is enforced beside the global cap: one address cannot occupy every slot, and another peer keeps its
+// own admission. A little of the global cap stays reserved even when maxPerPeer is configured above it.
+{
+  const capped = createSocketAdmission({ maxConnections: 100, maxPerPeer: 1, maxHandshakes: 1000, windowMs: 1000, now: () => 0 });
+  assert.equal(capped.allow('peer-a', 0, 0), true);
+  assert.equal(capped.allow('peer-a', 1, 1), false, 'one peer cannot exceed its concurrent socket cap');
+  assert.equal(capped.allow('peer-b', 1, 0), true, 'another peer is still admitted while the first is at its cap');
+  assert.equal(capped.allow('peer-a', 0, 1), false, 'dropping the global count does not bypass the per-peer cap');
+
+  const narrow = createSocketAdmission({ maxConnections: 10, maxPerPeer: 100, maxHandshakes: 1000, windowMs: 1000, now: () => 0 });
+  assert.equal(narrow.allow('peer-a', 8, 8), true);
+  assert.equal(narrow.allow('peer-a', 9, 9), false, 'the last global slots stay reserved for other peers');
+  assert.equal(narrow.allow('peer-b', 9, 0), true);
+  assert.equal(createSocketAdmission({ maxPerPeer: '' }).maxPerPeer, 5, 'a blank maxPerPeer keeps the default of 5');
+  assert.equal(createSocketAdmission({ maxPerPeer: '0' }).maxPerPeer, 5, 'a zero maxPerPeer falls back instead of refusing everyone');
+}
+
 // Reconnect churn past the cap must not grow the peer map without bound.
 const churn = createSocketAdmission({ maxConnections: 100_000, maxHandshakes: 5, windowMs: 1000, now: () => 0 });
 for (let index = 0; index < 10_050; index += 1) churn.allow(`churn-peer-${index}`, 0);
@@ -68,7 +85,7 @@ assert.equal(churn.size() <= 10_000, true, 'handshake buckets are capped');
   assert.equal(blankWindow.allow('blank-window'), false, 'a blank window falls back to 10 s, not the 100 ms floor');
   const blankPeer = createSocketRateLimiter({ max: 1, peerMax: '', windowMs: 1000 });
   assert.equal(blankPeer.allow('blank-peer', '203.0.113.5'), true, 'a blank peer budget falls back to a multiple of max');
-  assert.equal(createSocketRateLimiter({ max: '0', windowMs: 1000 }).allow('zero-max'), false, 'an explicit 0 still denies everything');
+  assert.equal(createSocketRateLimiter({ max: '0', windowMs: 1000 }).allow('zero-max'), false, 'an explicit 0 still denies everything (boot refuses that env value)');
 }
 
 // Peers key on the IPv6 /64, and an IPv4-mapped address keys
@@ -113,4 +130,16 @@ assert.equal(typeof serverConfig.resolveHandshakeSession, 'function');
   assert.equal(serverConfig.resolveHandshakeSession(() => undefined, 's1'), null);
 }
 
-console.log('socket admission: 39 passed, 0 failed');
+// A token-bucket handshake budget cannot be spent twice by straddling a window boundary.
+{
+  let clock = 0;
+  const admission = createSocketAdmission({ maxHandshakes: 2, windowMs: 1000, now: () => clock });
+  assert.equal(admission.allow('boundary-peer'), true);
+  clock = 999;
+  assert.equal(admission.allow('boundary-peer'), true);
+  clock = 1000;
+  assert.equal(admission.allow('boundary-peer'), true, 'only the tokens refilled since the burst are available');
+  assert.equal(admission.allow('boundary-peer'), false, 'no second full handshake allowance at the boundary');
+}
+
+console.log('socket admission: 40 passed, 0 failed');

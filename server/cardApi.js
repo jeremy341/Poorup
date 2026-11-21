@@ -2,7 +2,7 @@
 // or strike and rent early-outs) or RESOLVE_TAIL, meaning "run the shared resolveTurnAfterAction tail and return undefined".
 // gameLogic.js assigns this object onto GameState.prototype; server/applyCard.test.js pins every card's effect and feed text.
 import { randomInt } from './random.js';
-import { START_TILE_INDEX } from './gameData.js';
+import { LAST_PLACE_START_BONUS, START_TILE_INDEX } from './gameData.js';
 import { ITEM_REWARD_CARDS, decksForVariant } from './boardRegistry.js';
 import { recordPresentationCash } from './gamePresentation.js';
 
@@ -37,7 +37,7 @@ function refillExcludingHeld(source, players, deckName) {
 }
 
 // Card action dispatch: the action verbs mapped to their handler method
-// names on GameState, replacing the original switch statement.
+// names on GameState.
 const CARD_ACTION_HANDLERS = {
   collectStart: 'collectStartCard',
   pay: 'payCard',
@@ -161,7 +161,7 @@ const cardApi = {
   },
 
   startPassCatchUpBonus(player) {
-    return this.isLastPlaceByCash(player) ? 100 : 0;
+    return this.isLastPlaceByCash(player) ? LAST_PLACE_START_BONUS : 0;
   },
 
   startPassFeed(player, exactStart, total, bonus) {

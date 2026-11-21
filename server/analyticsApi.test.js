@@ -152,7 +152,7 @@ check('builds the activity series and a previous-period delta from a real rollup
   assert.equal(Object.hasOwn(noComparison.overview.kpis.find(item => item.id === 'started'), 'comparison'), false);
 });
 
-check('S15-02: an hour straddling the window start is counted in the current window only', () => {
+check('an hour straddling the window start is counted in the current window only', () => {
   const clock = Date.parse('2026-09-13T12:30:00.000Z');
   const rollup = createAnalyticsRollupStore({ now: () => clock });
   const at = hours => ({ kind: 'match-start', createdAt: new Date(clock - hours * 3_600_000).toISOString(), seasonId: 's', rulesetRevision: 1, balanceRevision: 1, boardVariant: 'standard-40', rulesetPreset: 'classic', marketComplexity: 'basic', data: {} });

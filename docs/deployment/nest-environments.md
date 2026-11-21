@@ -42,6 +42,9 @@ Required environment:
 ```sh
 NODE_ENV=production
 POORUP_ALLOWED_ORIGINS=https://testing.poorup.example
+# Declare the network posture or production refuses to start: reverse-proxy hops,
+# POORUP_TRUSTED_PROXY_ADDRESSES, or POORUP_DIRECT_INTERNET=true with no proxy.
+POORUP_TRUST_PROXY_HOPS=1
 POORUP_DATA_DIR=/srv/poorup/data
 POORUP_BACKUP_DIR=/srv/poorup/backups
 POORUP_MAINTENANCE_TOKEN=<host secret>
@@ -65,6 +68,12 @@ operator workstation with the testing URL only:
 ```sh
 POORUP_LOAD_ENV=testing POORUP_LOAD_TARGET=https://testing.poorup.example POORUP_LOAD_CLIENTS=1000 node qa/load/poorup-socket-load.mjs
 ```
+
+The harness connects every simulated client from one address, so temporarily
+raise `POORUP_SOCKET_MAX_PER_PEER` (default 5) and
+`POORUP_SOCKET_HANDSHAKE_RATE` on the testing host for the run, then restore
+them. The per-peer concurrent cap is what stops one address occupying every
+global socket slot.
 
 Store only the JSON summary with the release SHA. Capture event-loop lag,
 memory recovery, duplicate-settlement checks, and the drain outcome from the

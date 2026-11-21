@@ -1,11 +1,7 @@
 // ENTRY MODULE: game logic, renderers, and event wiring.
 // Shared data and state live in the client*.js modules imported here.
-import { $, esc, setHtml } from "./clientDom.js";
-import {
-  hydrateSprites,
-  spriteHTML,
-  avatarHTML,
-} from "./clientSprites.js";
+import { $, esc } from "./clientDom.js";
+import { hydrateSprites } from "./clientSprites.js";
 import {
   state,
   syncLocalAppearance,
@@ -85,18 +81,12 @@ import { renderBoardFeed } from "./clientBoardFeed.js";
 import { renderChatDock } from "./clientChatDock.js";
 import { bindHomeMenu, closeHeaderMenus } from "./clientHomeMenu.js";
 import { bindKeyboard } from "./clientKeyboard.js";
-import {
-  configureRailEvents,
-  onRailClick,
-  onRailSubmit,
-} from "./clientRailEvents.js";
+import { configureRailEvents } from "./clientRailEvents.js";
 import { configureProfileRender, renderAccountPanel } from "./clientProfileRender.js";
 import {
   applyPatrolState,
   configureNightShift,
   handlePatrolDisconnect,
-  handlePatrolReconnect,
-  hasPendingPatrolSettlement,
   nightShiftState,
   startNightShift,
   stopNightShift,
@@ -106,18 +96,10 @@ import {
   announceSocialNotification,
   configureSocialSurfaces,
   parlorNotice,
-  openSocialSurface,
-  openInGameSocialSurface,
-  openRankingsSurface,
   openRulesSurface,
   renderSocialSurface,
-  renderRulesSurface,
 } from "./clientSocialSurfaces.js";
 import {
-  bootstrapAccountCookieSession,
-  getAccountAuthGeneration,
-  guardAccountAuthCallback,
-  markAccountSocialStateFresh,
   configureAccountIdentity,
   renderAchievements,
   closeAchievementModal,
@@ -145,7 +127,7 @@ import { showComputerProfile } from "./clientProfileBindings.js";
 import { friendlyActionError } from "./clientActionErrorCopy.js";
 import { createChatSender } from "./clientChatSend.js";
 import { createPresenceMonitor } from "./clientPlayerPresence.js";
-import { createInactivityUi, inactiveBadgeHTML } from "./clientInactivityUi.js";
+import { createInactivityUi } from "./clientInactivityUi.js";
 import {
   bindDealUi,
   closeDealDetails,
@@ -186,7 +168,6 @@ import {
   closeRoomsModal,
   configureRoomsUi,
   openRoomsModal,
-  requestRoomsDirectory,
   refreshHomeDirectory,
   renderHomeSignals,
   renderHome,
@@ -196,7 +177,6 @@ import {
 import { configureSocketListeners, reconcileSignedOutState } from "./clientSocketListeners.js";
 import { syncLog } from "./clientStateSync.js";
 import { getChatRenderPlan, hasUnrenderedMessages } from "./clientChatView.js";
-import { TILES } from "./clientBoardData.js";
 import {
   bindGameModalSurfaces,
   closeCardGallery,
@@ -212,7 +192,6 @@ import {
   closeOfferIfWithdrawn,
   showGameOver,
 } from "./clientGameModalsUi.js";
-import { emitIntent } from "./clientRequestController.js";
 import {
   bindSponsorshipUi,
   closeSponsorshipModal,
@@ -252,80 +231,39 @@ import {
   resumeGame,
   saveGame,
 } from "./clientGameSave.js";
-/* ---- restrained arcade sfx (Web Audio, no assets) ------------------ */
-let audioCtx = null;
+import { playSound, resumeSuspendedAudioContext } from "./clientSfx.js";
+import {
+  configureSocketAdapter,
+  emitServer,
+  reconnectAccountSocket,
+  retryPatrolAfterAuthReady,
+  socket,
+} from "./clientSocketAdapter.js";
+import {
+  configureGameActions,
+  buyTile,
+  primaryTurnAction,
+  startGame,
+  startRound,
+} from "./clientGameActions.js";
+import {
+  configureHomeNavigation,
+  bindHomeNavigation,
+  bindRulesPage,
+  onHomeTabClick,
+  onTopSurfaceClick,
+} from "./clientHomeNavigation.js";
+import { configureRailBindings, bindRail, openSurfaceFromUrl } from "./clientRailBindings.js";
+import { configurePlayerRail, renderPlayers } from "./clientPlayerRail.js";
+
 let musicController = null;
 let globalEventVoteTimer = null;
-
-function announceSoundMessage(message) {
-  const status = $("#music-status");
-  if (status && status.textContent !== message) status.textContent = message;
-}
-
-function tone(freq, dur, vol = 0.035, when = 0) {
-  if (!state.sound) return;
-  try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === "suspended") audioCtx.resume()?.catch(() => announceSoundMessage("Sound is blocked. Activate a control to retry."));
-    const t0 = audioCtx.currentTime + when;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = "square";
-    osc.frequency.value = freq;
-    gain.gain.setValueAtTime(vol, t0);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    osc.connect(gain).connect(audioCtx.destination);
-    osc.start(t0);
-    osc.stop(t0 + dur);
-  } catch { /* audio blocked */ }
-}
 const MODAL_ENTER_MS = 200;
-const SOUND_TRACKS = {
-  die: [{ freq: 220, dur: 0.05, vol: 0.03 }],
-  // dice rattle (roll start) and landing thud (total revealed)
-  rattle: [{ freq: 300, dur: 0.03, vol: 0.02 }, { freq: 240, dur: 0.03, vol: 0.02, when: 0.05 }, { freq: 330, dur: 0.03, vol: 0.02, when: 0.1 }, { freq: 260, dur: 0.03, vol: 0.02, when: 0.15 }],
-  thud: [{ freq: 110, dur: 0.09, vol: 0.045 }],
-  cash: [{ freq: 660, dur: 0.06, vol: 0.03 }, { freq: 880, dur: 0.07, vol: 0.03, when: 0.06 }],
-  // coin pitch falls when cash leaves the player
-  spend: [{ freq: 880, dur: 0.06, vol: 0.03 }, { freq: 520, dur: 0.08, vol: 0.03, when: 0.06 }],
-  house: [{ freq: 140, dur: 0.08, vol: 0.04 }],
-  auction: [{ freq: 520, dur: 0.12, vol: 0.03 }, { freq: 390, dur: 0.14, vol: 0.03, when: 0.12 }],
-  bid: [{ freq: 720, dur: 0.05, vol: 0.025 }],
-  trade: [{ freq: 520, dur: 0.08, vol: 0.03 }, { freq: 780, dur: 0.1, vol: 0.03, when: 0.09 }],
-  step: [{ freq: 180, dur: 0.03, vol: 0.02 }],
-};
-function playSound(name) {
-  if (!state.sound) return;
-  const track = SOUND_TRACKS[name];
-  if (!track) return;
-  track.forEach((note) => tone(note.freq, note.dur, note.vol, note.when || 0));
-}
-
-
-
-
+configureSocketAdapter({ setConnectionStatus });
 
 syncLocalAppearance();
 
-// LIVE SOCKET.IO ADAPTER
-// The ZIP remains the complete UI source; this small boundary maps its
-// renderer state to the existing server-authoritative game protocol.
-const socket = typeof window.io === "function" ? window.io() : null;
-function isPatrolRetryCurrent(ready, accountId) {
-  return Boolean(ready && socket?.connected && state.account?.account?.id === accountId);
-}
-function retryPatrolAfterAuthReady() {
-  const accountId = state.account?.account?.id;
-  if (!hasPendingPatrolSettlement() || !accountId) return;
-  bootstrapAccountCookieSession().then((ready) => {
-    if (isPatrolRetryCurrent(ready, accountId)) handlePatrolReconnect();
-  }).catch(() => {});
-}
-function reconnectAccountSocket() {
-  if (!socket) return;
-  if (socket.connected) socket.disconnect();
-  socket.connect();
-}
+// LIVE SOCKET.IO ADAPTER: emit/reconnect live in clientSocketAdapter.js.
 const SERVER_SETTING_KEYS = {
   rulesProfile: "rulesProfile",
   playerFinance: "playerFinance",
@@ -352,43 +290,6 @@ const SERVER_SETTING_KEYS = {
   boardVariant: "boardVariant",
   marketComplexity: "marketComplexity",
 };
-
-const ACCOUNT_SCOPED_RESPONSE_EVENTS = new Set([
-  "get-social-data",
-  "get-leaderboard-snapshot",
-  "get-public-player-card",
-  "search-players",
-  "respond-friend-request",
-  "respond-room-invite",
-  "mark-notification-read",
-  "clear-recent-players",
-  "cancel-friend-request",
-  "send-friend-request",
-  "remove-friend",
-  "send-room-invite",
-  "get-match-history",
-  "block-player",
-  "report-player",
-]);
-
-function emitServer(event, payload = {}, callback) {
-  if (!socket) {
-    setConnectionStatus("offline", true);
-    callback?.({ success: false, error: "Live connection unavailable." });
-    return;
-  }
-  const packet = { ...payload, clientId: state.clientId };
-  if (state.account?.sessionToken) packet.sessionToken = state.account.sessionToken;
-  if (typeof callback === "function" && ACCOUNT_SCOPED_RESPONSE_EVENTS.has(event)) {
-    const generation = getAccountAuthGeneration();
-    const onResponse = callback;
-    callback = guardAccountAuthCallback((response) => {
-      if (event === "get-social-data" && response?.success && response.social) markAccountSocialStateFresh(generation);
-      onResponse(response);
-    }, generation);
-  }
-  socket.emit(event, packet, callback);
-}
 
 function updateServerSetting(key, value, onResult) {
   const settled = typeof onResult === "function" ? onResult : null;
@@ -670,11 +571,6 @@ function syncHomeMusic({ force = false, userGesture = false } = {}) {
   // The dock controller is canonical; no single-track fallback.
 }
 
-function resumeSuspendedAudioContext() {
-  if (audioCtx?.state !== "suspended") return;
-  audioCtx.resume()?.catch(() => announceSoundMessage("Sound is blocked. Activate a control to retry."));
-}
-
 function retryThemeTrackAfterGesture() {
   const snapshot = ensureMusicController()?.snapshot?.();
   if (!snapshot) return;
@@ -693,89 +589,14 @@ function retryAudioAfterGesture() {
 
 // GAME RENDERERS
 
-function renderPlayers() {
-  const seated = state.players.slice(0, state.settings.maxPlayers);
-  const serverNow = currentServerTime();
-  const rows = seated.map((p, i) => playerRowHTML(p, i, serverNow));
-  if (lobbyAddSeatAvailable(seated.length)) rows.push(lobbyAddSeatHTML());
-  setHtml($("#player-list"), rows.join(""));
-}
-
-function lobbyHostIsLocal() {
-  const me = state.players[0];
-  return Boolean(me && (me.isHost || (me.serverId && me.serverId === state.hostId)));
-}
-
-// Before the round starts, the host can add a computer player straight from the empty seat.
-function lobbyAddSeatAvailable(seatedCount) {
-  return state.phase === "lobby" && lobbyHostIsLocal() && seatedCount < state.settings.maxPlayers;
-}
-
-
-function lobbyAddSeatHTML() {
-  return `<button class="player-add-row" type="button" data-add-computer>
-    <span class="pr-av" aria-hidden="true">+</span>
-    <span class="t-label">Add computer player</span>
-  </button>`;
-}
-
-function playerRowHTML(p, i, serverNow = currentServerTime()) {
-  const active = i === state.turnIndex && state.phase === "playing";
-  const spectating = isSpectatingPlayer(p);
-  const eliminated = Boolean(p.bankrupt);
-  const playerId = p.serverId || p.id;
-  const status = spectating ? "SPECTATING" : playerStatusLabel(p);
-  return `<button class="player-row player-row-action${active ? " is-active" : ""}${spectating ? " is-spectating" : ""}${eliminated ? " is-eliminated" : ""}" type="button" data-player-id="${esc(playerId)}" aria-label="Open player card for ${esc(p.name)}${spectating ? ", spectating" : eliminated ? ", bankrupt" : ""}">
-        ${active ? `<span class="pr-arrow">${spriteHTML("arrow", 3)}</span>` : ""}
-        <div class="pr-av${spectating ? " pr-av-spectating" : ""}">${avatarHTML(p, 4, i)}</div>
-        <div class="pr-mid">
-          <div class="pr-nameline">
-            ${active ? spriteHTML("crown", 2) : ""}
-            <span class="t-label pr-name" style="color:${p.textColor}">${esc(p.name)}</span>
-            ${lobbyTagHTML(p)}
-            ${state.phase === "playing" ? inactiveBadgeHTML(p, serverNow) : ""}
-          </div>
-          ${spectating ? `<span class="t-micro pr-spectating-label">SPECTATING</span>` : ""}
-          <div class="t-label pr-cash numeric">$${Number(p.visualCash ?? p.cash ?? 0).toLocaleString()}</div>
-        </div>
-        <div class="pr-right">
-          ${playerDotHTML(p)}
-          <span class="t-micro ink-3">${status}</span>
-        </div>
-      </button>`;
-}
-
 /* Before the game starts the left rail is the only seat list, so it carries the
    host and computer player markers of the lobby panel. */
 function lobbyTagHTML(p) {
   if (state.phase === "playing") return "";
   const isHost = Boolean(p.isHost) || Boolean(p.serverId && p.serverId === state.hostId);
-  if (isHost) return `<span class="pr-tag pr-tag-host t-micro">HOST</span>`;
-  if (p.bot) return `<span class="pr-tag pr-tag-computer t-micro">COMPUTER</span>`;
+  if (isHost) return `<span class="player-row-tag player-row-tag-host t-micro">HOST</span>`;
+  if (p.bot) return `<span class="player-row-tag player-row-tag-computer t-micro">COMPUTER</span>`;
   return "";
-}
-
-function playerDotHTML(p) {
-  if (p.bankrupt) return `<span class="pr-dot pr-dot-spectating"></span>`;
-  const on = Boolean(p.online);
-  const background = on ? "#35a653" : "#3a382a";
-  const boxShadow = on ? "0 0 5px rgb(53 166 83 / 60%)" : "none";
-  return `<span class="pr-dot" style="background:${background};box-shadow:${boxShadow}"></span>`;
-}
-
-function isSpectatingPlayer(p) {
-  if (p.spectating) return true;
-  if (!p.bankrupt) return false;
-  return !p.bot;
-}
-
-function playerStatusLabel(p) {
-  if (isSpectatingPlayer(p)) return "SPECTATING";
-  if (p.bankrupt) return "BANKRUPT";
-  if (!p.online) return "AFK";
-  if (p.id === "p1") return "YOU";
-  if (p.bot) return `COMPUTER · ${(p.botBrain || "ai").toUpperCase()} · ${(p.botDifficulty || "table").toUpperCase()}`;
-  return "ONLINE";
 }
 
 let hasRenderedChat = false;
@@ -961,153 +782,7 @@ function syncRoomPresenceUi() {
 
 
 
-// GAME LOGIC
-
-function isLocalPlayerBlocked() {
-  const localPlayer = state.players[0];
-  return Boolean(localPlayer?.bankrupt || localPlayer?.spectating);
-}
-
-function canActForStage(idx, expectedStage) {
-  if (state.phase !== "playing" || isLocalPlayerBlocked()) return false;
-  if (state.turnIndex !== idx || state.busy || state.presentationBusy) return false;
-  return state.turnStage === expectedStage;
-}
-
-function createTurnRequest(kind) {
-  const requestId = createRequestId(kind);
-  state.pendingAction = { kind, requestId };
-  return requestId;
-}
-
-function executeTurnEmit({ kind, requestId, event, errorMessage, timeoutMessage }) {
-  const statusNode = captureActionStatusNode();
-  renderHud();
-  let settled = false;
-  const finish = () => {
-    if (state.pendingAction?.requestId !== requestId) return;
-    state.pendingAction = null;
-    state.busy = false;
-    if (kind === "roll" && !state.presentationBusy) state.rolling = false;
-  };
-  const timeout = setTimeout(() => {
-    if (settled) return;
-    settled = true;
-    finish();
-    announceActionStatus(timeoutMessage, statusNode);
-    renderAll();
-  }, 8000);
-  emitServer(event, { requestId }, (response) => {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timeout);
-    finish();
-    reportChatError(response, errorMessage, statusNode);
-    renderAll();
-  });
-}
-
-async function runTurn(idx) {
-  if (!canActForStage(idx, "roll")) return;
-  state.busy = true;
-  state.rolling = true;
-  playSound("rattle");
-  const requestId = createTurnRequest("roll");
-  executeTurnEmit({
-    kind: "roll",
-    requestId,
-    event: "roll-dice",
-    errorMessage: "The roll could not be completed.",
-    timeoutMessage: "Roll could not be confirmed. Try again.",
-  });
-}
-
-
-
-function endTurn(idx) {
-  if (!canActForStage(idx, "end")) return;
-  state.busy = true;
-  const requestId = createTurnRequest("end-turn");
-  executeTurnEmit({
-    kind: "end-turn",
-    requestId,
-    event: "end-turn",
-    errorMessage: "The turn could not be ended.",
-    timeoutMessage: "The turn could not be confirmed. Try again.",
-  });
-}
-
-function mustResolveAcquisition() {
-  return Boolean(state.auction || state.pendingBuyTile != null || state.sponsorship);
-}
-
-function canUsePrimaryTurnAction() {
-  if (state.phase !== "playing") return false;
-  if (isLocalPlayerBlocked()) return false;
-  if (state.busy || state.presentationBusy) return false;
-  return state.turnIndex === 0;
-}
-
-function openPendingPurchaseChoice() {
-  if (state.pendingBuyTile == null) return false;
-  const tile = TILES[state.pendingBuyTile];
-  if (!tile) return true;
-  presentPurchaseChoice(tile);
-  return true;
-}
-
-/* A live auction whose card was dismissed is reopened from the HUD button
-   (labelled "Resolve Auction"); any seated player may bid, turn or not. */
-function reopenDismissedAuction() {
-  if (!state.auction || state.phase !== "playing") return false;
-  const me = state.players[0];
-  if (me?.bankrupt || me?.spectating) return false;
-  if (!$("#auction-modal").classList.contains("is-hidden")) return true;
-  serverSyncHost.openAuctionSurface();
-  return true;
-}
-
-function primaryTurnAction() {
-  if (reopenDismissedAuction()) return;
-  if (!canUsePrimaryTurnAction()) return;
-  if (openPendingPurchaseChoice()) return;
-  if (mustResolveAcquisition()) return;
-  if (state.turnStage === "end") endTurn(0);
-  else runTurn(0);
-}
-
-
-function startGame() {
-  emitWithChatError("start-game", {}, "Only the host can start the game.");
-}
-
-// Same start-game event as the lobby button, with the ack handed back so solo
-// auto-start can report a refusal instead of failing silently.
-function startRound(onResult) {
-  emitServer("start-game", {}, (response) => onResult?.(response));
-}
-
-function buyTile(tile, submittedStatusNode = null, onSuccess = null) {
-  if (tile?.i == null) return;
-  const statusNode = submittedStatusNode || captureActionStatusNode();
-  // One BUY per intent: a double click / Enter repeat must not double-charge.
-  emitIntent(emitServer, `purchase-property:${tile.i}`, "purchase-property", { tileIndex: tile.i }, {
-    onResponse: (response) => {
-      reportChatError(response, "That deed is no longer available.", statusNode);
-      if (response?.success === false) return;
-      if (onSuccess) {
-        onSuccess();
-        closePopup();
-      }
-      else {
-        state.pendingBuyTile = null;
-        $("#choice-modal")?.classList.add("is-hidden");
-        closePopup();
-      }
-    },
-    onTimeout: () => announceActionStatus("The purchase could not be confirmed. Try again.", statusNode),
-  });
-}
+// GAME LOGIC: turn intents and purchase emits live in clientGameActions.js.
 /* Forced choice/auction, trading modals and the persist/resume cluster
    live in clientGameModalsUi.js / clientGameSave.js. */
 
@@ -1178,100 +853,7 @@ function homeProfileEditTarget() {
   return typeof state.appearance === "string" ? state.appearance : null;
 }
 
-function onHomeNavClick(e) {
-  const button = e.target.closest("[data-home-tab]");
-  if (!button) return;
-  const tab = button.dataset.homeTab;
-  setHomeTab(tab);
-  if (tab === "rooms") openRoomsModal("browse");
-  if (tab === "profile") openProfileEditor("home", homeProfileEditTarget());
-}
-
-function onTopSurfaceClick(button) {
-  const surface = button.dataset.topSurface;
-  if (openInGameSocialSurface(surface)) return;
-  if (surface === "rankings") openRankingsSurface();
-  else if (surface === "social") openSocialSurface();
-  else if (surface === "rules") openRulesSurface();
-}
-
-function onTopBackClick(button) {
-  const target = button.dataset.topBack || "home";
-  if (target === "home" && window.location.pathname === "/admin/analytics") {
-    window.history.replaceState(null, "", "/");
-    leaveRoomForHome();
-  }
-  else if (target === "home") leaveRoomForHome();
-  else showView(target);
-}
-
-function onHomeTabClick(button) {
-  const tab = button.dataset.homeTab;
-  if (tab === "profile") {
-    openProfileEditor("home", homeProfileEditTarget());
-  } else if (tab === "rooms") {
-    leaveRoomForHome();
-    setHomeTab("rooms");
-    openRoomsModal("browse");
-  } else if (tab === "play") {
-    leaveRoomForHome();
-    setHomeTab("play");
-    renderHome();
-  }
-}
-
-function onHomeSignalClick(event) {
-  const signal = event.target.closest("[data-home-signal]");
-  if (!signal) return;
-  const kind = signal.dataset.homeSignal;
-  if (kind === "entry") {
-    openProfileEditor("home", homeProfileEditTarget());
-    return;
-  }
-  if (kind === "sync") {
-    requestRoomsDirectory();
-    return;
-  }
-  if (kind === "lobbies") openRoomsModal("browse");
-}
-
-function onRulesSectionClick(event) {
-  const chaptersToggle = event.target.closest("[data-rules-chapters-toggle]");
-  if (chaptersToggle) {
-    state.rulesIndexExpanded = !state.rulesIndexExpanded;
-    renderRulesSurface("#rules-page-content");
-    requestAnimationFrame(() => $("[data-rules-chapters-toggle]")?.focus({ preventScroll: true }));
-    return;
-  }
-  const chapter = event.target.closest("[data-rules-section]");
-  if (chapter) {
-    state.rulesIndexExpanded = false;
-    openRulesSurface(chapter.dataset.rulesSection);
-  }
-}
-
-function bindHomeNavigation() {
-  // Home destinations. Play stays in the stage; rooms uses the existing
-  // server-backed directory surface; profile keeps the current editor flow.
-  $("#home-nav")?.addEventListener("click", onHomeNavClick);
-  $("#home-signal-line")?.addEventListener("click", onHomeSignalClick);
-  document.querySelectorAll("[data-top-surface]").forEach((button) => {
-    if (button.closest("#about-page-content")) return;
-    button.addEventListener("click", () => onTopSurfaceClick(button));
-  });
-  document.querySelectorAll("[data-top-back]").forEach((button) => {
-    button.addEventListener("click", () => onTopBackClick(button));
-  });
-  document.querySelectorAll("[data-home-tab]").forEach((button) => {
-    if (button.closest("#home-nav")) return;
-    if (button.closest("#about-page-content")) return;
-    button.addEventListener("click", () => onHomeTabClick(button));
-  });
-}
-
-function bindRulesPage() {
-  $("#rules-page-content")?.addEventListener("click", onRulesSectionClick);
-}
+// Home/rules click routing lives in clientHomeNavigation.js.
 
 function bindDrawerAndBoardModes() {
   $("#resume-btn")?.addEventListener("click", () => resumeGame());
@@ -1319,7 +901,7 @@ function onGlobalEventVoteClick(event) {
 function bindGameActions() {
   // game to home
   $("#brand-home").addEventListener("click", leaveRoomForHome);
-  $("#tn-room-copy").addEventListener("click", copyRoomCode);
+  $("#topnav-room-copy").addEventListener("click", copyRoomCode);
   $("#hud-cash-action")?.addEventListener("click", (event) => {
     if (event.currentTarget.disabled) return;
     openWalletModal("account", event.currentTarget);
@@ -1378,63 +960,7 @@ function bindBoardLayout() {
   $("#open-flight-desk")?.addEventListener("click", event => openFlightDesk(event.currentTarget));
 }
 
-function tabNeedsEconomySnapshot() {
-  return state.tab === "activity";
-}
-
-function openSurfaceFromUrl() {
-  const params = new URLSearchParams(window.location.search);
-  const route = params.get("rules") || params.get("surface");
-  if (route === "book" || route === "rules") openRulesSurface();
-  else if (route === "rankings") openRankingsSurface();
-  else if (route === "social") openSocialSurface();
-}
-
-function onRailTabClick(e) {
-  const tab = e.target.closest(".tab");
-  if (!tab) return;
-  state.tab = tab.dataset.tab;
-  renderRightRail();
-  if (tabNeedsEconomySnapshot()) refreshEconomySnapshot();
-}
-
-function railTabIndex(key, index, length) {
-  if (key === "Home") return 0;
-  if (key === "End") return length - 1;
-  if (key === "ArrowRight" || key === "ArrowDown") return (index + 1) % length;
-  if (key === "ArrowLeft" || key === "ArrowUp") return (index - 1 + length) % length;
-  return -1;
-}
-
-function onRailTabKeyDown(event) {
-  const tab = event.target.closest('[role="tab"]');
-  if (!tab) return;
-  const list = tab.parentElement;
-  const tabs = [...list.querySelectorAll('[role="tab"]')];
-  if (!tabs.length) return;
-  const index = railTabIndex(event.key, tabs.indexOf(tab), tabs.length);
-  if (index < 0) return;
-  event.preventDefault();
-  tabs[index].focus({ preventScroll: true });
-  tabs[index].click();
-}
-
-function bindRail() {
-  $("#tabs").addEventListener("click", onRailTabClick);
-  $("#tabs").addEventListener("keydown", onRailTabKeyDown);
-
-  // Holdings, Deals, and Activity actions are delegated from the rail body.
-  $("#rr-body").addEventListener("click", onRailClick);
-  $("#rr-body").addEventListener("keydown", onRailTabKeyDown);
-  $("#rr-body").addEventListener("submit", onRailSubmit);
-  $("#rr-body").addEventListener("toggle", (event) => {
-    if (event.target.matches("details.finance-bank")) state.financeBankOpen = event.target.open;
-  }, true);
-
-  $("#popup-scrim").addEventListener("click", closePopup);
-  $("#trade-scrim").addEventListener("click", closeTradeModal);
-  $("#financing-scrim").addEventListener("click", closeFinancingModal);
-}
+// Rail tab/deep-link bindings live in clientRailBindings.js.
 
 function bindEvents() {
   bindHomeNavigation();
@@ -1519,8 +1045,22 @@ function bindEvents() {
 
 
 // INIT
+configureGameActions({
+  emitServer,
+  emitWithChatError,
+  createRequestId,
+  announceActionStatus,
+  captureActionStatusNode,
+  reportChatError,
+  renderHud,
+  renderAll,
+  serverSyncHost,
+});
+configureHomeNavigation({ showView, homeProfileEditTarget });
+configureRailBindings({ refreshEconomySnapshot });
+configurePlayerRail({ currentServerTime, lobbyTagHTML });
 document.documentElement.style.setProperty('--dice-shake-cycle', `${DICE_SHAKE_CYCLE_MS}ms`);
-// Dialogs rise over 200ms and fall away faster (see clientSurfaces.js MODAL_EXIT_MS); styles.css owns the keyframes.
+// Dialogs rise over 200ms and fall away faster (see clientSurfaces.js MODAL_EXIT_MS); public/css/17-popups-rules-social-and-rankings.css owns the keyframes.
 document.documentElement.style.setProperty('--modal-enter-duration', `${MODAL_ENTER_MS}ms`);
 document.documentElement.style.setProperty('--modal-exit-duration', `${MODAL_EXIT_MS}ms`);
 configureBoardSound(playSound);
@@ -1623,7 +1163,11 @@ const analyticsPathActive = initAnalytics();
 if (analyticsPathActive) initAdminAiProvider();
 if (!analyticsPathActive) {
   if (window.location.pathname === "/about") openAboutSurface({ history: false });
-  else if (window.location.pathname === "/rules") openRulesSurface();
+  else if (window.location.pathname === "/rules") {
+    // #rules-<chapter> deep links open that chapter; unknown hashes fall back to the first.
+    const chapter = window.location.hash.startsWith("#rules-") ? window.location.hash.slice("#rules-".length) : "";
+    openRulesSurface(chapter || "start-here");
+  }
   else {
     showView("home");
     openCardPreviewFromUrl();

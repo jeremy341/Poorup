@@ -1,0 +1,141 @@
+/* Profile achievements, statistics and match history. */
+
+/* PROFILE: ACHIEVEMENT DECK */
+.achievements-panel { border-color: var(--line-board); display: flex; flex-direction: column; max-height: min(720px, max(280px, calc(100vh - 410px))); overflow: hidden; }
+.achievements-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.achievements-intro h2 { margin-top: 7px; color: var(--gold-050); }
+.achievements-intro .t-body { max-width: 66ch; margin-top: 10px; }
+.achievements-progress { min-width: 86px; padding: 9px 10px; text-align: right; background: var(--surface-panel-deep); border: 1px solid var(--line-active); }
+.achievements-progress strong { display: block; color: var(--gold-050); font-variant-numeric: tabular-nums; }
+.achievements-progress span { display: block; margin-top: 4px; }
+.achievements-filter-bar { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 18px; padding: 4px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.achievement-filter { min-height: 34px; padding: 0 10px; color: var(--text-muted); border: 1px solid transparent; }
+.achievement-filter:hover { color: var(--gold-100); background: var(--surface-button-dark); }
+.achievement-filter.is-active { color: var(--gold-050); background: var(--surface-panel-raised); border-color: var(--line-active); }
+.achievement-filter-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-top: 12px; }
+.achievement-filter-field { display: flex; flex-direction: column; gap: 5px; min-width: 150px; }
+.achievement-filter-select { width: 100%; min-height: 34px; }
+.achievements-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 10px; margin-top: 12px; flex: 1; min-height: 0; padding: 2px 6px 6px 2px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.achievement-card { min-width: 0; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); transition: border-color var(--dur-s) var(--ease-out), background var(--dur-s) var(--ease-out); }
+.achievement-card:hover { border-color: var(--line-default); background: var(--surface-panel-raised); }
+.achievement-card.is-unlocked { border-color: rgb(53 166 83 / 62%); }
+.achievement-card.is-secret { border-color: rgb(207 167 95 / 38%); }
+.achievement-card:focus-within { border-color: var(--line-active); box-shadow: 0 0 0 1px rgb(207 167 95 / 22%); }
+.achievement-icon-wrap { width: 58px; height: 58px; display: grid; place-items: center; background: var(--surface-card); border: 1px solid var(--line-dark); }
+.achievement-icon { width: 44px; height: 44px; image-rendering: pixelated; shape-rendering: crispEdges; }
+.achievement-card:not(.is-unlocked) .achievement-icon { filter: grayscale(1); opacity: 0.42; }
+.achievement-card.is-secret:not(.is-unlocked) .achievement-icon { opacity: 0.25; }
+.achievement-card.rarity-mythical:not(.is-unlocked) .achievement-icon { filter: saturate(1.35) drop-shadow(2px 0 0 rgb(24 214 208 / 45%)) drop-shadow(-2px 0 0 rgb(231 76 207 / 40%)); opacity: 0.62; }
+.achievement-card.rarity-mythical .achievement-icon-wrap { border-color: rgb(24 214 208 / 42%); box-shadow: inset 2px 0 0 rgb(231 76 207 / 25%); }
+.achievement-card-main { display: flex; flex-direction: column; min-width: 0; gap: 4px; }
+.achievement-card-top { display: flex; align-items: center; gap: 8px; }
+.achievement-category { color: var(--gold-400); letter-spacing: 0.08em; }
+.achievement-rarity { color: var(--text-muted); }
+.rarity-common { color: #4b9bd1; }
+.rarity-uncommon { color: var(--green-status); }
+.rarity-rare { color: var(--gold-300); }
+.rarity-epic { color: #b77ae2; }
+.rarity-legendary { color: var(--red-bright); }
+.achievement-title { overflow: hidden; color: var(--gold-050); text-overflow: ellipsis; white-space: nowrap; }
+.achievement-short { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.achievements-empty { grid-column: 1 / -1; padding: 28px; text-align: center; }
+.achievement-card { appearance: none; width: 100%; display: grid; grid-template-columns: 58px minmax(0, 1fr); align-items: center; gap: 10px; min-height: 84px; padding: 10px; text-align: left; cursor: pointer; }
+.achievement-card:focus-visible { outline: 2px solid var(--theme-focus, var(--gold-100)); outline-offset: 2px; }
+.achievement-card { scroll-margin-block: 10px; }
+.achievement-detail-modal { max-width: 500px; overflow: hidden; border-color: var(--line-board); box-shadow: 0 18px 60px rgb(0 0 0 / 58%); }
+.achievement-modal-rail { height: 7px; background: var(--achievement-accent, var(--gold-500)); }
+.achievement-detail-body { padding: 22px; }
+.achievement-detail-head { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; align-items: center; gap: 13px; }
+.achievement-detail-icon { width: 72px; height: 72px; display: grid; place-items: center; background: var(--surface-card); border: 1px solid var(--line-active); }
+.achievement-detail-icon .achievement-icon { width: 56px; height: 56px; }
+.achievement-detail-icon.is-locked .achievement-icon { filter: grayscale(1); opacity: 0.42; }
+.achievement-detail-icon.rarity-mythical.is-locked .achievement-icon { filter: saturate(1.35) drop-shadow(2px 0 0 rgb(24 214 208 / 45%)) drop-shadow(-2px 0 0 rgb(231 76 207 / 40%)); opacity: 0.62; }
+.achievement-detail-kicker { display: flex; align-items: center; gap: 8px; }
+.achievement-detail-title { margin-top: 6px; color: var(--gold-050); }
+.achievement-detail-state { align-self: start; padding: 4px 6px; color: var(--gold-300); border: 1px solid var(--line-subtle); white-space: nowrap; }
+.achievement-detail-copy { margin-top: 18px; padding: 13px; background: var(--surface-panel-deep); border: 1px solid var(--line-dark); }
+.achievement-detail-note { margin-top: 12px; color: var(--gold-muted); }
+.achievement-detail-close { width: 100%; min-height: 46px; margin-top: 18px; }
+
+/* PROFILE: STATISTICS DECK */
+.profile-stats-overview { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 16px; border-color: var(--line-board); }
+.profile-stats-overview h2 { margin-top: 5px; color: var(--gold-050); }
+.profile-stats-headline { display: grid; grid-template-columns: repeat(4, minmax(76px, 1fr)); gap: 8px; width: min(620px, 72%); }
+.profile-stats-kpi { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 8px 10px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.profile-stats-kpi strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.profile-stats-categories { margin-top: 12px; border: 1px solid var(--line-subtle); background: var(--surface-panel); }
+.profile-stat-tabs, .profile-history-detail-tabs { display: flex; gap: 4px; min-height: 42px; padding: 4px; overflow-x: auto; background: var(--surface-panel-deep); border-bottom: 1px solid var(--line-subtle); scrollbar-width: thin; }
+.profile-stat-tab, .profile-history-detail-tabs button { flex: 0 0 auto; min-width: 100px; min-height: 36px; padding: 0 12px; color: var(--text-secondary); border: 1px solid transparent; background: transparent; font-family: var(--font-pixel); font-size: 11px; }
+.profile-stat-tab:hover, .profile-stat-tab.is-active, .profile-history-detail-tabs button[aria-selected="true"] { color: var(--gold-050); border-color: var(--line-active); background: var(--surface-panel-raised); }
+.profile-stat-tab-panel { max-height: min(38dvh, 360px); min-height: 82px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.profile-stat-tab-panel[hidden], .profile-history-details[hidden], .profile-history-details [role="tabpanel"][hidden] { display: none; }
+.profile-recent-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 6px; margin: 0; padding: 12px; list-style: none; }
+.profile-result-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 42px; padding: 7px 9px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.profile-result-row strong { text-align: right; }
+.profile-results-empty { margin: 0; padding: 18px; }
+.profile-stat-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 12px; }
+.profile-stat-record { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 38px; padding: 6px 9px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.profile-stat-record dd { margin: 0; text-align: right; }
+.profile-personal-records { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 0 12px 12px; }
+.profile-personal-record { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 7px 8px; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.profile-personal-record strong { overflow-wrap: anywhere; }
+.profile-history-list { display: grid; gap: 8px; margin-top: 16px; }
+.profile-history-row { min-width: 0; background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); border-left: 3px solid var(--line-subtle); }
+.profile-history-row.is-win { border-color: rgb(53 166 83 / 55%); border-left-color: var(--green-status); background: var(--surface-selected); box-shadow: var(--shadow-active); }
+.profile-history-row.is-bankrupt { border-left-color: var(--red-bright); }
+.profile-history-row:has(> .profile-history-toggle[aria-expanded="true"]) { border-top-color: var(--line-active); border-right-color: var(--line-active); border-bottom-color: var(--line-active); }
+.profile-history-toggle, .profile-history-summary { display: grid; grid-template-columns: 30px minmax(150px, 260px) minmax(0, 1fr) auto; align-items: center; gap: 12px 20px; width: 100%; min-height: 60px; padding: 10px 14px 10px 12px; text-align: left; color: var(--text-primary); border: 0; background: transparent; }
+.profile-history-toggle:hover { background: var(--surface-panel-raised); }
+.profile-history-toggle:focus-visible { outline: 2px solid var(--line-active); outline-offset: -2px; }
+.profile-history-index { color: var(--gold-500); }
+.profile-history-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.profile-history-meta { display: grid; grid-template-columns: repeat(4, minmax(84px, 1fr)); gap: 6px 18px; min-width: 0; }
+.profile-history-stat { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.profile-history-stat strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.profile-history-toggle-label { justify-self: end; min-width: 88px; padding: 7px 10px; text-align: center; white-space: nowrap; border: 1px solid var(--line-subtle); background: var(--surface-panel); }
+.profile-history-toggle:hover .profile-history-toggle-label, .profile-history-toggle[aria-expanded="true"] .profile-history-toggle-label { color: var(--gold-050); border-color: var(--line-active); }
+.profile-history-toggle-label.is-static { min-width: 0; border-color: transparent; background: transparent; }
+.profile-history-details { border-top: 1px solid var(--line-subtle); }
+.profile-history-detail-tabs { min-height: 38px; }
+.profile-history-detail-tabs button { min-width: 80px; min-height: 32px; font-size: 11px; }
+.profile-detail-scroll { max-height: min(52dvh, 460px); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.profile-history-details [role="tabpanel"] { padding: 10px; }
+.profile-history-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px; margin: 0; }
+.profile-history-detail-field { min-width: 0; padding: 8px 9px; background: var(--surface-panel); border: 1px solid var(--line-subtle); }
+.profile-history-detail-field dd { margin: 5px 0 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.profile-history-player-list, .profile-history-event-list ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.profile-history-event-list { min-width: 0; }
+.profile-history-player-list li { padding: 8px 10px; background: var(--surface-panel); border: 1px solid var(--line-subtle); }
+.profile-history-player-list .profile-history-player { display: grid; grid-template-columns: 52px minmax(0, 1fr) minmax(88px, auto) minmax(64px, auto); align-items: center; gap: 12px; }
+.profile-history-player.is-you { border-color: var(--line-active); background: var(--surface-selected); }
+.profile-history-player-rank { color: var(--gold-500); font-variant-numeric: tabular-nums; }
+.profile-history-player-name { display: flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.profile-history-player-cash, .profile-history-player-deeds { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.profile-history-tag { flex: none; padding: 2px 5px; font: normal 9px/1.2 var(--font-pixel); letter-spacing: 0.04em; color: var(--gold-050); border: 1px solid var(--line-active); }
+.profile-history-tag.is-bankrupt { color: var(--red-bright); border-color: var(--red-bright); }
+.profile-history-event-list li, .profile-history-event-list p { display: flex; align-items: center; gap: 10px; margin: 0; padding: 8px 10px; background: var(--surface-panel); border: 1px solid var(--line-subtle); font-family: var(--font-ui); font-size: 12px; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-secondary); }
+.profile-history-event-list li::before { content: ""; flex: none; width: 6px; height: 6px; background: var(--gold-500); }
+.profile-history-note { margin-top: 14px; line-height: 1.5; }
+.profile-history-strip { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin-top: 14px; }
+.profile-history-strip-cell { display: flex; flex-direction: column; gap: 6px; min-width: 116px; padding: 8px 12px; background: var(--surface-panel); border: 1px solid var(--line-subtle); }
+.profile-history-strip-cell strong { font-variant-numeric: tabular-nums; }
+.profile-history-trend { display: flex; flex-direction: column; justify-content: space-between; gap: 6px; margin-left: auto; padding: 8px 12px; background: var(--surface-panel); border: 1px solid var(--line-subtle); }
+.profile-history-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-top: 12px; }
+.profile-history-filters, .profile-history-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.profile-history-filter { min-height: 32px; padding: 0 12px; font: 10px/1 var(--font-pixel); letter-spacing: 0.06em; color: var(--text-secondary); background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); }
+.profile-history-filter:hover { color: var(--gold-050); border-color: var(--line-active); }
+.profile-history-filter.is-active { color: var(--gold-050); border-color: var(--line-active); background: var(--surface-panel-raised); }
+.profile-history-filter:focus-visible, .profile-history-select select:focus-visible { outline: 2px solid var(--theme-focus); outline-offset: 1px; }
+.profile-history-select { display: inline-flex; align-items: center; gap: 8px; }
+.profile-history-select select { min-height: 32px; padding: 0 8px; color: var(--text-primary); background: var(--surface-panel-deep); border: 1px solid var(--line-subtle); font: 11px var(--font-body); }
+.profile-history-empty { display: grid; justify-items: start; gap: 12px; margin-top: 16px; padding: 18px; background: var(--surface-panel-deep); border: 1px dashed var(--line-subtle); }
+.profile-history-subline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.profile-history-chip { padding: 2px 6px; font: 9px/1.2 var(--font-pixel); letter-spacing: 0.05em; color: var(--text-secondary); border: 1px solid var(--line-subtle); background: var(--surface-panel); }
+.profile-history-chip.is-best { color: var(--gold-050); border-color: var(--line-active); }
+.profile-history-chart { height: clamp(170px, 30dvh, 280px); min-height: 170px; width: 100%; overflow: hidden; background: var(--surface-panel); border: 1px solid var(--line-subtle); }
+.profile-history-chart-note { margin: 6px 0 0; line-height: 1.5; }
+.profile-history-worth-empty { margin: 0; padding: 7px 9px; color: var(--text-secondary); font-family: var(--font-ui); font-size: 12px; letter-spacing: 0.02em; text-transform: uppercase; }
+@media (forced-colors: active) {
+  .profile-history-filter.is-active { border-color: Highlight; outline: 1px solid Highlight; }
+}
+

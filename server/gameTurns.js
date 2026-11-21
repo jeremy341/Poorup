@@ -1,16 +1,12 @@
-
-import { JAIL_FINE, JAIL_MAX_TURNS, START_TILE_INDEX, rollDice } from './gameData.js';
+// Turn flow for GameState: rolling, jail, movement, and handing the turn to the next seat.
+// The turn is driven by a few flags on the game: hasRolled (dice thrown), extraRollPending / turnAllowsExtraRoll
+// (a doubles bonus roll), and awaitingEndTurn (the landing is resolved, only the player ending the turn remains).
+// What happens when a pawn lands on a tile is in tileApi.js; round and turn-order bookkeeping is in gameRounds.js.
+import { JAIL_FINE, JAIL_MAX_TURNS, LAST_PLACE_START_BONUS, START_PASS_CASH, START_TILE_INDEX, rollDice } from './gameData.js';
 import { recordPresentationCash } from './gamePresentation.js';
 
-function isCurrentTurnPlayer(player, currentPlayerId) {
-  if (!player) return false;
-  return player.id === currentPlayerId;
-}
-
-function endTurnRequiresExtraRoll(game) {
-  if (game.extraRollPending) return true;
-  return Boolean(game.turnAllowsExtraRoll);
-}
+// The movement number that earns the "41st tile" achievement (the board only has 40 tiles).
+const ACHIEVEMENT_MOVE_COUNT = 41;
 
 function isInReconnectGrace(player) {
   return Boolean(player) && Boolean(player.disconnected) && !player.bankrupt && Number(player.disconnectDeadline) > Date.now();
@@ -35,18 +31,16 @@ export const gameTurnApi = {
     this.lastDice = dice;
     this.diceRollSequence += 1;
     this.hasRolled = true;
-    this.turnAllowsExtraRoll = dice[0] === dice[1];
-    this.extraRollPending = this.turnAllowsExtraRoll;
-    if (this.turnAllowsExtraRoll) {
-      this.consecutiveDoubles += 1;
-    } else {
-      this.consecutiveDoubles = 0;
-    }
+    const rolledDoubles = dice[0] === dice[1];
+    this.turnAllowsExtraRoll = rolledDoubles;
+    this.extraRollPending = rolledDoubles;
+    this.consecutiveDoubles = rolledDoubles ? this.consecutiveDoubles + 1 : 0;
   },
 
   sendRollerToJail(player) {
-    this.recordPresentationMove(player, this.tiles.find(tile => tile.type === 'jail').index, { cause: 'three-doubles', teleport: true });
-    player.position = this.tiles.find(tile => tile.type === 'jail').index;
+    const jailIndex = this.tiles.find(tile => tile.type === 'jail').index;
+    this.recordPresentationMove(player, jailIndex, { cause: 'three-doubles', teleport: true });
+    player.position = jailIndex;
     player.inJail = true;
     player.jailTurns = 0;
     this.consecutiveDoubles = 0;
@@ -136,25 +130,27 @@ export const gameTurnApi = {
 
   jailFreeRejection(player) {
     const notTurn = { success: false, error: 'It is not your turn.' };
+    const noCard = { success: false, error: 'You do not have a Get Out of Prison card.' };
     if (!player) return notTurn;
     if (!this.started) return notTurn;
     if (player.id !== this.currentPlayerId) return notTurn;
-    if (!player.inJail) return { success: false, error: 'You do not have a Get Out of Prison card.' };
-    if (!(player.jailFreeCards > 0)) return { success: false, error: 'You do not have a Get Out of Prison card.' };
+    if (!player.inJail) return noCard;
+    if (!(player.jailFreeCards > 0)) return noCard;
     if (this.hasRolled) return { success: false, error: 'You have already rolled this turn.' };
     return null;
   },
 
-  handleFortyFirstMove(player) {
+  // Counts every dice movement; the ACHIEVEMENT_MOVE_COUNT-th one sets the flag the "41st tile" achievement reads.
+  countMovementForAchievement(player) {
     player.moveCount = (player.moveCount || 0) + 1;
-    if (player.moveCount !== 41) return;
+    if (player.moveCount !== ACHIEVEMENT_MOVE_COUNT) return;
     player.hiddenMovementSequence = true;
     this.feedMessage(`${player.nickname} stepped on the 41st movement. The ledger skipped a line.`);
   },
 
   startPassReward(exactStart) {
-    if (exactStart && this.settings.doubleGo) return 400;
-    return 200;
+    if (exactStart && this.settings.doubleGo) return START_PASS_CASH * 2;
+    return START_PASS_CASH;
   },
 
   awardStartPass(player, oldPosition, steps) {
@@ -162,7 +158,7 @@ export const gameTurnApi = {
     if (distanceToStart > steps) return;
     const exactStart = distanceToStart === steps;
     const reward = this.startPassReward(exactStart);
-    const bonus = this.isLastPlaceByCash(player) ? 100 : 0;
+    const bonus = this.isLastPlaceByCash(player) ? LAST_PLACE_START_BONUS : 0;
     player.cash += reward + bonus;
     recordPresentationCash(this, 'go', distanceToStart - 1);
     this.feedMessage(`${player.nickname} ${exactStart ? 'landed on' : 'passed'} Start and collected $${reward + bonus}.` + (bonus ? ' Last-place catch-up bonus included.' : ''));
@@ -175,7 +171,7 @@ export const gameTurnApi = {
   },
 
   movePlayer(player, steps, options = {}) {
-    this.handleFortyFirstMove(player);
+    this.countMovementForAchievement(player);
     const oldPosition = player.position;
     this.recordPresentationMove(player, (player.position + steps) % this.tiles.length, { cause: 'dice', steps });
     player.position = (player.position + steps) % this.tiles.length;
@@ -194,9 +190,8 @@ export const gameTurnApi = {
 
     this.extraRollPending = false;
     this.turnAllowsExtraRoll = false;
-    // Explicit end-of-turn: the landing resolved, but the dice only pass when
-    // the active player ends the turn (endTurn below). Bots and the AFK
-    // watchdog reach the same door via room.endTurn()/nextTurn().
+    // The landing is resolved, but the dice only pass when the active player ends the turn (endTurn below).
+    // Bots and the AFK watchdog reach the same door via room.endTurn()/nextTurn().
     this.awaitingEndTurn = true;
     return { retainedTurn: false };
   },
@@ -324,8 +319,8 @@ export const gameTurnApi = {
 
   endTurnRejection(player) {
     const notActive = { success: false, error: 'Only the active player can end the turn.' };
-    if (!isCurrentTurnPlayer(player, this.currentPlayerId)) return notActive;
-    if (endTurnRequiresExtraRoll(this)) return { success: false, error: 'You must roll again after doubles before ending your turn.' };
+    if (!player || player.id !== this.currentPlayerId) return notActive;
+    if (this.extraRollPending || this.turnAllowsExtraRoll) return { success: false, error: 'You must roll again after doubles before ending your turn.' };
     if (!this.awaitingEndTurn) return { success: false, error: 'Resolve your roll before ending the turn.' };
     const flowRejection = this.pendingFlowRejection(player);
     if (flowRejection) return flowRejection;
@@ -358,7 +353,7 @@ export const gameTurnApi = {
     if (current.bankrupt) return;
     // A parked debt travels with the seat: route it through bankruptcy
     // instead of orphaning the creditor's claim until reconnect.
-    if (this.pendingPayment?.playerId === current.id && !current.bankrupt) {
+    if (this.pendingPayment?.playerId === current.id) {
       const creditor = this.pendingPayment.creditorId ? this.getPlayerById(this.pendingPayment.creditorId) : null;
       return this.handleBankruptcy(current, creditor);
     }

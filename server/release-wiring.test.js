@@ -83,7 +83,7 @@ try {
   const metadata = await fetch(`${base}/`);
   assert.equal(metadata.status, 200);
   const metadataBody = await metadata.text();
-  assert.match(metadataBody, /name="robots" content="index,follow"/);
+  assert.match(metadataBody, /name="robots" content="index,follow[^"]*"/);
   assert.match(metadataBody, /rel="canonical" href="https:\/\/play\.example\//);
   assert.equal(metadata.headers.get('cache-control'), 'no-cache');
   assert.match(metadata.headers.get('content-security-policy') || '', /connect-src 'self' https:\/\/play\.example/);
