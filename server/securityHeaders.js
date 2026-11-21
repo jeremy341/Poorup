@@ -71,6 +71,46 @@ export function attachSocketHttpHeaders(server) {
   return server;
 }
 
+// Engine.IO answers /socket.io/ itself, so those requests never pass the Express middleware (security headers, method and Host
+// guards, HTTP rate limit). The raw 'request' listener above sets headers but may not refuse a request: Engine.IO's own listener
+// still runs afterwards and would write to a finished response. This factory is installed with io.engine.use(), which Engine.IO
+// applies to polling requests and WebSocket upgrades before verifying them; not calling next() stops the request there.
+export function createSocketHttpGuard({ allowedHosts = '', httpRateLimit = null, resolveAddress = null } = {}) {
+  const hosts = Array.isArray(allowedHosts) ? allowedHosts : parseAllowedHosts(allowedHosts);
+  return function socketHttpGuard(req, res, next) {
+    const status = socketRequestStatus(req, hosts);
+    if (status) return answerSocketHttpError(res, status);
+    // The shared HTTP limiter reads req.ip when it trusts a proxy. Engine.IO requests are raw IncomingMessages, so resolve the same
+    // client address Express would use and attach it before spending from the shared budget (never a client-supplied header).
+    if (resolveAddress) req.ip = resolveAddress(req);
+    return httpRateLimit ? httpRateLimit(req, res, next) : next();
+  };
+}
+
+function socketRequestStatus(req, allowedHosts) {
+  if (!isAllowedMethod(req.method)) return 405;
+  const raw = req.headers?.host;
+  if (raw === undefined) return 0;
+  if (!HOST_SYNTAX.test(raw)) return 400;
+  if (!allowedHosts.length || allowedHosts.includes(hostnameOf(raw))) return 0;
+  return 421;
+}
+
+const SOCKET_ERROR_MESSAGES = Object.freeze({
+  400: 'The request could not be read.',
+  405: 'This method is not allowed here.',
+  421: 'This host is not served here.',
+});
+
+function answerSocketHttpError(res, status) {
+  const body = JSON.stringify({ success: false, error: SOCKET_ERROR_MESSAGES[status] || 'The request could not be read.' });
+  if (status === 405) res.setHeader('Allow', ALLOWED_METHODS.join(', '));
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Length', String(Buffer.byteLength(body)));
+  res.statusCode = status;
+  res.end(body);
+}
+
 // Slowloris: a client that trickles headers or a body is cut off well before Node's defaults (60 s for headers, 300 s for the whole
 // request). Both timers cover receiving the request only; a response that is still being produced (a long poll) is not interrupted.
 // Node checks these timers once per connectionsCheckingInterval (30 s by default), so the interval is set to match the limits.

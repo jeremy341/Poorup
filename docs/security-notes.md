@@ -22,6 +22,8 @@ Each has a regression test that fails without the fix.
 | Password hashing cost | scrypt ran at Node's default cost (N=16384, r=8, p=1) with no way to raise it. | The KDF parameters are stored per record. Current cost is N=32768, r=8, p=3 (about 190 ms per derivation here). Old records verify with the old cost and are rehashed on the next correct sign-in. Out-of-range stored parameters fall back to the old cost. | `accountSecurity.js` (`CURRENT_SCRYPT`, `hashPassword`) | `password-kdf.test.js` |
 | Base image | `FROM node:22-bookworm-slim` floated on a tag. | Pinned to the multi-arch digest. | `Dockerfile` | `dockerfile-hardening.test.js` |
 | Stale fixture | `social-socket-guards.test.js` failed and was not in the manifest. | Fixture corrected, suite registered. | `scripts/test-manifest.mjs` | `social-socket-guards.test.js` |
+| Proxy posture | Production only warned when no trusted proxy was declared. A proxied deployment then keyed every client on the proxy's address, so one client could exhaust the shared sign-in, join and operator-unlock budgets. | Production refuses to boot unless `POORUP_TRUST_PROXY_HOPS`, `POORUP_TRUSTED_PROXY_ADDRESSES` or the explicit `POORUP_DIRECT_INTERNET=true` opt-out is set. Development keeps the advisory. | `serverConfig.js` (`assertProxyPosture`) | `trust-proxy-advisory.test.js` |
+| Socket ingress | `/socket.io/` never reached Express, so the Host guard and shared HTTP IP budget did not apply, and the global connection cap had no per-peer limit. | Engine.IO middleware applies the same Host/method guards and the shared address budget; handshake admission also caps concurrent sockets per peer, with headroom reserved below the global cap. | `securityHeaders.js` (`createSocketHttpGuard`), `socketRateLimiter.js`, `server.js` | `http-security-headers.test.js`, `http-surface-wire.test.js`, `socket-admission.test.js` |
 
 Consequences to know about:
 
@@ -44,8 +46,11 @@ Consequences to know about:
   budget, and the HTTP limiter), so one client can exhaust sign-in for everyone.
   The default stays 0 on purpose: with hops above 0 and no proxy in front, a
   client could pick its own bucket by sending `X-Forwarded-For`. The code cannot
-  know the deployment, so production prints an advisory at boot
-  (`proxyTrustAdvisory` in `serverConfig.js`, test `trust-proxy-advisory.test.js`).
+  know the deployment, so production now refuses to start until the posture is
+  declared: set the hop count (`assertProxyPosture` in `serverConfig.js`, test
+  `trust-proxy-advisory.test.js`), list the proxies in
+  `POORUP_TRUSTED_PROXY_ADDRESSES`, or set `POORUP_DIRECT_INTERNET=true` when the
+  app port is public with no proxy. Development still prints the advisory.
   The live host sets `POORUP_TRUST_PROXY_HOPS=1` for its single Caddy hop; confirm
   that value in the host env file. If the app port is reachable without the proxy,
   also set `POORUP_TRUSTED_PROXY_ADDRESSES` (see [rate-limits.md](rate-limits.md)).
@@ -74,6 +79,18 @@ Consequences to know about:
   or an eligible human.
 - Patrol runs belong to the account and socket that started them.
 - A client id goes only to its own seat.
+
+**Socket ingress**
+- `/socket.io/` is answered by Engine.IO before Express, so `io.engine.use()`
+  applies the same method and Host guards and spends from the shared HTTP
+  address budget before a polling or upgrade handshake is admitted
+  (`createSocketHttpGuard` in `securityHeaders.js`). A foreign Host, a
+  disallowed method or an exhausted address budget is refused there.
+- Handshake admission caps concurrent sockets per peer
+  (`POORUP_SOCKET_MAX_PER_PEER`, default 5) beside the global connection cap,
+  and reserves about 5% of that cap for other peers. One address can no longer
+  occupy every slot by reconnecting; the live count is released on both
+  `disconnect` and transport close.
 
 **Sessions and tokens**
 - Session tokens are 32 random bytes, stored as SHA-256 hashes. Cookie sessions

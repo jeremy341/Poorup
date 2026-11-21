@@ -325,6 +325,23 @@ try {
     const probe = await raw(proxied.base, '/healthz', { headers: { host: '10.0.0.7:8080' } });
     assert.equal(probe.status, 200);
   });
+
+  await check('Engine.IO requests get the same Host and method guards as Express', async () => {
+    const wrong = await raw(proxied.base, '/socket.io/?EIO=4&transport=polling', { headers: { host: 'evil.example' } });
+    assert.equal(wrong.status, 421);
+    assert.equal(wrong.headers['x-content-type-options'], 'nosniff', 'a refused socket request still carries the socket headers');
+    assert.equal(JSON.parse(wrong.body).error, 'This host is not served here.');
+
+    const malformed = await raw(proxied.base, '/socket.io/?EIO=4&transport=polling', { headers: { host: 'bad/host' } });
+    assert.equal(malformed.status, 400);
+
+    const method = await raw(proxied.base, '/socket.io/?EIO=4&transport=polling', { method: 'PUT', headers: { host: 'play.example' } });
+    assert.equal(method.status, 405);
+    assert.equal(method.headers.allow, 'GET, HEAD, POST, PATCH, DELETE, OPTIONS');
+
+    const allowed = await raw(proxied.base, '/socket.io/?EIO=4&transport=polling', { headers: { host: 'play.example' } });
+    assert.equal(allowed.status, 200, 'a legitimate polling handshake is still admitted');
+  });
 } finally {
   await proxied.stop();
 }

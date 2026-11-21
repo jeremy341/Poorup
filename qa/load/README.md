@@ -26,3 +26,8 @@ maintenance-drain check proving new rooms/rounds are blocked while active
 rounds continue. Capture those server-side measurements with the deployment
 runbook; this client harness intentionally cannot infer private server memory
 or event-loop health.
+
+Every simulated client connects from the operator workstation's address, so the
+testing host must temporarily raise `POORUP_SOCKET_MAX_PER_PEER` (default 5) and
+`POORUP_SOCKET_HANDSHAKE_RATE` above the client count for the run, then restore
+them. Leaving the per-peer cap at its default bounds the harness at five sockets.

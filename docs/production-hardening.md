@@ -25,9 +25,13 @@ POORUP_HTTP_RATE_WINDOW_MS=60000
 POORUP_SOCKET_RATE_LIMIT=120
 POORUP_SOCKET_RATE_WINDOW_MS=60000
 POORUP_SOCKET_MAX_CONNECTIONS=2000
+POORUP_SOCKET_MAX_PER_PEER=5
 POORUP_SOCKET_HANDSHAKE_RATE=120
 POORUP_SOCKET_HANDSHAKE_WINDOW_MS=60000
-POORUP_TRUST_PROXY_HOPS=0
+# Declare the network posture. Behind a reverse proxy, set the hop count:
+POORUP_TRUST_PROXY_HOPS=1
+# Or, only when the app port is genuinely public with no proxy:
+# POORUP_DIRECT_INTERNET=true
 POORUP_RELEASE_ID=<commit-sha>
 POORUP_MAINTENANCE_MODE=normal
 POORUP_MAINTENANCE_TOKEN=<operator-secret>
@@ -45,16 +49,33 @@ POORUP_ANALYTICS_PSEUDONYM_KEY=<stable aggregate-only HMAC key>
 The HTTP/IP limiter is a process-level second layer; put Cloudflare (or an
 equivalent edge WAF) in front of it for distributed rate limiting.
 
+The network posture is also mandatory and checked at boot. Production refuses
+to start unless at least one of these is true:
+
+- `POORUP_TRUST_PROXY_HOPS` is above 0 (the number of reverse proxies in front);
+- `POORUP_TRUSTED_PROXY_ADDRESSES` lists the proxy peers; or
+- `POORUP_DIRECT_INTERNET=true`, an explicit opt-out for a deployment whose app
+  port is genuinely public with no proxy.
+
+Without a declaration, every client would be keyed on the proxy's own address,
+so one client can exhaust the shared sign-in, join and operator-unlock budgets
+and lock the site out for everyone. The server cannot detect a proxy, so it
+fails fast instead of guessing (`assertProxyPosture` in
+`server/serverConfig.js`). Development still boots and logs an advisory.
+
 `NODE_ENV=production` or `POORUP_COOKIE_SECURE=true` also set the `Secure`
 session-cookie flag and emit `Strict-Transport-Security`. There is no in-app
 TLS check, so deploy only behind a TLS-terminating proxy (Caddy/Nest edge,
 Cloudflare): served over plain HTTP, Secure cookies are dropped by browsers
 and every sign-in silently fails.
 
-The socket admission trio (`POORUP_SOCKET_MAX_CONNECTIONS`,
-`POORUP_SOCKET_HANDSHAKE_RATE`, `POORUP_SOCKET_HANDSHAKE_WINDOW_MS`) is
-recommended, not required; defaults are 2000 connections, 120 handshakes
-per 10-second window.
+The socket admission settings (`POORUP_SOCKET_MAX_CONNECTIONS`,
+`POORUP_SOCKET_MAX_PER_PEER`, `POORUP_SOCKET_HANDSHAKE_RATE`,
+`POORUP_SOCKET_HANDSHAKE_WINDOW_MS`) are recommended, not required; defaults
+are 2000 connections, 5 concurrent sockets per peer, and 120 handshakes per
+10-second window. The per-peer concurrent cap stops one address from occupying
+every global slot; a peer at its cap is refused at handshake while its existing
+sockets keep playing.
 
 `POORUP_DATA_DIR` and `POORUP_BACKUP_DIR` must be absolute paths outside the
 application directory. With `NODE_ENV=production` the server refuses to start

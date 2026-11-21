@@ -124,6 +124,17 @@ unverified hostname. After both new hosts pass the checks, set it to
 the old hostname. Later, decide separately whether to redirect the old hostname
 and/or `www` to the apex; do not do that as part of initial validation.
 
+Production now refuses to start unless the proxy posture is declared. The live
+host already sets `POORUP_TRUST_PROXY_HOPS=1` for its single Caddy hop; keep
+that value, or set `POORUP_TRUSTED_PROXY_ADDRESSES` to the proxy peers instead.
+`POORUP_DIRECT_INTERNET=true` is only for a host whose app port is genuinely
+public with no proxy, so do not use it here. If a release exits at boot with
+`Proxy posture is undeclared`, fix the shared env file rather than disabling the
+check: without a declaration, every client shares the proxy's sign-in, join and
+operator-unlock budget. The per-peer concurrent socket cap defaults to 5
+(`POORUP_SOCKET_MAX_PER_PEER`) and needs no change unless a shared NAT must run
+more than five sockets for one address.
+
 Changing the shared environment requires reloading the app. Room state is held
 in memory, so do not restart while games are active. Use the existing drain
 flow and wait until there are no started games or waiting rooms before reload.

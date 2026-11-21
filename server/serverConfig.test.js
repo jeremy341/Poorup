@@ -25,7 +25,7 @@ createCorsOrigin({ NODE_ENV: 'production' })('https://unexpected.example', (_err
 assert.equal(productionOriginResult, false);
 createCorsOrigin({ NODE_ENV: 'production' })(undefined, (_error, allowed) => { productionOriginResult = allowed; });
 assert.equal(productionOriginResult, true);
-assert.throws(() => assertProductionCors({ NODE_ENV: 'production' }), /POORUP_ALLOWED_ORIGINS/);
+assert.equal(assertProductionCors({ NODE_ENV: 'production' }), true, 'production defaults to the live domain');
 assert.throws(() => assertProductionCors({ NODE_ENV: 'production', POORUP_ALLOWED_ORIGINS: 'not-an-origin' }), /valid origins/);
 assert.equal(assertProductionCors({ NODE_ENV: 'production', POORUP_ALLOWED_ORIGINS: 'https://poorup.example' }), true);
 

@@ -17,7 +17,7 @@ Every response that Express handles, including static files, JSON, 404 and error
 | `Cross-Origin-Resource-Policy` | `same-origin` | Other sites cannot embed this site's files. |
 | `Origin-Agent-Cluster` | `?1` | |
 | `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=(), serial=(), accelerometer=(), gyroscope=(), magnetometer=()` | The client uses none of these features (checked by grep: no `getUserMedia`, geolocation, motion or payment calls). |
-| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | Sent **only when `req.secure` is true**: a direct TLS connection, or a request that came through a proxy listed in `POORUP_TRUST_PROXY_HOPS` and reported `X-Forwarded-Proto: https`. Never sent over plain HTTP, and a forwarded header from an untrusted peer is ignored. No `preload`. |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | Sent when `req.secure` is true: a direct TLS connection, or a request through the configured trusted proxies (`POORUP_TRUST_PROXY_HOPS` or a peer in `POORUP_TRUSTED_PROXY_ADDRESSES`) that reported `X-Forwarded-Proto: https`. A forwarded header from an untrusted peer is ignored. Production also sets `forceHsts`, so a TLS deployment that forgets the proxy setting still receives HSTS; on a plain-HTTP deployment that default should be turned off. No `preload`. |
 | `X-Powered-By` | not sent | `app.disable('x-powered-by')` in `server.js`. |
 
 ## Content-Security-Policy
@@ -88,7 +88,7 @@ WebSocket upgrades are not HTTP responses and carry no headers of their own.
 - **Method allowlist:** `GET`, `HEAD`, `POST`, `PATCH`, `DELETE`, `OPTIONS`. `PATCH` and `DELETE` are used by the AI provider admin routes (`aiProviderRoutes.js`). Any other method (`PUT`, `TRACE`, `PROPFIND`, ...) gets `405` with an `Allow` header. Matching is case-sensitive. `CONNECT` never reaches the app: Node drops it when there is no `connect` listener.
 - **Malformed `Host` header** (anything outside hostname, IPv4 or bracketed IPv6, with an optional port): `400`, always.
 - **Host allowlist (opt-in):** set `POORUP_ALLOWED_HOSTS` to a comma-separated list of hostnames. Any other `Host` gets `421`, except `/healthz` and `/readyz`, so a probe can address the pod directly. Unset means no allowlist, which keeps existing deployments working. Forwarded host headers are never read.
-- **Forwarded headers** (`X-Forwarded-For`, `X-Forwarded-Proto`, `X-Forwarded-Host`) are trusted only when `POORUP_TRUST_PROXY_HOPS` is set to the number of proxies in front. Otherwise they are ignored, for the Express request (protocol, client address) and for the socket peer address alike.
+- **Forwarded headers** (`X-Forwarded-For`, `X-Forwarded-Proto`, `X-Forwarded-Host`) are trusted only when `POORUP_TRUST_PROXY_HOPS` is set to the number of proxies in front, or when the socket peer is listed in `POORUP_TRUSTED_PROXY_ADDRESSES`. Otherwise they are ignored, for the Express request (protocol, client address) and for the socket peer address alike. In production an undeclared posture stops the boot rather than silently pooling every client into one budget.
 
 ## Timeouts and sizes
 
@@ -121,6 +121,9 @@ Two cookies are set. Both are `HttpOnly` and `SameSite=Strict`, and `Secure` is 
 | `POORUP_ALLOWED_ORIGINS` | Socket.IO and CORS origin allowlist. |
 | `POORUP_ALLOWED_HOSTS` | Opt-in Host allowlist (421 for other hosts, except health probes). |
 | `POORUP_TRUST_PROXY_HOPS` | Trusted proxy count; enables `X-Forwarded-Proto` for HSTS and the client address. |
+| `POORUP_TRUSTED_PROXY_ADDRESSES` | Plain-IP list of proxy peers; forwarding headers are believed only from those peers. Use it whenever the app port can be reached without the proxy. |
+| `POORUP_DIRECT_INTERNET` | Set to `true` when the app port is genuinely public with no proxy. In production one of the three proxy settings must be declared or boot fails. |
+| `POORUP_ALLOW_MISSING_ORIGIN` | Set to `true` to restore permissive Origin-less admin writes for internal tooling; by default production refuses a cookie-authenticated write with no Origin header. |
 | `POORUP_COOKIE_SECURE` | Forces `Secure` on the cookies. |
 
 ## Not done, and why

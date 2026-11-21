@@ -15,8 +15,11 @@ COPY ecosystem.config.cjs ./
 
 ENV NODE_ENV=production
 ENV PORT=8080
-# Required at run time: -e POORUP_ALLOWED_ORIGINS=<your origin> (boot fails
-# without it; see serverConfig.js assertProductionCors).
+# Required at run time: -e POORUP_ALLOWED_ORIGINS=<your origin> and a declared
+# network posture: -e POORUP_TRUST_PROXY_HOPS=<n>, or
+# -e POORUP_TRUSTED_PROXY_ADDRESSES=<proxy IPs>, or
+# -e POORUP_DIRECT_INTERNET=true when the app port is public with no proxy.
+# Boot fails without both (serverConfig.js assertProductionCors / assertProxyPosture).
 # Production refuses to boot without explicit positive rate limits; these match
 # the defaults in .env.example.
 ENV POORUP_HTTP_RATE_LIMIT=240

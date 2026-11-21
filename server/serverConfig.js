@@ -29,8 +29,14 @@ export function resolveRetentionToken(env = process.env, warn = console.warn) {
   return fallback;
 }
 
+// Production accepts browser requests from the live domain without an env file.
+export const DEFAULT_ALLOWED_ORIGIN = "https://powerup.tech";
+
 export function parseAllowedOrigins(env = process.env) {
-  return String(env?.POORUP_ALLOWED_ORIGINS || '')
+  const configured = String(env?.POORUP_ALLOWED_ORIGINS || '').trim();
+  const production = String(env?.NODE_ENV || '').trim().toLowerCase() === 'production';
+  const source = configured || (production ? DEFAULT_ALLOWED_ORIGIN : '');
+  return source
     .split(',')
     .map(origin => origin.trim())
     .map(normalizeOrigin)
@@ -200,12 +206,27 @@ export function assertProductionCors(env = process.env) {
   return true;
 }
 
-// With no trusted hop, the address every pre-auth budget is keyed on is the TCP peer. Behind a reverse proxy that peer is the proxy, so
-// all clients share one sign-in, username-check and join budget. The hop count cannot be detected here, so production says so at boot.
+// The server cannot detect whether a proxy is in front, so production makes the operator declare it. POORUP_DIRECT_INTERNET is the
+// explicit opt-out for a deployment whose app port is genuinely public: without a declaration a proxy would key every client on the
+// proxy's own address, collapsing all sign-in, join and operator-unlock budgets into one shared bucket.
+export function declaresDirectInternet(env = process.env) {
+  return String(env?.POORUP_DIRECT_INTERNET || '').trim().toLowerCase() === 'true';
+}
+
+// Fail fast rather than start a production instance whose abuse budgets silently share one identity. A hop count, a trusted-proxy
+// address list or the direct-internet opt-out all count as a declaration; anything else is a misconfiguration.
+export function assertProxyPosture(env = process.env) {
+  const production = String(env?.NODE_ENV || '').trim().toLowerCase() === 'production';
+  if (!production) return true;
+  if (readTrustedProxy(env).enabled || declaresDirectInternet(env)) return true;
+  throw new Error('Proxy posture is undeclared. Set POORUP_TRUST_PROXY_HOPS to the number of reverse proxies (the production runbook uses 1 for a single Caddy hop), or POORUP_TRUSTED_PROXY_ADDRESSES to their plain IP addresses. Set POORUP_DIRECT_INTERNET=true only when the app port is public and no proxy sits in front. Without one, every client shares one sign-in, join and operator-unlock budget, so one client can lock the site out for everyone.');
+}
+
+// Outside production the same omission is only a warning: local play needs no proxy configuration. Production never reaches this
+// advisory because assertProxyPosture has already refused to boot.
 export function proxyTrustAdvisory(env = process.env) {
   const production = String(env?.NODE_ENV || '').trim().toLowerCase() === 'production';
-  if (!production) return null;
-  // Either a hop count or a trusted-proxy address list means the operator has declared a proxy setup.
-  if (readTrustedProxy(env).enabled) return null;
-  return 'POORUP_TRUST_PROXY_HOPS is unset or 0 and no POORUP_TRUSTED_PROXY_ADDRESSES are set. If a reverse proxy sits in front of Poorup, every client shares one sign-in and join budget: set POORUP_TRUST_PROXY_HOPS to the number of proxies (the production runbook uses 1 for a single Caddy hop).';
+  if (production) return null;
+  if (readTrustedProxy(env).enabled || declaresDirectInternet(env)) return null;
+  return 'No proxy posture is declared. Local play needs none, but a hosted deployment must set POORUP_TRUST_PROXY_HOPS (or POORUP_TRUSTED_PROXY_ADDRESSES), or POORUP_DIRECT_INTERNET=true when the app port is public with no proxy; production refuses to start without one.';
 }
