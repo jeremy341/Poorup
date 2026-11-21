@@ -56,4 +56,33 @@ assert.equal(viewMeta.title, "Poorup | Table | AB12CD");
 assert.equal(globalThis.document.title, viewMeta.title);
 assert.match(announcer.textContent, /Your turn/);
 
+// The server writes the search-facing title and description for the public
+// pages (server/metadata.js). The client keeps the served title on the URL it
+// was served for and still gives every other view its own in-app title.
+{
+  const publicPages = [
+    ["/", "home", "Poorup \u2013 Free Online Monopoly-Style Game, No Signup", "Poorup | Home"],
+    ["/about", "about", "About Poorup \u2013 Free Online Property Trading Board Game", "Poorup | About"],
+    ["/rules", "rules", "Poorup Rules \u2013 How to Play the Online Property Board Game", "Poorup | Rules"],
+  ];
+  for (const [pathname, view, serverTitle, appTitle] of publicPages) {
+    globalThis.location = { pathname };
+    globalThis.document = { title: serverTitle, querySelector: () => null };
+    // A fresh module instance re-reads the served title, as a page load does.
+    const served = await import(`./clientDocumentMeta.js?served=${view}`);
+    // Boot asks for "home" before the About/Rules surface opens; the served
+    // page title must survive that first call too.
+    assert.equal(served.setDocumentMeta({ view: "home" }).title, serverTitle, `${pathname} keeps its server title at boot`);
+    const result = served.setDocumentMeta({ view });
+    assert.equal(result.title, serverTitle, `${pathname} keeps its server title`);
+    assert.equal(globalThis.document.title, serverTitle, `${pathname} document title is untouched`);
+    // The live announcement stays short even when the title is search copy.
+    assert.equal(result.announcement, appTitle, `${pathname} announces its in-app name`);
+    // A different in-app view on another URL is not stuck with the served title.
+    globalThis.location = { pathname: "/profile" };
+    assert.equal(served.setDocumentMeta({ view: "profile" }).title, "Poorup | Profile", `${pathname} does not leak its title to other views`);
+  }
+  delete globalThis.location;
+}
+
 console.log("client document metadata tests: passed");

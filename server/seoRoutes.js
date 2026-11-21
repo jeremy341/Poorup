@@ -17,6 +17,7 @@ export function registerSeoRoutes(app, { env, pageEnv, publicOrigin }) {
   });
 
   const indexingApproved = isIndexingApproved(env);
+
   // robots.txt, the sitemap and the crawler text files are public, shared by every
   // client, and only change on a restart, so an hour of shared caching is safe.
   const CRAWLER_TEXT_CACHE = 'public, max-age=3600';

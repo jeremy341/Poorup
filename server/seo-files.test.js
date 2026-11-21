@@ -2,11 +2,13 @@
 // are generated from the page modules, so these checks compare against those
 // sources instead of copies of their text.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { ABOUT_FAQ } from "../public/clientAboutContent.js";
 import { RULES_SECTIONS } from "../public/rulesSections.js";
 import { INDEXABLE_PATHS, MARKDOWN_ALTERNATES, PRIVATE_PATH, metadataConfig } from "./metadata.js";
 import {
   NAMED_CRAWLERS,
+  PAGE_LASTMOD,
   PRIVATE_DISALLOW,
   aboutMarkdown,
   llmsFullText,
@@ -100,11 +102,13 @@ assert.doesNotMatch(robotsTxt({ approved: false, origin: ORIGIN }), /Allow|Sitem
 
 // --- sitemap.xml ---
 {
-  const xml = sitemapXml({ origin: ORIGIN, lastmod: { "/": "2026-11-20", "/about": "2026-11-19" } });
+  const override = { "/": "2026-11-20", "/about": "2026-11-19" };
+  const xml = sitemapXml({ origin: ORIGIN, lastmod: override });
   assert.match(xml, /^<\?xml version="1\.0" encoding="UTF-8"\?>\n<urlset xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/);
   const urls = [...xml.matchAll(/<url><loc>([^<]+)<\/loc>(?:<lastmod>([^<]+)<\/lastmod>)?<\/url>/g)].map(match => [match[1], match[2] ?? null]);
+  assert.equal(urls.length, 3, "the sitemap lists the three public pages");
   assert.deepEqual(urls.map(([loc]) => loc), INDEXABLE_PATHS.map(route => `${ORIGIN}${route}`), "every indexable page, as an absolute canonical URL");
-  assert.deepEqual(urls.map(([, date]) => date), ["2026-11-20", "2026-11-19", null], "a page without a known date has no lastmod");
+  assert.deepEqual(urls.map(([, date]) => date), INDEXABLE_PATHS.map(route => override[route] ?? null), "a page without a known date has no lastmod");
   for (const route of INDEXABLE_PATHS) assert.equal(metadataConfig({ origin: ORIGIN, path: route }).canonicalUrl, `${ORIGIN}${route}`, `${route} canonical matches the sitemap`);
   for (const [loc] of urls) assert.equal(PRIVATE_PATH.test(new URL(loc).pathname), false, `${loc} is not a private page`);
   assert.equal(sitemapXml({ origin: `${ORIGIN}`, lastmod: {} }).includes("<lastmod>"), false);
@@ -113,12 +117,20 @@ assert.doesNotMatch(robotsTxt({ approved: false, origin: ORIGIN }), /Allow|Sitem
 
 {
   const dates = pageLastmod();
+  assert.deepEqual(dates, PAGE_LASTMOD, "pageLastmod is the checked-in map");
   for (const route of Object.keys(dates)) {
     assert.ok(INDEXABLE_PATHS.includes(route), `${route} is an indexable page`);
     assert.match(dates[route], DATE, `${route} lastmod is a W3C date`);
     assert.ok(!Number.isNaN(Date.parse(dates[route])), `${route} lastmod parses`);
   }
-  assert.ok(Object.keys(dates).length > 0, "at least one page has a source date");
+  // All three indexable pages always carry a checked-in date.
+  for (const route of ["/", "/about", "/rules"]) assert.ok(dates[route], `${route} keeps a lastmod`);
+  // Checkout and deploy times are not edit times: the date is stored in the repo,
+  // so it must not move with file mtimes or between requests.
+  const seoSource = readFileSync(new URL("./seoFiles.js", import.meta.url), "utf8");
+  assert.doesNotMatch(seoSource, /statSync|mtimeMs/, "lastmod is not derived from file mtimes");
+  assert.equal(sitemapXml({ origin: ORIGIN }), sitemapXml({ origin: ORIGIN }), "the sitemap is stable between requests");
+  assert.equal(pageLastmod(), PAGE_LASTMOD, "the same map is returned every time");
 }
 
 // --- Markdown copies and llms-full.txt ---
@@ -181,7 +193,9 @@ function assertClean(markdown, label) {
 // The alternates are advertised only for pages that are indexable.
 for (const [page, markdownPath] of Object.entries(MARKDOWN_ALTERNATES)) {
   assert.ok(INDEXABLE_PATHS.includes(page), `${page} is indexable`);
-  assert.match(markdownPath, /^\/[a-z]+\.md$/);
+  assert.match(markdownPath, /^\/[a-z-]+\.md$/);
+  assert.ok(page === "/about" || page === "/rules", `${page} is a known page`);
+  assert.equal(markdownPath, `${page}.md`, `${page} advertises its own Markdown copy`);
 }
 
 console.log("seo files tests: passed");

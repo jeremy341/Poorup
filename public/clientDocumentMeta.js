@@ -112,6 +112,24 @@ export function renderDocumentMeta(options = {}) {
   return tags.join("\n");
 }
 
+// The server writes search-facing titles and descriptions for these pages
+// (server/metadata.js). The client keeps the served title on the URL it was
+// served for instead of replacing it with the generic in-app name, so a
+// JavaScript-rendering crawler reads the same copy as a crawler without JS.
+const PUBLIC_PATHS = new Set(["/", "/about", "/rules"]);
+let servedPage = null;
+
+function servedTitleForCurrentPath() {
+  if (servedPage === null) {
+    const path = typeof location === "undefined" ? "" : String(location?.pathname || "");
+    const title = typeof document === "undefined" ? "" : cleanText(document.title);
+    servedPage = PUBLIC_PATHS.has(path) && title ? { path, title } : false;
+  }
+  if (!servedPage) return "";
+  const current = typeof location === "undefined" ? "" : String(location?.pathname || "");
+  return current === servedPage.path ? servedPage.title : "";
+}
+
 const VIEW_TITLES = Object.freeze({
   home: "Poorup | Home",
   profile: "Poorup | Profile",
@@ -128,17 +146,22 @@ const VIEW_TITLES = Object.freeze({
 
 export function setDocumentMeta({ view = "home", status = "", roomCode = "" } = {}) {
   const key = cleanText(view).toLowerCase();
-  const baseTitle = VIEW_TITLES[key] || VIEW_TITLES.home;
+  // Keep the server's keyword-bearing title while the browser is on the URL it
+  // was served for; every other view and route keeps its own in-app title.
+  const servedTitle = servedTitleForCurrentPath();
+  const appTitle = VIEW_TITLES[key] || VIEW_TITLES.home;
+  const baseTitle = servedTitle || appTitle;
   const safeRoomCode = String(roomCode || "").trim().toUpperCase().match(/^[A-Z0-9]{6}$/)?.[0] || "";
-  const title = safeRoomCode && (key === "game" || key === "lobby" || key === "setup")
-    ? `${baseTitle} | ${safeRoomCode}`
-    : baseTitle;
+  const withRoom = (base) => (safeRoomCode && (key === "game" || key === "lobby" || key === "setup") ? `${base} | ${safeRoomCode}` : base);
+  const title = withRoom(baseTitle);
+  // The live announcement stays short: it is read aloud, not ranked.
+  const announcementTitle = withRoom(appTitle);
   const safeStatus = cleanText(status);
   const announcement = safeStatus
-    ? `${title}: ${safeStatus}`
-    : title;
+    ? `${announcementTitle}: ${safeStatus}`
+    : announcementTitle;
   if (typeof document !== "undefined") {
-    document.title = title;
+    if (document.title !== title) document.title = title;
     const announcer = document.querySelector("[data-document-announcer]") || document.querySelector("#system-announcer");
     if (announcer) announcer.textContent = announcement;
   }

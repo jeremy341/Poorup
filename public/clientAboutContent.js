@@ -92,7 +92,7 @@ export function renderAboutContent() {
             <p class="t-body">Your theme picks the soundtrack. Each track lists who made it, where to find it, and its license.</p>
             <details class="about-music-credits"><summary>Soundtrack credits</summary><ul>${tracks}</ul></details>
           </div>
-          <div class="about-credit-row"><h3>Explore Poorup</h3><p><a href="/" data-home-tab="play">Take a seat</a><span aria-hidden="true"> · </span><a href="/rules" data-top-surface="rules">Read the full rules</a></p></div>
+          <div class="about-credit-row"><h3>Explore Poorup</h3><p><a href="/" data-home-tab="play">Take a seat</a><span aria-hidden="true"> · </span><a href="/rules" data-top-surface="rules">Read the full rules</a><span aria-hidden="true"> · </span><a href="/llms.txt">AI summary (llms.txt)</a></p></div>
         </section>
         <section id="about-faq" tabindex="-1" aria-labelledby="about-faq-title"><div class="about-section-label t-micro ink-2">04 / COMMON QUESTIONS</div><h2 id="about-faq-title">Before you take a seat.</h2>${faq}</section>
         <footer class="about-document-footer"><p>Poorup is a free browser game. Not affiliated with Hasbro, Monopoly or Richup.io.</p><a class="btn-dark" href="/" data-home-tab="play">Back to the parlor</a></footer>

@@ -4,7 +4,6 @@
 // so these files cannot drift from the pages. Indexing is gated by the caller:
 // robots.txt and the sitemap take `approved`, and the Markdown alternates are
 // only mounted while indexing is approved (see server/server.js).
-import fs from "node:fs";
 import { renderAboutContent } from "../public/clientAboutContent.js";
 import { RULES_SECTIONS } from "../public/rulesSections.js";
 import { INDEXABLE_PATHS } from "./metadata.js";
@@ -48,6 +47,23 @@ export const NAMED_CRAWLERS = Object.freeze([
   "Google-Extended",
   "Applebot-Extended",
   "CCBot",
+  // Other search engines and AI answer/training crawlers. Each named group
+  // repeats the full rule set, so naming them opts them in explicitly.
+  "YandexBot",
+  "Baiduspider",
+  "SeznamBot",
+  "MojeekBot",
+  "Perplexity-User",
+  "meta-externalagent",
+  "Amazonbot",
+  "MistralAI-User",
+  "MistralAI-UserFast",
+  "Coherebot",
+  "cohere-ai",
+  "YouBot",
+  "AI2Bot",
+  "Diffbot",
+  "Bytespider",
 ]);
 
 export function robotsTxt({ approved, origin } = {}) {
@@ -67,35 +83,21 @@ function escapeXml(value) {
   return String(value).replace(/[<>&"']/g, character => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" }[character]));
 }
 
-// lastmod comes from the source files each page renders from, so it moves when
-// the content does and never claims a date that was not stored anywhere. A page
-// whose source cannot be read gets no lastmod rather than an invented one.
-const LASTMOD_SOURCES = Object.freeze({
-  "/": ["../public/index.html", "./metadata.js"],
-  "/about": ["../public/index.html", "./metadata.js", "./aboutPage.js", "../public/clientAboutContent.js"],
-  "/rules": ["../public/index.html", "./metadata.js", "./rulesPage.js", "../public/rulesSections.js"],
+// lastmod is a checked-in date, bumped by hand when a page's public copy
+// changes. File mtimes were the checkout time, so every deploy rewrote all three
+// dates to "today" and crawlers learned to distrust them. Keeping the date in the
+// repository makes it stable across deploys and honest about the content.
+export const PAGE_LASTMOD = Object.freeze({
+  "/": "2026-11-20",
+  "/about": "2026-11-20",
+  "/rules": "2026-11-20",
 });
 
-function computeLastmod() {
-  const dates = {};
-  for (const [route, sources] of Object.entries(LASTMOD_SOURCES)) {
-    try {
-      const newest = Math.max(...sources.map(source => fs.statSync(new URL(source, import.meta.url)).mtimeMs));
-      dates[route] = new Date(newest).toISOString().slice(0, 10);
-    } catch {
-      // Leave the route without lastmod.
-    }
-  }
-  return Object.freeze(dates);
-}
-
-const LASTMOD = computeLastmod();
-
 export function pageLastmod() {
-  return LASTMOD;
+  return PAGE_LASTMOD;
 }
 
-export function sitemapXml({ origin, lastmod = LASTMOD } = {}) {
+export function sitemapXml({ origin, lastmod = PAGE_LASTMOD } = {}) {
   const urls = INDEXABLE_PATHS.map(route => {
     const date = lastmod[route];
     return `  <url><loc>${escapeXml(`${origin}${route}`)}</loc>${date ? `<lastmod>${date}</lastmod>` : ""}</url>`;
@@ -137,20 +139,16 @@ function shiftHeadings(markdown, by) {
   return markdown.replace(/^(#{1,6}) /gm, (_match, hashes) => `${"#".repeat(Math.min(6, hashes.length + by))} `);
 }
 
-// Full text for AI readers: both pages in one file, under a short preface. The
-// one-paragraph summary lives in /llms.txt, so it is not repeated here.
+// Full text for AI readers: the About and Rules pages in one file, under a short
+// preface. Every section is generated from the same module the matching HTML
+// page renders from, so the text cannot drift. The one-paragraph summary lives
+// in /llms.txt, so it is not repeated here.
 export function llmsFullText() {
   if (llmsFullCache === null) {
     const about = shiftHeadings(aboutMarkdown().replace(/^# .*\n+/, ""), 1);
     const rules = shiftHeadings(rulesMarkdown().replace(/^# .*\n+/, ""), 1);
-    llmsFullCache = [
-      "# Poorup: full text",
-      "This file holds the full text of Poorup's public About and Rules pages, generated from the same source as those pages. For a short summary of the game and its facts, read /llms.txt.",
-      "## About Poorup",
-      about.trim(),
-      "## How to play Poorup",
-      rules.trim(),
-    ].join("\n\n") + "\n";
+    const sections = ["# Poorup: full text", "This file holds the full text of Poorup's public About and Rules pages, generated from the same source as those pages. For a short summary of the game and its facts, read /llms.txt.", "## About Poorup", about.trim(), "## How to play Poorup", rules.trim()];
+    llmsFullCache = sections.join("\n\n") + "\n";
   }
   return llmsFullCache;
 }

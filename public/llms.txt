@@ -1,5 +1,7 @@
 # Poorup
 
+Last updated: 2026-11-20
+
 > Poorup is a free, browser-based, real-time multiplayer property-trading board game in the style of Monopoly. Two to four players (up to six on the Metro-52 board; guests need no account) can host a public table (listed in the room directory) or a private room shared through a six-character invite code, buy, rent, build, mortgage and trade properties, bid at auctions, and try to be the last solvent player. No download or signup is needed to play.
 
 Poorup is an independent game. It is not made by, endorsed by or affiliated with Hasbro (the owner of Monopoly) or Richup.io. It describes itself as a Monopoly-style and Richup-style game only as a description of the kind of play.
@@ -20,7 +22,6 @@ Poorup is an independent game. It is not made by, endorsed by or affiliated with
 - [Home](/): play the game in the browser.
 - [About](/about): what Poorup is, how it plays, how it compares with Monopoly-style online board games, and frequently asked questions.
 - [Rules](/rules): the full rules book covering turns, buying, rent, houses and hotels, auctions, trades, jail, loans and bankruptcy.
-
 ## Full text
 
 - [Full text](/llms-full.txt): the About and Rules pages as one Markdown file, generated from the same source as the pages.

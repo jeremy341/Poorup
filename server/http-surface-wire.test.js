@@ -149,6 +149,7 @@ try {
     assert.equal((await fetch(`${pending.base}/about.md`)).status, 404, 'Markdown copies are gated like the sitemap');
     assert.equal((await fetch(`${pending.base}/rules.md`)).status, 404);
     assert.equal((await fetch(`${pending.base}/llms-full.txt`)).status, 200, 'llms-full.txt is served like llms.txt, without the indexing gate');
+    assert.match(pending.output(), /POORUP_INDEX_POLICY is unset/, 'the silent indexing misconfiguration is logged at boot');
   });
 } finally {
   await pending.stop();
@@ -158,7 +159,8 @@ const approved = await start({ POORUP_PUBLIC_ORIGIN: 'https://play.example', POO
 try {
   await check('with origin and policy both set, pages are indexable', async () => {
     assert.match(await (await fetch(`${approved.base}/robots.txt`)).text(), /Allow: \//);
-    assert.match(await (await fetch(`${approved.base}/rules`)).text(), /name="robots" content="index,follow"/);
+    assert.match(await (await fetch(`${approved.base}/rules`)).text(), /name="robots" content="index,follow[^"]*"/);
+    assert.doesNotMatch(approved.output(), /POORUP_INDEX_POLICY is/, 'an approved deploy logs no indexing warning');
   });
 
   await check('crawler files have their types, cache policy and content from the pages', async () => {
@@ -169,6 +171,7 @@ try {
     assert.match(robotsText, /User-agent: GPTBot\nAllow: \/\n/);
     assert.match(robotsText, /User-agent: Googlebot\nAllow: \/\n/);
     assert.match(robotsText, /Sitemap: https:\/\/play\.example\/sitemap\.xml\n$/);
+    assert.match(robotsText, /^Disallow: \/play$/m, 'the real /play route stays closed');
 
     const sitemap = await fetch(`${approved.base}/sitemap.xml`);
     assert.equal(sitemap.headers.get('content-type'), 'application/xml; charset=utf-8');
@@ -176,7 +179,7 @@ try {
     const sitemapText = await sitemap.text();
     assert.match(sitemapText, /<loc>https:\/\/play\.example\/<\/loc><lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
     assert.match(sitemapText, /<loc>https:\/\/play\.example\/rules<\/loc><lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
-    assert.doesNotMatch(sitemapText, /<loc>https:\/\/play\.example\/(play|rooms|profile|rankings|social|admin|game)/, 'private pages are not listed');
+    assert.doesNotMatch(sitemapText, /<loc>https:\/\/play\.example\/(play|rooms|profile|rankings|social|admin|game)(?:\/|<)/, 'private pages are not listed');
 
     const about = await fetch(`${approved.base}/about.md`);
     assert.equal(about.status, 200);
@@ -192,12 +195,14 @@ try {
     assert.equal(full.status, 200);
     assert.equal(full.headers.get('content-type'), 'text/plain; charset=utf-8');
     assert.equal(full.headers.get('cache-control'), 'public, max-age=3600');
-    assert.match(await full.text(), /^# Poorup: full text\n/);
+    const fullText = await full.text();
+    assert.match(fullText, /^# Poorup: full text\n/);
 
     const llms = await fetch(`${approved.base}/llms.txt`);
     assert.equal(llms.status, 200);
     assert.match(llms.headers.get('content-type') || '', /^text\/plain/);
-    assert.match(await llms.text(), /\(\/llms-full\.txt\)/);
+    const llmsText = await llms.text();
+    assert.match(llmsText, /\(\/llms-full\.txt\)/);
 
     const rulesPage = await (await fetch(`${approved.base}/rules`)).text();
     assert.match(rulesPage, /<link rel="alternate" type="text\/markdown" href="https:\/\/play\.example\/rules\.md">/);
@@ -223,6 +228,18 @@ try {
     assert.equal((await raw(limited.base, '/assets/fonts/' + fs.readdirSync(path.join(process.cwd(), 'public/assets/fonts')).find(name => name.endsWith('.woff2')))).status, 200);
     assert.equal((await raw(limited.base, '/healthz')).status, 200);
     assert.equal((await raw(limited.base, '/missing-script.js')).status, 429, 'a path that is not a file is counted');
+    // Crawler text files are exempt: a 429 on robots.txt or sitemap.xml makes a
+    // crawler back off, so they must still answer once the page budget is spent.
+    assert.equal((await raw(limited.base, '/robots.txt')).status, 200, 'robots.txt is not rate limited');
+    assert.equal((await raw(limited.base, '/llms-full.txt')).status, 200, 'llms-full.txt is not rate limited');
+    const sitemapStatus = (await raw(limited.base, '/sitemap.xml')).status;
+    assert.notEqual(sitemapStatus, 429, 'sitemap.xml is not rate limited');
+    assert.ok([200, 404].includes(sitemapStatus), `sitemap status ${sitemapStatus}`);
+    // Engine.IO bypasses Express, so its requests spend the same address budget through the Engine.IO middleware. Once the budget
+    // is spent, a polling request is refused before Engine.IO verifies it (a fresh budget would answer 400 for this sid).
+    const socketLimited = await raw(limited.base, '/socket.io/?EIO=4&transport=polling&sid=missing');
+    assert.equal(socketLimited.status, 429, 'an exhausted HTTP budget also refuses Engine.IO requests');
+    assert.ok(Number(socketLimited.headers['retry-after']) >= 1, 'the socket refusal carries Retry-After');
   });
 } finally {
   await limited.stop();
