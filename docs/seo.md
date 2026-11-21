@@ -2,11 +2,11 @@
 
 ## Deploy settings
 
-Production is indexable out of the box: the origin defaults to `https://powerup.tech` and the policy to `index,follow`, so no environment file is needed. Both settings are still there as overrides:
+Production is indexable out of the box: the origin defaults to `https://poorup.tech` and the policy to `index,follow`, so no environment file is needed. Both settings are still there as overrides:
 
 | Setting | Default in production | Use |
 |---|---|---|
-| `POORUP_PUBLIC_ORIGIN` | `https://powerup.tech` | change only for a different domain or a staging deploy (no path, no trailing slash) |
+| `POORUP_PUBLIC_ORIGIN` | `https://poorup.tech` | change only for a different domain or a staging deploy (no path, no trailing slash) |
 | `POORUP_INDEX_POLICY` | `index,follow` | set `noindex,nofollow` to close indexing; any unrecognised value also closes it |
 
 Non-production defaults to closed; set both there if you want a staging build indexed.
@@ -97,6 +97,6 @@ Off-site checklist, after deploying:
 
 1. Verify the site in **Google Search Console** using the HTML-tag method: put the token from that method in `POORUP_GOOGLE_SITE_VERIFICATION` and restart. The `<meta name="google-site-verification">` tag is emitted on every rendered page from that token.
 1. Verify the site in **Bing Webmaster Tools** the same way with `POORUP_BING_SITE_VERIFICATION`; it emits `<meta name="msvalidate.01">`. Tokens are validated against a safe character set and invalid values are dropped.
-1. Submit `https://powerup.tech/sitemap.xml` (or the configured `POORUP_PUBLIC_ORIGIN`) in both consoles, then use URL inspection to request indexing for `/`, `/about` and `/rules`.
+1. Submit `https://poorup.tech/sitemap.xml` (or the configured `POORUP_PUBLIC_ORIGIN`) in both consoles, then use URL inspection to request indexing for `/`, `/about` and `/rules`.
 1. Link the site from the **GitHub README** at `https://github.com/jeremy341/Poorup` so the repository and the site reinforce each other. That repository is the only `sameAs` entry; add a social profile there only if it really exists.
 1. Ask for mentions in **game directories, board-game communities, launch posts and link roundups**, using normal descriptive links. Do not buy links or stuff keywords into hidden text.

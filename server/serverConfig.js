@@ -30,7 +30,7 @@ export function resolveRetentionToken(env = process.env, warn = console.warn) {
 }
 
 // Production accepts browser requests from the live domain without an env file.
-export const DEFAULT_ALLOWED_ORIGIN = "https://powerup.tech";
+export const DEFAULT_ALLOWED_ORIGIN = "https://poorup.tech";
 
 export function parseAllowedOrigins(env = process.env) {
   const configured = String(env?.POORUP_ALLOWED_ORIGINS || '').trim();
