@@ -529,7 +529,7 @@ function isStaticRequest(requestPath) {
     || requestPath === '/styles.css'
     || requestPath === '/favicon.svg';
 }
-app.get('*', (req, res, next) => {
+app.get('/{*path}', (req, res, next) => {
   if (req.path.startsWith('/socket.io')) return next();
   if (!SPA_PATHS.has(req.path) || isStaticRequest(req.path)) return next();
   res.sendFile(path.join(publicPath, 'index.html'), err => {
