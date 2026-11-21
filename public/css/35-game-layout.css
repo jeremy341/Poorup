@@ -277,7 +277,7 @@
 .ticker-link { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 .ticker-link:hover, .ticker-link:focus-visible { color: var(--gold-300, #e5a52d); }
 .noscript-note { padding: 24px; max-width: 640px; margin: 40px auto; color: var(--gold-100, #e8d3ab); font: 16px/1.6 var(--font-body); }
-.noscript-note h1 { color: var(--gold-300, #e5a52d); font-size: 24px; margin: 0 0 12px; }
+.noscript-note :is(h1, [role="heading"]) { color: var(--gold-300, #e5a52d); font-size: 24px; margin: 0 0 12px; }
 
 /* ---- rules page: one slim header, a short contents list, no status pills ---- */
 .rules-intro { padding: 14px 18px; gap: 14px; flex-wrap: wrap; }

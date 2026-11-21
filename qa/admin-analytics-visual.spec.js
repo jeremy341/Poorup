@@ -93,8 +93,8 @@ test.describe('admin analytics visual contract', () => {
     await openFixture(page);
     await expect(page.locator('[data-admin-section]')).toHaveText(['Analytics', 'Rooms', 'Bots & AI', 'Release']);
     await expect(page.locator('[data-analytics-tab]')).toHaveText(['Overview', 'Match health', 'Economy']);
-    await expect(page.locator('h1:visible')).toHaveCount(1);
-    await expect(page.locator('h1:visible')).toHaveText('ANALYTICS');
+    await expect(page.locator('[role="heading"][aria-level="1"]:visible')).toHaveCount(1);
+    await expect(page.locator('[role="heading"][aria-level="1"]:visible')).toHaveText('ANALYTICS');
     await expect(page.locator('#admin-analytics-grid .analytics-metric')).toHaveCount(6);
     await expect(page.locator('#admin-analytics-grid .analytics-metric').first()).toContainText('Online now');
     await expect(page.locator('#admin-analytics-grid .analytics-metric').last()).toContainText('24h peak');
