@@ -26,9 +26,10 @@ for (const id of ['about-project', 'about-features', 'about-credits', 'about-faq
 assert.match(live, /<a href="\/llms\.txt">AI summary \(llms\.txt\)<\/a>/, 'the AI summary remains a visible link');
 assert.match(live, /<noscript><p class="about-static-note">/, 'the static page explains the JavaScript requirement for play');
 
-// The broadsheet devices stay honest: the pull quote is decorative and lifted
-// verbatim from the visible copy (so it can never introduce a claim of its
-// own), and the ledger keeps a column shape its ruled rows can hold.
+// The page stays a lean document, and its one decorative aside stays honest:
+// the pull quote is lifted verbatim from the visible copy (so it can never
+// introduce a claim of its own), and the ledger keeps a column shape its
+// ruled rows can hold.
 const pullQuotes = [...live.matchAll(/<p class="about-pull" aria-hidden="true"><span>([^<]*)<\/span><\/p>/g)];
 assert.equal(pullQuotes.length, 1, 'the pull quote remains a single decorative aside');
 for (const [, quote] of pullQuotes) {

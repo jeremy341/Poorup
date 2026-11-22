@@ -1,149 +1,108 @@
-/* The About surface: a parlor poster. One centered hero stages the page, the
-   anchor links sit in room-code plates (the artifact players type to meet up),
-   and the chapters open on oversized ghost numerals with facts in cards and
-   ruled ledgers beneath. All colour comes from theme tokens so every theme
-   repaints it. */
+/* The About surface: a lean single-column document with a compact header, a
+   plain section nav and ruled lists. No rails, no cards, no oversized display
+   moments. All colour comes from theme tokens so every theme repaints it. */
 #view-about { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
 #view-about .hdr { flex: 0 0 auto; }
 .about-page-main { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-color: var(--line-board) var(--surface-panel-deep); }
-.about-document { width: min(100%, 1120px); margin: 0 auto; padding: 26px max(32px, env(safe-area-inset-right)) max(56px, env(safe-area-inset-bottom)) max(32px, env(safe-area-inset-left)); }
+.about-document { width: min(100%, 860px); margin: 0 auto; padding: 28px max(24px, env(safe-area-inset-right)) max(48px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); }
 
-/* Hero: the parlor poster, centered under the board rule. */
-.about-hero { padding: 56px 0 48px; border-top: 3px solid var(--line-board); text-align: center; }
-.about-hero > .t-micro { letter-spacing: .16em; }
-.about-hero h1 { max-width: 14ch; margin: 20px auto 12px; font-family: var(--font-display); font-size: clamp(56px, 8.2vw, 128px); font-weight: 400; line-height: .94; letter-spacing: .01em; color: var(--gold-050); text-wrap: balance; }
-.about-lead { max-width: 26ch; margin: 0 auto; font-size: clamp(22px, 2vw, 29px); line-height: 1.24; color: var(--gold-100); text-wrap: balance; }
-.about-summary { max-width: 58ch; margin: 16px auto 0; font-size: 18px; line-height: 1.65; color: var(--text-secondary); }
-.about-entry { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
-.about-play-link, .about-rules-link { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 22px; font-size: 18px; text-decoration: none; }
-.about-hero-facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: 28px 0 0; padding: 0; }
-.about-hero-facts span { padding: 6px 12px 7px; border: 1px solid var(--line-subtle); background: var(--surface-panel); font-family: var(--font-pixel); font-size: 11px; line-height: 1.2; letter-spacing: .05em; text-transform: uppercase; color: var(--text-muted); }
-.about-static-note { margin: 24px 0 0; font-size: 16px; color: var(--text-secondary); }
+/* Header: kicker, title, lead, summary and the two ways in. */
+.about-header { padding: 4px 0 0; border-top: 3px solid var(--line-board); }
+.about-header h1 { margin: 14px 0 8px; font-family: var(--font-display); font-size: clamp(38px, 4vw, 52px); font-weight: 400; line-height: 1; color: var(--gold-050); text-wrap: balance; }
+.about-lead { max-width: 36ch; margin: 0 0 6px; font-size: clamp(19px, 1.6vw, 22px); line-height: 1.35; color: var(--gold-100); text-wrap: balance; }
+.about-summary { max-width: 62ch; margin: 0; font-size: 17px; line-height: 1.6; color: var(--text-secondary); }
+.about-entry { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.about-play-link, .about-rules-link { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 22px; font-size: 16px; text-decoration: none; }
+.about-static-note { margin: 16px 0 0; font-size: 15px; color: var(--text-secondary); }
 
-/* The section anchors wear the room-code plate: a bordered chip with its
-   number in the numeric face, the way a join code reads. */
-.about-contents { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 16px 0 24px; border-bottom: 1px solid var(--line-board); counter-reset: about-section; }
-.about-contents > span { margin-right: 8px; }
-.about-contents a { display: inline-flex; align-items: baseline; gap: 10px; min-height: 44px; padding: 9px 18px 11px; border: 1px solid var(--line-control); background: var(--surface-panel); color: var(--gold-100); text-decoration: none; font-size: 15px; transition: border-color var(--dur-xs) var(--ease-snap), background var(--dur-xs) var(--ease-snap), color var(--dur-xs) var(--ease-snap); }
-.about-contents a::before { counter-increment: about-section; content: '0' counter(about-section); flex: 0 0 auto; font-family: var(--font-numeric); font-size: 12px; letter-spacing: .04em; color: var(--gold-300); }
-.about-contents a:hover, .about-contents a:focus-visible { border-color: var(--line-active); background: var(--surface-hover); color: var(--gold-050); }
+/* Section nav: one plain row of links under a rule. */
+.about-contents { display: flex; flex-wrap: wrap; column-gap: 24px; row-gap: 4px; padding: 12px 0; margin-top: 26px; border-top: 1px solid var(--line-board); border-bottom: 1px solid var(--line-subtle); }
+.about-contents a { display: inline-flex; align-items: center; min-height: 32px; font-size: 15px; color: var(--text-secondary); text-decoration: none; }
+.about-contents a:hover, .about-contents a:focus-visible { color: var(--gold-100); text-decoration: underline; text-underline-offset: 4px; }
 
-/* Chapters: oversized ghost numerals open each section. */
+/* Sections: small label, honest heading, one measure of text. */
 .about-reading { min-width: 0; }
-.about-reading section { scroll-margin-top: 24px; }
-.about-chapter { padding-top: 54px; }
-.about-chapter + .about-chapter { border-top: 1px solid var(--line-subtle); }
-.about-chapter-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: clamp(16px, 2.4vw, 40px); align-items: start; margin-bottom: 28px; }
-.about-section-label { grid-column: 1; grid-row: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
-.about-section-label::before { content: ''; flex: 0 0 auto; width: 8px; height: 8px; background: var(--red-bright); }
-.about-chapter-title { grid-column: 1; grid-row: 2; max-width: 26ch; margin: 10px 0 0; font-family: var(--font-display); font-size: clamp(34px, 3vw, 46px); font-weight: 400; line-height: 1.05; color: var(--gold-050); text-wrap: balance; }
-.about-chapter-index { grid-column: 2; grid-row: 1 / span 2; align-self: start; font-family: var(--font-display); font-size: clamp(72px, 9.5vw, 148px); line-height: .8; letter-spacing: -.01em; color: var(--gold-500); }
-.about-reading h3 { margin: 0 0 8px; font-size: 21px; line-height: 1.3; color: var(--text-primary); }
-.about-reading p { max-width: 62ch; margin: 0 0 16px; font-size: 18px; line-height: 1.65; color: var(--text-secondary); }
+.about-reading section { scroll-margin-top: 20px; }
+.about-section { padding-top: 36px; }
+.about-section + .about-section { margin-top: 28px; padding-top: 32px; border-top: 1px solid var(--line-subtle); }
+.about-section-label { margin-bottom: 8px; }
+.about-section h2 { margin: 0 0 12px; font-family: var(--font-display); font-size: clamp(27px, 2.6vw, 34px); font-weight: 400; line-height: 1.1; color: var(--gold-050); text-wrap: balance; }
+.about-reading h3 { margin: 0 0 4px; font-size: 18px; line-height: 1.3; color: var(--text-primary); }
+.about-reading p { max-width: 66ch; margin: 0 0 12px; font-size: 17px; line-height: 1.6; color: var(--text-secondary); }
 .about-reading a { color: var(--gold-100); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; overflow-wrap: anywhere; }
 .about-reading a:hover { color: var(--gold-050); }
 
-/* The project chapter reads two-sided: the story left, the record card right. */
-.about-split { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, .88fr); gap: 24px clamp(32px, 4vw, 64px); }
-.about-split .about-prose { max-width: 62ch; }
-.about-reading .about-pull { max-width: 30ch; margin: 6px 0 26px; padding-left: clamp(18px, 2vw, 26px); border-left: 3px solid var(--red-bright); }
-.about-pull span { display: block; font-family: var(--font-display); font-size: clamp(26px, 2.2vw, 32px); line-height: 1.15; color: var(--gold-100); text-wrap: balance; }
-.about-note { padding: 22px 24px 8px; margin: 0; border: 1px solid var(--line-default); border-top: 3px solid var(--line-active); background: var(--surface-inset); }
-.about-note p { margin: 8px 0 14px; font-size: 16px; }
+/* The one decorative aside: a small lifted line between paragraphs. */
+.about-pull { max-width: 32ch; margin: 14px 0 16px; padding-left: 16px; border-left: 2px solid var(--red-bright); }
+.about-pull span { display: block; font-family: var(--font-display); font-size: clamp(20px, 1.8vw, 24px); line-height: 1.2; color: var(--gold-100); text-wrap: balance; }
 
-/* The feature ledger: ruled rows with index numbers as wayfinding. The numbers
-   read down the left column first and then the right, the way a numbered ledger
-   is scanned, instead of zig-zagging across rows. */
-.about-feature-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(4, auto); grid-auto-flow: column; column-gap: clamp(24px, 3vw, 44px); margin: 26px 0 8px; padding: 0; border-top: 1px solid var(--line-subtle); list-style: none; counter-reset: about-feature; color: var(--text-primary); }
-.about-feature-list li { display: grid; grid-template-columns: 34px minmax(0, 1fr); column-gap: 12px; min-width: 0; padding: 13px 0 14px; border-bottom: 1px solid var(--line-subtle); counter-increment: about-feature; font-size: 17px; line-height: 1.45; }
-.about-feature-list li::before { content: counter(about-feature, decimal-leading-zero); font-family: var(--font-numeric); font-size: 12px; line-height: 2.2; letter-spacing: .04em; color: var(--gold-300); }
-.about-basics, .about-music-credits { margin: 24px 0; padding: 0 20px; border: 1px solid var(--line-subtle); background: var(--surface-panel-deep); }
-.about-basics ol { margin: 0 0 20px; padding-left: 24px; font-size: 17px; line-height: 1.6; color: var(--text-secondary); }
-.about-basics li + li { margin-top: 12px; }
+/* The independence note: a slim aside, one step off the page. */
+.about-note { max-width: 66ch; margin-top: 16px; padding: 12px 16px; background: var(--surface-panel); border-left: 2px solid var(--line-default); }
+.about-note span { display: block; margin-bottom: 6px; }
+.about-note p { margin: 0; font-size: 15px; }
+
+/* The feature ledger: two columns of ruled rows, read down then across. */
+.about-feature-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(4, auto); grid-auto-flow: column; column-gap: 28px; margin: 18px 0 4px; padding: 0; border-top: 1px solid var(--line-subtle); list-style: none; color: var(--text-primary); }
+.about-feature-list li { min-width: 0; padding: 10px 0 11px; border-bottom: 1px solid var(--line-subtle); font-size: 15px; line-height: 1.45; }
+.about-basics, .about-music-credits { margin: 16px 0; padding: 0 16px; border: 1px solid var(--line-subtle); background: var(--surface-panel-deep); }
+.about-basics ol { margin: 0 0 16px; padding-left: 22px; font-size: 15px; line-height: 1.6; color: var(--text-secondary); }
+.about-basics li + li { margin-top: 8px; }
 .about-basics strong { color: var(--text-primary); }
-.about-reading .about-rider { font-size: 14px; line-height: 1.55; color: var(--text-muted); }
+.about-reading .about-rider { font-size: 13px; line-height: 1.55; color: var(--text-muted); }
 
-/* Colophon: ruled definition rows. */
-.about-credit-row { display: grid; grid-template-columns: minmax(130px, .3fr) minmax(0, 1fr); gap: 8px 24px; padding: 20px 0; border-top: 1px solid var(--line-subtle); }
-.about-chapter .about-credit-row:last-child { border-bottom: 1px solid var(--line-subtle); }
-.about-credit-row h3 { grid-row: span 2; }
-.about-credit-row p { margin: 0; }
-.about-credit-row .about-music-credits { grid-column: 2; margin: 4px 0 0; }
-.about-music-credits ul { margin: 0; padding: 0 0 16px; list-style: none; }
-.about-music-credits li { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 3px 20px; padding: 12px 0; border-top: 1px solid var(--line-subtle); font-size: 17px; line-height: 1.5; color: var(--text-secondary); }
-.about-music-credits small { grid-column: 1 / -1; font-size: 14px; color: var(--text-secondary); }
+/* Credits: ruled definition rows. */
+.about-credit-row { display: grid; grid-template-columns: minmax(110px, .3fr) minmax(0, 1fr); gap: 4px 24px; padding: 14px 0; border-top: 1px solid var(--line-subtle); }
+.about-credit-row:last-child { border-bottom: 1px solid var(--line-subtle); }
+.about-credit-row h3 { grid-row: span 2; font-size: 17px; }
+.about-credit-row p { margin: 0; font-size: 15px; }
+.about-credit-row .about-music-credits { grid-column: 2; margin: 2px 0 0; }
+.about-music-credits ul { margin: 0; padding: 0 0 12px; list-style: none; }
+.about-music-credits li { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 2px 20px; padding: 10px 0; border-top: 1px solid var(--line-subtle); font-size: 15px; line-height: 1.5; color: var(--text-secondary); }
+.about-music-credits small { grid-column: 1 / -1; font-size: 13px; color: var(--text-secondary); }
 
-/* The question register: numbered cards in two ranks. */
-.about-faq-lead { margin-bottom: 22px; }
-.about-question-index { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; counter-reset: about-question; }
-.about-question { border: 1px solid var(--line-subtle); background: var(--surface-inset); padding: 0 clamp(14px, 1.6vw, 20px); }
-.about-question summary { position: relative; display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: baseline; column-gap: 12px; min-height: 56px; padding: 14px 0; cursor: pointer; font-size: 18px; line-height: 1.35; color: var(--text-primary); list-style: none; counter-increment: about-question; }
+/* Questions: a flat ruled register. */
+.about-reading summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 48px; padding: 12px 0; margin: 0; cursor: pointer; font-size: 17px; line-height: 1.3; color: var(--text-primary); list-style: none; }
 .about-reading summary::-webkit-details-marker { display: none; }
-.about-reading summary::after { content: '+'; flex: 0 0 auto; font-family: var(--font-display); font-size: 28px; color: var(--gold-300); }
-.about-reading details[open] > summary::after { content: '−'; }
 .about-reading summary:hover, .about-reading details[open] > summary { color: var(--gold-100); }
-.about-question summary::before { content: 'Q' counter(about-question, decimal-leading-zero); font-family: var(--font-numeric); font-size: 13px; letter-spacing: .05em; color: var(--gold-300); }
-.about-question summary::after { align-self: center; font-size: 26px; }
-/* The answer lines up with the question text, not the question number, so each
-   card reads as one ruled question-and-answer pair. */
-.about-question > p { margin: 0; max-width: 66ch; padding: 0 0 18px 54px; }
-
-/* The shared summary rows for the basics and music panels. */
-.about-basics summary, .about-music-credits summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 56px; padding: 16px 0; font-size: 20px; }
+.about-music-credits summary::after, .about-basics summary::after { content: '+'; flex: 0 0 auto; font-family: var(--font-display); font-size: 24px; color: var(--gold-300); }
+.about-reading details[open] > summary::after { content: '−'; }
+.about-question { border-bottom: 1px solid var(--line-subtle); }
+.about-question:first-of-type { border-top: 1px solid var(--line-subtle); margin-top: 6px; }
+.about-question summary::after { content: '+'; flex: 0 0 auto; font-family: var(--font-display); font-size: 24px; color: var(--gold-300); }
+.about-question > p { margin: 0; max-width: 66ch; padding: 0 28px 16px 0; font-size: 16px; }
 
 /* Back matter. */
-.about-document-footer { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; margin-top: 56px; padding: 22px 0 4px; border-top: 3px solid var(--line-board); }
-.about-document-footer p { flex: 1 1 260px; margin: 0; font-size: 14px; }
-.about-document-footer > a { display: inline-flex; align-items: center; min-height: 44px; padding: 10px 16px; font-size: 16px; text-decoration: none; }
+.about-document-footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 48px; padding: 16px 0 0; border-top: 2px solid var(--line-board); }
+.about-document-footer p { flex: 1 1 240px; margin: 0; font-size: 13px; }
+.about-document-footer > a { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 16px; font-size: 15px; text-decoration: none; }
 #view-about :is(a, summary, main, section, h1):focus-visible { outline: 2px solid var(--theme-focus); outline-offset: 3px; }
 .about-info-link { display: inline-flex; align-items: center; justify-content: center; }
 .about-menu-entry { text-decoration: none; }
 .about-table-entry { display: inline-flex; align-items: center; min-height: 44px; margin-top: 12px; padding: 8px 16px; font-size: 15px; text-decoration: none; }
 
 @media (max-width: 1199px) {
-  .about-document { padding: 22px max(24px, env(safe-area-inset-right)) max(44px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); }
-  .about-hero { padding: 44px 0 36px; }
-  .about-hero h1 { font-size: clamp(52px, 7.2vw, 96px); }
-  .about-summary { font-size: 17px; }
-  .about-chapter { padding-top: 44px; }
-  .about-chapter-index { font-size: clamp(64px, 8vw, 112px); }
-  .about-reading p { font-size: 17px; }
-  .about-split { gap: 20px 36px; }
-  .about-note p { font-size: 16px; }
+  .about-document { padding-top: 22px; }
 }
 @media (max-width: 699px) {
-  .about-document { padding: 18px max(16px, env(safe-area-inset-right)) max(40px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
-  .about-hero { padding: 32px 0 28px; }
-  .about-hero h1 { margin: 14px auto 8px; font-size: clamp(54px, 15vw, 64px); }
-  .about-lead { font-size: 21px; }
-  .about-summary { font-size: 17px; }
-  .about-entry { margin-top: 22px; }
-  .about-entry > :is(.about-play-link, .about-rules-link) { flex: 1 1 160px; }
-  .about-hero-facts { margin-top: 22px; }
-  .about-contents { gap: 8px 10px; padding: 14px 0 18px; }
-  .about-contents > span { flex: 1 0 100%; }
-  .about-chapter { padding-top: 36px; }
-  .about-chapter-head { margin-bottom: 20px; }
-  .about-chapter-title { margin-top: 8px; font-size: 32px; }
-  .about-chapter-index { font-size: clamp(44px, 13vw, 56px); }
-  .about-split { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-  .about-note { padding: 16px 14px 4px; }
-  .about-pull span { font-size: 25px; }
+  .about-document { width: min(100%, 640px); padding: 18px max(16px, env(safe-area-inset-right)) max(40px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .about-header h1 { font-size: clamp(36px, 10vw, 44px); }
+  .about-lead { font-size: 19px; }
+  .about-summary { font-size: 16px; }
+  .about-entry > :is(.about-play-link, .about-rules-link) { flex: 1 1 45%; }
+  .about-contents { column-gap: 18px; }
+  .about-section { padding-top: 28px; }
+  .about-section + .about-section { margin-top: 22px; padding-top: 26px; }
+  .about-reading p { font-size: 16px; }
   .about-feature-list { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-flow: row; }
   .about-credit-row { grid-template-columns: minmax(0, 1fr); }
-  .about-credit-row h3 { grid-row: auto; }
+  .about-credit-row h3 { grid-row: auto; font-size: 16px; }
   .about-credit-row .about-music-credits { grid-column: 1; }
   .about-music-credits li { grid-template-columns: minmax(0, 1fr); }
-  .about-basics, .about-music-credits { margin: 18px 0; padding: 0 14px; }
-  .about-question-index { grid-template-columns: minmax(0, 1fr); }
-  .about-question summary { grid-template-columns: 38px minmax(0, 1fr) auto; column-gap: 10px; min-height: 52px; padding: 12px 0; font-size: 17px; }
-  .about-question > p { padding: 0 0 16px 50px; font-size: 17px; }
-  .about-document-footer { margin-top: 40px; padding-top: 18px; }
+  .about-question summary { font-size: 16px; }
+  .about-question > p { font-size: 15px; }
+  .about-document-footer { margin-top: 36px; }
 }
 @media (forced-colors: active) {
-  .about-note, .about-basics, .about-music-credits, .about-question, .about-hero-facts span { background: Canvas; color: CanvasText; border-color: CanvasText; }
-  .about-chapter-index { color: GrayText; }
-  .about-section-label::before, .about-hero-facts span { background: CanvasText; }
-  .about-pull { border-left-color: Highlight; }
+  .about-note, .about-basics, .about-music-credits { background: Canvas; color: CanvasText; border-color: CanvasText; }
   #view-about :is(a, summary, main, section, h1):focus-visible { outline-color: Highlight; }
 }
