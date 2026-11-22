@@ -1,6 +1,7 @@
 // THEME RENDERER: mounts the five decorative worlds behind the
 // existing Poorup surfaces. It never reads or writes game state.
 import { DEFAULT_THEME_ID, getTheme, MUSIC_TOKEN_SETS } from "./clientThemeData.js";
+import { paintSkyline } from "./clientSkyline.js";
 
 const VIEW_SELECTORS = ["#view-home", "#view-game", "#view-profile", "#view-rankings", "#view-social", "#view-rules", "#view-about"];
 let transitionTimer = null;
@@ -111,6 +112,28 @@ function renderLayer(selector, theme, surface, animate) {
   const layer = query(selector);
   if (!layer) return;
   layer.innerHTML = themeSceneMarkup(theme, surface);
+  // The baseline scene is only a sky gradient; its drifting houses live inside
+  // the Home view. Draw the same house track into the page layer so the original
+  // theme keeps its home art behind the other tabs, like the brighter themes do.
+  if (surface === "page" && theme.id === DEFAULT_THEME_ID) {
+    const track = document.createElement("div");
+    track.className = "home-house-drift-track";
+    for (let index = 0; index < 4; index += 1) {
+      const skyline = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      skyline.setAttribute("class", "skyline");
+      skyline.setAttribute("viewBox", "0 0 88 36");
+      skyline.setAttribute("preserveAspectRatio", "xMidYMax meet");
+      skyline.setAttribute("shape-rendering", "crispEdges");
+      skyline.setAttribute("aria-hidden", "true");
+      paintSkyline(skyline, theme.skyline.home, theme.palette);
+      track.appendChild(skyline);
+    }
+    const houses = document.createElement("div");
+    houses.className = "home-house-drift theme-house-drift";
+    houses.setAttribute("aria-hidden", "true");
+    houses.appendChild(track);
+    layer.appendChild(houses);
+  }
   layer.dataset.themeId = theme.id;
   layer.querySelectorAll(".theme-scene").forEach((scene) => {
     scene.classList.remove("is-entering");

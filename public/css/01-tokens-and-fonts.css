@@ -58,8 +58,8 @@
   --bg-canvas: #01070a;
   --bg-chrome: #020a0d;
 
-  --surface-panel: #11282b;
-  --surface-panel-raised: #1b3638;
+  --surface-panel: #071314;
+  --surface-panel-raised: #09191a;
   --surface-panel-deep: #030c10;
   --surface-board-tile: #061011;
   --surface-board-center: #031d1e;
@@ -89,7 +89,7 @@
   --cta-label-muted: #fff8e0;
   --cta-label-disabled: #c5b6a4;
   /* Control borders (fields, dark buttons): >= 3:1 non-text contrast on input/button/panel surfaces. */
-  --line-control: #887a59;
+  --line-control: #746647;
   --red-bright: #e36b5f;
   --red-dark: #87231e;
 
