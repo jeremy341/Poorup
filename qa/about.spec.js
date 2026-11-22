@@ -36,7 +36,12 @@ test.describe('About in the parlor shell', () => {
     await page.goto('/about');
     await expect(page.locator('#view-about')).toBeVisible();
     await expect(page.locator('body')).toHaveAttribute('data-theme-id', 'winter');
+    await expect(page.locator('#view-about .hdr')).toBeVisible();
+    await expect(page.locator('#view-about [data-global-nav] button')).toHaveCount(6);
+    await expect(page.locator('#view-about .hdr .hdr-brand')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'About Poorup', exact: true })).toBeVisible();
+    await expect(page.locator('#about-page-content .about-pull')).toHaveAttribute('aria-hidden', 'true');
+    await expect(page.locator('#about-page-content .about-rider')).toContainText('Know Monopoly or Richup.io?');
     await page.locator('#view-about a[href="#about-faq"]').click();
     const question = page.locator('#about-page-content details').filter({ has: page.locator('summary', { hasText: 'Do I need an account to play?' }) });
     await question.locator('summary').focus();
@@ -50,15 +55,15 @@ test.describe('About in the parlor shell', () => {
     expect(geometry.content).toBeGreaterThan(0);
   });
 
-  test('preserves the previously open profile view when returning from About', async ({ page }) => {
+  test('opens About from the footer and returns to the previous view', async ({ page }) => {
     await page.goto('/');
     await page.locator('#home-profile-tab').click();
     await expect(page.locator('#view-profile')).toBeVisible();
-    await page.locator('#view-profile [data-settings-toggle]').click();
-    await page.locator('#view-profile [data-about-link]').click();
+    await page.locator('#view-profile [data-home-tab="play"]').click();
+    await page.locator('#view-home .ticker a[href="/about"]').click();
     await expect(page.locator('#view-about')).toBeVisible();
     await page.locator('[data-about-back]').click();
-    await expect(page.locator('#view-profile')).toBeVisible();
+    await expect(page.locator('#view-home')).toBeVisible();
   });
 
   test('public information and native FAQ remain readable without JavaScript', async ({ browser, baseURL }) => {
@@ -76,17 +81,19 @@ test.describe('About in the parlor shell', () => {
   });
 
   test('follows all six themes through the canonical profile preferences', async ({ page }) => {
-    await page.goto('/about');
+    await page.goto('/');
     for (const id of ['spring', 'summer', 'autumn', 'winter', 'light', 'original']) {
-      await page.locator('#view-about [data-global-profile-trigger]').click();
+      await page.locator('#home-profile-tab').click();
       await page.locator('#profile-tab-account').click();
       await page.locator(`[data-theme-choice-label="${id}"]`).click();
-      await page.locator('#view-profile [data-settings-toggle]').click();
-      await page.locator('#view-profile [data-about-link]').click();
+      await page.locator('#view-profile [data-home-tab="play"]').click();
+      await page.locator('#view-home .ticker a[href="/about"]').click();
       await expect(page.locator('#view-about')).toBeVisible();
       await expect(page.locator('#view-about')).toHaveAttribute('data-theme-id', id);
       await expect(page.locator('body')).toHaveAttribute('data-theme-id', id);
       await expect(page.locator('#about-page-content .about-question')).toHaveCount(8);
+      await page.locator('[data-about-back]').click();
+      await expect(page.locator('#view-home')).toBeVisible();
     }
   });
 
