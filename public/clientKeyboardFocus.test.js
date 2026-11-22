@@ -55,6 +55,7 @@ class FakeElement {
   descendants() { return this.children.flatMap((child) => [child, ...child.descendants()]); }
   querySelector(selector) {
     if (selector.startsWith("#")) return this.descendants().find((el) => el.id === selector.slice(1)) || null;
+    if (selector.startsWith(".")) return this.descendants().find((el) => el.classList.contains(selector.slice(1))) || null;
     return null;
   }
   querySelectorAll(selector) {
@@ -82,6 +83,9 @@ function surface(id, ...buttonIds) {
 }
 
 const body = new FakeElement("body", { tag: "body" });
+const shortcutToggle = body.append(new FakeElement("test-shortcut-toggle", { tag: "button" }));
+const shortcutLabel = shortcutToggle.append(new FakeElement("", { tag: "span" }));
+shortcutLabel.classList.add("t-label");
 const viewGame = new FakeElement("view-game", { classes: ["view"] });
 const viewHome = new FakeElement("view-home", { classes: ["view", "is-hidden"] });
 viewHome.classList.add("is-hidden");
@@ -130,7 +134,7 @@ globalThis.document = {
     if (!dummies.has(selector)) dummies.set(selector, new FakeElement(selector.slice(1), { hidden: true }));
     return dummies.get(selector);
   },
-  querySelectorAll: (selector) => (selector === ".view" ? views : []),
+  querySelectorAll: (selector) => (selector === ".view" ? views : selector === "[data-shortcut-toggle]" ? [shortcutToggle] : []),
   contains: (node) => body.contains(node),
 };
 globalThis.HTMLElement = FakeElement;
@@ -381,10 +385,33 @@ auctionUi.stopAuctionTimer();
 
 /* Single-key shortcuts can be switched off (WCAG 2.1.4), persisted per viewer. */
 const prefs = await import("./clientShortcutPrefs.js");
+const { renderPageHeaders } = await import("./clientPageHeader.js");
+const renderHeader = (view) => renderPageHeaders(`<header data-page-header="${view}"></header>`);
+const homeHeader = renderHeader("home");
+const aboutHeader = renderHeader("about");
+assert.doesNotMatch(homeHeader, /data-about-link/,
+  "About is not a top-navigation tab");
+assert.doesNotMatch(aboutHeader, /data-about-link/,
+  "the About page header carries no About tab either");
+const { readFileSync: readIndex } = await import("node:fs");
+const indexMarkup = readIndex(new URL("./index.html", import.meta.url), "utf8");
+assert.match(indexMarkup, /class="ticker-link" href="\/about"/,
+  "About stays reachable from the footer ticker");
+assert.match(homeHeader, /data-shortcut-toggle[^>]*aria-label="Single-key shortcuts"[^>]*aria-pressed="true"/,
+  "the standalone shortcut switch is present and exposes its pressed state");
+assert.doesNotMatch(homeHeader, /data-settings-toggle|data-settings-menu|home-menu-icon|home-menu-wrap/,
+  "the shared header no longer renders the settings trigger or popover");
 reset();
 assert.equal(prefs.shortcutsEnabled(), true, "shortcuts default ON");
 const store = new Map();
 globalThis.localStorage = { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => { store.set(key, String(value)); }, removeItem: (key) => store.delete(key) };
+prefs.bindShortcutToggles();
+assert.equal(shortcutLabel.textContent, "KEYS: ON");
+assert.equal(shortcutToggle.getAttribute("aria-pressed"), "true");
+shortcutToggle.click();
+assert.equal(prefs.shortcutsEnabled(), false, "the standalone header switch turns shortcuts off");
+assert.equal(shortcutLabel.textContent, "KEYS: OFF");
+assert.equal(shortcutToggle.getAttribute("aria-pressed"), "false");
 prefs.setShortcutsEnabled(false);
 calls.length = 0;
 press(" ", { code: "Space" });

@@ -6,8 +6,6 @@ import { RoomManager } from '../server/gameLogic.js';
 test('rankings page uses ten readable rows and rules and settings omit removed controls', async ({ page }, testInfo) => {
   await page.goto('/');
   if (testInfo.project.name.startsWith('ipad-')) expect(await page.locator('#home-signal-line').evaluate(element => element.getBoundingClientRect().width)).toBeLessThanOrEqual(460);
-  await page.locator('#home-menu-btn').click();
-  await expect(page.locator('#home-menu [data-global-online]')).toHaveCount(0);
   await page.locator('#home-rankings-tab').click();
   await page.evaluate(async () => {
     const { state } = await import('/clientState.js');

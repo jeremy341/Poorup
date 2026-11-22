@@ -20,6 +20,8 @@ function audioButton(view, kind, label) {
   return `<button class="btn-dark audio-toggle" type="button" id="${id}" title="${label}" aria-label="${label}" aria-pressed="false"><img${iconId} src="/assets/${kind}-off.svg" alt="" width="24" height="24"></button>`;
 }
 
+// About is reachable from the footer ticker only; it is deliberately not a
+// top-navigation tab.
 function renderPageHeader(view) {
   if (!PAGE_HEADER_VIEWS.includes(view)) throw new RangeError('Unknown page header');
   const home = view === 'home';
@@ -33,16 +35,9 @@ function renderPageHeader(view) {
     <div class="page-header-brand">${brandMarkup(view)}</div>
     <nav class="home-nav"${home ? ' id="home-nav"' : ''} data-global-nav aria-label="Parlor navigation">${nav}</nav>
     <div class="hdr-right">
+      ${home ? '' : '<span class="hdr-connection" role="status" aria-live="polite"><span data-global-online aria-hidden="true"><span class="dot dot-green blink"></span></span><span class="t-label f11" data-global-connection-label>CONNECTING…</span></span>'}
       <button class="you-chip you-chip-btn" type="button"${home ? ' id="open-profile-btn"' : ''} data-global-profile-trigger title="Edit profile"><span class="you-chip-av"${home ? ' id="home-you-avatar"' : ''} data-global-you-avatar></span><span class="you-chip-text"><span class="t-micro g400">you are</span><span class="t-label f12 g300"${home ? ' id="home-you-name"' : ''} data-global-you-name>guest</span></span></button>
-      <div class="home-menu-wrap">
-        <button class="btn-dark audio-toggle home-menu-btn" type="button" id="${view}-menu-btn" data-settings-toggle title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="${view}-menu"><span class="home-menu-icon" aria-hidden="true"></span></button>
-        <div class="home-menu is-hidden" id="${view}-menu" data-settings-menu role="group" aria-label="Settings">
-          <div class="t-micro g400 home-menu-title">SETTINGS</div>${home ? '' : '\n          <div class="header-menu-connection" role="status" aria-live="polite"><span class="dot dot-green blink" data-global-online aria-hidden="true"></span> <span class="t-label f12 ink" data-global-connection-label>CONNECTING…</span></div>'}
-          <button class="btn-dark hdr-rules home-menu-item" type="button" id="${view}-shortcut-toggle-btn" data-shortcut-toggle><span class="t-label f12">KEYS: ON</span></button>
-          <p class="t-micro ink-3 home-menu-note">Single-key shortcuts: B browse, C create, J join, P profile.</p>
-          <a class="btn-dark home-menu-item about-menu-entry" href="/about" data-about-link><span class="t-label f12">ABOUT POORUP</span></a>
-        </div>
-      </div>
+      <button class="btn-dark hdr-rules header-shortcut-toggle" type="button" id="${view}-shortcut-toggle-btn" data-shortcut-toggle aria-label="Single-key shortcuts" aria-pressed="true" title="Single-key shortcuts are on. Click to turn them off."><span class="t-label f12">KEYS: ON</span></button>
       ${audioButton(view, 'sound', 'Sound effects')}${audioButton(view, 'music', 'Parlor music')}${home ? '<span class="sr-live" id="music-status" role="status" aria-live="polite"></span>' : ''}
     </div>
   </header>`;
