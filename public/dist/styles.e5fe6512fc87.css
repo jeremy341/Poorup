@@ -6976,113 +6976,223 @@ a.rules-index-link { text-decoration: none; }
 #view-home .home-entry-desk { margin-top: 13px; }
 
 /* 36-about.css */
-/* The About surface: a lean single-column document with a compact header, a
-   plain section nav and ruled lists. No rails, no cards, no oversized display
-   moments. All colour comes from theme tokens so every theme repaints it. */
+/* The About surface: "Admit One". A gold-framed masthead carries the stacked-gold
+   wordmark title and a cream admission ticket with the facts at a glance. A sticky
+   contents strip leads into one solid reading panel whose sections pair a sticky
+   head with their text; the turn track breaks that rhythm with five board tiles
+   (their strips are the board's own property-group colours). Every other colour
+   comes from theme tokens, so all six themes repaint it. */
 #view-about { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
 #view-about .hdr { flex: 0 0 auto; }
-.about-page-main { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-color: var(--line-board) var(--surface-panel-deep); }
-.about-document { width: min(100%, 860px); margin: 0 auto; padding: 28px max(24px, env(safe-area-inset-right)) max(48px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); }
+.about-page-main { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; scroll-padding-top: 66px; scrollbar-color: var(--line-board) var(--surface-panel-deep); -webkit-tap-highlight-color: color-mix(in srgb, var(--gold-100) 22%, transparent); }
+.about-document {
+  --about-ink: var(--bg-canvas);
+  --about-ink-2: color-mix(in srgb, var(--bg-canvas) 78%, var(--gold-100));
+  --about-paper: var(--gold-100);
+  --about-pad: clamp(24px, 3.4vw, 44px);
+  --about-stick: 72px;
+  display: flex; flex-direction: column; gap: 12px;
+  width: 100%; max-width: 1344px; margin: 0 auto;
+  padding: 24px max(32px, env(safe-area-inset-right)) max(56px, env(safe-area-inset-bottom)) max(32px, env(safe-area-inset-left));
+}
 
-/* Header: kicker, title, lead, summary and the two ways in. */
-.about-header { padding: 4px 0 0; border-top: 3px solid var(--line-board); }
-.about-header h1 { margin: 14px 0 8px; font-family: var(--font-display); font-size: clamp(38px, 4vw, 52px); font-weight: 400; line-height: 1; color: var(--gold-050); text-wrap: balance; }
-.about-lead { max-width: 36ch; margin: 0 0 6px; font-size: clamp(19px, 1.6vw, 22px); line-height: 1.35; color: var(--gold-100); text-wrap: balance; }
-.about-summary { max-width: 62ch; margin: 0; font-size: 17px; line-height: 1.6; color: var(--text-secondary); }
-.about-entry { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
-.about-play-link, .about-rules-link { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 22px; font-size: 16px; text-decoration: none; }
-.about-static-note { margin: 16px 0 0; font-size: 15px; color: var(--text-secondary); }
+/* Masthead: the title block on the left, the ticket on the right. */
+.about-header { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 340px); align-items: center; column-gap: clamp(32px, 5vw, 72px); row-gap: 32px; padding: clamp(28px, 3.4vw, 44px) var(--about-pad); border-color: var(--line-board); background: var(--surface-panel); }
+.about-header::before { content: ''; position: absolute; inset: 0 0 0 48%; pointer-events: none; background: radial-gradient(circle, var(--line-subtle) 1.1px, transparent 1.5px) 0 0 / 9px 9px; opacity: .6; -webkit-mask-image: linear-gradient(90deg, transparent, #000 60%); mask-image: linear-gradient(90deg, transparent, #000 60%); }
+.about-header-copy { position: relative; z-index: 1; min-width: 0; }
+.about-header-copy > .t-micro { display: flex; align-items: center; gap: 10px; color: var(--gold-300); letter-spacing: .14em; }
+.about-header-copy > .t-micro::before { content: ''; flex: none; width: 8px; height: 8px; background: var(--gold-400); }
+.about-header h1 { position: relative; width: fit-content; max-width: 100%; margin: 14px 0 18px; font-family: var(--font-brand); font-size: clamp(40px, 4.2vw, 62px); font-weight: 700; line-height: 1; letter-spacing: .045em; text-transform: uppercase; color: var(--wordmark-color); text-shadow: 0 2px 0 var(--wordmark-shadow-1), 0 4px 0 var(--wordmark-shadow-2), 0 6px 0 var(--wordmark-shadow-3), 0 10px 16px rgb(0 0 0 / 60%); }
+.about-lead { max-width: 30ch; margin: 0 0 14px; font-size: clamp(20px, 1.7vw, 26px); line-height: 1.3; color: var(--gold-100); text-wrap: balance; }
+.about-summary { max-width: 58ch; margin: 0; font-size: clamp(16px, 1.15vw, 18px); line-height: 1.62; color: var(--text-secondary); text-wrap: pretty; }
+.about-entry { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 26px; }
+.about-play-link, .about-rules-link { min-height: 48px; padding: 10px 26px; font-size: 17px; text-decoration: none; }
+.about-static-note { max-width: 58ch; margin: 16px 0 0; padding: 10px 14px; border: 1px dashed var(--line-default); background: var(--surface-inset); font-size: 15px; line-height: 1.5; color: var(--text-secondary); }
 
-/* Section nav: one plain row of links under a rule. */
-.about-contents { display: flex; flex-wrap: wrap; column-gap: 24px; row-gap: 4px; padding: 12px 0; margin-top: 26px; border-top: 1px solid var(--line-board); border-bottom: 1px solid var(--line-subtle); }
-.about-contents a { display: inline-flex; align-items: center; min-height: 32px; font-size: 15px; color: var(--text-secondary); text-decoration: none; }
-.about-contents a:hover, .about-contents a:focus-visible { color: var(--gold-100); text-decoration: underline; text-underline-offset: 4px; }
+/* The ticket: cream cardstock, ink from the canvas colour, square-notched at the
+   perforation. It is decorative (aria-hidden) and only repeats visible copy. */
+.about-ticket { position: relative; z-index: 1; justify-self: end; width: 100%; max-width: 340px; padding: 16px 22px 0; background: var(--about-paper); color: var(--about-ink); border: 2px solid var(--about-ink); box-shadow: inset 0 0 0 4px var(--about-paper), inset 0 0 0 5px var(--about-ink-2), 6px 6px 0 rgb(0 0 0 / 55%); }
+.about-ticket::before, .about-ticket::after { content: ''; position: absolute; bottom: 56px; width: 14px; height: 14px; background: var(--surface-panel); border: 2px solid var(--about-ink); }
+.about-ticket::before { left: -9px; clip-path: inset(0 0 0 50%); }
+.about-ticket::after { right: -9px; clip-path: inset(0 50% 0 0); }
+.about-ticket p, .about-ticket ul { margin: 0; padding: 0; }
+.about-ticket-head { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 2px solid var(--about-ink); font-family: var(--font-pixel); font-size: 12px; line-height: 1.2; letter-spacing: .12em; }
+.about-ticket-price { padding: 14px 0 20px; }
+.about-ticket-price strong { display: block; font-family: var(--font-display); font-size: 76px; font-weight: 400; line-height: .88; letter-spacing: .02em; }
+.about-ticket-price span { display: block; margin-top: 8px; font-size: 14px; line-height: 1.35; color: var(--about-ink-2); }
+.about-ticket-facts { margin: 0 -22px; padding: 10px 22px 6px; list-style: none; border-top: 2px dashed var(--about-ink-2); }
+.about-ticket-facts li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 12px; padding: 7px 0; }
+.about-ticket-facts span { font-family: var(--font-pixel); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--about-ink-2); }
+.about-ticket-facts strong { font-family: var(--font-display); font-size: 19px; font-weight: 400; line-height: 1.15; text-align: right; }
+.about-ticket-stub { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 64px; margin: 0 -22px; padding: 0 22px; border-top: 2px dashed var(--about-ink-2); font-family: var(--font-pixel); font-size: 12px; letter-spacing: .1em; }
+.about-ticket-stub > span:first-child { color: var(--about-ink-2); }
+.about-ticket-code { display: flex; gap: 4px; }
+.about-ticket-code span { display: grid; place-items: center; width: 22px; height: 28px; border: 2px solid var(--about-ink); font-size: 14px; letter-spacing: 0; color: var(--about-ink); }
+.about-dice { position: absolute; left: 20px; bottom: -34px; width: 81px; height: 48px; filter: drop-shadow(3px 3px 0 rgb(0 0 0 / 55%)); animation: about-dice-drop 360ms steps(3, end) 160ms backwards; }
+.about-dice .die-edge, .about-dice .die-pip { fill: var(--about-ink); }
+.about-dice .die-face { fill: var(--gold-050); }
+.about-dice .die-shade { fill: var(--gold-300); }
+@keyframes about-dice-drop { from { transform: translateY(-14px); } to { transform: none; } }
 
-/* Sections: small label, honest heading, one measure of text. */
-.about-reading { min-width: 0; }
-.about-reading section { scroll-margin-top: 20px; }
-.about-section { padding-top: 36px; }
-.about-section + .about-section { margin-top: 28px; padding-top: 32px; border-top: 1px solid var(--line-subtle); }
-.about-section-label { margin-bottom: 8px; }
-.about-section h2 { margin: 0 0 12px; font-family: var(--font-display); font-size: clamp(27px, 2.6vw, 34px); font-weight: 400; line-height: 1.1; color: var(--gold-050); text-wrap: balance; }
-.about-reading h3 { margin: 0 0 4px; font-size: 18px; line-height: 1.3; color: var(--text-primary); }
-.about-reading p { max-width: 66ch; margin: 0 0 12px; font-size: 17px; line-height: 1.6; color: var(--text-secondary); }
-.about-reading a { color: var(--gold-100); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; overflow-wrap: anywhere; }
-.about-reading a:hover { color: var(--gold-050); }
+/* Contents strip: four numbered stops, sticky under the header on wide screens. */
+.about-contents { position: sticky; top: 0; z-index: 4; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); counter-reset: about-nav; background: var(--surface-panel-raised); border: 1px solid var(--line-board); box-shadow: 0 0 0 1px var(--line-shadow), 0 2px 6px rgb(0 0 0 / 38%); }
+.about-contents a { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 clamp(14px, 2vw, 22px); counter-increment: about-nav; font-family: var(--font-display); font-size: 20px; line-height: 1.1; letter-spacing: .03em; text-transform: uppercase; color: var(--text-secondary); text-decoration: none; transition: color var(--dur-xs) var(--ease-snap), background var(--dur-xs) var(--ease-snap), box-shadow var(--dur-xs) var(--ease-snap); }
+.about-contents a + a { border-left: 1px solid var(--line-subtle); }
+.about-contents a::before { content: counter(about-nav, decimal-leading-zero); content: counter(about-nav, decimal-leading-zero) / ''; flex: none; font-family: var(--font-pixel); font-size: 12px; letter-spacing: .06em; color: var(--gold-100); }
+.about-contents a:hover { color: var(--gold-050); background: var(--surface-hover); box-shadow: inset 0 -3px 0 var(--line-active); }
 
-/* The one decorative aside: a small lifted line between paragraphs. */
-.about-pull { max-width: 32ch; margin: 14px 0 16px; padding-left: 16px; border-left: 2px solid var(--red-bright); }
-.about-pull span { display: block; font-family: var(--font-display); font-size: clamp(20px, 1.8vw, 24px); line-height: 1.2; color: var(--gold-100); text-wrap: balance; }
+/* The reading panel: numbered sections, each a sticky head beside its text. */
+.about-reading { counter-reset: about-section; border-color: var(--line-board); background: var(--surface-panel); }
+.about-section { display: grid; grid-template-columns: minmax(170px, 260px) minmax(0, 1fr); column-gap: clamp(32px, 4vw, 56px); row-gap: 28px; padding: 40px var(--about-pad) 44px; counter-increment: about-section; }
+.about-section + .about-section { border-top: 1px solid var(--line-subtle); }
+.about-section-head { position: sticky; top: var(--about-stick); align-self: start; min-width: 0; }
+.about-section-label { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; letter-spacing: .1em; }
+.about-section-label::before { content: counter(about-section, decimal-leading-zero); content: counter(about-section, decimal-leading-zero) / ''; display: grid; place-items: center; flex: none; width: 30px; height: 30px; border: 1px solid var(--line-board); background: var(--surface-panel-deep); font-size: 12px; letter-spacing: .04em; color: var(--gold-300); }
+.about-section h2 { margin: 0; font-family: var(--font-display); font-size: clamp(30px, 2.5vw, 38px); font-weight: 400; line-height: 1.06; color: var(--gold-050); text-wrap: balance; }
+.about-section-body { min-width: 0; }
+.about-section-body > * + * { margin-top: 18px; }
+:where(.about-reading) p { max-width: 64ch; font-size: 17px; line-height: 1.62; color: var(--text-secondary); text-wrap: pretty; }
+.about-reading a { overflow-wrap: anywhere; }
 
-/* The independence note: a slim aside, one step off the page. */
-.about-note { max-width: 66ch; margin-top: 16px; padding: 12px 16px; background: var(--surface-panel); border-left: 2px solid var(--line-default); }
-.about-note span { display: block; margin-bottom: 6px; }
-.about-note p { margin: 0; font-size: 15px; }
+/* The one pull quote: the project's promise, lifted out of the text. */
+.about-section .about-pull { max-width: 20em; padding: 4px 0 4px 22px; border-left: 4px solid var(--gold-400); font-size: clamp(26px, 2.1vw, 32px); }
+.about-pull span { display: block; font-family: var(--font-display); line-height: 1.12; color: var(--gold-050); text-wrap: balance; }
 
-/* The feature ledger: two columns of ruled rows, read down then across. */
-.about-feature-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(4, auto); grid-auto-flow: column; column-gap: 28px; margin: 18px 0 4px; padding: 0; border-top: 1px solid var(--line-subtle); list-style: none; color: var(--text-primary); }
-.about-feature-list li { min-width: 0; padding: 10px 0 11px; border-bottom: 1px solid var(--line-subtle); font-size: 15px; line-height: 1.45; }
-.about-basics, .about-music-credits { margin: 16px 0; padding: 0 16px; border: 1px solid var(--line-subtle); background: var(--surface-panel-deep); }
-.about-basics ol { margin: 0 0 16px; padding-left: 22px; font-size: 15px; line-height: 1.6; color: var(--text-secondary); }
-.about-basics li + li { margin-top: 8px; }
-.about-basics strong { color: var(--text-primary); }
-.about-reading .about-rider { font-size: 13px; line-height: 1.55; color: var(--text-muted); }
+/* The independence note: printed notice, dashed like a coupon. */
+.about-note { max-width: 64ch; padding: 16px 20px 18px; background: var(--surface-inset); border: 1px dashed var(--line-default); }
+.about-note > span { display: block; margin-bottom: 8px; letter-spacing: .1em; color: var(--gold-300); }
+.about-note p { font-size: 15px; line-height: 1.55; }
 
-/* Credits: ruled definition rows. */
-.about-credit-row { display: grid; grid-template-columns: minmax(110px, .3fr) minmax(0, 1fr); gap: 4px 24px; padding: 14px 0; border-top: 1px solid var(--line-subtle); }
-.about-credit-row:last-child { border-bottom: 1px solid var(--line-subtle); }
-.about-credit-row h3 { grid-row: span 2; font-size: 17px; }
-.about-credit-row p { margin: 0; font-size: 15px; }
-.about-credit-row .about-music-credits { grid-column: 2; margin: 2px 0 0; }
-.about-music-credits ul { margin: 0; padding: 0 0 12px; list-style: none; }
-.about-music-credits li { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 2px 20px; padding: 10px 0; border-top: 1px solid var(--line-subtle); font-size: 15px; line-height: 1.5; color: var(--text-secondary); }
-.about-music-credits small { grid-column: 1 / -1; font-size: 13px; color: var(--text-secondary); }
+/* The game: a ruled ledger of what is in the box, then the turn track below it. */
+.about-section-body > .about-feature-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 36px; margin: 22px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--line-subtle); color: var(--text-primary); }
+.about-feature-list li { position: relative; min-width: 0; padding: 13px 0 14px 24px; border-bottom: 1px solid var(--line-subtle); font-size: 16px; line-height: 1.45; text-wrap: pretty; }
+.about-feature-list li::before { content: ''; position: absolute; left: 0; top: 21px; width: 8px; height: 8px; background: var(--gold-400); }
+.about-feature-list li:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.about-turn { grid-column: 1 / -1; }
+.about-turn h3 { margin: 0 0 16px; font-family: var(--font-display); font-size: clamp(24px, 2vw, 28px); font-weight: 400; line-height: 1.1; color: var(--gold-100); }
+.about-steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 18px; margin: 0; padding: 0; list-style: none; counter-reset: about-step; }
+.about-steps > li { --strip: var(--gold-400); position: relative; display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 26px 15px 18px; background: linear-gradient(var(--strip), var(--strip)) 0 0 / 100% 10px no-repeat, var(--surface-panel-raised); border: 1px solid var(--line-default); counter-increment: about-step; }
+.about-steps > li:nth-child(1) { --strip: #3e7d7b; }
+.about-steps > li:nth-child(2) { --strip: #b96d2a; }
+.about-steps > li:nth-child(3) { --strip: #a04e6f; }
+.about-steps > li:nth-child(4) { --strip: #286ea1; }
+.about-steps > li:nth-child(5) { border-color: var(--line-active); }
+.about-steps > li::before { content: counter(about-step, decimal-leading-zero); content: counter(about-step, decimal-leading-zero) / ''; font-family: var(--font-pixel); font-size: 12px; letter-spacing: .08em; color: var(--gold-100); }
+.about-steps > li:not(:last-child)::after { content: ''; position: absolute; top: 0; right: -13px; border: solid transparent; border-width: 5px 0 5px 7px; border-left-color: var(--gold-300); }
+.about-steps strong { display: block; font-family: var(--font-display); font-size: 23px; font-weight: 400; line-height: 1.1; color: var(--gold-100); }
+.about-steps span { display: block; font-size: 15px; line-height: 1.5; color: var(--text-secondary); }
+.about-reading .about-rider { grid-column: 1 / -1; max-width: none; font-size: 14px; line-height: 1.55; color: var(--text-muted); }
 
-/* Questions: a flat ruled register. */
-.about-reading summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 48px; padding: 12px 0; margin: 0; cursor: pointer; font-size: 17px; line-height: 1.3; color: var(--text-primary); list-style: none; }
+/* Credits: ruled rows; each typeface is named in its own face. */
+.about-credit-row { display: grid; grid-template-columns: minmax(110px, 150px) minmax(0, 1fr); align-items: start; gap: 6px 28px; padding: 20px 0; border-top: 1px solid var(--line-subtle); }
+.about-credit-row:first-child { padding-top: 4px; border-top: 0; }
+.about-credit-row h3 { margin: 0; padding-top: 5px; font-family: var(--font-pixel); font-size: 12px; font-weight: 400; line-height: 1.4; letter-spacing: .1em; text-transform: uppercase; color: var(--gold-300); }
+.about-credit-row p { font-size: 16px; }
+.about-face { color: var(--gold-100); }
+.about-face-pixelify { font-family: var(--font-brand); font-size: 19px; font-weight: 700; }
+.about-face-jersey { font-family: var(--font-display); font-size: 24px; }
+.about-face-silkscreen { font-family: var(--font-pixel); font-size: 15px; letter-spacing: .04em; }
+.about-face-plex { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 17px; font-weight: 600; }
+.about-credit-copy { min-width: 0; }
+.about-music-credits { margin-top: 14px; background: var(--surface-inset); border: 1px solid var(--line-subtle); }
+.about-music-credits summary { min-height: 52px; padding: 0 16px; }
+.about-music-credits ul { margin: 0; padding: 0 16px 8px; list-style: none; border-top: 1px solid var(--line-subtle); }
+.about-music-credits li { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 2px 20px; min-height: 48px; padding: 4px 0; font-size: 15px; line-height: 1.4; color: var(--text-secondary); }
+.about-music-credits li + li { border-top: 1px solid var(--line-dark); }
+.about-music-credits li a { display: inline-flex; align-items: center; min-height: 44px; color: var(--gold-100); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.about-music-credits li a:hover { color: var(--gold-050); }
+.about-music-credits small { font-size: 13px; color: var(--text-secondary); }
+.about-links { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.about-links a { display: inline-flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 16px; background: var(--surface-button-dark); border: 1px solid var(--line-control); border-radius: 2px; font-size: 16px; color: var(--gold-100); text-decoration: none; transition: border-color var(--dur-xs) var(--ease-snap), background var(--dur-xs) var(--ease-snap), color var(--dur-xs) var(--ease-snap); }
+.about-links a::after { content: ''; flex: none; border: solid transparent; border-width: 4px 0 4px 6px; border-left-color: var(--gold-300); }
+.about-links a:hover { border-color: var(--line-active); background: var(--surface-button-hover); color: var(--gold-050); }
+
+/* Questions: a ruled register with square plus/minus toggles. */
+.about-reading summary { display: flex; align-items: center; justify-content: space-between; gap: 18px; list-style: none; cursor: pointer; color: var(--text-primary); }
 .about-reading summary::-webkit-details-marker { display: none; }
-.about-reading summary:hover, .about-reading details[open] > summary { color: var(--gold-100); }
-.about-music-credits summary::after, .about-basics summary::after { content: '+'; flex: 0 0 auto; font-family: var(--font-display); font-size: 24px; color: var(--gold-300); }
-.about-reading details[open] > summary::after { content: '−'; }
+.about-reading summary::after { content: ''; flex: none; width: 28px; height: 28px; border: 1px solid var(--line-control); background: linear-gradient(var(--gold-300), var(--gold-300)) center / 12px 2px no-repeat, linear-gradient(var(--gold-300), var(--gold-300)) center / 2px 12px no-repeat; }
+.about-reading details[open] > summary::after { background-size: 12px 2px, 0 0; border-color: var(--line-active); }
+.about-reading summary:hover { color: var(--gold-050); }
+.about-section-body.about-faq-list { border-top: 1px solid var(--line-subtle); }
+.about-faq-list > * + * { margin-top: 0; }
 .about-question { border-bottom: 1px solid var(--line-subtle); }
-.about-question:first-of-type { border-top: 1px solid var(--line-subtle); margin-top: 6px; }
-.about-question summary::after { content: '+'; flex: 0 0 auto; font-family: var(--font-display); font-size: 24px; color: var(--gold-300); }
-.about-question > p { margin: 0; max-width: 66ch; padding: 0 28px 16px 0; font-size: 16px; }
+.about-question[open] { background: var(--surface-inset); box-shadow: inset 3px 0 0 var(--line-active); }
+.about-question summary { min-height: 58px; padding: 14px 16px; font-family: var(--font-display); font-size: 23px; line-height: 1.15; }
+.about-question summary:hover { background: var(--surface-hover); }
+.about-question > p { max-width: 70ch; padding: 0 64px 20px 16px; font-size: 16px; }
 
 /* Back matter. */
-.about-document-footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 48px; padding: 16px 0 0; border-top: 2px solid var(--line-board); }
-.about-document-footer p { flex: 1 1 240px; margin: 0; font-size: 13px; }
-.about-document-footer > a { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 16px; font-size: 15px; text-decoration: none; }
-#view-about :is(a, summary, main, section, h1):focus-visible { outline: 2px solid var(--theme-focus); outline-offset: 3px; }
+.about-document-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px 24px; padding: 20px var(--about-pad); border-top: 2px solid var(--line-board); background: var(--surface-panel-deep); }
+.about-document-footer p { flex: 1 1 260px; max-width: none; font-size: 14px; line-height: 1.5; }
+.about-document-footer > a { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 18px; font-size: 16px; text-decoration: none; }
+
+/* Touch and focus: no double-tap delay on links or questions; rings sit inside panels and strips so neighbours never clip them. */
+#view-about :is(a, summary) { touch-action: manipulation; }
+#view-about :is(a, summary):focus-visible { outline: 2px solid var(--theme-focus); outline-offset: 3px; }
+#view-about :is(.about-contents a, .about-question summary, .about-music-credits summary):focus-visible { outline-offset: -4px; }
+#view-about :is(section, main):focus-visible { outline: 2px solid var(--theme-focus); outline-offset: -6px; }
+#view-about h1:focus-visible { outline: 0; }
+#view-about h1:focus-visible::after { content: ''; position: absolute; left: 0; right: 0; bottom: -12px; height: 4px; background: var(--theme-focus); }
 .about-info-link { display: inline-flex; align-items: center; justify-content: center; }
 .about-menu-entry { text-decoration: none; }
 .about-table-entry { display: inline-flex; align-items: center; min-height: 44px; margin-top: 12px; padding: 8px 16px; font-size: 15px; text-decoration: none; }
 
+/* Large desktops scale with the shared header, which zooms 1.25 at the same size. */
+@media (min-width: 2200px) and (min-height: 1000px) {
+  .about-document { zoom: 1.25; }
+  .about-page-main { scroll-padding-top: 82px; }
+}
 @media (max-width: 1199px) {
-  .about-document { padding-top: 22px; }
+  .about-document { padding: 20px max(24px, env(safe-area-inset-right)) max(48px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); }
+  .about-header { grid-template-columns: minmax(0, 1fr) minmax(280px, 310px); column-gap: 36px; }
+  .about-section { grid-template-columns: minmax(150px, 200px) minmax(0, 1fr); column-gap: 36px; }
+  .about-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .about-steps > li:last-child { grid-column: 1 / -1; }
+  .about-steps > li::after { display: none; }
+}
+@media (max-width: 899px) {
+  .about-header { grid-template-columns: minmax(0, 1fr); }
+  .about-header::before { display: none; }
+  .about-ticket { justify-self: start; max-width: 360px; margin-bottom: 30px; }
+  .about-section { grid-template-columns: minmax(0, 1fr); row-gap: 22px; }
+  .about-section-head { position: static; }
 }
 @media (max-width: 699px) {
-  .about-document { width: min(100%, 640px); padding: 18px max(16px, env(safe-area-inset-right)) max(40px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
-  .about-header h1 { font-size: clamp(36px, 10vw, 44px); }
-  .about-lead { font-size: 19px; }
-  .about-summary { font-size: 16px; }
-  .about-entry > :is(.about-play-link, .about-rules-link) { flex: 1 1 45%; }
-  .about-contents { column-gap: 18px; }
-  .about-section { padding-top: 28px; }
-  .about-section + .about-section { margin-top: 22px; padding-top: 26px; }
-  .about-reading p { font-size: 16px; }
-  .about-feature-list { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-flow: row; }
-  .about-credit-row { grid-template-columns: minmax(0, 1fr); }
-  .about-credit-row h3 { grid-row: auto; font-size: 16px; }
-  .about-credit-row .about-music-credits { grid-column: 1; }
-  .about-music-credits li { grid-template-columns: minmax(0, 1fr); }
-  .about-question summary { font-size: 16px; }
-  .about-question > p { font-size: 15px; }
-  .about-document-footer { margin-top: 36px; }
+  .about-document { gap: 10px; padding: 14px max(14px, env(safe-area-inset-right)) max(40px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
+  .about-page-main { scroll-padding-top: 12px; }
+  .about-header { padding: 24px 18px; }
+  .about-lead { font-size: 20px; }
+  .about-entry > a { flex: 1 1 auto; padding-inline: 16px; }
+  .about-ticket { max-width: none; }
+  .about-contents { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .about-contents a { min-height: 48px; padding: 0 12px; gap: 10px; font-size: 17px; }
+  .about-contents a + a { border-left: 0; }
+  .about-contents a:nth-child(even) { border-left: 1px solid var(--line-subtle); }
+  .about-contents a:nth-child(n + 3) { border-top: 1px solid var(--line-subtle); }
+  .about-section { padding: 28px 18px 32px; }
+  .about-section h2 { font-size: 30px; }
+  :where(.about-reading) p { font-size: 16px; }
+  .about-section-body > .about-feature-list { grid-template-columns: minmax(0, 1fr); }
+  .about-steps { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .about-credit-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .about-music-credits li { grid-template-columns: minmax(0, 1fr); padding: 6px 0 8px; }
+  .about-question summary { padding: 12px; font-size: 21px; }
+  .about-question > p { padding: 0 14px 16px 12px; font-size: 15px; }
+  .about-document-footer { padding: 18px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .about-dice { animation: none; }
 }
 @media (forced-colors: active) {
-  .about-note, .about-basics, .about-music-credits { background: Canvas; color: CanvasText; border-color: CanvasText; }
-  #view-about :is(a, summary, main, section, h1):focus-visible { outline-color: Highlight; }
+  /* The ticket and halftone are decoration that repeats visible copy, so high-contrast users get the plain masthead. */
+  .about-header { grid-template-columns: minmax(0, 1fr); }
+  .about-header::before, .about-ticket { display: none; }
+  .about-note, .about-music-credits, .about-steps > li, .about-links a, .about-contents { background: Canvas; color: CanvasText; border-color: CanvasText; }
+  .about-reading summary::after { background: none; content: '+'; display: grid; place-items: center; border-color: CanvasText; color: CanvasText; }
+  .about-reading details[open] > summary::after { content: '−'; }
+  #view-about :is(a, summary, main, section):focus-visible { outline-color: Highlight; }
+  #view-about h1:focus-visible { outline: 2px solid Highlight; outline-offset: 8px; }
+  #view-about h1:focus-visible::after { display: none; }
 }
 
 /* 37-dialogs-and-economy.css */
