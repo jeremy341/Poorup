@@ -67,8 +67,8 @@ function structuredGraph(options) {
   assert.match(rules.data["@graph"][4].url, /^https:\/\/play\.example\/rules$/);
   assert.equal(rules.data["@graph"][4].publisher["@id"], organization["@id"]);
   assert.ok(!about.types.includes("FAQPage") && !rules.types.includes("FAQPage"), "FAQPage is served only by /about, which holds the Q&A");
-  // Only URLs that exist in the repository may be listed as sameAs.
-  assert.deepEqual(home.data["@graph"][0].sameAs, ["https://github.com/jeremy341/Poorup"]);
+  // Only real, verified URLs are listed as sameAs.
+  assert.deepEqual(home.data["@graph"][0].sameAs, ["https://github.com/jeremy341/Poorup", "https://jeremydarko.me/work/poorup/"]);
   const noindex = renderMetadata(metadataConfig({ origin: "https://play.example", path: "/", indexPolicy: "noindex,nofollow" }));
   assert.doesNotMatch(noindex, /application\/ld\+json/);
 }

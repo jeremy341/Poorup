@@ -64,7 +64,7 @@ Bytespider is now named and allowed for public pages, but it has been reported t
 
 Every indexable page carries one `@graph` with three entities that share stable `@id`s:
 
-- `Organization` (`https://<origin>/#organization`), named Poorup, with the repository as `sameAs` and a `logo` pointing at `https://<origin>/favicon.svg` (the real local mark in `public/favicon.svg`). Keep that asset in place so the logo URL is never a dead link. The only `sameAs` entry is the real GitHub repository; no social profile is listed because none is verified in the repository, and invented profiles must not be added.
+- `Organization` (`https://<origin>/#organization`), named Poorup, with the repository as `sameAs` and a `logo` pointing at `https://<origin>/favicon.svg` (the real local mark in `public/favicon.svg`). Keep that asset in place so the logo URL is never a dead link. The `sameAs` entries are the real GitHub repository and the author's portfolio project page at `https://jeremydarko.me/work/poorup/`; no social profile is listed because none is verified, and invented profiles must not be added.
 - `WebSite` (`https://<origin>/#website`), publisher is the Organization.
 - The game (`https://<origin>/#game`), typed `VideoGame` and `WebApplication`, free to play, 2 to 6 players, published by the Organization. Its description is on `/` only.
 
@@ -98,5 +98,5 @@ Off-site checklist, after deploying:
 1. Verify the site in **Google Search Console** using the HTML-tag method: put the token from that method in `POORUP_GOOGLE_SITE_VERIFICATION` and restart. The `<meta name="google-site-verification">` tag is emitted on every rendered page from that token.
 1. Verify the site in **Bing Webmaster Tools** the same way with `POORUP_BING_SITE_VERIFICATION`; it emits `<meta name="msvalidate.01">`. Tokens are validated against a safe character set and invalid values are dropped.
 1. Submit `https://poorup.tech/sitemap.xml` (or the configured `POORUP_PUBLIC_ORIGIN`) in both consoles, then use URL inspection to request indexing for `/`, `/about` and `/rules`.
-1. Link the site from the **GitHub README** at `https://github.com/jeremy341/Poorup` so the repository and the site reinforce each other. That repository is the only `sameAs` entry; add a social profile there only if it really exists.
+1. Link the site from the **GitHub README** at `https://github.com/jeremy341/Poorup` and from the author's portfolio project page at `https://jeremydarko.me/work/poorup/` so both reinforce the site. Those two are the `sameAs` entries; add a social profile only if it really exists.
 1. Ask for mentions in **game directories, board-game communities, launch posts and link roundups**, using normal descriptive links. Do not buy links or stuff keywords into hidden text.

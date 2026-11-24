@@ -43,10 +43,11 @@ export const MARKDOWN_ALTERNATES = Object.freeze({
   "/rules": "/rules.md",
 });
 const REPOSITORY_URL = "https://github.com/jeremy341/Poorup";
-// Only URLs that really exist in this repository are listed as sameAs. There are
-// no verified social profiles checked in here, so the source repository is the
-// sole entry; do not add invented Twitter/X, Discord or community links.
-const SAME_AS_URLS = Object.freeze([REPOSITORY_URL]);
+// The author's portfolio project page, which links to the live game.
+const PORTFOLIO_URL = "https://jeremydarko.me/work/poorup/";
+// Only real URLs are listed as sameAs: the source repository and the author's
+// portfolio page. Do not add invented Twitter/X, Discord or community links.
+const SAME_AS_URLS = Object.freeze([REPOSITORY_URL, PORTFOLIO_URL]);
 // Poorup's production home. Baked in so a normal deployment is indexable without an
 // environment file; the POORUP_* variables below remain as overrides for staging.
 export const DEFAULT_PUBLIC_ORIGIN = "https://poorup.tech";
