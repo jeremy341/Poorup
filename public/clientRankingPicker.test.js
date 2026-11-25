@@ -1,4 +1,10 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const rankingCss = [
+  readFileSync(new URL("./css/17-popups-rules-social-and-rankings.css", import.meta.url), "utf8"),
+  readFileSync(new URL("./css/33-late-page-social-and-lobby-refinements.css", import.meta.url), "utf8"),
+].join("\n");
 
 globalThis.window = { matchMedia: () => ({ matches: false }), addEventListener() {} };
 globalThis.localStorage = { getItem: () => null, setItem() {} };
@@ -38,6 +44,8 @@ const { bindParlorSurfaces } = await import("./clientParlorBindings.js");
 const calls = [];
 surfaces.configureSocialSurfaces({ emitServer: (event, payload, ack) => calls.push({ event, payload, ack }) });
 bindParlorSurfaces({});
+assert.match(rankingCss, /\.ranking-metric-picker select\s*\{[^}]*min-height:\s*44px/);
+assert.match(rankingCss, /\.ranking-metric-picker select:focus-visible/);
 const flush = () => { while (frames.length) frames.shift()(); };
 function change(node, value) {
   node.picker.value = value;

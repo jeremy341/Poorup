@@ -16,6 +16,9 @@ import { createWalkTimeline, PIECE_WALK_STEP_MS } from "./clientBoardMotion.js";
 import { tileSupportsInspection } from "./clientTileInteraction.js";
 import { defaultStackOffset, startTileStackOffset } from "./clientBoardStack.js";
 import { tileAriaLabel } from "./clientTileLabel.js";
+import { paintSkyline } from "./clientSkyline.js";
+
+export { paintSkyline } from "./clientSkyline.js";
 
 export const SKYLINE = [
   [0, 24, 6, 12], [9, 17, 5, 19], [15, 27, 4, 9], [20, 12, 6, 24], [27, 21, 5, 15],
@@ -27,25 +30,6 @@ const BOARD_SKYLINE = [
   [35, 6, 7, 28], [43, 14, 5, 20], [49, 2, 8, 32], [58, 17, 5, 17], [64, 10, 6, 24],
   [71, 21, 5, 13], [77, 15, 6, 19],
 ];
-
-const DEFAULT_SKYLINE_PALETTE = { far: "#123634", near: "#0d2725", light: "#78894f" };
-
-export function paintSkyline(el, data, palette = DEFAULT_SKYLINE_PALETTE) {
-  const far = palette.far || DEFAULT_SKYLINE_PALETTE.far;
-  const near = palette.near || DEFAULT_SKYLINE_PALETTE.near;
-  const light = palette.light || DEFAULT_SKYLINE_PALETTE.light;
-  let out = "";
-  data.forEach(([x, y, w, h], i) => {
-    out += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${far}"/>`;
-    for (let r = 0; r < Math.floor((h - 2) / 3); r++) {
-      for (let c = 0; c < Math.floor((w - 1) / 2); c++) {
-        const lit = (r + c + i) % 3 === 0;
-        out += `<rect x="${x + 1 + c * 2}" y="${y + 2 + r * 3}" width="1" height="1" fill="${lit ? light : near}"/>`;
-      }
-    }
-  });
-  el.innerHTML = out;
-}
 
 function carIconHTML() {
   return spriteHTML("car", 4);

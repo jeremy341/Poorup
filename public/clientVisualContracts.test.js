@@ -11,6 +11,10 @@ import { siteCss } from '../qa/support/siteSource.mjs';
 // bounds). Browser-measured behaviour lives in qa/visual-contracts.spec.js.
 const root = dirname(fileURLToPath(import.meta.url));
 const css = siteCss();
+const rankingCss = [
+  readFileSync(join(root, "css/17-popups-rules-social-and-rankings.css"), "utf8"),
+  readFileSync(join(root, "css/33-late-page-social-and-lobby-refinements.css"), "utf8"),
+].join("\n");
 const html = readFileSync(join(root, "index.html"), "utf8");
 
 export function rule(selector, source = css) {
@@ -121,6 +125,21 @@ check("auction tag and rankings empty state are readable and actionable", () => 
   const empty = social.slice(social.indexOf("function ledgerEmptyHTML()"), social.indexOf("function rankingErrorHTML"));
   assert.match(empty, /SHOW ALL-TIME RANKINGS/);
   assert.match(empty, /Sign in and finish a match/);
+});
+
+check("rankings page and modal share compact ledger and state styling", () => {
+  const list = rule(".rankings-stage .ranking-list", rankingCss);
+  assert.match(list, /flex:\s*1\s+1\s+auto/);
+  assert.match(list, /overflow-y:\s*auto/);
+  assert.match(list, /overscroll-behavior:\s*contain/);
+  assert.match(rule(".ranking-row", rankingCss), /min-height:\s*60px/);
+  const pagination = rule(".rankings-stage .ranking-pagination", rankingCss);
+  assert.match(pagination, /display:\s*flex/);
+  assert.match(pagination, /min-height:\s*56px/);
+  assert.match(rule(".rankings-stage .ranking-error", rankingCss), /background:\s*var\(--surface-error\)/);
+  assert.match(rule(".ranking-metric-picker select", rankingCss), /min-height:\s*44px/);
+  assert.match(rankingCss, /\.ranking-row:focus-visible/);
+  assert.match(rankingCss, /forced-colors:\s*active/);
 });
 
 let failed = 0;

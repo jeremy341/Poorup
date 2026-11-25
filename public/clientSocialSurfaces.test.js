@@ -195,6 +195,27 @@ check("inGameRankingsAndSocialShareThePageContentAndReturnToTheTable", () => {
   for (const html of [pageRankings, pageSocial]) assert.doesNotMatch(html, /table-return-bar|BACK TO TABLE/);
 });
 
+check("ranking loading and error states are explicit in both surfaces", () => {
+  const original = { ...state.leaderboard };
+  try {
+    Object.assign(state.leaderboard, { metric: "wins", scope: "all", page: 0, loading: true, error: "", rows: [], snapshots: {} });
+    for (const id of ["rankings-page-content", "rankings-card"]) {
+      const loading = renderInto(id, surfaces.renderRankingsSurface);
+      assert.match(loading, /class="social-empty ranking-loading" role="status" aria-live="polite"/);
+      assert.match(loading, /class="ranking-loading-rows" aria-hidden="true"/);
+    }
+
+    Object.assign(state.leaderboard, { loading: false, error: "Rankings are temporarily unavailable." });
+    for (const id of ["rankings-page-content", "rankings-card"]) {
+      const failed = renderInto(id, surfaces.renderRankingsSurface);
+      assert.match(failed, /class="social-empty ranking-error" role="alert"/);
+      assert.match(failed, /data-ranking-retry/);
+    }
+  } finally {
+    Object.assign(state.leaderboard, original);
+  }
+});
+
 check("inGameReturnBarIsPinnedInsideAFixedCardWithInternalScroll", () => {
   const ux = siteCss();
   assert.match(ux, /#rankings-modal \.social-surface-card,\s*#social-modal \.social-surface-card\s*\{[^}]*height:\s*min\(860px/);

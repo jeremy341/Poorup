@@ -142,6 +142,27 @@ check("all new SVGs are local crisp pixel assets", () => {
   }
 });
 
+check("original page surface lifts its dark skyline so home art shows behind other tabs", () => {
+  const css = readFileSync(join(root, "css", "03-theme-scenery.css"), "utf8");
+  const rule = css.match(/body\[data-theme-id="original"\] \.theme-page-world\s*\{([^}]*)\}/);
+  assert.ok(rule, "the original page-world override must exist in the scenery stylesheet");
+  assert.match(rule[1], /opacity:\s*1\s*;/);
+  assert.match(rule[1], /--theme-scene-opacity:\s*0\.56\s*;/);
+  // No other theme gets a page-surface override; Spring's bright-sky look is unchanged.
+  assert.doesNotMatch(css, /\[data-theme-id="(spring|summer|autumn|winter|light)"\][^{}]*\.theme-page-world/);
+  // The JS contract the rule relies on: baseline home and pages share one scene asset.
+  const original = getTheme("original");
+  assert.equal(original.scene, original.homeScene);
+  assert.match(themeSceneMarkup(original, "page"), /themes\/original\/scene\.svg/);
+  // The renderer paints the drifting house track into the page layer too.
+  const renderer = readFileSync(join(root, "clientThemeRender.js"), "utf8");
+  assert.match(renderer, /paintSkyline\(skyline, theme\.skyline\.home, theme\.palette\)/);
+  assert.match(renderer, /surface === "page" && theme\.id === DEFAULT_THEME_ID/);
+  assert.match(renderer, /home-house-drift theme-house-drift/);
+  assert.match(css, /body\[data-theme-id="original"\] \.theme-page-world \.theme-house-drift\s*\{[^}]*opacity:\s*0\.56/);
+  assert.match(css, /body:has\(#view-home:not\(\.is-hidden\)\) \.theme-page-world \.theme-house-drift\s*\{[^}]*display:\s*none/);
+});
+
 const failures = checks.filter((result) => !result.ok);
 checks.forEach((result) => {
   if (result.ok) console.log(`PASS - ${result.name}`);

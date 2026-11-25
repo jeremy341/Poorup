@@ -112,6 +112,25 @@
   background: var(--bg-canvas);
   opacity: 0.32;
 }
+/* The baseline skyline is near-black (#01070A-#071B1E), so the shared page-surface
+ * opacity (0.32 layer x 0.60 scene ~ 0.19) crushes it into the page canvas on
+ * non-home tabs. Spring's bright sky survives that dimming, which is why only
+ * Spring's home art appears to bleed through. Render the original page layer at
+ * its home-scene presence so the same art reads behind every tab; every other
+ * theme keeps the shared dimming above. */
+body[data-theme-id="original"] .theme-page-world {
+  opacity: 1;
+  --theme-scene-opacity: 0.56;
+}
+/* The baseline scene is a sky gradient; the drifting houses are painted by the
+ * renderer so the same Home art sits behind the other tabs. Hide the page copy
+ * while Home is visible, because the Home view draws its own track. */
+body[data-theme-id="original"] .theme-page-world .theme-house-drift {
+  opacity: 0.56;
+}
+body:has(#view-home:not(.is-hidden)) .theme-page-world .theme-house-drift {
+  display: none;
+}
 .theme-home-world,
 .theme-board-world {
   position: absolute;

@@ -89,7 +89,7 @@ function escapeXml(value) {
 // repository makes it stable across deploys and honest about the content.
 export const PAGE_LASTMOD = Object.freeze({
   "/": "2026-11-20",
-  "/about": "2026-11-20",
+  "/about": "2026-11-22",
   "/rules": "2026-11-20",
 });
 

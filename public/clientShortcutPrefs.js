@@ -30,6 +30,8 @@ function syncShortcutToggles() {
   document.querySelectorAll(TOGGLE_SELECTOR).forEach((button) => {
     const label = button.querySelector(".t-label");
     if (label) label.textContent = enabled ? "KEYS: ON" : "KEYS: OFF";
+    button.setAttribute("aria-pressed", String(enabled));
+    button.setAttribute("aria-label", "Single-key shortcuts");
     button.title = enabled
       ? "Single-key shortcuts are on (B, C, P, J, L, R, Space). Click to turn them off."
       : "Single-key shortcuts are off. Click to turn them on.";
