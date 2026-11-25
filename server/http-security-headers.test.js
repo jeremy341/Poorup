@@ -148,7 +148,18 @@ await check('a response that is still being produced is not cut off by the reque
 
 // ---- Live server ------------------------------------------------------------------------------------------------------------------------
 
-async function start(env = {}) {
+// The port is picked from the ephemeral range, so another process on a shared runner can already hold it. An
+// in-use port is retried on the next number rather than failing the whole file.
+async function start(env = {}, attemptsLeft = 5) {
+  try {
+    return await startOnPort(env);
+  } catch (error) {
+    if (error.portInUse && attemptsLeft > 1) return start(env, attemptsLeft - 1);
+    throw error;
+  }
+}
+
+async function startOnPort(env) {
   const port = nextPort;
   nextPort += 1;
   const dataDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'poorup-http-headers-'));
@@ -162,7 +173,12 @@ async function start(env = {}) {
   const base = `http://127.0.0.1:${port}`;
   const deadline = Date.now() + 15_000;
   for (;;) {
-    if (child.exitCode !== null) throw new Error(`server exited with ${child.exitCode}: ${output}`);
+    if (child.exitCode !== null) {
+      fs.rmSync(dataDirectory, { recursive: true, force: true });
+      const error = new Error(`server exited with ${child.exitCode}: ${output}`);
+      error.portInUse = output.includes('EADDRINUSE');
+      throw error;
+    }
     try { if ((await fetch(`${base}/healthz`)).ok) break; } catch { /* still starting */ }
     if (Date.now() > deadline) throw new Error('server did not start');
     await wait(100);
